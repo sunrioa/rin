@@ -27,11 +27,14 @@ func (p Deterministic) Propose(ctx context.Context, input rinruntime.PolicyConte
 		memoryLimit = 3
 	}
 	memories := retrieveMemories(input.Actor, input.Request.Tags, input.Request.Tick, memoryLimit)
-	goal := selectGoal(input.Actor.Goals)
+	goals := append([]protocol.Goal(nil), input.Actor.Goals...)
+	goals = append(goals, input.Request.CandidateGoals...)
+	goal := selectGoal(goals)
 	boundary, triggered := triggeredBoundary(input.Actor.Boundaries, input.Request.Tags)
 
 	var selected protocol.ActionSpec
 	if triggered {
+		goal = nil
 		var found bool
 		for _, action := range input.Request.CandidateActions {
 			if action.Kind == boundary.Response || action.ID == boundary.Response {

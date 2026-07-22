@@ -63,6 +63,9 @@ func New(engine *rinruntime.Engine, options Options) *Server {
 	mux.HandleFunc("POST /v1/session/observe", server.observe)
 	mux.HandleFunc("POST /v1/agent/propose", server.propose)
 	mux.HandleFunc("POST /v1/action/commit", server.commit)
+	mux.HandleFunc("POST /v1/action/commit-batch", server.commitBatch)
+	mux.HandleFunc("POST /v1/session/activity", server.setActorActivity)
+	mux.HandleFunc("POST /v1/world/arbitrate", server.arbitrate)
 	mux.HandleFunc("POST /v1/session/get", server.getSession)
 	mux.HandleFunc("POST /v1/session/snapshot", server.snapshot)
 	mux.HandleFunc("POST /v1/session/restore", server.restore)
@@ -127,6 +130,33 @@ func (s *Server) commit(response http.ResponseWriter, request *http.Request) {
 	}
 	result, err := s.engine.Commit(input)
 	s.respond(response, result, err)
+}
+
+func (s *Server) commitBatch(response http.ResponseWriter, request *http.Request) {
+	var input protocol.BatchCommitRequest
+	if !s.decode(response, request, &input) {
+		return
+	}
+	result, err := s.engine.CommitBatch(input)
+	s.respond(response, result, err)
+}
+
+func (s *Server) setActorActivity(response http.ResponseWriter, request *http.Request) {
+	var input protocol.SetActorActivityRequest
+	if !s.decode(response, request, &input) {
+		return
+	}
+	result, err := s.engine.SetActorActivity(input)
+	s.respond(response, result, err)
+}
+
+func (s *Server) arbitrate(response http.ResponseWriter, request *http.Request) {
+	var input protocol.ArbitrateRequest
+	if !s.decode(response, request, &input) {
+		return
+	}
+	record, duplicate, err := s.engine.Arbitrate(input)
+	s.respond(response, protocol.ArbitrationResult{Record: record, Duplicate: duplicate}, err)
 }
 
 func (s *Server) getSession(response http.ResponseWriter, request *http.Request) {

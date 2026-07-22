@@ -107,22 +107,24 @@ type ActionSpec struct {
 }
 
 type ActionProposal struct {
-	ID                string     `json:"id"`
-	SessionID         string     `json:"session_id"`
-	RequestID         string     `json:"request_id"`
-	ActorID           string     `json:"actor_id"`
-	Tick              int64      `json:"tick"`
-	BasedOnRevision   uint64     `json:"based_on_revision"`
-	BasedOnHeadHash   string     `json:"based_on_head_hash"`
-	CreatedRevision   uint64     `json:"created_revision"`
-	Action            ActionSpec `json:"action"`
-	Stance            string     `json:"stance"`
-	Summary           string     `json:"summary"`
-	Rationale         string     `json:"rationale"`
-	PolicySource      string     `json:"policy_source,omitempty"`
-	RecalledMemoryIDs []string   `json:"recalled_memory_ids,omitempty"`
-	GoalID            string     `json:"goal_id,omitempty"`
-	Status            string     `json:"status"`
+	ID                   string     `json:"id"`
+	SessionID            string     `json:"session_id"`
+	RequestID            string     `json:"request_id"`
+	ActorID              string     `json:"actor_id"`
+	Tick                 int64      `json:"tick"`
+	BasedOnRevision      uint64     `json:"based_on_revision"`
+	BasedOnHeadHash      string     `json:"based_on_head_hash"`
+	BasedOnWorldRevision uint64     `json:"based_on_world_revision,omitempty"`
+	CreatedRevision      uint64     `json:"created_revision"`
+	Action               ActionSpec `json:"action"`
+	Stance               string     `json:"stance"`
+	Summary              string     `json:"summary"`
+	Rationale            string     `json:"rationale"`
+	PolicySource         string     `json:"policy_source,omitempty"`
+	RecalledMemoryIDs    []string   `json:"recalled_memory_ids,omitempty"`
+	GoalID               string     `json:"goal_id,omitempty"`
+	ProposedGoal         *Goal      `json:"proposed_goal,omitempty"`
+	Status               string     `json:"status"`
 }
 
 type ActorState struct {
@@ -133,6 +135,7 @@ type ActorState struct {
 	BeliefSets      map[string]BeliefSet `json:"belief_sets,omitempty"`
 	RecentActions   []ActionProposal     `json:"recent_actions,omitempty"`
 	NextThinkTick   int64                `json:"next_think_tick"`
+	Activity        *ActorActivity       `json:"activity,omitempty"`
 }
 
 type RequestReceipt struct {
@@ -149,9 +152,11 @@ type SessionState struct {
 	Features        []string                  `json:"features,omitempty"`
 	Tick            int64                     `json:"tick"`
 	Revision        uint64                    `json:"revision"`
+	WorldRevision   uint64                    `json:"world_revision,omitempty"`
 	HeadHash        string                    `json:"head_hash"`
 	Actors          map[string]ActorState     `json:"actors"`
 	Proposals       map[string]ActionProposal `json:"proposals,omitempty"`
+	Arbitrations    []ArbitrationRecord       `json:"arbitrations,omitempty"`
 	Receipts        map[string]RequestReceipt `json:"receipts,omitempty"`
 }
 
@@ -190,6 +195,7 @@ type ProposeRequest struct {
 	Intent           string       `json:"intent"`
 	Tags             []string     `json:"tags,omitempty"`
 	CandidateActions []ActionSpec `json:"candidate_actions"`
+	CandidateGoals   []Goal       `json:"candidate_goals,omitempty"`
 	Urgent           bool         `json:"urgent,omitempty"`
 }
 
@@ -226,15 +232,17 @@ type RestoreRequest struct {
 }
 
 type DueAgentsRequest struct {
-	ProtocolVersion string `json:"protocol_version"`
-	SessionID       string `json:"session_id"`
-	Tick            int64  `json:"tick"`
-	Limit           int    `json:"limit"`
+	ProtocolVersion string   `json:"protocol_version"`
+	SessionID       string   `json:"session_id"`
+	Tick            int64    `json:"tick"`
+	Limit           int      `json:"limit"`
+	RegionIDs       []string `json:"region_ids,omitempty"`
 }
 
 type DueAgent struct {
 	ActorID       string `json:"actor_id"`
 	NextThinkTick int64  `json:"next_think_tick"`
+	RegionID      string `json:"region_id,omitempty"`
 }
 
 type DueAgentsResponse struct {

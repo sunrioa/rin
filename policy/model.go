@@ -156,8 +156,10 @@ func (p Model) promptPacket(input rinruntime.PolicyContext) promptPacket {
 	for _, key := range beliefKeys {
 		beliefs = append(beliefs, input.Actor.Beliefs[key])
 	}
-	goals := make([]protocol.Goal, 0, len(input.Actor.Goals))
-	for _, goal := range input.Actor.Goals {
+	availableGoals := append([]protocol.Goal(nil), input.Actor.Goals...)
+	availableGoals = append(availableGoals, input.Request.CandidateGoals...)
+	goals := make([]protocol.Goal, 0, len(availableGoals))
+	for _, goal := range availableGoals {
 		if goal.Status == "active" {
 			goals = append(goals, goal)
 		}

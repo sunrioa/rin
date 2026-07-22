@@ -107,24 +107,36 @@ func (p *Cached) Propose(ctx context.Context, input rinruntime.PolicyContext) (r
 
 func proposalCacheKey(input rinruntime.PolicyContext) (string, error) {
 	payload, err := json.Marshal(struct {
-		SessionID string `json:"session_id"`
-		HeadHash  string `json:"head_hash"`
-		ActorID   string `json:"actor_id"`
-		Tick      int64  `json:"tick"`
-		Intent    string `json:"intent"`
-		Tags      any    `json:"tags"`
-		Actions   any    `json:"actions"`
-		Urgent    bool   `json:"urgent"`
+		SessionID      string `json:"session_id"`
+		StateVersion   any    `json:"state_version"`
+		ActorID        string `json:"actor_id"`
+		Tick           int64  `json:"tick"`
+		Intent         string `json:"intent"`
+		Tags           any    `json:"tags"`
+		Actions        any    `json:"actions"`
+		CandidateGoals any    `json:"candidate_goals"`
+		Urgent         bool   `json:"urgent"`
 	}{
-		SessionID: input.State.SessionID, HeadHash: input.State.HeadHash, ActorID: input.Actor.ID,
+		SessionID: input.State.SessionID, StateVersion: policyStateVersion(input), ActorID: input.Actor.ID,
 		Tick: input.Request.Tick, Intent: input.Request.Intent, Tags: input.Request.Tags,
-		Actions: input.Request.CandidateActions, Urgent: input.Request.Urgent,
+		Actions: input.Request.CandidateActions, CandidateGoals: input.Request.CandidateGoals, Urgent: input.Request.Urgent,
 	})
 	if err != nil {
 		return "", err
 	}
 	digest := sha256.Sum256(payload)
 	return hex.EncodeToString(digest[:]), nil
+}
+
+func policyStateVersion(input rinruntime.PolicyContext) any {
+	if input.State.WorldRevision > 0 {
+		return struct {
+			WorldRevision uint64 `json:"world_revision"`
+		}{WorldRevision: input.State.WorldRevision}
+	}
+	return struct {
+		HeadHash string `json:"head_hash"`
+	}{HeadHash: input.State.HeadHash}
 }
 
 func (p *Cached) removeExpired(now time.Time) {

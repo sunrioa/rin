@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 )
 
@@ -64,6 +65,27 @@ func TestCachedPolicyReusesSemanticRequest(t *testing.T) {
 	}
 	if underlying.count() != 1 || first.PolicySource != "model" || second.PolicySource != "model-cache" {
 		t.Fatalf("cache miss: calls=%d first=%+v second=%+v", underlying.count(), first, second)
+	}
+}
+
+func TestCachedPolicySeparatesCandidateGoalContracts(t *testing.T) {
+	underlying := &countingPolicy{}
+	cached, _ := policy.NewCached(underlying, policy.CacheConfig{MaxEntries: 4, TTL: time.Minute})
+	input := modelInput()
+	input.State.WorldRevision = 3
+	input.Request.CandidateGoals = []protocol.Goal{{
+		ID: "goal.first", Description: "First candidate.", Priority: 3, TargetProgress: 2, Status: "active",
+	}}
+	if _, err := cached.Propose(context.Background(), input); err != nil {
+		t.Fatal(err)
+	}
+	input.Request.RequestID = "request.changed-goal"
+	input.Request.CandidateGoals[0].ID = "goal.second"
+	if _, err := cached.Propose(context.Background(), input); err != nil {
+		t.Fatal(err)
+	}
+	if underlying.count() != 2 {
+		t.Fatalf("different candidate goal contracts shared a cache entry: %d", underlying.count())
 	}
 }
 
