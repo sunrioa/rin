@@ -30,6 +30,7 @@
           "content_hash": "0e6f3d8bba0360068fe640385006a1eece493a4e14d19e4e90d8363407c8be1f"
         },
         "seed": 42021,
+        "features": ["memory-archive-v1", "belief-conflicts-v1"],
         "actors": [
           {
             "id": "npc.lin-wanqing",
@@ -193,6 +194,7 @@
           "content_hash": "0e6f3d8bba0360068fe640385006a1eece493a4e14d19e4e90d8363407c8be1f"
         },
         "seed": 42022,
+        "features": ["memory-archive-v1", "belief-conflicts-v1"],
         "actors": [
           {
             "id": "npc.lin-wanqing",

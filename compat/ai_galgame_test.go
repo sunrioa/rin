@@ -88,6 +88,10 @@ func runVectorCase(t *testing.T, source vectorSource, testCase vectorCase) {
 		testCase.Create.Binding.ContentHash != source.Fingerprint {
 		t.Fatal("case binding does not match source manifest")
 	}
+	if !protocol.HasFeature(testCase.Create.Features, protocol.FeatureMemoryArchive) ||
+		!protocol.HasFeature(testCase.Create.Features, protocol.FeatureBeliefConflicts) {
+		t.Fatal("ai-galgame vectors must enable the deployed cognition features")
+	}
 	engine, err := rinruntime.Open(store.NewMemory(), policy.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
