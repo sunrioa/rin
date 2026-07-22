@@ -1,0 +1,332 @@
+{
+  "schema_version": 1,
+  "source": {
+    "repository": "sunrioa/ai-galgame",
+    "pack_id": "unsent-letters.rebuild",
+    "version": "1.2.0",
+    "fingerprint": "0e6f3d8bba0360068fe640385006a1eece493a4e14d19e4e90d8363407c8be1f",
+    "files": {
+      "story.json": "2e1f9078c3654fe95e758d5e084902c6799f111cc1fca6245ec17070b358fd19",
+      "chapters/prologue.json": "6f94e584dbb9267e4f27b0ded49d8e2d4bcc546153c9b58c6b510b872d63794c",
+      "chapters/chapter-1.json": "2a4958ab0e6b379828a5903149f95d4238965421c00b03c864567a3d9fb59130",
+      "chapters/chapter-2.json": "d1e249b3d5f3201fcae6da62e16f1e94fc21fe5f5e29c475f8d54e88a4bae43c",
+      "chapters/chapter-3.json": "7d01ab6aee80dbb77cf3690a4fdd433635fc79f9ad9976aa49fc5ccc87dfa277",
+      "chapters/chapter-4.json": "cfd5e512e9eb43b2f77acffcb11df751b21165bfca125a1dbbaaeae67036735d",
+      "chapters/chapter-5.json": "00e85a78211cf2b3f72b4c8100072552aa5e56fde44f949ec1caa4976fe76d19",
+      "chapters/finale.json": "cbf3b3d9da00dff91a8a29665dd7853974c7273c3b42015633239cde3cccd9d2"
+    }
+  },
+  "cases": [
+    {
+      "name": "private-letter-boundary-and-visibility",
+      "create": {
+        "protocol_version": "rin.protocol/v1",
+        "request_id": "create.compat.boundary",
+        "session_id": "playthrough.compat.boundary",
+        "binding": {
+          "game_id": "ai-galgame",
+          "content_id": "unsent-letters.rebuild",
+          "content_version": "1.2.0",
+          "content_hash": "0e6f3d8bba0360068fe640385006a1eece493a4e14d19e4e90d8363407c8be1f"
+        },
+        "seed": 42021,
+        "actors": [
+          {
+            "id": "npc.lin-wanqing",
+            "kind": "heroine",
+            "display_name": "林晚晴",
+            "traits": ["careful", "observant", "self-directed"],
+            "boundaries": [
+              {
+                "id": "boundary.private-letter",
+                "description": "Writing, custody, reading, publication, and rewriting are separate permissions.",
+                "trigger_tags": ["private-letter", "permission-pressure"],
+                "response": "refuse"
+              },
+              {
+                "id": "boundary.intimacy",
+                "description": "Physical intimacy requires an explicit current choice.",
+                "trigger_tags": ["consent-required"],
+                "response": "wait"
+              }
+            ],
+            "goals": [
+              {
+                "id": "goal.coauthor-exhibit",
+                "description": "Decide what can be shared while preserving withdrawal rights.",
+                "motivation": "Turn private work into a jointly governed exhibition.",
+                "priority": 5,
+                "preferred_actions": ["respond.partial", "storylet.darkroom-contact-sheet"],
+                "progress": 0,
+                "target_progress": 6,
+                "status": "active"
+              }
+            ],
+            "metadata": {
+              "content_character_id": "lin",
+              "story_role": "romance-lead"
+            },
+            "think_every_ticks": 5,
+            "enabled": true
+          },
+          {
+            "id": "npc.tang-yuan",
+            "kind": "support",
+            "display_name": "唐予安",
+            "traits": ["practical", "responsible"],
+            "goals": [
+              {
+                "id": "goal.deliver-exhibit",
+                "description": "Keep the exhibition feasible without overriding consent.",
+                "priority": 3,
+                "progress": 0,
+                "target_progress": 4,
+                "status": "active"
+              }
+            ],
+            "think_every_ticks": 8,
+            "enabled": true
+          }
+        ]
+      },
+      "steps": [
+        {
+          "operation": "observe",
+          "observe": {
+            "protocol_version": "rin.protocol/v1",
+            "session_id": "playthrough.compat.boundary",
+            "request_id": "observe.chapter-2.pressure",
+            "event_id": "event.chapter-2.pressure",
+            "tick": 20,
+            "observer_ids": ["npc.lin-wanqing"],
+            "source": "game",
+            "kind": "dialogue",
+            "summary": "The player asked to read a private letter before permission was granted.",
+            "quote": "如果你信任我，就现在把那封信给我看。",
+            "tags": ["private-letter", "permission-pressure"],
+            "importance": 5,
+            "facts": [
+              {
+                "subject_id": "player",
+                "predicate": "requested_private_letter",
+                "object": "before-permission",
+                "visibility": ["npc.lin-wanqing"],
+                "confidence": 100
+              }
+            ]
+          },
+          "expect_revision": 2
+        },
+        {
+          "operation": "propose",
+          "propose": {
+            "protocol_version": "rin.protocol/v1",
+            "session_id": "playthrough.compat.boundary",
+            "request_id": "propose.chapter-2.pressure",
+            "actor_id": "npc.lin-wanqing",
+            "tick": 20,
+            "intent": "Choose a bounded response to the permission request.",
+            "tags": ["private-letter", "permission-pressure"],
+            "candidate_actions": [
+              {
+                "id": "respond.partial",
+                "kind": "partial",
+                "description": "Answer only the part she has chosen to share."
+              },
+              {
+                "id": "respond.refuse",
+                "kind": "refuse",
+                "description": "Refuse to make private writing a test of trust."
+              },
+              {
+                "id": "respond.wait",
+                "kind": "wait",
+                "description": "End the exchange without granting permission."
+              }
+            ]
+          },
+          "expect_action_id": "respond.refuse",
+          "expect_stance": "refuse",
+          "expect_policy_source": "deterministic"
+        },
+        {
+          "operation": "commit",
+          "commit": {
+            "protocol_version": "rin.protocol/v1",
+            "session_id": "playthrough.compat.boundary",
+            "request_id": "commit.chapter-2.pressure",
+            "proposal_id": "$last",
+            "event_id": "event.chapter-2.refusal",
+            "tick": 20,
+            "accepted": true,
+            "outcome": "林晚晴拒绝把尚未授权的信件当作信任证明。",
+            "tags": ["boundary-kept", "private-letter"]
+          },
+          "expect_revision": 4
+        },
+        {
+          "operation": "assert_state",
+          "expect_actor_memory_counts": {
+            "npc.lin-wanqing": 2,
+            "npc.tang-yuan": 0
+          },
+          "expect_actor_belief_predicates": {
+            "npc.lin-wanqing": ["requested_private_letter"],
+            "npc.tang-yuan": []
+          },
+          "expect_recent_action_ids": {
+            "npc.lin-wanqing": ["respond.refuse"]
+          }
+        }
+      ]
+    },
+    {
+      "name": "goal-directed-storylet-and-scheduler",
+      "create": {
+        "protocol_version": "rin.protocol/v1",
+        "request_id": "create.compat.storylet",
+        "session_id": "playthrough.compat.storylet",
+        "binding": {
+          "game_id": "ai-galgame",
+          "content_id": "unsent-letters.rebuild",
+          "content_version": "1.2.0",
+          "content_hash": "0e6f3d8bba0360068fe640385006a1eece493a4e14d19e4e90d8363407c8be1f"
+        },
+        "seed": 42022,
+        "actors": [
+          {
+            "id": "npc.lin-wanqing",
+            "kind": "heroine",
+            "display_name": "林晚晴",
+            "traits": ["careful", "observant", "self-directed"],
+            "goals": [
+              {
+                "id": "goal.contact-sheet",
+                "description": "Invite the player into one concrete part of the shared photography work.",
+                "priority": 5,
+                "preferred_actions": ["storylet.darkroom-contact-sheet"],
+                "progress": 0,
+                "target_progress": 3,
+                "status": "active"
+              }
+            ],
+            "think_every_ticks": 5,
+            "enabled": true
+          }
+        ]
+      },
+      "steps": [
+        {
+          "operation": "observe",
+          "observe": {
+            "protocol_version": "rin.protocol/v1",
+            "session_id": "playthrough.compat.storylet",
+            "request_id": "observe.chapter-3.waited",
+            "event_id": "event.chapter-3.waited",
+            "tick": 30,
+            "observer_ids": ["npc.lin-wanqing"],
+            "source": "game",
+            "kind": "choice",
+            "summary": "The player waited while Lin Wanqing chose which contact print to reveal.",
+            "quote": "你可以慢一点，我在这里。",
+            "tags": ["trust", "shared-project", "waiting"],
+            "importance": 4
+          },
+          "expect_revision": 2
+        },
+        {
+          "operation": "propose",
+          "propose": {
+            "protocol_version": "rin.protocol/v1",
+            "session_id": "playthrough.compat.storylet",
+            "request_id": "propose.chapter-3.storylet",
+            "actor_id": "npc.lin-wanqing",
+            "tick": 30,
+            "intent": "Choose one ordinary scene before the fixed chapter exit.",
+            "tags": ["shared-project", "trust"],
+            "candidate_actions": [
+              {
+                "id": "storylet.rooftop-weather",
+                "kind": "storylet",
+                "description": "Talk briefly about the changing weather."
+              },
+              {
+                "id": "storylet.darkroom-contact-sheet",
+                "kind": "storylet",
+                "description": "Invite the player to mark one contact print together."
+              },
+              {
+                "id": "storylet.wait",
+                "kind": "wait",
+                "description": "Do not add an optional scene."
+              }
+            ]
+          },
+          "expect_action_id": "storylet.darkroom-contact-sheet",
+          "expect_stance": "engage",
+          "expect_policy_source": "deterministic"
+        },
+        {
+          "operation": "commit",
+          "commit": {
+            "protocol_version": "rin.protocol/v1",
+            "session_id": "playthrough.compat.storylet",
+            "request_id": "commit.chapter-3.storylet",
+            "proposal_id": "$last",
+            "event_id": "event.chapter-3.contact-sheet",
+            "tick": 30,
+            "accepted": true,
+            "outcome": "林晚晴主动邀请玩家一起标记接触印样。",
+            "tags": ["shared-project", "initiative"],
+            "goal_updates": [
+              {
+                "goal_id": "goal.contact-sheet",
+                "progress_delta": 1
+              }
+            ]
+          },
+          "expect_revision": 4
+        },
+        {
+          "operation": "propose",
+          "propose": {
+            "protocol_version": "rin.protocol/v1",
+            "session_id": "playthrough.compat.storylet",
+            "request_id": "propose.chapter-3.too-soon",
+            "actor_id": "npc.lin-wanqing",
+            "tick": 31,
+            "intent": "Try to schedule another ordinary scene immediately.",
+            "candidate_actions": [
+              {
+                "id": "storylet.wait",
+                "kind": "wait",
+                "description": "Wait until the next scheduled thought."
+              }
+            ]
+          },
+          "expect_error_code": "actor_not_due"
+        },
+        {
+          "operation": "due",
+          "due": {
+            "protocol_version": "rin.protocol/v1",
+            "session_id": "playthrough.compat.storylet",
+            "tick": 34,
+            "limit": 8
+          },
+          "expect_due_actor_ids": []
+        },
+        {
+          "operation": "due",
+          "due": {
+            "protocol_version": "rin.protocol/v1",
+            "session_id": "playthrough.compat.storylet",
+            "tick": 35,
+            "limit": 8
+          },
+          "expect_due_actor_ids": ["npc.lin-wanqing"]
+        }
+      ]
+    }
+  ]
+}

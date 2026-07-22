@@ -2,7 +2,7 @@
 
 Rin 是一个面向游戏角色的轻量级 Agent Runtime。它作为游戏进程旁边的 Sidecar 运行，也可以直接作为 Go 包嵌入工具链。核心只使用 Go 标准库，不绑定视觉小说、RPG 引擎或任何模型供应商。
 
-当前版本：`v0.2.0`
+当前版本：`v0.3.0`
 
 ## 它解决什么
 
@@ -16,15 +16,16 @@ Rin 将“角色思考”和“游戏世界事实”拆开：
 - 多 NPC 通过 tick 调度按需思考，不需要每帧调用模型。
 - 在线模型通过异步 Job 预取，慢请求、取消和状态过期不会冻结游戏主线程。
 - 模型不可用时自动回退确定性 Policy，并用 `policy_source` 标明来源。
+- Ren'Py、Godot 4 和 Unity 适配器保持同一套 observe / propose / commit 权威边界。
 
 这套边界既适用于 Ren'Py 角色，也可用于 RPG NPC、队友、经营模拟居民和其他 AI 游戏实体。
 
 ## 快速开始
 
-要求 Go 1.24 或更高版本。
+运行 Sidecar 要求 Go 1.24 或更高版本；执行 Ren'Py 适配器测试还需要 Python 3.9+。
 
 ```bash
-go test ./...
+make test
 go run ./cmd/rin serve -data ./rin-data
 ```
 
@@ -70,6 +71,14 @@ go run ./cmd/rin serve
 
 完整字段和错误语义见 [协议文档](docs/protocol-v1.md)，职责边界见 [架构文档](docs/architecture.md)。
 
+## 游戏引擎适配
+
+- Ren'Py：纯标准库 Python 客户端、`renpy.invoke_in_thread` 桥接与 authored 离线回退。
+- Godot 4：基于 `HTTPRequest` signal/timer 的异步客户端。
+- Unity：基于 `UnityWebRequest` coroutine 的异步客户端和有界响应处理。
+
+安装、配置和离线语义见 [游戏适配文档](docs/game-adapters.md)。RPG 的区域、可见性、任务和多人 NPC 事件约定见 [RPG 事件约定](docs/rpg-events.md)。
+
 ## 可选模型 Policy
 
 默认不访问网络。启用 OpenAI-compatible 模型：
@@ -92,14 +101,16 @@ httpapi/       严格 JSON、鉴权、请求大小限制
 policy/        零网络依赖的确定性离线策略
 provider/      OpenAI-compatible 客户端、重试与熔断
 jobs/          有界异步 Proposal worker queue
+adapters/      Ren'Py Python 客户端与桥接层
+compat/        可执行的游戏协议兼容向量
 protocol/      可跨语言实现的 v1 数据契约
 runtime/       事件状态机、提案验证、快照和调度
 store/         JSONL 文件存储与内存存储
-examples/      最小接入示例
+examples/      Go、Godot 与 Unity 最小接入示例
 ```
 
 ## 当前有意不做
 
-`v0.2.0` 不引入供应商 SDK、向量数据库、ORM、WebSocket、动态插件执行或任意文件访问。在线模型只是可选 Policy；即使供应商不可用，游戏仍可继续使用确定性策略或自己的离线剧情。
+`v0.3.0` 不引入供应商 SDK、向量数据库、ORM、WebSocket、动态插件执行或任意文件访问。在线模型只是可选 Policy；即使供应商或 Sidecar 不可用，游戏仍可继续使用确定性策略或自己的离线剧情。
 
 后续工作记录在 [ROADMAP.md](ROADMAP.md)。

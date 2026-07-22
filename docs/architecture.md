@@ -57,6 +57,12 @@ OpenAI-compatible 客户端由标准库实现。每次调用具有 attempt timeo
 
 Job 元数据只在进程内保留，成功 Proposal 本身已进入事件日志。Sidecar 重启后，客户端可用同一 `request_id` 重新提交，Engine 会幂等返回已生成 Proposal。
 
+### Game adapters
+
+Ren'Py、Godot 和 Unity 适配器只转换 JSON/HTTP 与各自的异步机制，不复制 Runtime 状态机。在线结果带 `committable=true`；Sidecar 不可用时，适配器从游戏本次候选列表选择 authored fallback，标记 `committable=false`，游戏不得把本地 `offline.*` ID 发给 `/commit`。
+
+Ren'Py worker registry、Godot `HTTPRequest` 和 Unity coroutine 都只存在于进程内。游戏存档保存 Snapshot 与普通结果，不保存线程、Future、Socket、HTTP 对象或 API Token。
+
 ### Store
 
 文件存储结构：

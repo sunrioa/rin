@@ -131,7 +131,7 @@ func (c *Client) Complete(ctx context.Context, request provider.CompletionReques
 	}
 	httpRequest.Header.Set("Content-Type", "application/json")
 	httpRequest.Header.Set("Accept", "application/json")
-	httpRequest.Header.Set("User-Agent", "rin/0.2")
+	httpRequest.Header.Set("User-Agent", "rin/0.3")
 	if c.apiKey != "" {
 		httpRequest.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}

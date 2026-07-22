@@ -23,11 +23,11 @@
 
 ## v0.3.0 - Game adapters
 
-- [ ] Ren'Py Python 客户端与离线回退
-- [ ] Godot GDScript 示例
-- [ ] Unity C# 示例
-- [ ] RPG 区域、可见性和任务事件约定
-- [ ] 当前 `ai-galgame` 的协议兼容测试向量
+- [x] Ren'Py Python 客户端与离线回退
+- [x] Godot GDScript 示例
+- [x] Unity C# 示例
+- [x] RPG 区域、可见性和任务事件约定
+- [x] 当前 `ai-galgame` 的协议兼容测试向量
 
 ## v0.4.0 - Living worlds
 
