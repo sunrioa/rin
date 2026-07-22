@@ -64,6 +64,40 @@ type Memory struct {
 	LastRecalledTick int64    `json:"last_recalled_tick"`
 }
 
+// MemorySummary retains bounded, explainable context after detailed episodic
+// memories are compacted. Source lists are intentionally bounded; the event
+// log remains the complete audit record.
+type MemorySummary struct {
+	ID               string   `json:"id"`
+	Level            int      `json:"level"`
+	Summary          string   `json:"summary"`
+	Tags             []string `json:"tags,omitempty"`
+	SourceMemoryIDs  []string `json:"source_memory_ids,omitempty"`
+	SourceEventIDs   []string `json:"source_event_ids,omitempty"`
+	StartTick        int64    `json:"start_tick"`
+	EndTick          int64    `json:"end_tick"`
+	Importance       int      `json:"importance"`
+	Reason           string   `json:"reason"`
+	CreatedRevision  uint64   `json:"created_revision"`
+	RecallCount      int      `json:"recall_count"`
+	LastRecalledTick int64    `json:"last_recalled_tick"`
+}
+
+type BeliefClaim struct {
+	Fact             Fact   `json:"fact"`
+	ObservedRevision uint64 `json:"observed_revision"`
+}
+
+// BeliefSet preserves contradictory actor-local claims while Beliefs remains
+// the compatibility projection of the currently selected claim.
+type BeliefSet struct {
+	SubjectID             string        `json:"subject_id"`
+	Predicate             string        `json:"predicate"`
+	Claims                []BeliefClaim `json:"claims"`
+	SelectedSourceEventID string        `json:"selected_source_event_id"`
+	Conflicted            bool          `json:"conflicted"`
+}
+
 type ActionSpec struct {
 	ID          string            `json:"id"`
 	Kind        string            `json:"kind"`
@@ -73,30 +107,35 @@ type ActionSpec struct {
 }
 
 type ActionProposal struct {
-	ID                string     `json:"id"`
-	SessionID         string     `json:"session_id"`
-	RequestID         string     `json:"request_id"`
-	ActorID           string     `json:"actor_id"`
-	Tick              int64      `json:"tick"`
-	BasedOnRevision   uint64     `json:"based_on_revision"`
-	BasedOnHeadHash   string     `json:"based_on_head_hash"`
-	CreatedRevision   uint64     `json:"created_revision"`
-	Action            ActionSpec `json:"action"`
-	Stance            string     `json:"stance"`
-	Summary           string     `json:"summary"`
-	Rationale         string     `json:"rationale"`
-	PolicySource      string     `json:"policy_source,omitempty"`
-	RecalledMemoryIDs []string   `json:"recalled_memory_ids,omitempty"`
-	GoalID            string     `json:"goal_id,omitempty"`
-	Status            string     `json:"status"`
+	ID                   string     `json:"id"`
+	SessionID            string     `json:"session_id"`
+	RequestID            string     `json:"request_id"`
+	ActorID              string     `json:"actor_id"`
+	Tick                 int64      `json:"tick"`
+	BasedOnRevision      uint64     `json:"based_on_revision"`
+	BasedOnHeadHash      string     `json:"based_on_head_hash"`
+	BasedOnWorldRevision uint64     `json:"based_on_world_revision,omitempty"`
+	CreatedRevision      uint64     `json:"created_revision"`
+	Action               ActionSpec `json:"action"`
+	Stance               string     `json:"stance"`
+	Summary              string     `json:"summary"`
+	Rationale            string     `json:"rationale"`
+	PolicySource         string     `json:"policy_source,omitempty"`
+	RecalledMemoryIDs    []string   `json:"recalled_memory_ids,omitempty"`
+	GoalID               string     `json:"goal_id,omitempty"`
+	ProposedGoal         *Goal      `json:"proposed_goal,omitempty"`
+	Status               string     `json:"status"`
 }
 
 type ActorState struct {
 	ActorSeed
-	Memories      []Memory         `json:"memories,omitempty"`
-	Beliefs       map[string]Fact  `json:"beliefs,omitempty"`
-	RecentActions []ActionProposal `json:"recent_actions,omitempty"`
-	NextThinkTick int64            `json:"next_think_tick"`
+	Memories        []Memory             `json:"memories,omitempty"`
+	MemorySummaries []MemorySummary      `json:"memory_summaries,omitempty"`
+	Beliefs         map[string]Fact      `json:"beliefs,omitempty"`
+	BeliefSets      map[string]BeliefSet `json:"belief_sets,omitempty"`
+	RecentActions   []ActionProposal     `json:"recent_actions,omitempty"`
+	NextThinkTick   int64                `json:"next_think_tick"`
+	Activity        *ActorActivity       `json:"activity,omitempty"`
 }
 
 type RequestReceipt struct {
@@ -110,11 +149,14 @@ type SessionState struct {
 	SessionID       string                    `json:"session_id"`
 	Binding         Binding                   `json:"binding"`
 	Seed            int64                     `json:"seed"`
+	Features        []string                  `json:"features,omitempty"`
 	Tick            int64                     `json:"tick"`
 	Revision        uint64                    `json:"revision"`
+	WorldRevision   uint64                    `json:"world_revision,omitempty"`
 	HeadHash        string                    `json:"head_hash"`
 	Actors          map[string]ActorState     `json:"actors"`
 	Proposals       map[string]ActionProposal `json:"proposals,omitempty"`
+	Arbitrations    []ArbitrationRecord       `json:"arbitrations,omitempty"`
 	Receipts        map[string]RequestReceipt `json:"receipts,omitempty"`
 }
 
@@ -124,6 +166,7 @@ type CreateSessionRequest struct {
 	SessionID       string      `json:"session_id"`
 	Binding         Binding     `json:"binding"`
 	Seed            int64       `json:"seed"`
+	Features        []string    `json:"features,omitempty"`
 	Actors          []ActorSeed `json:"actors"`
 }
 
@@ -152,6 +195,7 @@ type ProposeRequest struct {
 	Intent           string       `json:"intent"`
 	Tags             []string     `json:"tags,omitempty"`
 	CandidateActions []ActionSpec `json:"candidate_actions"`
+	CandidateGoals   []Goal       `json:"candidate_goals,omitempty"`
 	Urgent           bool         `json:"urgent,omitempty"`
 }
 
@@ -188,15 +232,17 @@ type RestoreRequest struct {
 }
 
 type DueAgentsRequest struct {
-	ProtocolVersion string `json:"protocol_version"`
-	SessionID       string `json:"session_id"`
-	Tick            int64  `json:"tick"`
-	Limit           int    `json:"limit"`
+	ProtocolVersion string   `json:"protocol_version"`
+	SessionID       string   `json:"session_id"`
+	Tick            int64    `json:"tick"`
+	Limit           int      `json:"limit"`
+	RegionIDs       []string `json:"region_ids,omitempty"`
 }
 
 type DueAgent struct {
 	ActorID       string `json:"actor_id"`
 	NextThinkTick int64  `json:"next_think_tick"`
+	RegionID      string `json:"region_id,omitempty"`
 }
 
 type DueAgentsResponse struct {

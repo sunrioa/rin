@@ -36,11 +36,13 @@ class _Opener:
         self.generation_polls = 0
         self.authorization = ""
         self.last_payload = None
+        self.last_path = ""
 
     def open(self, request, timeout):
         self.authorization = request.get_header("Authorization", "")
         path = request.full_url.split("//", 1)[-1]
         path = path[path.find("/"):] if "/" in path else "/"
+        self.last_path = path
         if request.data is not None:
             self.last_payload = json.loads(request.data.decode("utf-8"))
         if request.get_method() == "POST" and path == "/v1/jobs/propose":
@@ -147,6 +149,20 @@ def _client_with_opener(token=""):
 
 
 class RinClientTests(unittest.TestCase):
+    def test_living_world_routes(self):
+        client = _client_with_opener()
+        cases = (
+            (client.commit_batch, "/v1/action/commit-batch"),
+            (client.set_actor_activity, "/v1/session/activity"),
+            (client.arbitrate, "/v1/world/arbitrate"),
+            (client.timeline, "/v1/session/timeline"),
+            (client.replay, "/v1/session/replay"),
+        )
+        for method, expected_path in cases:
+            with self.subTest(path=expected_path):
+                method({"protocol_version": rin_client.PROTOCOL_VERSION})
+                self.assertEqual(client._opener.last_path, expected_path)
+
     def test_async_proposal_flow_and_token(self):
         client = _client_with_opener("fixture-token")
         result = client.propose_with_fallback(

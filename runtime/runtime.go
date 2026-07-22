@@ -22,6 +22,9 @@ const (
 	EventObserved        = "observation.recorded"
 	EventProposed        = "proposal.created"
 	EventCommitted       = "action.committed"
+	EventBatchCommitted  = "action.batch-committed"
+	EventActivityUpdated = "actor.activity-updated"
+	EventArbitrated      = "world.arbitrated"
 	EventSessionRestored = "session.restored"
 )
 

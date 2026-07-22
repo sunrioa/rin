@@ -34,6 +34,9 @@ func run(arguments []string) error {
 		fmt.Println(version)
 		return nil
 	}
+	if len(arguments) > 0 && arguments[0] == "inspect" {
+		return runInspect(arguments[1:], os.Stdout)
+	}
 	if len(arguments) > 0 && arguments[0] == "serve" {
 		arguments = arguments[1:]
 	}

@@ -13,6 +13,7 @@ const (
 	maxRecentActions = 32
 	maxProposals     = 64
 	maxReceipts      = 1024
+	maxArbitrations  = 32
 )
 
 type createdPayload struct {
@@ -29,6 +30,18 @@ type proposedPayload struct {
 
 type committedPayload struct {
 	Request protocol.CommitRequest `json:"request"`
+}
+
+type batchCommittedPayload struct {
+	Request protocol.BatchCommitRequest `json:"request"`
+}
+
+type activityUpdatedPayload struct {
+	Request protocol.SetActorActivityRequest `json:"request"`
+}
+
+type arbitratedPayload struct {
+	Record protocol.ArbitrationRecord `json:"record"`
 }
 
 type restoredPayload struct {
@@ -49,6 +62,12 @@ func applyEvent(state protocol.SessionState, event protocol.EventRecord) (protoc
 		err = applyProposed(&state, event)
 	case EventCommitted:
 		err = applyCommitted(&state, event)
+	case EventBatchCommitted:
+		err = applyBatchCommitted(&state, event)
+	case EventActivityUpdated:
+		err = applyActivityUpdated(&state, event)
+	case EventArbitrated:
+		err = applyArbitrated(&state, event)
 	case EventSessionRestored:
 		state, err = applyRestored(state, event)
 	default:
@@ -83,17 +102,22 @@ func applyCreated(state protocol.SessionState, event protocol.EventRecord) (prot
 			NextThinkTick: 0,
 		}
 	}
-	return protocol.SessionState{
+	created := protocol.SessionState{
 		ProtocolVersion: protocol.Version,
 		SessionID:       request.SessionID,
 		Binding:         request.Binding,
 		Seed:            request.Seed,
+		Features:        append([]string(nil), request.Features...),
 		Actors:          actors,
 		Proposals:       make(map[string]protocol.ActionProposal),
 		Receipts: map[string]protocol.RequestReceipt{
 			request.RequestID: {Kind: EventSessionCreated, EntityID: request.SessionID, Revision: event.Sequence},
 		},
-	}, nil
+	}
+	if protocol.HasFeature(request.Features, protocol.FeatureArbitration) {
+		created.WorldRevision = 1
+	}
+	return created, nil
 }
 
 func applyObserved(state *protocol.SessionState, event protocol.EventRecord) error {
@@ -125,16 +149,21 @@ func applyObserved(state *protocol.SessionState, event protocol.EventRecord) err
 			Importance:      request.Importance,
 			CreatedRevision: event.Sequence,
 		})
-		if len(actor.Memories) > maxMemories {
+		if protocol.HasFeature(state.Features, protocol.FeatureMemoryArchive) {
+			if err := compactActorMemories(state.SessionID, &actor, event.Sequence); err != nil {
+				return err
+			}
+		} else if len(actor.Memories) > maxMemories {
 			actor.Memories = append([]protocol.Memory(nil), actor.Memories[len(actor.Memories)-maxMemories:]...)
 		}
-		applyFacts(&actor, request.Facts, request.EventID)
+		applyFacts(&actor, request.Facts, request.EventID, event.Sequence, protocol.HasFeature(state.Features, protocol.FeatureBeliefConflicts))
 		state.Actors[actorID] = actor
 	}
 	if request.Tick > state.Tick {
 		state.Tick = request.Tick
 	}
 	state.Receipts[request.RequestID] = protocol.RequestReceipt{Kind: EventObserved, EntityID: request.EventID, Revision: event.Sequence}
+	advanceWorldRevision(state)
 	return nil
 }
 
@@ -159,56 +188,133 @@ func applyCommitted(state *protocol.SessionState, event protocol.EventRecord) er
 		return fmt.Errorf("%w: decode commit payload: %v", ErrCorruptLog, err)
 	}
 	request := payload.Request
-	proposal, exists := state.Proposals[request.ProposalID]
+	item := protocol.CommitItem{
+		ProposalID: request.ProposalID, EventID: request.EventID, Accepted: request.Accepted,
+		Outcome: request.Outcome, Tags: request.Tags, Facts: request.Facts, GoalUpdates: request.GoalUpdates,
+	}
+	if err := applyCommitItem(state, item, request.Tick, event.Sequence); err != nil {
+		return err
+	}
+	if request.Tick > state.Tick {
+		state.Tick = request.Tick
+	}
+	state.Receipts[request.RequestID] = protocol.RequestReceipt{Kind: EventCommitted, EntityID: request.ProposalID, Revision: event.Sequence}
+	advanceWorldRevision(state)
+	return nil
+}
+
+func applyBatchCommitted(state *protocol.SessionState, event protocol.EventRecord) error {
+	var payload batchCommittedPayload
+	if err := json.Unmarshal(event.Data, &payload); err != nil {
+		return fmt.Errorf("%w: decode batch commit payload: %v", ErrCorruptLog, err)
+	}
+	for _, item := range payload.Request.Items {
+		if err := applyCommitItem(state, item, payload.Request.Tick, event.Sequence); err != nil {
+			return err
+		}
+	}
+	if payload.Request.Tick > state.Tick {
+		state.Tick = payload.Request.Tick
+	}
+	state.Receipts[payload.Request.RequestID] = protocol.RequestReceipt{
+		Kind: EventBatchCommitted, EntityID: payload.Request.SessionID, Revision: event.Sequence,
+	}
+	advanceWorldRevision(state)
+	return nil
+}
+
+func applyCommitItem(state *protocol.SessionState, item protocol.CommitItem, tick int64, revision uint64) error {
+	proposal, exists := state.Proposals[item.ProposalID]
 	if !exists || proposal.Status != "pending" {
 		return fmt.Errorf("%w: committed proposal is unavailable", ErrCorruptLog)
 	}
-	if request.Accepted {
+	if item.Accepted {
 		proposal.Status = "accepted"
 	} else {
 		proposal.Status = "rejected"
 	}
 	state.Proposals[proposal.ID] = proposal
+	if !item.Accepted {
+		return nil
+	}
 	actor := state.Actors[proposal.ActorID]
-	if request.Accepted {
-		actor.RecentActions = append(actor.RecentActions, proposal)
-		if len(actor.RecentActions) > maxRecentActions {
-			actor.RecentActions = append([]protocol.ActionProposal(nil), actor.RecentActions[len(actor.RecentActions)-maxRecentActions:]...)
+	if proposal.ProposedGoal != nil && !goalExists(actor, proposal.ProposedGoal.ID) {
+		actor.Goals = append(actor.Goals, *proposal.ProposedGoal)
+	}
+	actor.RecentActions = append(actor.RecentActions, proposal)
+	if len(actor.RecentActions) > maxRecentActions {
+		actor.RecentActions = append([]protocol.ActionProposal(nil), actor.RecentActions[len(actor.RecentActions)-maxRecentActions:]...)
+	}
+	actor.NextThinkTick = tick + actor.ThinkEveryTicks
+	markRecalled(&actor, proposal.RecalledMemoryIDs, tick)
+	if item.Outcome != "" {
+		memoryID, err := hashJSON(struct {
+			ActorID string `json:"actor_id"`
+			EventID string `json:"event_id"`
+		}{proposal.ActorID, item.EventID})
+		if err != nil {
+			return err
 		}
-		actor.NextThinkTick = request.Tick + actor.ThinkEveryTicks
-		markRecalled(&actor, proposal.RecalledMemoryIDs, request.Tick)
-		if request.Outcome != "" {
-			memoryID, err := hashJSON(struct {
-				ActorID string `json:"actor_id"`
-				EventID string `json:"event_id"`
-			}{proposal.ActorID, request.EventID})
-			if err != nil {
+		actor.Memories = append(actor.Memories, protocol.Memory{
+			ID: "memory." + memoryID[:24], EventID: item.EventID, Tick: tick,
+			Summary: item.Outcome, Tags: append([]string(nil), item.Tags...),
+			Importance: 3, CreatedRevision: revision,
+		})
+		if protocol.HasFeature(state.Features, protocol.FeatureMemoryArchive) {
+			if err := compactActorMemories(state.SessionID, &actor, revision); err != nil {
 				return err
 			}
-			actor.Memories = append(actor.Memories, protocol.Memory{
-				ID:              "memory." + memoryID[:24],
-				EventID:         request.EventID,
-				Tick:            request.Tick,
-				Summary:         request.Outcome,
-				Tags:            append([]string(nil), request.Tags...),
-				Importance:      3,
-				CreatedRevision: event.Sequence,
-			})
-			if len(actor.Memories) > maxMemories {
-				actor.Memories = append([]protocol.Memory(nil), actor.Memories[len(actor.Memories)-maxMemories:]...)
-			}
+		} else if len(actor.Memories) > maxMemories {
+			actor.Memories = append([]protocol.Memory(nil), actor.Memories[len(actor.Memories)-maxMemories:]...)
 		}
-		applyFacts(&actor, request.Facts, request.EventID)
-		applyGoalProgress(&actor, proposal.GoalID, 1, "")
-		for _, update := range request.GoalUpdates {
-			applyGoalProgress(&actor, update.GoalID, update.ProgressDelta, update.Status)
+	}
+	applyFacts(&actor, item.Facts, item.EventID, revision, protocol.HasFeature(state.Features, protocol.FeatureBeliefConflicts))
+	applyGoalProgress(&actor, proposal.GoalID, 1, "")
+	for _, update := range item.GoalUpdates {
+		applyGoalProgress(&actor, update.GoalID, update.ProgressDelta, update.Status)
+	}
+	state.Actors[proposal.ActorID] = actor
+	return nil
+}
+
+func applyActivityUpdated(state *protocol.SessionState, event protocol.EventRecord) error {
+	var payload activityUpdatedPayload
+	if err := json.Unmarshal(event.Data, &payload); err != nil {
+		return fmt.Errorf("%w: decode activity payload: %v", ErrCorruptLog, err)
+	}
+	for _, update := range payload.Request.Updates {
+		actor, exists := state.Actors[update.ActorID]
+		if !exists {
+			return fmt.Errorf("%w: activity actor is unknown", ErrCorruptLog)
 		}
-		state.Actors[proposal.ActorID] = actor
+		actor.Activity = &protocol.ActorActivity{
+			RegionID: update.RegionID, State: update.State, Reason: update.Reason,
+			UpdatedTick: payload.Request.Tick, UpdatedRevision: event.Sequence,
+		}
+		state.Actors[update.ActorID] = actor
 	}
-	if request.Tick > state.Tick {
-		state.Tick = request.Tick
+	if payload.Request.Tick > state.Tick {
+		state.Tick = payload.Request.Tick
 	}
-	state.Receipts[request.RequestID] = protocol.RequestReceipt{Kind: EventCommitted, EntityID: proposal.ID, Revision: event.Sequence}
+	state.Receipts[payload.Request.RequestID] = protocol.RequestReceipt{
+		Kind: EventActivityUpdated, EntityID: payload.Request.SessionID, Revision: event.Sequence,
+	}
+	advanceWorldRevision(state)
+	return nil
+}
+
+func applyArbitrated(state *protocol.SessionState, event protocol.EventRecord) error {
+	var payload arbitratedPayload
+	if err := json.Unmarshal(event.Data, &payload); err != nil {
+		return fmt.Errorf("%w: decode arbitration payload: %v", ErrCorruptLog, err)
+	}
+	state.Arbitrations = append(state.Arbitrations, payload.Record)
+	if len(state.Arbitrations) > maxArbitrations {
+		state.Arbitrations = append([]protocol.ArbitrationRecord(nil), state.Arbitrations[len(state.Arbitrations)-maxArbitrations:]...)
+	}
+	state.Receipts[payload.Record.RequestID] = protocol.RequestReceipt{
+		Kind: EventArbitrated, EntityID: payload.Record.ID, Revision: event.Sequence,
+	}
 	return nil
 }
 
@@ -228,6 +334,9 @@ func applyRestored(current protocol.SessionState, event protocol.EventRecord) (p
 		return protocol.SessionState{}, fmt.Errorf("%w: restore binding mismatch", ErrCorruptLog)
 	}
 	restored.Proposals = make(map[string]protocol.ActionProposal)
+	if protocol.HasFeature(restored.Features, protocol.FeatureArbitration) {
+		advanceWorldRevision(&restored)
+	}
 	if restored.Receipts == nil {
 		restored.Receipts = make(map[string]protocol.RequestReceipt)
 	}
@@ -235,17 +344,95 @@ func applyRestored(current protocol.SessionState, event protocol.EventRecord) (p
 	return restored, nil
 }
 
-func applyFacts(actor *protocol.ActorState, facts []protocol.Fact, eventID string) {
+func advanceWorldRevision(state *protocol.SessionState) {
+	if !protocol.HasFeature(state.Features, protocol.FeatureArbitration) {
+		return
+	}
+	state.WorldRevision++
+	if state.WorldRevision == 0 {
+		state.WorldRevision = 1
+	}
+}
+
+func applyFacts(actor *protocol.ActorState, facts []protocol.Fact, eventID string, revision uint64, preserveConflicts bool) {
 	if actor.Beliefs == nil {
 		actor.Beliefs = make(map[string]protocol.Fact)
+	}
+	if preserveConflicts && actor.BeliefSets == nil {
+		actor.BeliefSets = make(map[string]protocol.BeliefSet)
 	}
 	for _, fact := range facts {
 		if len(fact.Visibility) > 0 && !contains(fact.Visibility, actor.ID) {
 			continue
 		}
 		fact.SourceEventID = eventID
-		actor.Beliefs[fact.SubjectID+":"+fact.Predicate] = fact
+		key := fact.SubjectID + ":" + fact.Predicate
+		if !preserveConflicts {
+			actor.Beliefs[key] = fact
+			continue
+		}
+		set := actor.BeliefSets[key]
+		set.SubjectID = fact.SubjectID
+		set.Predicate = fact.Predicate
+		updated := false
+		for index := range set.Claims {
+			if set.Claims[index].Fact.SourceEventID == eventID {
+				set.Claims[index] = protocol.BeliefClaim{Fact: fact, ObservedRevision: revision}
+				updated = true
+				break
+			}
+		}
+		if !updated {
+			set.Claims = append(set.Claims, protocol.BeliefClaim{Fact: fact, ObservedRevision: revision})
+		}
+		trimBeliefClaims(&set)
+		selected := selectBeliefClaim(set.Claims)
+		set.SelectedSourceEventID = selected.Fact.SourceEventID
+		set.Conflicted = beliefObjectCount(set.Claims) > 1
+		actor.BeliefSets[key] = set
+		actor.Beliefs[key] = selected.Fact
 	}
+}
+
+func trimBeliefClaims(set *protocol.BeliefSet) {
+	if len(set.Claims) <= 8 {
+		return
+	}
+	sort.Slice(set.Claims, func(i, j int) bool {
+		if set.Claims[i].Fact.Confidence == set.Claims[j].Fact.Confidence {
+			if set.Claims[i].ObservedRevision == set.Claims[j].ObservedRevision {
+				return set.Claims[i].Fact.SourceEventID < set.Claims[j].Fact.SourceEventID
+			}
+			return set.Claims[i].ObservedRevision > set.Claims[j].ObservedRevision
+		}
+		return set.Claims[i].Fact.Confidence > set.Claims[j].Fact.Confidence
+	})
+	set.Claims = append([]protocol.BeliefClaim(nil), set.Claims[:8]...)
+}
+
+func selectBeliefClaim(claims []protocol.BeliefClaim) protocol.BeliefClaim {
+	values := append([]protocol.BeliefClaim(nil), claims...)
+	sort.Slice(values, func(i, j int) bool {
+		if values[i].Fact.Confidence == values[j].Fact.Confidence {
+			if values[i].ObservedRevision == values[j].ObservedRevision {
+				if values[i].Fact.Object == values[j].Fact.Object {
+					return values[i].Fact.SourceEventID < values[j].Fact.SourceEventID
+				}
+				return values[i].Fact.Object < values[j].Fact.Object
+			}
+			return values[i].ObservedRevision > values[j].ObservedRevision
+		}
+		return values[i].Fact.Confidence > values[j].Fact.Confidence
+	})
+	return values[0]
+}
+
+func beliefObjectCount(claims []protocol.BeliefClaim) int {
+	objects := make(map[string]struct{}, len(claims))
+	for _, claim := range claims {
+		objects[claim.Fact.Object] = struct{}{}
+	}
+	return len(objects)
 }
 
 func applyGoalProgress(actor *protocol.ActorState, goalID string, delta int, status string) {
@@ -282,6 +469,12 @@ func markRecalled(actor *protocol.ActorState, ids []string, tick int64) {
 		if _, exists := selected[actor.Memories[index].ID]; exists {
 			actor.Memories[index].RecallCount++
 			actor.Memories[index].LastRecalledTick = tick
+		}
+	}
+	for index := range actor.MemorySummaries {
+		if _, exists := selected[actor.MemorySummaries[index].ID]; exists {
+			actor.MemorySummaries[index].RecallCount++
+			actor.MemorySummaries[index].LastRecalledTick = tick
 		}
 	}
 }

@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"fmt"
+	"reflect"
 	"regexp"
 )
 
@@ -19,11 +20,17 @@ func ValidateSessionState(state SessionState) error {
 	if err := ValidateBinding(state.Binding); err != nil {
 		return err
 	}
+	if err := validateFeatures("state.features", state.Features); err != nil {
+		return err
+	}
 	if state.Tick < 0 {
 		return &ValidationError{Field: "state.tick", Message: "must not be negative"}
 	}
 	if state.Revision == 0 {
 		return &ValidationError{Field: "state.revision", Message: "must be greater than zero"}
+	}
+	if HasFeature(state.Features, FeatureArbitration) && state.WorldRevision == 0 {
+		return &ValidationError{Field: "state.world_revision", Message: "must be greater than zero when arbitration is enabled"}
 	}
 	if !hashPattern.MatchString(state.HeadHash) {
 		return &ValidationError{Field: "state.head_hash", Message: "must be a lowercase SHA-256 hash"}
@@ -42,10 +49,18 @@ func ValidateSessionState(state SessionState) error {
 		if actor.NextThinkTick < 0 {
 			return &ValidationError{Field: base + ".next_think_tick", Message: "must not be negative"}
 		}
+		if actor.Activity != nil {
+			if !HasFeature(state.Features, FeatureActorActivity) {
+				return &ValidationError{Field: base + ".activity", Message: "requires actor-activity-v1"}
+			}
+			if err := validateActorActivity(base+".activity", *actor.Activity, state); err != nil {
+				return err
+			}
+		}
 		if len(actor.Memories) > 128 {
 			return &ValidationError{Field: base + ".memories", Message: "must contain at most 128 values"}
 		}
-		memoryIDs := make(map[string]struct{}, len(actor.Memories))
+		memoryIDs := make(map[string]struct{}, len(actor.Memories)+len(actor.MemorySummaries))
 		for index, memory := range actor.Memories {
 			field := fmt.Sprintf("%s.memories[%d]", base, index)
 			if err := validateMemory(field, memory); err != nil {
@@ -55,6 +70,22 @@ func ValidateSessionState(state SessionState) error {
 				return &ValidationError{Field: base + ".memories", Message: "memory ids must be unique"}
 			}
 			memoryIDs[memory.ID] = struct{}{}
+		}
+		if len(actor.MemorySummaries) > 32 {
+			return &ValidationError{Field: base + ".memory_summaries", Message: "must contain at most 32 values"}
+		}
+		if len(actor.MemorySummaries) > 0 && !HasFeature(state.Features, FeatureMemoryArchive) {
+			return &ValidationError{Field: base + ".memory_summaries", Message: "requires memory-archive-v1"}
+		}
+		for index, summary := range actor.MemorySummaries {
+			field := fmt.Sprintf("%s.memory_summaries[%d]", base, index)
+			if err := validateMemorySummary(field, summary); err != nil {
+				return err
+			}
+			if _, exists := memoryIDs[summary.ID]; exists {
+				return &ValidationError{Field: base + ".memory_summaries", Message: "memory and summary ids must be unique"}
+			}
+			memoryIDs[summary.ID] = struct{}{}
 		}
 		if len(actor.Beliefs) > 256 {
 			return &ValidationError{Field: base + ".beliefs", Message: "must contain at most 256 values"}
@@ -71,6 +102,31 @@ func ValidateSessionState(state SessionState) error {
 				if _, exists := state.Actors[visibleActor]; !exists {
 					return &ValidationError{Field: field + ".visibility", Message: "references an unknown actor"}
 				}
+			}
+		}
+		if len(actor.BeliefSets) > 256 {
+			return &ValidationError{Field: base + ".belief_sets", Message: "must contain at most 256 values"}
+		}
+		if len(actor.BeliefSets) > 0 && !HasFeature(state.Features, FeatureBeliefConflicts) {
+			return &ValidationError{Field: base + ".belief_sets", Message: "requires belief-conflicts-v1"}
+		}
+		for key, set := range actor.BeliefSets {
+			field := base + ".belief_sets." + key
+			if err := validateBeliefSet(field, key, set, state.Revision); err != nil {
+				return err
+			}
+			selected, exists := actor.Beliefs[key]
+			if !exists {
+				return &ValidationError{Field: field, Message: "must have a selected compatibility belief"}
+			}
+			matched := false
+			for _, claim := range set.Claims {
+				if claim.Fact.SourceEventID == set.SelectedSourceEventID && reflect.DeepEqual(claim.Fact, selected) {
+					matched = true
+				}
+			}
+			if !matched {
+				return &ValidationError{Field: field + ".selected_source_event_id", Message: "must select the projected belief"}
 			}
 		}
 		if len(actor.RecentActions) > 32 {
@@ -96,13 +152,33 @@ func ValidateSessionState(state SessionState) error {
 		if !exists {
 			return &ValidationError{Field: "state.proposals." + id + ".actor_id", Message: "references an unknown actor"}
 		}
-		memoryIDs := make(map[string]struct{}, len(actor.Memories))
+		memoryIDs := make(map[string]struct{}, len(actor.Memories)+len(actor.MemorySummaries))
 		for _, memory := range actor.Memories {
 			memoryIDs[memory.ID] = struct{}{}
+		}
+		for _, summary := range actor.MemorySummaries {
+			memoryIDs[summary.ID] = struct{}{}
 		}
 		if err := validateProposal("state.proposals."+id, state, actor, proposal, memoryIDs); err != nil {
 			return err
 		}
+	}
+	if len(state.Arbitrations) > 32 {
+		return &ValidationError{Field: "state.arbitrations", Message: "must contain at most 32 values"}
+	}
+	if len(state.Arbitrations) > 0 && !HasFeature(state.Features, FeatureArbitration) {
+		return &ValidationError{Field: "state.arbitrations", Message: "requires arbitration-v1"}
+	}
+	arbitrationIDs := make(map[string]struct{}, len(state.Arbitrations))
+	for index, record := range state.Arbitrations {
+		field := fmt.Sprintf("state.arbitrations[%d]", index)
+		if err := validateArbitrationRecord(field, record, state); err != nil {
+			return err
+		}
+		if _, exists := arbitrationIDs[record.ID]; exists {
+			return &ValidationError{Field: "state.arbitrations", Message: "record ids must be unique"}
+		}
+		arbitrationIDs[record.ID] = struct{}{}
 	}
 	if len(state.Receipts) > 1024 {
 		return &ValidationError{Field: "state.receipts", Message: "must contain at most 1024 values"}
@@ -149,6 +225,161 @@ func validateMemory(field string, memory Memory) error {
 	return nil
 }
 
+func validateMemorySummary(field string, summary MemorySummary) error {
+	if err := validateID(field+".id", summary.ID); err != nil {
+		return err
+	}
+	if summary.Level < 1 || summary.Level > 16 {
+		return &ValidationError{Field: field + ".level", Message: "must be between 1 and 16"}
+	}
+	if err := validateText(field+".summary", summary.Summary, 1000, true); err != nil {
+		return err
+	}
+	if err := validateTags(field+".tags", summary.Tags, 32); err != nil {
+		return err
+	}
+	if err := validateTags(field+".source_memory_ids", summary.SourceMemoryIDs, 64); err != nil {
+		return err
+	}
+	if err := validateTags(field+".source_event_ids", summary.SourceEventIDs, 64); err != nil {
+		return err
+	}
+	if len(summary.SourceMemoryIDs) == 0 || len(summary.SourceEventIDs) == 0 {
+		return &ValidationError{Field: field, Message: "must retain source memory and event ids"}
+	}
+	if summary.StartTick < 0 || summary.EndTick < summary.StartTick || summary.LastRecalledTick < 0 {
+		return &ValidationError{Field: field, Message: "contains an invalid tick range"}
+	}
+	if summary.Importance < 1 || summary.Importance > 5 {
+		return &ValidationError{Field: field + ".importance", Message: "must be between 1 and 5"}
+	}
+	if err := validateID(field+".reason", summary.Reason); err != nil {
+		return err
+	}
+	if summary.CreatedRevision == 0 || summary.RecallCount < 0 || summary.RecallCount > 1_000_000 {
+		return &ValidationError{Field: field, Message: "contains invalid revision or recall values"}
+	}
+	return nil
+}
+
+func validateBeliefSet(field, key string, set BeliefSet, stateRevision uint64) error {
+	if err := validateID(field+".subject_id", set.SubjectID); err != nil {
+		return err
+	}
+	if err := validateID(field+".predicate", set.Predicate); err != nil {
+		return err
+	}
+	if key != set.SubjectID+":"+set.Predicate {
+		return &ValidationError{Field: field, Message: "map key must match subject and predicate"}
+	}
+	if len(set.Claims) == 0 || len(set.Claims) > 8 {
+		return &ValidationError{Field: field + ".claims", Message: "must contain 1-8 claims"}
+	}
+	if err := validateID(field+".selected_source_event_id", set.SelectedSourceEventID); err != nil {
+		return err
+	}
+	sources := make(map[string]struct{}, len(set.Claims))
+	objects := make(map[string]struct{}, len(set.Claims))
+	selectedExists := false
+	for index, claim := range set.Claims {
+		claimField := fmt.Sprintf("%s.claims[%d]", field, index)
+		if err := validateFact(claimField+".fact", claim.Fact); err != nil {
+			return err
+		}
+		if claim.Fact.SubjectID != set.SubjectID || claim.Fact.Predicate != set.Predicate {
+			return &ValidationError{Field: claimField + ".fact", Message: "must match its belief set"}
+		}
+		if claim.Fact.SourceEventID == "" {
+			return &ValidationError{Field: claimField + ".fact.source_event_id", Message: "is required"}
+		}
+		if _, exists := sources[claim.Fact.SourceEventID]; exists {
+			return &ValidationError{Field: field + ".claims", Message: "source event ids must be unique"}
+		}
+		sources[claim.Fact.SourceEventID] = struct{}{}
+		objects[claim.Fact.Object] = struct{}{}
+		if claim.ObservedRevision == 0 {
+			return &ValidationError{Field: claimField + ".observed_revision", Message: "must be greater than zero"}
+		}
+		selectedExists = selectedExists || claim.Fact.SourceEventID == set.SelectedSourceEventID
+	}
+	if !selectedExists {
+		return &ValidationError{Field: field + ".selected_source_event_id", Message: "references an unknown claim"}
+	}
+	if set.Conflicted != (len(objects) > 1) {
+		return &ValidationError{Field: field + ".conflicted", Message: "must reflect distinct claim objects"}
+	}
+	return nil
+}
+
+func validateActorActivity(field string, activity ActorActivity, state SessionState) error {
+	if activity.RegionID != "" {
+		if err := validateID(field+".region_id", activity.RegionID); err != nil {
+			return err
+		}
+	}
+	if activity.State != "awake" && activity.State != "dormant" {
+		return &ValidationError{Field: field + ".state", Message: "must be awake or dormant"}
+	}
+	if err := validateText(field+".reason", activity.Reason, 300, false); err != nil {
+		return err
+	}
+	if activity.UpdatedTick < 0 || activity.UpdatedTick > state.Tick {
+		return &ValidationError{Field: field + ".updated_tick", Message: "must reference the current timeline"}
+	}
+	if activity.UpdatedRevision == 0 {
+		return &ValidationError{Field: field + ".updated_revision", Message: "must be greater than zero"}
+	}
+	return nil
+}
+
+func validateArbitrationRecord(field string, record ArbitrationRecord, state SessionState) error {
+	if err := validateID(field+".id", record.ID); err != nil {
+		return err
+	}
+	if err := validateID(field+".request_id", record.RequestID); err != nil {
+		return err
+	}
+	if record.Tick < 0 {
+		return &ValidationError{Field: field + ".tick", Message: "must not be negative"}
+	}
+	if record.BasedOnWorldRevision == 0 || record.BasedOnWorldRevision > state.WorldRevision {
+		return &ValidationError{Field: field + ".based_on_world_revision", Message: "must reference an existing world revision"}
+	}
+	if record.CreatedRevision == 0 {
+		return &ValidationError{Field: field + ".created_revision", Message: "must be greater than zero"}
+	}
+	if len(record.Decisions) == 0 || len(record.Decisions) > 64 {
+		return &ValidationError{Field: field + ".decisions", Message: "must contain 1-64 decisions"}
+	}
+	proposalIDs := make(map[string]struct{}, len(record.Decisions))
+	for index, decision := range record.Decisions {
+		base := fmt.Sprintf("%s.decisions[%d]", field, index)
+		if err := validateID(base+".proposal_id", decision.ProposalID); err != nil {
+			return err
+		}
+		if err := validateID(base+".actor_id", decision.ActorID); err != nil {
+			return err
+		}
+		if _, exists := state.Actors[decision.ActorID]; !exists {
+			return &ValidationError{Field: base + ".actor_id", Message: "references an unknown actor"}
+		}
+		if decision.Status != "selected" && decision.Status != "deferred" {
+			return &ValidationError{Field: base + ".status", Message: "must be selected or deferred"}
+		}
+		if err := validateText(base+".reason", decision.Reason, 300, true); err != nil {
+			return err
+		}
+		if err := validateTags(base+".conflicting_proposal_ids", decision.ConflictingProposalIDs, 64); err != nil {
+			return err
+		}
+		if _, exists := proposalIDs[decision.ProposalID]; exists {
+			return &ValidationError{Field: field + ".decisions", Message: "proposal ids must be unique"}
+		}
+		proposalIDs[decision.ProposalID] = struct{}{}
+	}
+	return nil
+}
+
 func validateProposal(field string, state SessionState, actor ActorState, proposal ActionProposal, memoryIDs map[string]struct{}) error {
 	for suffix, value := range map[string]string{
 		".id": proposal.ID, ".session_id": proposal.SessionID, ".request_id": proposal.RequestID, ".actor_id": proposal.ActorID,
@@ -165,6 +396,11 @@ func validateProposal(field string, state SessionState, actor ActorState, propos
 	}
 	if !hashPattern.MatchString(proposal.BasedOnHeadHash) {
 		return &ValidationError{Field: field + ".based_on_head_hash", Message: "must be a lowercase SHA-256 hash"}
+	}
+	if HasFeature(state.Features, FeatureArbitration) {
+		if proposal.BasedOnWorldRevision == 0 || proposal.BasedOnWorldRevision > state.WorldRevision {
+			return &ValidationError{Field: field + ".based_on_world_revision", Message: "must reference an existing world revision"}
+		}
 	}
 	if err := validateAction(field+".action", proposal.Action); err != nil {
 		return err
@@ -199,9 +435,23 @@ func validateProposal(field string, state SessionState, actor ActorState, propos
 		for _, goal := range actor.Goals {
 			found = found || goal.ID == proposal.GoalID
 		}
+		if proposal.ProposedGoal != nil {
+			if !HasFeature(state.Features, FeatureGoalCandidates) {
+				return &ValidationError{Field: field + ".proposed_goal", Message: "requires goal-candidates-v1"}
+			}
+			if err := validateGoal(field+".proposed_goal", *proposal.ProposedGoal); err != nil {
+				return err
+			}
+			if proposal.ProposedGoal.ID != proposal.GoalID || proposal.ProposedGoal.Progress != 0 || proposal.ProposedGoal.Status != "active" {
+				return &ValidationError{Field: field + ".proposed_goal", Message: "must match an active zero-progress goal_id"}
+			}
+			found = true
+		}
 		if !found {
 			return &ValidationError{Field: field + ".goal_id", Message: "references an unknown goal"}
 		}
+	} else if proposal.ProposedGoal != nil {
+		return &ValidationError{Field: field + ".proposed_goal", Message: "requires goal_id"}
 	}
 	if proposal.Status != "pending" && proposal.Status != "accepted" && proposal.Status != "rejected" {
 		return &ValidationError{Field: field + ".status", Message: "must be pending, accepted, or rejected"}

@@ -215,6 +215,15 @@ class RinClient:
     def commit(self, request: Dict[str, Any]) -> Dict[str, Any]:
         return self._request("POST", "/v1/action/commit", request)
 
+    def commit_batch(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        return self._request("POST", "/v1/action/commit-batch", request)
+
+    def set_actor_activity(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        return self._request("POST", "/v1/session/activity", request)
+
+    def arbitrate(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        return self._request("POST", "/v1/world/arbitrate", request)
+
     def state(self, request: Dict[str, Any]) -> Dict[str, Any]:
         return self._request("POST", "/v1/session/get", request)
 
@@ -223,6 +232,12 @@ class RinClient:
 
     def restore(self, request: Dict[str, Any]) -> Dict[str, Any]:
         return self._request("POST", "/v1/session/restore", request)
+
+    def timeline(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        return self._request("POST", "/v1/session/timeline", request)
+
+    def replay(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        return self._request("POST", "/v1/session/replay", request)
 
     def due_agents(self, request: Dict[str, Any]) -> Dict[str, Any]:
         return self._request("POST", "/v1/scheduler/due", request)
@@ -419,7 +434,7 @@ class RinClient:
         expected_statuses: Sequence[int] = (200,),
     ) -> Dict[str, Any]:
         body = None
-        headers = {"Accept": "application/json", "User-Agent": "rin-renpy/0.4"}
+        headers = {"Accept": "application/json", "User-Agent": "rin-renpy/0.5"}
         if payload is not None:
             if not isinstance(payload, dict):
                 raise RinProtocolError("invalid_request", "Rin request payload must be an object")

@@ -71,6 +71,18 @@ func validateTags(field string, values []string, maximum int) error {
 	return nil
 }
 
+func validateFeatures(field string, values []string) error {
+	if err := validateTags(field, values, len(supportedFeatures)); err != nil {
+		return err
+	}
+	for index, value := range values {
+		if !IsSupportedFeature(value) {
+			return &ValidationError{Field: fmt.Sprintf("%s[%d]", field, index), Message: "is not supported"}
+		}
+	}
+	return nil
+}
+
 func ValidateBinding(binding Binding) error {
 	if err := validateID("binding.game_id", binding.GameID); err != nil {
 		return err
@@ -176,6 +188,9 @@ func ValidateCreateSession(request CreateSessionRequest) error {
 		return err
 	}
 	if err := ValidateBinding(request.Binding); err != nil {
+		return err
+	}
+	if err := validateFeatures("features", request.Features); err != nil {
 		return err
 	}
 	if len(request.Actors) == 0 || len(request.Actors) > 128 {
@@ -317,6 +332,23 @@ func ValidatePropose(request ProposeRequest) error {
 		}
 		seen[action.ID] = struct{}{}
 	}
+	if len(request.CandidateGoals) > 8 {
+		return &ValidationError{Field: "candidate_goals", Message: "must contain at most 8 goals"}
+	}
+	goalIDs := make(map[string]struct{}, len(request.CandidateGoals))
+	for index, goal := range request.CandidateGoals {
+		field := fmt.Sprintf("candidate_goals[%d]", index)
+		if err := validateGoal(field, goal); err != nil {
+			return err
+		}
+		if goal.Progress != 0 || goal.Status != "active" {
+			return &ValidationError{Field: field, Message: "candidate goals must be active with zero progress"}
+		}
+		if _, exists := goalIDs[goal.ID]; exists {
+			return &ValidationError{Field: "candidate_goals", Message: "goal ids must be unique"}
+		}
+		goalIDs[goal.ID] = struct{}{}
+	}
 	return nil
 }
 
@@ -381,7 +413,7 @@ func ValidateDueAgents(request DueAgentsRequest) error {
 	if request.Limit < 1 || request.Limit > 128 {
 		return &ValidationError{Field: "limit", Message: "must be between 1 and 128"}
 	}
-	return nil
+	return validateTags("region_ids", request.RegionIDs, 32)
 }
 
 func ValidateRestore(request RestoreRequest) error {

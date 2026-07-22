@@ -63,9 +63,14 @@ func New(engine *rinruntime.Engine, options Options) *Server {
 	mux.HandleFunc("POST /v1/session/observe", server.observe)
 	mux.HandleFunc("POST /v1/agent/propose", server.propose)
 	mux.HandleFunc("POST /v1/action/commit", server.commit)
+	mux.HandleFunc("POST /v1/action/commit-batch", server.commitBatch)
+	mux.HandleFunc("POST /v1/session/activity", server.setActorActivity)
+	mux.HandleFunc("POST /v1/world/arbitrate", server.arbitrate)
 	mux.HandleFunc("POST /v1/session/get", server.getSession)
 	mux.HandleFunc("POST /v1/session/snapshot", server.snapshot)
 	mux.HandleFunc("POST /v1/session/restore", server.restore)
+	mux.HandleFunc("POST /v1/session/timeline", server.timeline)
+	mux.HandleFunc("POST /v1/session/replay", server.replay)
 	mux.HandleFunc("POST /v1/scheduler/due", server.dueAgents)
 	mux.HandleFunc("POST /v1/jobs/propose", server.submitProposalJob)
 	mux.HandleFunc("GET /v1/jobs/{job_id}", server.getProposalJob)
@@ -88,6 +93,7 @@ func (s *Server) health(response http.ResponseWriter, _ *http.Request) {
 			"status": "ok", "protocol_version": protocol.Version,
 			"policy_mode": s.policyMode, "async_jobs": s.jobs != nil,
 			"structured_generation": s.generation != nil,
+			"features":              protocol.SupportedFeatures(),
 		},
 	})
 }
@@ -128,6 +134,33 @@ func (s *Server) commit(response http.ResponseWriter, request *http.Request) {
 	s.respond(response, result, err)
 }
 
+func (s *Server) commitBatch(response http.ResponseWriter, request *http.Request) {
+	var input protocol.BatchCommitRequest
+	if !s.decode(response, request, &input) {
+		return
+	}
+	result, err := s.engine.CommitBatch(input)
+	s.respond(response, result, err)
+}
+
+func (s *Server) setActorActivity(response http.ResponseWriter, request *http.Request) {
+	var input protocol.SetActorActivityRequest
+	if !s.decode(response, request, &input) {
+		return
+	}
+	result, err := s.engine.SetActorActivity(input)
+	s.respond(response, result, err)
+}
+
+func (s *Server) arbitrate(response http.ResponseWriter, request *http.Request) {
+	var input protocol.ArbitrateRequest
+	if !s.decode(response, request, &input) {
+		return
+	}
+	record, duplicate, err := s.engine.Arbitrate(input)
+	s.respond(response, protocol.ArbitrationResult{Record: record, Duplicate: duplicate}, err)
+}
+
 func (s *Server) getSession(response http.ResponseWriter, request *http.Request) {
 	var input protocol.SessionRequest
 	if !s.decode(response, request, &input) {
@@ -152,6 +185,24 @@ func (s *Server) restore(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 	result, err := s.engine.Restore(input)
+	s.respond(response, result, err)
+}
+
+func (s *Server) timeline(response http.ResponseWriter, request *http.Request) {
+	var input protocol.TimelineRequest
+	if !s.decode(response, request, &input) {
+		return
+	}
+	result, err := s.engine.Timeline(input)
+	s.respond(response, result, err)
+}
+
+func (s *Server) replay(response http.ResponseWriter, request *http.Request) {
+	var input protocol.ReplayRequest
+	if !s.decode(response, request, &input) {
+		return
+	}
+	result, err := s.engine.Replay(input)
 	s.respond(response, result, err)
 }
 

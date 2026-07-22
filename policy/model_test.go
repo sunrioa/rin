@@ -65,6 +65,51 @@ func TestModelPolicyUsesIsolatedDataPacket(t *testing.T) {
 	}
 }
 
+func TestModelPolicyReceivesOnlyActorConflictSets(t *testing.T) {
+	client := &completionClient{response: validModelJSON()}
+	input := modelInput()
+	input.Actor.BeliefSets = map[string]protocol.BeliefSet{
+		"relic:location": {
+			SubjectID: "relic", Predicate: "location", SelectedSourceEventID: "event.harbor", Conflicted: true,
+			Claims: []protocol.BeliefClaim{
+				{Fact: protocol.Fact{SubjectID: "relic", Predicate: "location", Object: "harbor", SourceEventID: "event.harbor", Confidence: 80}, ObservedRevision: 1},
+				{Fact: protocol.Fact{SubjectID: "relic", Predicate: "location", Object: "tower", SourceEventID: "event.tower", Confidence: 60}, ObservedRevision: 2},
+			},
+		},
+	}
+	input.Actor.Beliefs["relic:location"] = input.Actor.BeliefSets["relic:location"].Claims[0].Fact
+	if _, err := (policy.Model{Client: client}).Propose(context.Background(), input); err != nil {
+		t.Fatal(err)
+	}
+	client.mu.Lock()
+	request := client.request
+	client.mu.Unlock()
+	if !strings.Contains(request.Messages[1].Content, `"belief_conflicts"`) || !strings.Contains(request.Messages[1].Content, `"tower"`) {
+		t.Fatalf("actor-local conflict was not included in the bounded packet: %s", request.Messages[1].Content)
+	}
+}
+
+func TestModelPolicyMaySelectOnlyAdvertisedCandidateGoal(t *testing.T) {
+	candidateID := "goal.restore-camera"
+	client := &completionClient{response: strings.Replace(validModelJSON(), `"goal_id":"goal.connect"`, `"goal_id":"`+candidateID+`"`, 1)}
+	input := modelInput()
+	input.Request.CandidateGoals = []protocol.Goal{{
+		ID: candidateID, Description: "Restore the camera.", Priority: 5,
+		PreferredActions: []string{"talk"}, TargetProgress: 3, Status: "active",
+	}}
+	draft, err := (policy.Model{Client: client}).Propose(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if draft.GoalID != candidateID {
+		t.Fatalf("model did not select advertised candidate goal: %+v", draft)
+	}
+	client.response = strings.Replace(validModelJSON(), `"goal_id":"goal.connect"`, `"goal_id":"goal.not-advertised"`, 1)
+	if _, err := (policy.Model{Client: client}).Propose(context.Background(), input); err == nil {
+		t.Fatal("model selected an unadvertised candidate goal")
+	}
+}
+
 func TestModelPolicyRejectsContractEscapeAndUnknownJSON(t *testing.T) {
 	client := &completionClient{response: strings.Replace(validModelJSON(), `"action_id":"talk"`, `"action_id":"execute"`, 1)}
 	_, err := (policy.Model{Client: client}).Propose(context.Background(), modelInput())

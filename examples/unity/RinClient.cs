@@ -53,6 +53,51 @@ public sealed class RinClient : MonoBehaviour
         completed(call.Ok ? JsonUtility.FromJson<MutationEnvelope>(call.Text).data : null);
     }
 
+    public IEnumerator CommitBatch(BatchCommitRequest request, Action<MutationResult> completed)
+    {
+        var call = new CallResult();
+        yield return Send("POST", "/v1/action/commit-batch", JsonUtility.ToJson(request), 200, call);
+        completed(call.Ok ? JsonUtility.FromJson<MutationEnvelope>(call.Text).data : null);
+    }
+
+    public IEnumerator SetActorActivity(SetActorActivityRequest request, Action<MutationResult> completed)
+    {
+        var call = new CallResult();
+        yield return Send("POST", "/v1/session/activity", JsonUtility.ToJson(request), 200, call);
+        completed(call.Ok ? JsonUtility.FromJson<MutationEnvelope>(call.Text).data : null);
+    }
+
+    public IEnumerator DueAgents(DueAgentsRequest request, Action<DueAgentsResponse> completed)
+    {
+        var call = new CallResult();
+        yield return Send("POST", "/v1/scheduler/due", JsonUtility.ToJson(request), 200, call);
+        completed(call.Ok ? JsonUtility.FromJson<DueAgentsEnvelope>(call.Text).data : null);
+    }
+
+    public IEnumerator Arbitrate(ArbitrateRequest request, Action<ArbitrationResult> completed)
+    {
+        var call = new CallResult();
+        yield return Send("POST", "/v1/world/arbitrate", JsonUtility.ToJson(request), 200, call);
+        completed(call.Ok ? JsonUtility.FromJson<ArbitrationEnvelope>(call.Text).data : null);
+    }
+
+    public IEnumerator Timeline(TimelineRequest request, Action<TimelineResponse> completed)
+    {
+        var call = new CallResult();
+        yield return Send("POST", "/v1/session/timeline", JsonUtility.ToJson(request), 200, call);
+        completed(call.Ok ? JsonUtility.FromJson<TimelineEnvelope>(call.Text).data : null);
+    }
+
+    // JsonUtility cannot represent Rin's actor-id keyed state maps. Replay
+    // therefore exposes the verified snapshot header. A dictionary-capable
+    // JSON package can consume the same endpoint when full state is needed.
+    public IEnumerator Replay(ReplayRequest request, Action<ReplaySnapshot> completed)
+    {
+        var call = new CallResult();
+        yield return Send("POST", "/v1/session/replay", JsonUtility.ToJson(request), 200, call);
+        completed(call.Ok ? JsonUtility.FromJson<ReplayEnvelope>(call.Text).data : null);
+    }
+
     public IEnumerator ProposeWithFallback(
         ProposeRequest request,
         string fallbackActionId,
@@ -351,6 +396,10 @@ public sealed class RinClient : MonoBehaviour
     [Serializable] private sealed class SubmissionEnvelope { public bool ok; public JobSubmission data; public ErrorDetail error; }
     [Serializable] private sealed class JobEnvelope { public bool ok; public ProposalJob data; public ErrorDetail error; }
     [Serializable] private sealed class MutationEnvelope { public bool ok; public MutationResult data; public ErrorDetail error; }
+    [Serializable] private sealed class DueAgentsEnvelope { public bool ok; public DueAgentsResponse data; public ErrorDetail error; }
+    [Serializable] private sealed class ArbitrationEnvelope { public bool ok; public ArbitrationResult data; public ErrorDetail error; }
+    [Serializable] private sealed class TimelineEnvelope { public bool ok; public TimelineResponse data; public ErrorDetail error; }
+    [Serializable] private sealed class ReplayEnvelope { public bool ok; public ReplaySnapshot data; public ErrorDetail error; }
 }
 
 [Serializable] public sealed class ActionSpec
@@ -408,6 +457,7 @@ public sealed class RinClient : MonoBehaviour
     public string session_id;
     public Binding binding;
     public long seed;
+    public string[] features;
     public ActorSeed[] actors;
 }
 
@@ -421,6 +471,7 @@ public sealed class RinClient : MonoBehaviour
     public string intent;
     public string[] tags;
     public ActionSpec[] candidate_actions;
+    public Goal[] candidate_goals;
     public bool urgent;
 }
 
@@ -438,6 +489,7 @@ public sealed class RinClient : MonoBehaviour
     public string quote;
     public string[] tags;
     public int importance;
+    public Fact[] facts;
 }
 
 [Serializable] public sealed class CommitRequest
@@ -451,6 +503,8 @@ public sealed class RinClient : MonoBehaviour
     public bool accepted;
     public string outcome;
     public string[] tags;
+    public Fact[] facts;
+    public GoalUpdate[] goal_updates;
 }
 
 [Serializable] public sealed class ActionProposal
@@ -462,6 +516,7 @@ public sealed class RinClient : MonoBehaviour
     public long tick;
     public long based_on_revision;
     public string based_on_head_hash;
+    public long based_on_world_revision;
     public long created_revision;
     public ActionSpec action;
     public string stance;
@@ -470,7 +525,175 @@ public sealed class RinClient : MonoBehaviour
     public string policy_source;
     public string[] recalled_memory_ids;
     public string goal_id;
+    public Goal proposed_goal;
     public string status;
+}
+
+[Serializable] public sealed class Fact
+{
+    public string subject_id;
+    public string predicate;
+    public string @object;
+    public string[] visibility;
+    public int confidence;
+    public string source_event_id;
+}
+
+[Serializable] public sealed class GoalUpdate
+{
+    public string goal_id;
+    public int progress_delta;
+    public string status;
+}
+
+[Serializable] public sealed class CommitItem
+{
+    public string proposal_id;
+    public string event_id;
+    public bool accepted;
+    public string outcome;
+    public string[] tags;
+    public Fact[] facts;
+    public GoalUpdate[] goal_updates;
+}
+
+[Serializable] public sealed class BatchCommitRequest
+{
+    public string protocol_version = RinClient.ProtocolVersion;
+    public string session_id;
+    public string request_id;
+    public long tick;
+    public CommitItem[] items;
+}
+
+[Serializable] public sealed class ActorActivityUpdate
+{
+    public string actor_id;
+    public string region_id;
+    public string state;
+    public string reason;
+}
+
+[Serializable] public sealed class SetActorActivityRequest
+{
+    public string protocol_version = RinClient.ProtocolVersion;
+    public string session_id;
+    public string request_id;
+    public long tick;
+    public ActorActivityUpdate[] updates;
+}
+
+[Serializable] public sealed class DueAgentsRequest
+{
+    public string protocol_version = RinClient.ProtocolVersion;
+    public string session_id;
+    public long tick;
+    public int limit;
+    public string[] region_ids;
+}
+
+[Serializable] public sealed class DueAgent
+{
+    public string actor_id;
+    public long next_think_tick;
+    public string region_id;
+}
+
+[Serializable] public sealed class DueAgentsResponse
+{
+    public string session_id;
+    public long tick;
+    public DueAgent[] agents;
+}
+
+[Serializable] public sealed class ArbitrateRequest
+{
+    public string protocol_version = RinClient.ProtocolVersion;
+    public string session_id;
+    public string request_id;
+    public long tick;
+    public string[] proposal_ids;
+    public string[] exclusive_target_ids;
+}
+
+[Serializable] public sealed class ArbitrationDecision
+{
+    public string proposal_id;
+    public string actor_id;
+    public string status;
+    public string reason;
+    public string[] conflicting_proposal_ids;
+}
+
+[Serializable] public sealed class ArbitrationRecord
+{
+    public string id;
+    public string request_id;
+    public long tick;
+    public long based_on_world_revision;
+    public long created_revision;
+    public ArbitrationDecision[] decisions;
+}
+
+[Serializable] public sealed class ArbitrationResult
+{
+    public ArbitrationRecord record;
+    public bool duplicate;
+}
+
+[Serializable] public sealed class TimelineRequest
+{
+    public string protocol_version = RinClient.ProtocolVersion;
+    public string session_id;
+    public long after_revision;
+    public int limit = 50;
+}
+
+[Serializable] public sealed class TimelineEntry
+{
+    public long sequence;
+    public string type;
+    public string request_id;
+    public string recorded_at;
+    public string hash;
+    public string prev_hash;
+    public string[] entity_ids;
+    public string[] actor_ids;
+    public string status;
+}
+
+[Serializable] public sealed class TimelineResponse
+{
+    public string session_id;
+    public long current_revision;
+    public TimelineEntry[] entries;
+    public long next_after_revision;
+    public bool has_more;
+}
+
+[Serializable] public sealed class ReplayRequest
+{
+    public string protocol_version = RinClient.ProtocolVersion;
+    public string session_id;
+    public long revision;
+}
+
+[Serializable] public sealed class ReplayStateHeader
+{
+    public string protocol_version;
+    public string session_id;
+    public long tick;
+    public long revision;
+    public long world_revision;
+    public string head_hash;
+    public string[] features;
+}
+
+[Serializable] public sealed class ReplaySnapshot
+{
+    public string protocol_version;
+    public string state_hash;
+    public ReplayStateHeader state;
 }
 
 [Serializable] public sealed class ErrorDetail

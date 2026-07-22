@@ -160,6 +160,20 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 		session.mu.Unlock()
 		return protocol.ActionProposal{}, false, NewError("actor_disabled", "actor is disabled", ErrConflict)
 	}
+	if len(request.CandidateGoals) > 0 && !protocol.HasFeature(session.state.Features, protocol.FeatureGoalCandidates) {
+		session.mu.Unlock()
+		return protocol.ActionProposal{}, false, NewFieldError("feature_not_enabled", "candidate goals require goal-candidates-v1", "candidate_goals", ErrConflict)
+	}
+	for index, goal := range request.CandidateGoals {
+		if goalExists(actor, goal.ID) {
+			session.mu.Unlock()
+			return protocol.ActionProposal{}, false, NewFieldError("goal_exists", "candidate goal is already part of actor state", fmt.Sprintf("candidate_goals[%d].id", index), ErrConflict)
+		}
+	}
+	if actor.Activity != nil && actor.Activity.State == "dormant" {
+		session.mu.Unlock()
+		return protocol.ActionProposal{}, false, NewError("actor_dormant", "actor is dormant and must be woken by the game", ErrNotDue)
+	}
 	if request.Tick < session.state.Tick {
 		session.mu.Unlock()
 		return protocol.ActionProposal{}, false, NewFieldError("tick_regressed", "proposal tick is older than session state", "tick", ErrConflict)
@@ -175,6 +189,8 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 	}
 	baseRevision := session.state.Revision
 	baseHash := session.state.HeadHash
+	baseWorldRevision := session.state.WorldRevision
+	arbitrationEnabled := protocol.HasFeature(session.state.Features, protocol.FeatureArbitration)
 	session.mu.Unlock()
 
 	draft, err := e.policy.Propose(ctx, PolicyContext{State: stateCopy, Actor: actor, Request: request})
@@ -187,7 +203,7 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 	if err := ctx.Err(); err != nil {
 		return protocol.ActionProposal{}, false, NewError("proposal_canceled", "proposal request was canceled", err)
 	}
-	selected, err := validateDraft(request, actor, draft)
+	selected, proposedGoal, err := validateDraft(request, actor, draft)
 	if err != nil {
 		return protocol.ActionProposal{}, false, err
 	}
@@ -204,7 +220,9 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 		}
 		return protocol.ActionProposal{}, false, requestConflict(request.RequestID)
 	}
-	if session.state.Revision != baseRevision || session.state.HeadHash != baseHash {
+	worldChanged := arbitrationEnabled && session.state.WorldRevision != baseWorldRevision
+	legacyChanged := !arbitrationEnabled && (session.state.Revision != baseRevision || session.state.HeadHash != baseHash)
+	if worldChanged || legacyChanged {
 		return protocol.ActionProposal{}, false, NewError("state_changed", "session changed while policy was proposing; retry with a new request id", ErrStale)
 	}
 	proposalHash, err := hashJSON(struct {
@@ -217,22 +235,24 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 		return protocol.ActionProposal{}, false, NewError("proposal_id_failed", "could not identify proposal", err)
 	}
 	proposal := protocol.ActionProposal{
-		ID:                "proposal." + proposalHash[:24],
-		SessionID:         request.SessionID,
-		RequestID:         request.RequestID,
-		ActorID:           request.ActorID,
-		Tick:              request.Tick,
-		BasedOnRevision:   baseRevision,
-		BasedOnHeadHash:   baseHash,
-		CreatedRevision:   baseRevision + 1,
-		Action:            selected,
-		Stance:            draft.Stance,
-		Summary:           draft.Summary,
-		Rationale:         draft.Rationale,
-		PolicySource:      policySource(draft.PolicySource),
-		RecalledMemoryIDs: append([]string(nil), draft.RecalledMemoryIDs...),
-		GoalID:            draft.GoalID,
-		Status:            "pending",
+		ID:                   "proposal." + proposalHash[:24],
+		SessionID:            request.SessionID,
+		RequestID:            request.RequestID,
+		ActorID:              request.ActorID,
+		Tick:                 request.Tick,
+		BasedOnRevision:      baseRevision,
+		BasedOnHeadHash:      baseHash,
+		BasedOnWorldRevision: baseWorldRevision,
+		CreatedRevision:      session.state.Revision + 1,
+		Action:               selected,
+		Stance:               draft.Stance,
+		Summary:              draft.Summary,
+		Rationale:            draft.Rationale,
+		PolicySource:         policySource(draft.PolicySource),
+		RecalledMemoryIDs:    append([]string(nil), draft.RecalledMemoryIDs...),
+		GoalID:               draft.GoalID,
+		ProposedGoal:         proposedGoal,
+		Status:               "pending",
 	}
 	event, err := newEvent(session.state, EventProposed, request.RequestID, proposedPayload{Proposal: proposal}, e.now())
 	if err != nil {
@@ -267,7 +287,9 @@ func (e *Engine) Commit(request protocol.CommitRequest) (protocol.MutationResult
 	if proposal.Status != "pending" {
 		return protocol.MutationResult{}, NewFieldError("proposal_resolved", "proposal was already resolved", "proposal_id", ErrConflict)
 	}
-	if request.Accepted && proposal.CreatedRevision != session.state.Revision {
+	worldRevisionMismatch := proposal.BasedOnWorldRevision > 0 && proposal.BasedOnWorldRevision != session.state.WorldRevision
+	legacyRevisionMismatch := proposal.BasedOnWorldRevision == 0 && proposal.CreatedRevision != session.state.Revision
+	if request.Accepted && (worldRevisionMismatch || legacyRevisionMismatch) {
 		return protocol.MutationResult{}, NewError("proposal_stale", "session changed after the proposal was created", ErrStale)
 	}
 	if request.Tick < session.state.Tick || request.Tick < proposal.Tick {
@@ -275,7 +297,7 @@ func (e *Engine) Commit(request protocol.CommitRequest) (protocol.MutationResult
 	}
 	actor := session.state.Actors[proposal.ActorID]
 	for index, update := range request.GoalUpdates {
-		if !goalExists(actor, update.GoalID) {
+		if !goalExists(actor, update.GoalID) && (proposal.ProposedGoal == nil || proposal.ProposedGoal.ID != update.GoalID) {
 			return protocol.MutationResult{}, NewFieldError("unknown_goal", "goal update references an unknown goal", fmt.Sprintf("goal_updates[%d].goal_id", index), ErrNotFound)
 		}
 	}
@@ -287,6 +309,174 @@ func (e *Engine) Commit(request protocol.CommitRequest) (protocol.MutationResult
 		return protocol.MutationResult{}, err
 	}
 	return mutationResult(session.state, false), nil
+}
+
+func (e *Engine) CommitBatch(request protocol.BatchCommitRequest) (protocol.MutationResult, error) {
+	if err := protocol.ValidateBatchCommit(request); err != nil {
+		return protocol.MutationResult{}, validationError(err)
+	}
+	session, err := e.session(request.SessionID)
+	if err != nil {
+		return protocol.MutationResult{}, err
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if !protocol.HasFeature(session.state.Features, protocol.FeatureArbitration) {
+		return protocol.MutationResult{}, NewError("feature_not_enabled", "batch commit requires arbitration-v1", ErrConflict)
+	}
+	if receipt, found := session.state.Receipts[request.RequestID]; found {
+		if receipt.Kind == EventBatchCommitted {
+			return mutationResult(session.state, true), nil
+		}
+		return protocol.MutationResult{}, requestConflict(request.RequestID)
+	}
+	if request.Tick < session.state.Tick {
+		return protocol.MutationResult{}, NewFieldError("tick_regressed", "batch commit tick is older than session state", "tick", ErrConflict)
+	}
+	actors := make(map[string]struct{}, len(request.Items))
+	for index, item := range request.Items {
+		proposal, exists := session.state.Proposals[item.ProposalID]
+		if !exists {
+			return protocol.MutationResult{}, NewFieldError("unknown_proposal", "batch item references an unknown proposal", fmt.Sprintf("items[%d].proposal_id", index), ErrNotFound)
+		}
+		if proposal.Status != "pending" {
+			return protocol.MutationResult{}, NewFieldError("proposal_resolved", "batch item references a resolved proposal", fmt.Sprintf("items[%d].proposal_id", index), ErrConflict)
+		}
+		if proposal.BasedOnWorldRevision == 0 || proposal.BasedOnWorldRevision != session.state.WorldRevision {
+			return protocol.MutationResult{}, NewError("proposal_stale", "batch contains a proposal from another world revision", ErrStale)
+		}
+		if request.Tick < proposal.Tick {
+			return protocol.MutationResult{}, NewFieldError("tick_regressed", "batch commit tick is older than a proposal", "tick", ErrConflict)
+		}
+		if _, duplicate := actors[proposal.ActorID]; duplicate {
+			return protocol.MutationResult{}, NewFieldError("duplicate_actor", "batch may contain at most one proposal per actor", "items", ErrConflict)
+		}
+		actors[proposal.ActorID] = struct{}{}
+		if eventIDExists(session.state, item.EventID) {
+			return protocol.MutationResult{}, NewFieldError("event_exists", "batch event id was already observed", fmt.Sprintf("items[%d].event_id", index), ErrConflict)
+		}
+		actor := session.state.Actors[proposal.ActorID]
+		for goalIndex, update := range item.GoalUpdates {
+			if !goalExists(actor, update.GoalID) && (proposal.ProposedGoal == nil || proposal.ProposedGoal.ID != update.GoalID) {
+				return protocol.MutationResult{}, NewFieldError("unknown_goal", "goal update references an unknown goal", fmt.Sprintf("items[%d].goal_updates[%d].goal_id", index, goalIndex), ErrNotFound)
+			}
+		}
+	}
+	event, err := newEvent(session.state, EventBatchCommitted, request.RequestID, batchCommittedPayload{Request: request}, e.now())
+	if err != nil {
+		return protocol.MutationResult{}, NewError("event_encode_failed", "could not encode batch commit", err)
+	}
+	if err := e.appendAndApply(session, event); err != nil {
+		return protocol.MutationResult{}, err
+	}
+	return mutationResult(session.state, false), nil
+}
+
+func (e *Engine) SetActorActivity(request protocol.SetActorActivityRequest) (protocol.MutationResult, error) {
+	if err := protocol.ValidateSetActorActivity(request); err != nil {
+		return protocol.MutationResult{}, validationError(err)
+	}
+	session, err := e.session(request.SessionID)
+	if err != nil {
+		return protocol.MutationResult{}, err
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if !protocol.HasFeature(session.state.Features, protocol.FeatureActorActivity) {
+		return protocol.MutationResult{}, NewError("feature_not_enabled", "actor activity requires actor-activity-v1", ErrConflict)
+	}
+	if receipt, found := session.state.Receipts[request.RequestID]; found {
+		if receipt.Kind == EventActivityUpdated {
+			return mutationResult(session.state, true), nil
+		}
+		return protocol.MutationResult{}, requestConflict(request.RequestID)
+	}
+	if request.Tick < session.state.Tick {
+		return protocol.MutationResult{}, NewFieldError("tick_regressed", "activity tick is older than session state", "tick", ErrConflict)
+	}
+	for index, update := range request.Updates {
+		if _, exists := session.state.Actors[update.ActorID]; !exists {
+			return protocol.MutationResult{}, NewFieldError("unknown_actor", "activity update references an unknown actor", fmt.Sprintf("updates[%d].actor_id", index), ErrNotFound)
+		}
+	}
+	event, err := newEvent(session.state, EventActivityUpdated, request.RequestID, activityUpdatedPayload{Request: request}, e.now())
+	if err != nil {
+		return protocol.MutationResult{}, NewError("event_encode_failed", "could not encode actor activity", err)
+	}
+	if err := e.appendAndApply(session, event); err != nil {
+		return protocol.MutationResult{}, err
+	}
+	return mutationResult(session.state, false), nil
+}
+
+func (e *Engine) Arbitrate(request protocol.ArbitrateRequest) (protocol.ArbitrationRecord, bool, error) {
+	if err := protocol.ValidateArbitrate(request); err != nil {
+		return protocol.ArbitrationRecord{}, false, validationError(err)
+	}
+	session, err := e.session(request.SessionID)
+	if err != nil {
+		return protocol.ArbitrationRecord{}, false, err
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if !protocol.HasFeature(session.state.Features, protocol.FeatureArbitration) {
+		return protocol.ArbitrationRecord{}, false, NewError("feature_not_enabled", "world arbitration requires arbitration-v1", ErrConflict)
+	}
+	if receipt, found := session.state.Receipts[request.RequestID]; found {
+		if receipt.Kind != EventArbitrated {
+			return protocol.ArbitrationRecord{}, false, requestConflict(request.RequestID)
+		}
+		for _, record := range session.state.Arbitrations {
+			if record.ID == receipt.EntityID {
+				return record, true, nil
+			}
+		}
+		return protocol.ArbitrationRecord{}, false, NewError("arbitration_missing", "idempotent arbitration is no longer retained", ErrNotFound)
+	}
+	if request.Tick < session.state.Tick {
+		return protocol.ArbitrationRecord{}, false, NewFieldError("tick_regressed", "arbitration tick is older than session state", "tick", ErrConflict)
+	}
+	proposals := make([]protocol.ActionProposal, 0, len(request.ProposalIDs))
+	actors := make(map[string]struct{}, len(request.ProposalIDs))
+	for index, proposalID := range request.ProposalIDs {
+		proposal, exists := session.state.Proposals[proposalID]
+		if !exists {
+			return protocol.ArbitrationRecord{}, false, NewFieldError("unknown_proposal", "arbitration references an unknown proposal", fmt.Sprintf("proposal_ids[%d]", index), ErrNotFound)
+		}
+		if proposal.Status != "pending" {
+			return protocol.ArbitrationRecord{}, false, NewFieldError("proposal_resolved", "arbitration requires pending proposals", fmt.Sprintf("proposal_ids[%d]", index), ErrConflict)
+		}
+		if proposal.BasedOnWorldRevision == 0 || proposal.BasedOnWorldRevision != session.state.WorldRevision {
+			return protocol.ArbitrationRecord{}, false, NewError("proposal_stale", "arbitration contains a proposal from another world revision", ErrStale)
+		}
+		if _, duplicate := actors[proposal.ActorID]; duplicate {
+			return protocol.ArbitrationRecord{}, false, NewFieldError("duplicate_actor", "arbitration may contain at most one proposal per actor", "proposal_ids", ErrConflict)
+		}
+		actors[proposal.ActorID] = struct{}{}
+		proposals = append(proposals, proposal)
+	}
+	decisions := arbitrateProposals(session.state, proposals, request.ExclusiveTargetIDs)
+	recordHash, err := hashJSON(struct {
+		SessionID     string `json:"session_id"`
+		RequestID     string `json:"request_id"`
+		WorldRevision uint64 `json:"world_revision"`
+	}{request.SessionID, request.RequestID, session.state.WorldRevision})
+	if err != nil {
+		return protocol.ArbitrationRecord{}, false, NewError("arbitration_id_failed", "could not identify arbitration", err)
+	}
+	record := protocol.ArbitrationRecord{
+		ID: "arbitration." + recordHash[:24], RequestID: request.RequestID, Tick: request.Tick,
+		BasedOnWorldRevision: session.state.WorldRevision, CreatedRevision: session.state.Revision + 1,
+		Decisions: decisions,
+	}
+	event, err := newEvent(session.state, EventArbitrated, request.RequestID, arbitratedPayload{Record: record}, e.now())
+	if err != nil {
+		return protocol.ArbitrationRecord{}, false, NewError("event_encode_failed", "could not encode arbitration", err)
+	}
+	if err := e.appendAndApply(session, event); err != nil {
+		return protocol.ArbitrationRecord{}, false, err
+	}
+	return record, false, nil
 }
 
 func (e *Engine) State(request protocol.SessionRequest) (protocol.SessionState, error) {
@@ -387,10 +577,26 @@ func (e *Engine) DueAgents(request protocol.DueAgentsRequest) (protocol.DueAgent
 	}
 	session.mu.Lock()
 	defer session.mu.Unlock()
+	regions := make(map[string]struct{}, len(request.RegionIDs))
+	for _, regionID := range request.RegionIDs {
+		regions[regionID] = struct{}{}
+	}
 	agents := make([]protocol.DueAgent, 0)
 	for id, actor := range session.state.Actors {
+		regionID := ""
+		if actor.Activity != nil {
+			if actor.Activity.State == "dormant" {
+				continue
+			}
+			regionID = actor.Activity.RegionID
+		}
+		if len(regions) > 0 {
+			if _, included := regions[regionID]; !included {
+				continue
+			}
+		}
 		if actor.Enabled && actor.NextThinkTick <= request.Tick {
-			agents = append(agents, protocol.DueAgent{ActorID: id, NextThinkTick: actor.NextThinkTick})
+			agents = append(agents, protocol.DueAgent{ActorID: id, NextThinkTick: actor.NextThinkTick, RegionID: regionID})
 		}
 	}
 	sort.Slice(agents, func(i, j int) bool {
@@ -403,6 +609,85 @@ func (e *Engine) DueAgents(request protocol.DueAgentsRequest) (protocol.DueAgent
 		agents = agents[:request.Limit]
 	}
 	return protocol.DueAgentsResponse{SessionID: request.SessionID, Tick: request.Tick, Agents: agents}, nil
+}
+
+func arbitrateProposals(state protocol.SessionState, proposals []protocol.ActionProposal, exclusiveTargetIDs []string) []protocol.ArbitrationDecision {
+	exclusive := make(map[string]struct{}, len(exclusiveTargetIDs))
+	for _, targetID := range exclusiveTargetIDs {
+		exclusive[targetID] = struct{}{}
+	}
+	values := append([]protocol.ActionProposal(nil), proposals...)
+	sort.Slice(values, func(i, j int) bool {
+		leftPriority := proposalGoalPriority(state.Actors[values[i].ActorID], values[i])
+		rightPriority := proposalGoalPriority(state.Actors[values[j].ActorID], values[j])
+		if leftPriority != rightPriority {
+			return leftPriority > rightPriority
+		}
+		if values[i].Tick != values[j].Tick {
+			return values[i].Tick < values[j].Tick
+		}
+		if values[i].ActorID != values[j].ActorID {
+			return values[i].ActorID < values[j].ActorID
+		}
+		return values[i].ID < values[j].ID
+	})
+	claimed := make(map[string]string)
+	decisions := make([]protocol.ArbitrationDecision, 0, len(values))
+	for _, proposal := range values {
+		conflicts := make([]string, 0)
+		claims := make([]string, 0)
+		for _, targetID := range proposal.Action.TargetIDs {
+			if _, isExclusive := exclusive[targetID]; !isExclusive {
+				continue
+			}
+			claims = append(claims, targetID)
+			if winnerID, occupied := claimed[targetID]; occupied {
+				conflicts = append(conflicts, winnerID)
+			}
+		}
+		conflicts = uniqueSorted(conflicts)
+		decision := protocol.ArbitrationDecision{
+			ProposalID: proposal.ID, ActorID: proposal.ActorID,
+			Status: "selected", Reason: "No higher-priority proposal claimed the same exclusive target.",
+		}
+		if len(conflicts) > 0 {
+			decision.Status = "deferred"
+			decision.Reason = "A higher-priority proposal already claimed an exclusive target."
+			decision.ConflictingProposalIDs = conflicts
+		} else {
+			for _, targetID := range claims {
+				claimed[targetID] = proposal.ID
+			}
+		}
+		decisions = append(decisions, decision)
+	}
+	return decisions
+}
+
+func proposalGoalPriority(actor protocol.ActorState, proposal protocol.ActionProposal) int {
+	for _, goal := range actor.Goals {
+		if goal.ID == proposal.GoalID {
+			return goal.Priority
+		}
+	}
+	if proposal.ProposedGoal != nil && proposal.ProposedGoal.ID == proposal.GoalID {
+		return proposal.ProposedGoal.Priority
+	}
+	return 0
+}
+
+func uniqueSorted(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func (e *Engine) session(id string) (*managedSession, error) {
@@ -455,6 +740,11 @@ func eventIDExists(state protocol.SessionState, eventID string) bool {
 				return true
 			}
 		}
+		for _, summary := range actor.MemorySummaries {
+			if contains(summary.SourceEventIDs, eventID) {
+				return true
+			}
+		}
 	}
 	return false
 }
@@ -468,7 +758,7 @@ func goalExists(actor protocol.ActorState, goalID string) bool {
 	return false
 }
 
-func validateDraft(request protocol.ProposeRequest, actor protocol.ActorState, draft ProposalDraft) (protocol.ActionSpec, error) {
+func validateDraft(request protocol.ProposeRequest, actor protocol.ActorState, draft ProposalDraft) (protocol.ActionSpec, *protocol.Goal, error) {
 	var selected protocol.ActionSpec
 	found := false
 	for _, action := range request.CandidateActions {
@@ -479,41 +769,54 @@ func validateDraft(request protocol.ProposeRequest, actor protocol.ActorState, d
 		}
 	}
 	if !found {
-		return protocol.ActionSpec{}, NewFieldError("invalid_policy_output", "policy selected an action outside the candidate list", "action_id", ErrConflict)
+		return protocol.ActionSpec{}, nil, NewFieldError("invalid_policy_output", "policy selected an action outside the candidate list", "action_id", ErrConflict)
 	}
 	if draft.Stance != "engage" && draft.Stance != "partial" && draft.Stance != "redirect" && draft.Stance != "refuse" && draft.Stance != "wait" {
-		return protocol.ActionSpec{}, NewFieldError("invalid_policy_output", "policy returned an unsupported stance", "stance", ErrConflict)
+		return protocol.ActionSpec{}, nil, NewFieldError("invalid_policy_output", "policy returned an unsupported stance", "stance", ErrConflict)
 	}
 	if err := validatePolicyText("summary", draft.Summary, 500, true); err != nil {
-		return protocol.ActionSpec{}, err
+		return protocol.ActionSpec{}, nil, err
 	}
 	if err := validatePolicyText("rationale", draft.Rationale, 500, true); err != nil {
-		return protocol.ActionSpec{}, err
+		return protocol.ActionSpec{}, nil, err
 	}
 	if draft.PolicySource != "" && !validPolicySource(draft.PolicySource) {
-		return protocol.ActionSpec{}, NewFieldError("invalid_policy_output", "policy source is invalid", "policy_source", ErrConflict)
+		return protocol.ActionSpec{}, nil, NewFieldError("invalid_policy_output", "policy source is invalid", "policy_source", ErrConflict)
 	}
 	if len(draft.RecalledMemoryIDs) > 8 {
-		return protocol.ActionSpec{}, NewFieldError("invalid_policy_output", "policy recalled too many memories", "recalled_memory_ids", ErrConflict)
+		return protocol.ActionSpec{}, nil, NewFieldError("invalid_policy_output", "policy recalled too many memories", "recalled_memory_ids", ErrConflict)
 	}
-	memoryIDs := make(map[string]struct{}, len(actor.Memories))
+	memoryIDs := make(map[string]struct{}, len(actor.Memories)+len(actor.MemorySummaries))
 	for _, memory := range actor.Memories {
 		memoryIDs[memory.ID] = struct{}{}
+	}
+	for _, summary := range actor.MemorySummaries {
+		memoryIDs[summary.ID] = struct{}{}
 	}
 	seen := make(map[string]struct{}, len(draft.RecalledMemoryIDs))
 	for _, id := range draft.RecalledMemoryIDs {
 		if _, exists := memoryIDs[id]; !exists {
-			return protocol.ActionSpec{}, NewFieldError("invalid_policy_output", "policy referenced an unknown memory", "recalled_memory_ids", ErrConflict)
+			return protocol.ActionSpec{}, nil, NewFieldError("invalid_policy_output", "policy referenced an unknown memory", "recalled_memory_ids", ErrConflict)
 		}
 		if _, exists := seen[id]; exists {
-			return protocol.ActionSpec{}, NewFieldError("invalid_policy_output", "policy repeated a memory id", "recalled_memory_ids", ErrConflict)
+			return protocol.ActionSpec{}, nil, NewFieldError("invalid_policy_output", "policy repeated a memory id", "recalled_memory_ids", ErrConflict)
 		}
 		seen[id] = struct{}{}
 	}
+	var proposedGoal *protocol.Goal
 	if draft.GoalID != "" && !goalExists(actor, draft.GoalID) {
-		return protocol.ActionSpec{}, NewFieldError("invalid_policy_output", "policy referenced an unknown goal", "goal_id", ErrConflict)
+		for index := range request.CandidateGoals {
+			if request.CandidateGoals[index].ID == draft.GoalID {
+				goal := request.CandidateGoals[index]
+				proposedGoal = &goal
+				break
+			}
+		}
+		if proposedGoal == nil {
+			return protocol.ActionSpec{}, nil, NewFieldError("invalid_policy_output", "policy referenced an unknown goal", "goal_id", ErrConflict)
+		}
 	}
-	return selected, nil
+	return selected, proposedGoal, nil
 }
 
 func policySource(value string) string {
