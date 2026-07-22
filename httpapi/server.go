@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/sunrioa/rin/jobs"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 )
@@ -22,6 +23,8 @@ type Options struct {
 	Token        string
 	MaxBodyBytes int64
 	Logger       *slog.Logger
+	Jobs         *jobs.Manager
+	PolicyMode   string
 }
 
 type Server struct {
@@ -29,6 +32,8 @@ type Server struct {
 	token        string
 	maxBodyBytes int64
 	logger       *slog.Logger
+	jobs         *jobs.Manager
+	policyMode   string
 	handler      http.Handler
 }
 
@@ -41,7 +46,14 @@ func New(engine *rinruntime.Engine, options Options) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	server := &Server{engine: engine, token: options.Token, maxBodyBytes: maximum, logger: logger}
+	policyMode := options.PolicyMode
+	if policyMode == "" {
+		policyMode = "deterministic"
+	}
+	server := &Server{
+		engine: engine, token: options.Token, maxBodyBytes: maximum, logger: logger,
+		jobs: options.Jobs, policyMode: policyMode,
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", server.health)
 	mux.HandleFunc("POST /v1/session/create", server.createSession)
@@ -52,6 +64,9 @@ func New(engine *rinruntime.Engine, options Options) *Server {
 	mux.HandleFunc("POST /v1/session/snapshot", server.snapshot)
 	mux.HandleFunc("POST /v1/session/restore", server.restore)
 	mux.HandleFunc("POST /v1/scheduler/due", server.dueAgents)
+	mux.HandleFunc("POST /v1/jobs/propose", server.submitProposalJob)
+	mux.HandleFunc("GET /v1/jobs/{job_id}", server.getProposalJob)
+	mux.HandleFunc("DELETE /v1/jobs/{job_id}", server.cancelProposalJob)
 	server.handler = server.secure(server.authenticate(mux))
 	return server
 }
@@ -62,8 +77,11 @@ func (s *Server) ServeHTTP(response http.ResponseWriter, request *http.Request) 
 
 func (s *Server) health(response http.ResponseWriter, _ *http.Request) {
 	s.write(response, http.StatusOK, protocol.APIResponse{
-		OK:   true,
-		Data: map[string]string{"status": "ok", "protocol_version": protocol.Version},
+		OK: true,
+		Data: map[string]any{
+			"status": "ok", "protocol_version": protocol.Version,
+			"policy_mode": s.policyMode, "async_jobs": s.jobs != nil,
+		},
 	})
 }
 
@@ -139,6 +157,41 @@ func (s *Server) dueAgents(response http.ResponseWriter, request *http.Request) 
 	s.respond(response, result, err)
 }
 
+func (s *Server) submitProposalJob(response http.ResponseWriter, request *http.Request) {
+	if s.jobs == nil {
+		s.writeError(response, http.StatusServiceUnavailable, "jobs_unavailable", "asynchronous proposal jobs are unavailable", "")
+		return
+	}
+	var input protocol.ProposeRequest
+	if !s.decode(response, request, &input) {
+		return
+	}
+	result, err := s.jobs.Submit(input)
+	if err != nil {
+		s.respond(response, nil, err)
+		return
+	}
+	s.write(response, http.StatusAccepted, protocol.APIResponse{OK: true, Data: result})
+}
+
+func (s *Server) getProposalJob(response http.ResponseWriter, request *http.Request) {
+	if s.jobs == nil {
+		s.writeError(response, http.StatusServiceUnavailable, "jobs_unavailable", "asynchronous proposal jobs are unavailable", "")
+		return
+	}
+	result, err := s.jobs.Get(request.PathValue("job_id"))
+	s.respond(response, result, err)
+}
+
+func (s *Server) cancelProposalJob(response http.ResponseWriter, request *http.Request) {
+	if s.jobs == nil {
+		s.writeError(response, http.StatusServiceUnavailable, "jobs_unavailable", "asynchronous proposal jobs are unavailable", "")
+		return
+	}
+	result, err := s.jobs.Cancel(request.PathValue("job_id"))
+	s.respond(response, result, err)
+}
+
 func (s *Server) decode(response http.ResponseWriter, request *http.Request, target any) bool {
 	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
@@ -180,6 +233,10 @@ func (s *Server) respond(response http.ResponseWriter, data any, err error) {
 		status = http.StatusUnprocessableEntity
 	case errors.Is(err, rinruntime.ErrConflict), errors.Is(err, rinruntime.ErrStale), errors.Is(err, rinruntime.ErrNotDue):
 		status = http.StatusConflict
+	case errors.Is(err, jobs.ErrQueueFull):
+		status = http.StatusTooManyRequests
+	case errors.Is(err, jobs.ErrClosed):
+		status = http.StatusServiceUnavailable
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		status = http.StatusRequestTimeout
 	}

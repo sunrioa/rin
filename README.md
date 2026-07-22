@@ -2,7 +2,7 @@
 
 Rin 是一个面向游戏角色的轻量级 Agent Runtime。它作为游戏进程旁边的 Sidecar 运行，也可以直接作为 Go 包嵌入工具链。核心只使用 Go 标准库，不绑定视觉小说、RPG 引擎或任何模型供应商。
 
-当前版本：`v0.1.0`（首个可运行原型）
+当前版本：`v0.2.0`
 
 ## 它解决什么
 
@@ -14,6 +14,8 @@ Rin 将“角色思考”和“游戏世界事实”拆开：
 - 每次状态变化写入带哈希链的 JSONL 事件日志，可重放、可检查。
 - 快照绑定 `game/content/version/hash`，篡改或串档会被拒绝。
 - 多 NPC 通过 tick 调度按需思考，不需要每帧调用模型。
+- 在线模型通过异步 Job 预取，慢请求、取消和状态过期不会冻结游戏主线程。
+- 模型不可用时自动回退确定性 Policy，并用 `policy_source` 标明来源。
 
 这套边界既适用于 Ren'Py 角色，也可用于 RPG NPC、队友、经营模拟居民和其他 AI 游戏实体。
 
@@ -55,6 +57,9 @@ go run ./cmd/rin serve
 | `POST` | `/v1/session/create` | 创建绑定游戏内容版本的会话 |
 | `POST` | `/v1/session/observe` | 提交一个或多个角色确实观察到的事件 |
 | `POST` | `/v1/agent/propose` | 从游戏白名单动作中产生角色提案 |
+| `POST` | `/v1/jobs/propose` | 异步提交角色提案任务 |
+| `GET` | `/v1/jobs/{job_id}` | 查询任务状态与结果 |
+| `DELETE` | `/v1/jobs/{job_id}` | 取消排队或执行中的任务 |
 | `POST` | `/v1/action/commit` | 接受或拒绝提案并记录结果 |
 | `POST` | `/v1/scheduler/due` | 查询当前 tick 应思考的角色 |
 | `POST` | `/v1/session/get` | 读取会话状态 |
@@ -65,12 +70,28 @@ go run ./cmd/rin serve
 
 完整字段和错误语义见 [协议文档](docs/protocol-v1.md)，职责边界见 [架构文档](docs/architecture.md)。
 
+## 可选模型 Policy
+
+默认不访问网络。启用 OpenAI-compatible 模型：
+
+```bash
+export RIN_POLICY=model
+export RIN_MODEL_BASE_URL="https://provider.example/v1"
+export RIN_MODEL="your-model-id"
+export RIN_MODEL_API_KEY="..."
+go run ./cmd/rin serve
+```
+
+远程端点必须使用 HTTPS；本机 `127.0.0.1`、`::1`、`localhost` 模型可使用 HTTP 且可不配置 Key。模型调用具有独立超时、总预算、有限重试、熔断和有界缓存。详细配置见 [模型接入文档](docs/model-policy.md)。
+
 ## 目录
 
 ```text
 cmd/rin/       Sidecar 命令行程序
 httpapi/       严格 JSON、鉴权、请求大小限制
 policy/        零网络依赖的确定性离线策略
+provider/      OpenAI-compatible 客户端、重试与熔断
+jobs/          有界异步 Proposal worker queue
 protocol/      可跨语言实现的 v1 数据契约
 runtime/       事件状态机、提案验证、快照和调度
 store/         JSONL 文件存储与内存存储
@@ -79,6 +100,6 @@ examples/      最小接入示例
 
 ## 当前有意不做
 
-`v0.1.0` 不内置大模型 SDK、向量数据库、ORM、WebSocket、动态插件执行或任意文件访问。模型接入将作为可选 Policy；即使供应商不可用，游戏仍可继续使用确定性策略或自己的离线剧情。
+`v0.2.0` 不引入供应商 SDK、向量数据库、ORM、WebSocket、动态插件执行或任意文件访问。在线模型只是可选 Policy；即使供应商不可用，游戏仍可继续使用确定性策略或自己的离线剧情。
 
 后续工作记录在 [ROADMAP.md](ROADMAP.md)。

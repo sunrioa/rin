@@ -14,12 +14,12 @@
 
 ## v0.2.0 - Optional model policy
 
-- [ ] 标准库 OpenAI-compatible HTTP Provider
-- [ ] Provider 超时、取消、重试预算和熔断
-- [ ] 严格结构化 Draft 与 prompt injection 数据隔离
-- [ ] 异步预取 Job API；游戏主线程永不等待模型
-- [ ] 基于 head hash 的不可变提案缓存
-- [ ] Provider contract fixtures，不提交真实 API Key
+- [x] 标准库 OpenAI-compatible HTTP Provider
+- [x] Provider 超时、取消、重试预算和熔断
+- [x] 严格结构化 Draft 与 prompt injection 数据隔离
+- [x] 异步预取 Job API；游戏主线程永不等待模型
+- [x] 基于 head hash 的不可变提案缓存
+- [x] Provider contract fixtures，不提交真实 API Key
 
 ## v0.3.0 - Game adapters
 

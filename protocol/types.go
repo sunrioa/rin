@@ -85,6 +85,7 @@ type ActionProposal struct {
 	Stance            string     `json:"stance"`
 	Summary           string     `json:"summary"`
 	Rationale         string     `json:"rationale"`
+	PolicySource      string     `json:"policy_source,omitempty"`
 	RecalledMemoryIDs []string   `json:"recalled_memory_ids,omitempty"`
 	GoalID            string     `json:"goal_id,omitempty"`
 	Status            string     `json:"status"`
@@ -214,6 +215,27 @@ type MutationResult struct {
 type ProposalResult struct {
 	Proposal  ActionProposal `json:"proposal"`
 	Duplicate bool           `json:"duplicate"`
+}
+
+type ProposalJobSubmission struct {
+	ProtocolVersion string `json:"protocol_version"`
+	JobID           string `json:"job_id"`
+	Status          string `json:"status"`
+	Duplicate       bool   `json:"duplicate"`
+}
+
+type ProposalJob struct {
+	ProtocolVersion string          `json:"protocol_version"`
+	JobID           string          `json:"job_id"`
+	SessionID       string          `json:"session_id"`
+	RequestID       string          `json:"request_id"`
+	Status          string          `json:"status"`
+	SubmittedAt     string          `json:"submitted_at"`
+	StartedAt       string          `json:"started_at,omitempty"`
+	FinishedAt      string          `json:"finished_at,omitempty"`
+	Proposal        *ActionProposal `json:"proposal,omitempty"`
+	Duplicate       bool            `json:"duplicate,omitempty"`
+	Error           *ErrorDetail    `json:"error,omitempty"`
 }
 
 type Snapshot struct {

@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/sunrioa/rin/httpapi"
-	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/jobs"
 	rinruntime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
 )
@@ -55,12 +55,25 @@ func run(arguments []string) error {
 	if err != nil {
 		return err
 	}
-	engine, err := rinruntime.Open(fileStore, policy.Deterministic{})
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	selectedPolicy, policyMode, err := buildPolicy(logger)
 	if err != nil {
 		return err
 	}
-	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	api := httpapi.New(engine, httpapi.Options{Token: token, MaxBodyBytes: *maxBody, Logger: logger})
+	engine, err := rinruntime.Open(fileStore, selectedPolicy)
+	if err != nil {
+		return err
+	}
+	jobManager, err := jobs.New(engine, jobs.Config{
+		Workers: envInt("RIN_JOB_WORKERS", 2), QueueSize: envInt("RIN_JOB_QUEUE_SIZE", 64),
+		MaxJobs: envInt("RIN_JOB_MAX_RETAINED", 512), JobTTL: envDuration("RIN_JOB_TTL", 30*time.Minute),
+	})
+	if err != nil {
+		return err
+	}
+	api := httpapi.New(engine, httpapi.Options{
+		Token: token, MaxBodyBytes: *maxBody, Logger: logger, Jobs: jobManager, PolicyMode: policyMode,
+	})
 	server := &http.Server{
 		Addr:              *address,
 		Handler:           api,
@@ -72,26 +85,40 @@ func run(arguments []string) error {
 	}
 	listener, err := net.Listen("tcp", *address)
 	if err != nil {
+		closeContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = jobManager.Close(closeContext)
 		return err
 	}
-	logger.Info("rin sidecar listening", "address", listener.Addr().String(), "protocol", "rin.protocol/v1", "auth", token != "")
+	logFields := []any{"address", listener.Addr().String(), "protocol", "rin.protocol/v1", "auth", token != "", "policy", policyMode}
+	if policyMode == "model-with-fallback" {
+		logFields = append(logFields, "model_config", describeModelConfig())
+	}
+	logger.Info("rin sidecar listening", logFields...)
 	errChannel := make(chan error, 1)
 	go func() {
 		errChannel <- server.Serve(listener)
 	}()
 	signalContext, stop := signal.NotifyContext(context.Background(), shutdownSignals()...)
 	defer stop()
+	var serveError error
+	shutdownRequested := false
 	select {
 	case err := <-errChannel:
-		if errors.Is(err, http.ErrServerClosed) {
-			return nil
+		if !errors.Is(err, http.ErrServerClosed) {
+			serveError = err
 		}
-		return err
 	case <-signalContext.Done():
-		shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		return server.Shutdown(shutdownContext)
+		shutdownRequested = true
 	}
+	shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var shutdownError error
+	if shutdownRequested {
+		shutdownError = server.Shutdown(shutdownContext)
+	}
+	jobsError := jobManager.Close(shutdownContext)
+	return errors.Join(serveError, shutdownError, jobsError)
 }
 
 func validateListenAddress(address string, allowRemote bool, token string) error {

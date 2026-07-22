@@ -178,6 +178,11 @@ func validateProposal(field string, state SessionState, actor ActorState, propos
 	if err := validateText(field+".rationale", proposal.Rationale, 500, true); err != nil {
 		return err
 	}
+	if proposal.PolicySource != "" {
+		if err := validateID(field+".policy_source", proposal.PolicySource); err != nil {
+			return err
+		}
+	}
 	if err := validateTags(field+".recalled_memory_ids", proposal.RecalledMemoryIDs, 8); err != nil {
 		return err
 	}

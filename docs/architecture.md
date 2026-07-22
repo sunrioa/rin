@@ -10,6 +10,8 @@ flowchart LR
     G -->|Commit accepted/rejected| R
     R --> E["Hash-chained event log"]
     R --> S["Verified snapshot"]
+    R -->|"bounded prompt packet"| P["Optional model provider"]
+    P -->|"structured draft"| V
 ```
 
 游戏引擎始终拥有世界权威。Rin 不直接修改场景、任务、物品、战斗、角色位置、关键选择或存档。Policy 只能从本次请求的 `candidate_actions` 中选择一个动作；运行时还会检查角色、目标、记忆引用、边界、会话 revision 和内容绑定。
@@ -35,7 +37,25 @@ Policy 接口只返回 `ProposalDraft`。运行时不信任实现：动作必须
 3. 用重要度、近期性、标签和召回次数选择最多三条记忆。
 4. 对重复动作降权，以固定 seed 和请求上下文确定性打破平局。
 
-未来的模型 Policy 应只替换第 2–4 步，不绕过运行时验证器。
+在线模型 Policy 只替换第 2–4 步，不绕过运行时验证器。
+
+### Model policy
+
+模型 Policy 只构造最小上下文包。系统指令与游戏数据分成两个 message，玩家输入、剧情文本和内容包字段全部位于 `untrusted_game_data`；同时给出独立 `contract`，列出唯一合法的 action、memory 和 goal ID。供应商即使不支持严格 JSON Schema，返回结果仍会在本地执行 unknown-field、类型、长度和 ID 白名单校验。
+
+角色边界在调用供应商之前本地处理。触发边界时直接使用 `boundary-guard`，不会依赖模型自行拒绝。
+
+### Provider resilience
+
+OpenAI-compatible 客户端由标准库实现。每次调用具有 attempt timeout 和 total timeout，只重试网络、429、408 和 5xx 等暂时错误；连续失败会打开 circuit breaker，开放期直接进入离线回退。响应正文、Prompt 和 Key 不写入错误、日志或状态。
+
+模型 Draft 按 Session head hash、Actor 和语义请求建立有界内存缓存。相同 key 的并发调用合并成一次供应商请求；状态变化后 head hash 改变，旧结果不会命中新世界状态。
+
+### Async jobs
+
+`jobs.Manager` 使用有界 worker 和 queue。游戏先提交 `/v1/jobs/propose`，继续渲染与接收输入，再通过 GET 轮询。若思考期间 Session 变化，Job 结束为 `stale`，不会写入旧提案；取消会沿 context 传递到 HTTP Provider。
+
+Job 元数据只在进程内保留，成功 Proposal 本身已进入事件日志。Sidecar 重启后，客户端可用同一 `request_id` 重新提交，Engine 会幂等返回已生成 Proposal。
 
 ### Store
 

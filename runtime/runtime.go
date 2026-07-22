@@ -44,6 +44,7 @@ type ProposalDraft struct {
 	Stance            string
 	Summary           string
 	Rationale         string
+	PolicySource      string
 	RecalledMemoryIDs []string
 	GoalID            string
 }

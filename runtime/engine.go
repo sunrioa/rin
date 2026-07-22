@@ -128,6 +128,9 @@ func (e *Engine) Observe(request protocol.ObserveRequest) (protocol.MutationResu
 }
 
 func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (protocol.ActionProposal, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return protocol.ActionProposal{}, false, NewError("proposal_canceled", "proposal request was canceled", err)
+	}
 	if err := protocol.ValidatePropose(request); err != nil {
 		return protocol.ActionProposal{}, false, validationError(err)
 	}
@@ -181,6 +184,9 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 		}
 		return protocol.ActionProposal{}, false, NewError("policy_failed", "policy could not produce a proposal", err)
 	}
+	if err := ctx.Err(); err != nil {
+		return protocol.ActionProposal{}, false, NewError("proposal_canceled", "proposal request was canceled", err)
+	}
 	selected, err := validateDraft(request, actor, draft)
 	if err != nil {
 		return protocol.ActionProposal{}, false, err
@@ -188,6 +194,9 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 
 	session.mu.Lock()
 	defer session.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return protocol.ActionProposal{}, false, NewError("proposal_canceled", "proposal request was canceled", err)
+	}
 	if receipt, found := session.state.Receipts[request.RequestID]; found {
 		if receipt.Kind == EventProposed {
 			proposal := session.state.Proposals[receipt.EntityID]
@@ -220,6 +229,7 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 		Stance:            draft.Stance,
 		Summary:           draft.Summary,
 		Rationale:         draft.Rationale,
+		PolicySource:      policySource(draft.PolicySource),
 		RecalledMemoryIDs: append([]string(nil), draft.RecalledMemoryIDs...),
 		GoalID:            draft.GoalID,
 		Status:            "pending",
@@ -480,6 +490,9 @@ func validateDraft(request protocol.ProposeRequest, actor protocol.ActorState, d
 	if err := validatePolicyText("rationale", draft.Rationale, 500, true); err != nil {
 		return protocol.ActionSpec{}, err
 	}
+	if draft.PolicySource != "" && !validPolicySource(draft.PolicySource) {
+		return protocol.ActionSpec{}, NewFieldError("invalid_policy_output", "policy source is invalid", "policy_source", ErrConflict)
+	}
 	if len(draft.RecalledMemoryIDs) > 8 {
 		return protocol.ActionSpec{}, NewFieldError("invalid_policy_output", "policy recalled too many memories", "recalled_memory_ids", ErrConflict)
 	}
@@ -501,6 +514,25 @@ func validateDraft(request protocol.ProposeRequest, actor protocol.ActorState, d
 		return protocol.ActionSpec{}, NewFieldError("invalid_policy_output", "policy referenced an unknown goal", "goal_id", ErrConflict)
 	}
 	return selected, nil
+}
+
+func policySource(value string) string {
+	if value == "" {
+		return "custom"
+	}
+	return value
+}
+
+func validPolicySource(value string) bool {
+	if len(value) == 0 || len(value) > 64 {
+		return false
+	}
+	for _, character := range value {
+		if !((character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || character == '.' || character == '_' || character == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 func validatePolicyText(field, value string, maximum int, required bool) error {

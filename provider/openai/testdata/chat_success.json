@@ -1,0 +1,18 @@
+{
+  "id": "chatcmpl_fixture",
+  "model": "fixture-model",
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "{\"action_id\":\"talk\",\"stance\":\"engage\",\"summary\":\"Mira asks a careful question.\",\"rationale\":\"She recalls that waiting built trust.\",\"recalled_memory_ids\":[\"memory.relevant\"],\"goal_id\":\"goal.connect\"}"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 120,
+    "completion_tokens": 48,
+    "total_tokens": 168
+  }
+}

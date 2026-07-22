@@ -70,6 +70,7 @@ func (p Deterministic) Propose(ctx context.Context, input rinruntime.PolicyConte
 		Stance:            stance,
 		Summary:           fmt.Sprintf("%s proposes: %s", input.Actor.DisplayName, selected.Description),
 		Rationale:         rationale,
+		PolicySource:      "deterministic",
 		RecalledMemoryIDs: memoryIDs,
 	}
 	if goal != nil {
