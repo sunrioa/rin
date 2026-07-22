@@ -455,6 +455,11 @@ func eventIDExists(state protocol.SessionState, eventID string) bool {
 				return true
 			}
 		}
+		for _, summary := range actor.MemorySummaries {
+			if contains(summary.SourceEventIDs, eventID) {
+				return true
+			}
+		}
 	}
 	return false
 }
@@ -496,9 +501,12 @@ func validateDraft(request protocol.ProposeRequest, actor protocol.ActorState, d
 	if len(draft.RecalledMemoryIDs) > 8 {
 		return protocol.ActionSpec{}, NewFieldError("invalid_policy_output", "policy recalled too many memories", "recalled_memory_ids", ErrConflict)
 	}
-	memoryIDs := make(map[string]struct{}, len(actor.Memories))
+	memoryIDs := make(map[string]struct{}, len(actor.Memories)+len(actor.MemorySummaries))
 	for _, memory := range actor.Memories {
 		memoryIDs[memory.ID] = struct{}{}
+	}
+	for _, summary := range actor.MemorySummaries {
+		memoryIDs[summary.ID] = struct{}{}
 	}
 	seen := make(map[string]struct{}, len(draft.RecalledMemoryIDs))
 	for _, id := range draft.RecalledMemoryIDs {

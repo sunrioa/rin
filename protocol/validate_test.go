@@ -32,6 +32,22 @@ func TestCreateValidationRejectsInvalidBoundaryAndProtocol(t *testing.T) {
 	}
 }
 
+func TestCreateValidationNegotiatesKnownFeatures(t *testing.T) {
+	request := validCreate()
+	request.Features = []string{protocol.FeatureMemoryArchive, protocol.FeatureBeliefConflicts}
+	if err := protocol.ValidateCreateSession(request); err != nil {
+		t.Fatalf("known features should validate: %v", err)
+	}
+	request.Features = append(request.Features, "future-untrusted-feature")
+	if err := protocol.ValidateCreateSession(request); err == nil {
+		t.Fatal("unknown feature should fail")
+	}
+	request.Features = []string{protocol.FeatureMemoryArchive, protocol.FeatureMemoryArchive}
+	if err := protocol.ValidateCreateSession(request); err == nil {
+		t.Fatal("duplicate feature should fail")
+	}
+}
+
 func TestProposalRequiresUniqueWhitelistedShape(t *testing.T) {
 	request := protocol.ProposeRequest{
 		ProtocolVersion: protocol.Version,

@@ -88,6 +88,7 @@ func applyCreated(state protocol.SessionState, event protocol.EventRecord) (prot
 		SessionID:       request.SessionID,
 		Binding:         request.Binding,
 		Seed:            request.Seed,
+		Features:        append([]string(nil), request.Features...),
 		Actors:          actors,
 		Proposals:       make(map[string]protocol.ActionProposal),
 		Receipts: map[string]protocol.RequestReceipt{
@@ -125,10 +126,14 @@ func applyObserved(state *protocol.SessionState, event protocol.EventRecord) err
 			Importance:      request.Importance,
 			CreatedRevision: event.Sequence,
 		})
-		if len(actor.Memories) > maxMemories {
+		if protocol.HasFeature(state.Features, protocol.FeatureMemoryArchive) {
+			if err := compactActorMemories(state.SessionID, &actor, event.Sequence); err != nil {
+				return err
+			}
+		} else if len(actor.Memories) > maxMemories {
 			actor.Memories = append([]protocol.Memory(nil), actor.Memories[len(actor.Memories)-maxMemories:]...)
 		}
-		applyFacts(&actor, request.Facts, request.EventID)
+		applyFacts(&actor, request.Facts, request.EventID, event.Sequence, protocol.HasFeature(state.Features, protocol.FeatureBeliefConflicts))
 		state.Actors[actorID] = actor
 	}
 	if request.Tick > state.Tick {
@@ -194,11 +199,15 @@ func applyCommitted(state *protocol.SessionState, event protocol.EventRecord) er
 				Importance:      3,
 				CreatedRevision: event.Sequence,
 			})
-			if len(actor.Memories) > maxMemories {
+			if protocol.HasFeature(state.Features, protocol.FeatureMemoryArchive) {
+				if err := compactActorMemories(state.SessionID, &actor, event.Sequence); err != nil {
+					return err
+				}
+			} else if len(actor.Memories) > maxMemories {
 				actor.Memories = append([]protocol.Memory(nil), actor.Memories[len(actor.Memories)-maxMemories:]...)
 			}
 		}
-		applyFacts(&actor, request.Facts, request.EventID)
+		applyFacts(&actor, request.Facts, request.EventID, event.Sequence, protocol.HasFeature(state.Features, protocol.FeatureBeliefConflicts))
 		applyGoalProgress(&actor, proposal.GoalID, 1, "")
 		for _, update := range request.GoalUpdates {
 			applyGoalProgress(&actor, update.GoalID, update.ProgressDelta, update.Status)
@@ -235,17 +244,85 @@ func applyRestored(current protocol.SessionState, event protocol.EventRecord) (p
 	return restored, nil
 }
 
-func applyFacts(actor *protocol.ActorState, facts []protocol.Fact, eventID string) {
+func applyFacts(actor *protocol.ActorState, facts []protocol.Fact, eventID string, revision uint64, preserveConflicts bool) {
 	if actor.Beliefs == nil {
 		actor.Beliefs = make(map[string]protocol.Fact)
+	}
+	if preserveConflicts && actor.BeliefSets == nil {
+		actor.BeliefSets = make(map[string]protocol.BeliefSet)
 	}
 	for _, fact := range facts {
 		if len(fact.Visibility) > 0 && !contains(fact.Visibility, actor.ID) {
 			continue
 		}
 		fact.SourceEventID = eventID
-		actor.Beliefs[fact.SubjectID+":"+fact.Predicate] = fact
+		key := fact.SubjectID + ":" + fact.Predicate
+		if !preserveConflicts {
+			actor.Beliefs[key] = fact
+			continue
+		}
+		set := actor.BeliefSets[key]
+		set.SubjectID = fact.SubjectID
+		set.Predicate = fact.Predicate
+		updated := false
+		for index := range set.Claims {
+			if set.Claims[index].Fact.SourceEventID == eventID {
+				set.Claims[index] = protocol.BeliefClaim{Fact: fact, ObservedRevision: revision}
+				updated = true
+				break
+			}
+		}
+		if !updated {
+			set.Claims = append(set.Claims, protocol.BeliefClaim{Fact: fact, ObservedRevision: revision})
+		}
+		trimBeliefClaims(&set)
+		selected := selectBeliefClaim(set.Claims)
+		set.SelectedSourceEventID = selected.Fact.SourceEventID
+		set.Conflicted = beliefObjectCount(set.Claims) > 1
+		actor.BeliefSets[key] = set
+		actor.Beliefs[key] = selected.Fact
 	}
+}
+
+func trimBeliefClaims(set *protocol.BeliefSet) {
+	if len(set.Claims) <= 8 {
+		return
+	}
+	sort.Slice(set.Claims, func(i, j int) bool {
+		if set.Claims[i].Fact.Confidence == set.Claims[j].Fact.Confidence {
+			if set.Claims[i].ObservedRevision == set.Claims[j].ObservedRevision {
+				return set.Claims[i].Fact.SourceEventID < set.Claims[j].Fact.SourceEventID
+			}
+			return set.Claims[i].ObservedRevision > set.Claims[j].ObservedRevision
+		}
+		return set.Claims[i].Fact.Confidence > set.Claims[j].Fact.Confidence
+	})
+	set.Claims = append([]protocol.BeliefClaim(nil), set.Claims[:8]...)
+}
+
+func selectBeliefClaim(claims []protocol.BeliefClaim) protocol.BeliefClaim {
+	values := append([]protocol.BeliefClaim(nil), claims...)
+	sort.Slice(values, func(i, j int) bool {
+		if values[i].Fact.Confidence == values[j].Fact.Confidence {
+			if values[i].ObservedRevision == values[j].ObservedRevision {
+				if values[i].Fact.Object == values[j].Fact.Object {
+					return values[i].Fact.SourceEventID < values[j].Fact.SourceEventID
+				}
+				return values[i].Fact.Object < values[j].Fact.Object
+			}
+			return values[i].ObservedRevision > values[j].ObservedRevision
+		}
+		return values[i].Fact.Confidence > values[j].Fact.Confidence
+	})
+	return values[0]
+}
+
+func beliefObjectCount(claims []protocol.BeliefClaim) int {
+	objects := make(map[string]struct{}, len(claims))
+	for _, claim := range claims {
+		objects[claim.Fact.Object] = struct{}{}
+	}
+	return len(objects)
 }
 
 func applyGoalProgress(actor *protocol.ActorState, goalID string, delta int, status string) {
@@ -282,6 +359,12 @@ func markRecalled(actor *protocol.ActorState, ids []string, tick int64) {
 		if _, exists := selected[actor.Memories[index].ID]; exists {
 			actor.Memories[index].RecallCount++
 			actor.Memories[index].LastRecalledTick = tick
+		}
+	}
+	for index := range actor.MemorySummaries {
+		if _, exists := selected[actor.MemorySummaries[index].ID]; exists {
+			actor.MemorySummaries[index].RecallCount++
+			actor.MemorySummaries[index].LastRecalledTick = tick
 		}
 	}
 }

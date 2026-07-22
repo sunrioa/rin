@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"fmt"
+	"reflect"
 	"regexp"
 )
 
@@ -17,6 +18,9 @@ func ValidateSessionState(state SessionState) error {
 		return err
 	}
 	if err := ValidateBinding(state.Binding); err != nil {
+		return err
+	}
+	if err := validateFeatures("state.features", state.Features); err != nil {
 		return err
 	}
 	if state.Tick < 0 {
@@ -45,7 +49,7 @@ func ValidateSessionState(state SessionState) error {
 		if len(actor.Memories) > 128 {
 			return &ValidationError{Field: base + ".memories", Message: "must contain at most 128 values"}
 		}
-		memoryIDs := make(map[string]struct{}, len(actor.Memories))
+		memoryIDs := make(map[string]struct{}, len(actor.Memories)+len(actor.MemorySummaries))
 		for index, memory := range actor.Memories {
 			field := fmt.Sprintf("%s.memories[%d]", base, index)
 			if err := validateMemory(field, memory); err != nil {
@@ -55,6 +59,22 @@ func ValidateSessionState(state SessionState) error {
 				return &ValidationError{Field: base + ".memories", Message: "memory ids must be unique"}
 			}
 			memoryIDs[memory.ID] = struct{}{}
+		}
+		if len(actor.MemorySummaries) > 32 {
+			return &ValidationError{Field: base + ".memory_summaries", Message: "must contain at most 32 values"}
+		}
+		if len(actor.MemorySummaries) > 0 && !HasFeature(state.Features, FeatureMemoryArchive) {
+			return &ValidationError{Field: base + ".memory_summaries", Message: "requires memory-archive-v1"}
+		}
+		for index, summary := range actor.MemorySummaries {
+			field := fmt.Sprintf("%s.memory_summaries[%d]", base, index)
+			if err := validateMemorySummary(field, summary); err != nil {
+				return err
+			}
+			if _, exists := memoryIDs[summary.ID]; exists {
+				return &ValidationError{Field: base + ".memory_summaries", Message: "memory and summary ids must be unique"}
+			}
+			memoryIDs[summary.ID] = struct{}{}
 		}
 		if len(actor.Beliefs) > 256 {
 			return &ValidationError{Field: base + ".beliefs", Message: "must contain at most 256 values"}
@@ -71,6 +91,31 @@ func ValidateSessionState(state SessionState) error {
 				if _, exists := state.Actors[visibleActor]; !exists {
 					return &ValidationError{Field: field + ".visibility", Message: "references an unknown actor"}
 				}
+			}
+		}
+		if len(actor.BeliefSets) > 256 {
+			return &ValidationError{Field: base + ".belief_sets", Message: "must contain at most 256 values"}
+		}
+		if len(actor.BeliefSets) > 0 && !HasFeature(state.Features, FeatureBeliefConflicts) {
+			return &ValidationError{Field: base + ".belief_sets", Message: "requires belief-conflicts-v1"}
+		}
+		for key, set := range actor.BeliefSets {
+			field := base + ".belief_sets." + key
+			if err := validateBeliefSet(field, key, set, state.Revision); err != nil {
+				return err
+			}
+			selected, exists := actor.Beliefs[key]
+			if !exists {
+				return &ValidationError{Field: field, Message: "must have a selected compatibility belief"}
+			}
+			matched := false
+			for _, claim := range set.Claims {
+				if claim.Fact.SourceEventID == set.SelectedSourceEventID && reflect.DeepEqual(claim.Fact, selected) {
+					matched = true
+				}
+			}
+			if !matched {
+				return &ValidationError{Field: field + ".selected_source_event_id", Message: "must select the projected belief"}
 			}
 		}
 		if len(actor.RecentActions) > 32 {
@@ -96,9 +141,12 @@ func ValidateSessionState(state SessionState) error {
 		if !exists {
 			return &ValidationError{Field: "state.proposals." + id + ".actor_id", Message: "references an unknown actor"}
 		}
-		memoryIDs := make(map[string]struct{}, len(actor.Memories))
+		memoryIDs := make(map[string]struct{}, len(actor.Memories)+len(actor.MemorySummaries))
 		for _, memory := range actor.Memories {
 			memoryIDs[memory.ID] = struct{}{}
+		}
+		for _, summary := range actor.MemorySummaries {
+			memoryIDs[summary.ID] = struct{}{}
 		}
 		if err := validateProposal("state.proposals."+id, state, actor, proposal, memoryIDs); err != nil {
 			return err
@@ -145,6 +193,92 @@ func validateMemory(field string, memory Memory) error {
 	}
 	if memory.Importance < 1 || memory.Importance > 5 {
 		return &ValidationError{Field: field + ".importance", Message: "must be between 1 and 5"}
+	}
+	return nil
+}
+
+func validateMemorySummary(field string, summary MemorySummary) error {
+	if err := validateID(field+".id", summary.ID); err != nil {
+		return err
+	}
+	if summary.Level < 1 || summary.Level > 16 {
+		return &ValidationError{Field: field + ".level", Message: "must be between 1 and 16"}
+	}
+	if err := validateText(field+".summary", summary.Summary, 1000, true); err != nil {
+		return err
+	}
+	if err := validateTags(field+".tags", summary.Tags, 32); err != nil {
+		return err
+	}
+	if err := validateTags(field+".source_memory_ids", summary.SourceMemoryIDs, 64); err != nil {
+		return err
+	}
+	if err := validateTags(field+".source_event_ids", summary.SourceEventIDs, 64); err != nil {
+		return err
+	}
+	if len(summary.SourceMemoryIDs) == 0 || len(summary.SourceEventIDs) == 0 {
+		return &ValidationError{Field: field, Message: "must retain source memory and event ids"}
+	}
+	if summary.StartTick < 0 || summary.EndTick < summary.StartTick || summary.LastRecalledTick < 0 {
+		return &ValidationError{Field: field, Message: "contains an invalid tick range"}
+	}
+	if summary.Importance < 1 || summary.Importance > 5 {
+		return &ValidationError{Field: field + ".importance", Message: "must be between 1 and 5"}
+	}
+	if err := validateID(field+".reason", summary.Reason); err != nil {
+		return err
+	}
+	if summary.CreatedRevision == 0 || summary.RecallCount < 0 || summary.RecallCount > 1_000_000 {
+		return &ValidationError{Field: field, Message: "contains invalid revision or recall values"}
+	}
+	return nil
+}
+
+func validateBeliefSet(field, key string, set BeliefSet, stateRevision uint64) error {
+	if err := validateID(field+".subject_id", set.SubjectID); err != nil {
+		return err
+	}
+	if err := validateID(field+".predicate", set.Predicate); err != nil {
+		return err
+	}
+	if key != set.SubjectID+":"+set.Predicate {
+		return &ValidationError{Field: field, Message: "map key must match subject and predicate"}
+	}
+	if len(set.Claims) == 0 || len(set.Claims) > 8 {
+		return &ValidationError{Field: field + ".claims", Message: "must contain 1-8 claims"}
+	}
+	if err := validateID(field+".selected_source_event_id", set.SelectedSourceEventID); err != nil {
+		return err
+	}
+	sources := make(map[string]struct{}, len(set.Claims))
+	objects := make(map[string]struct{}, len(set.Claims))
+	selectedExists := false
+	for index, claim := range set.Claims {
+		claimField := fmt.Sprintf("%s.claims[%d]", field, index)
+		if err := validateFact(claimField+".fact", claim.Fact); err != nil {
+			return err
+		}
+		if claim.Fact.SubjectID != set.SubjectID || claim.Fact.Predicate != set.Predicate {
+			return &ValidationError{Field: claimField + ".fact", Message: "must match its belief set"}
+		}
+		if claim.Fact.SourceEventID == "" {
+			return &ValidationError{Field: claimField + ".fact.source_event_id", Message: "is required"}
+		}
+		if _, exists := sources[claim.Fact.SourceEventID]; exists {
+			return &ValidationError{Field: field + ".claims", Message: "source event ids must be unique"}
+		}
+		sources[claim.Fact.SourceEventID] = struct{}{}
+		objects[claim.Fact.Object] = struct{}{}
+		if claim.ObservedRevision == 0 || claim.ObservedRevision > stateRevision {
+			return &ValidationError{Field: claimField + ".observed_revision", Message: "must reference an existing revision"}
+		}
+		selectedExists = selectedExists || claim.Fact.SourceEventID == set.SelectedSourceEventID
+	}
+	if !selectedExists {
+		return &ValidationError{Field: field + ".selected_source_event_id", Message: "references an unknown claim"}
+	}
+	if set.Conflicted != (len(objects) > 1) {
+		return &ValidationError{Field: field + ".conflicted", Message: "must reflect distinct claim objects"}
 	}
 	return nil
 }

@@ -65,6 +65,30 @@ func TestModelPolicyUsesIsolatedDataPacket(t *testing.T) {
 	}
 }
 
+func TestModelPolicyReceivesOnlyActorConflictSets(t *testing.T) {
+	client := &completionClient{response: validModelJSON()}
+	input := modelInput()
+	input.Actor.BeliefSets = map[string]protocol.BeliefSet{
+		"relic:location": {
+			SubjectID: "relic", Predicate: "location", SelectedSourceEventID: "event.harbor", Conflicted: true,
+			Claims: []protocol.BeliefClaim{
+				{Fact: protocol.Fact{SubjectID: "relic", Predicate: "location", Object: "harbor", SourceEventID: "event.harbor", Confidence: 80}, ObservedRevision: 1},
+				{Fact: protocol.Fact{SubjectID: "relic", Predicate: "location", Object: "tower", SourceEventID: "event.tower", Confidence: 60}, ObservedRevision: 2},
+			},
+		},
+	}
+	input.Actor.Beliefs["relic:location"] = input.Actor.BeliefSets["relic:location"].Claims[0].Fact
+	if _, err := (policy.Model{Client: client}).Propose(context.Background(), input); err != nil {
+		t.Fatal(err)
+	}
+	client.mu.Lock()
+	request := client.request
+	client.mu.Unlock()
+	if !strings.Contains(request.Messages[1].Content, `"belief_conflicts"`) || !strings.Contains(request.Messages[1].Content, `"tower"`) {
+		t.Fatalf("actor-local conflict was not included in the bounded packet: %s", request.Messages[1].Content)
+	}
+}
+
 func TestModelPolicyRejectsContractEscapeAndUnknownJSON(t *testing.T) {
 	client := &completionClient{response: strings.Replace(validModelJSON(), `"action_id":"talk"`, `"action_id":"execute"`, 1)}
 	_, err := (policy.Model{Client: client}).Propose(context.Background(), modelInput())

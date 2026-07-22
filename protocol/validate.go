@@ -71,6 +71,18 @@ func validateTags(field string, values []string, maximum int) error {
 	return nil
 }
 
+func validateFeatures(field string, values []string) error {
+	if err := validateTags(field, values, len(supportedFeatures)); err != nil {
+		return err
+	}
+	for index, value := range values {
+		if !IsSupportedFeature(value) {
+			return &ValidationError{Field: fmt.Sprintf("%s[%d]", field, index), Message: "is not supported"}
+		}
+	}
+	return nil
+}
+
 func ValidateBinding(binding Binding) error {
 	if err := validateID("binding.game_id", binding.GameID); err != nil {
 		return err
@@ -176,6 +188,9 @@ func ValidateCreateSession(request CreateSessionRequest) error {
 		return err
 	}
 	if err := ValidateBinding(request.Binding); err != nil {
+		return err
+	}
+	if err := validateFeatures("features", request.Features); err != nil {
 		return err
 	}
 	if len(request.Actors) == 0 || len(request.Actors) > 128 {

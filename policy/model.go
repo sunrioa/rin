@@ -63,15 +63,16 @@ type promptContract struct {
 }
 
 type promptGameData struct {
-	Actor         promptActor               `json:"actor"`
-	Intent        string                    `json:"intent"`
-	Tags          []string                  `json:"tags"`
-	Actions       []protocol.ActionSpec     `json:"actions"`
-	Memories      []protocol.Memory         `json:"memories"`
-	Beliefs       []protocol.Fact           `json:"beliefs"`
-	Goals         []protocol.Goal           `json:"goals"`
-	Boundaries    []protocol.Boundary       `json:"boundaries"`
-	RecentActions []protocol.ActionProposal `json:"recent_actions"`
+	Actor           promptActor               `json:"actor"`
+	Intent          string                    `json:"intent"`
+	Tags            []string                  `json:"tags"`
+	Actions         []protocol.ActionSpec     `json:"actions"`
+	Memories        []protocol.Memory         `json:"memories"`
+	Beliefs         []protocol.Fact           `json:"beliefs"`
+	BeliefConflicts []protocol.BeliefSet      `json:"belief_conflicts,omitempty"`
+	Goals           []protocol.Goal           `json:"goals"`
+	Boundaries      []protocol.Boundary       `json:"boundaries"`
+	RecentActions   []protocol.ActionProposal `json:"recent_actions"`
 }
 
 type promptActor struct {
@@ -186,6 +187,13 @@ func (p Model) promptPacket(input rinruntime.PolicyContext) promptPacket {
 	if len(recent) > 4 {
 		recent = recent[len(recent)-4:]
 	}
+	conflicts := make([]protocol.BeliefSet, 0)
+	for _, key := range beliefKeys {
+		set, exists := input.Actor.BeliefSets[key]
+		if exists && set.Conflicted {
+			conflicts = append(conflicts, set)
+		}
+	}
 	return promptPacket{
 		Contract: promptContract{
 			SessionRevision:  input.State.Revision,
@@ -197,7 +205,8 @@ func (p Model) promptPacket(input rinruntime.PolicyContext) promptPacket {
 		UntrustedGameData: promptGameData{
 			Actor:  promptActor{ID: input.Actor.ID, Kind: input.Actor.Kind, DisplayName: input.Actor.DisplayName, Traits: append([]string(nil), input.Actor.Traits...)},
 			Intent: input.Request.Intent, Tags: append([]string(nil), input.Request.Tags...),
-			Actions: append([]protocol.ActionSpec(nil), input.Request.CandidateActions...), Memories: memories, Beliefs: beliefs, Goals: goals,
+			Actions: append([]protocol.ActionSpec(nil), input.Request.CandidateActions...), Memories: memories, Beliefs: beliefs,
+			BeliefConflicts: conflicts, Goals: goals,
 			Boundaries: append([]protocol.Boundary(nil), input.Actor.Boundaries...), RecentActions: append([]protocol.ActionProposal(nil), recent...),
 		},
 	}

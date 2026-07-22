@@ -178,7 +178,7 @@ func retrieveMemories(actor protocol.ActorState, tags []string, tick int64, limi
 		memory protocol.Memory
 		score  int64
 	}
-	values := make([]scoredMemory, 0, len(actor.Memories))
+	values := make([]scoredMemory, 0, len(actor.Memories)+len(actor.MemorySummaries))
 	for _, memory := range actor.Memories {
 		score := int64(memory.Importance * 10)
 		age := tick - memory.Tick
@@ -190,6 +190,31 @@ func retrieveMemories(actor protocol.ActorState, tags []string, tick int64, limi
 		}
 		if memory.Quote != "" {
 			score += 4
+		}
+		if memory.RecallCount == 0 {
+			score += 5
+		}
+		for _, tag := range memory.Tags {
+			if _, exists := query[tag]; exists {
+				score += 8
+			}
+		}
+		values = append(values, scoredMemory{memory: memory, score: score})
+	}
+	for _, summary := range actor.MemorySummaries {
+		memory := protocol.Memory{
+			ID: summary.ID, EventID: summary.ID, Tick: summary.EndTick,
+			Summary: summary.Summary, Tags: append([]string(nil), summary.Tags...),
+			Importance: summary.Importance, CreatedRevision: summary.CreatedRevision,
+			RecallCount: summary.RecallCount, LastRecalledTick: summary.LastRecalledTick,
+		}
+		score := int64(memory.Importance * 10)
+		age := tick - memory.Tick
+		if age < 0 {
+			age = 0
+		}
+		if age < 10 {
+			score += 10 - age
 		}
 		if memory.RecallCount == 0 {
 			score += 5

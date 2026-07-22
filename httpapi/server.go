@@ -88,6 +88,7 @@ func (s *Server) health(response http.ResponseWriter, _ *http.Request) {
 			"status": "ok", "protocol_version": protocol.Version,
 			"policy_mode": s.policyMode, "async_jobs": s.jobs != nil,
 			"structured_generation": s.generation != nil,
+			"features":              protocol.SupportedFeatures(),
 		},
 	})
 }
