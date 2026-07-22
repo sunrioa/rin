@@ -69,6 +69,8 @@ func New(engine *rinruntime.Engine, options Options) *Server {
 	mux.HandleFunc("POST /v1/session/get", server.getSession)
 	mux.HandleFunc("POST /v1/session/snapshot", server.snapshot)
 	mux.HandleFunc("POST /v1/session/restore", server.restore)
+	mux.HandleFunc("POST /v1/session/timeline", server.timeline)
+	mux.HandleFunc("POST /v1/session/replay", server.replay)
 	mux.HandleFunc("POST /v1/scheduler/due", server.dueAgents)
 	mux.HandleFunc("POST /v1/jobs/propose", server.submitProposalJob)
 	mux.HandleFunc("GET /v1/jobs/{job_id}", server.getProposalJob)
@@ -183,6 +185,24 @@ func (s *Server) restore(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 	result, err := s.engine.Restore(input)
+	s.respond(response, result, err)
+}
+
+func (s *Server) timeline(response http.ResponseWriter, request *http.Request) {
+	var input protocol.TimelineRequest
+	if !s.decode(response, request, &input) {
+		return
+	}
+	result, err := s.engine.Timeline(input)
+	s.respond(response, result, err)
+}
+
+func (s *Server) replay(response http.ResponseWriter, request *http.Request) {
+	var input protocol.ReplayRequest
+	if !s.decode(response, request, &input) {
+		return
+	}
+	result, err := s.engine.Replay(input)
 	s.respond(response, result, err)
 }
 

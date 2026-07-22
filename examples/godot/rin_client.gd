@@ -38,6 +38,30 @@ func commit(request: Dictionary) -> Dictionary:
 	return await _json_request(HTTPClient.METHOD_POST, "/v1/action/commit", request, [200])
 
 
+func commit_batch(request: Dictionary) -> Dictionary:
+	return await _json_request(HTTPClient.METHOD_POST, "/v1/action/commit-batch", request, [200])
+
+
+func set_actor_activity(request: Dictionary) -> Dictionary:
+	return await _json_request(HTTPClient.METHOD_POST, "/v1/session/activity", request, [200])
+
+
+func due_agents(request: Dictionary) -> Dictionary:
+	return await _json_request(HTTPClient.METHOD_POST, "/v1/scheduler/due", request, [200])
+
+
+func arbitrate(request: Dictionary) -> Dictionary:
+	return await _json_request(HTTPClient.METHOD_POST, "/v1/world/arbitrate", request, [200])
+
+
+func timeline(request: Dictionary) -> Dictionary:
+	return await _json_request(HTTPClient.METHOD_POST, "/v1/session/timeline", request, [200])
+
+
+func replay(request: Dictionary) -> Dictionary:
+	return await _json_request(HTTPClient.METHOD_POST, "/v1/session/replay", request, [200])
+
+
 func snapshot(session_id: String) -> Dictionary:
 	return await _json_request(
 		HTTPClient.METHOD_POST,

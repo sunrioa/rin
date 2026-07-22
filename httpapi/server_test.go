@@ -104,6 +104,45 @@ func TestHTTPFlowAndNoSafeAction(t *testing.T) {
 	}
 }
 
+func TestTimelineAndReplayHTTPFlow(t *testing.T) {
+	server := newServer(t, httpapi.Options{})
+	if response := perform(t, server, "/v1/session/create", apiCreateRequest()); response.Code != http.StatusOK {
+		t.Fatalf("create: %d %s", response.Code, response.Body.String())
+	}
+	timelineResponse := perform(t, server, "/v1/session/timeline", protocol.TimelineRequest{
+		ProtocolVersion: protocol.Version, SessionID: "session.http", Limit: 10,
+	})
+	if timelineResponse.Code != http.StatusOK {
+		t.Fatalf("timeline: %d %s", timelineResponse.Code, timelineResponse.Body.String())
+	}
+	var timeline struct {
+		OK   bool                      `json:"ok"`
+		Data protocol.TimelineResponse `json:"data"`
+	}
+	if err := json.Unmarshal(timelineResponse.Body.Bytes(), &timeline); err != nil {
+		t.Fatal(err)
+	}
+	if !timeline.OK || len(timeline.Data.Entries) != 1 || timeline.Data.Entries[0].Type != rinruntime.EventSessionCreated {
+		t.Fatalf("unexpected timeline: %+v", timeline)
+	}
+	replayResponse := perform(t, server, "/v1/session/replay", protocol.ReplayRequest{
+		ProtocolVersion: protocol.Version, SessionID: "session.http", Revision: 1,
+	})
+	if replayResponse.Code != http.StatusOK {
+		t.Fatalf("replay: %d %s", replayResponse.Code, replayResponse.Body.String())
+	}
+	var replay struct {
+		OK   bool              `json:"ok"`
+		Data protocol.Snapshot `json:"data"`
+	}
+	if err := json.Unmarshal(replayResponse.Body.Bytes(), &replay); err != nil {
+		t.Fatal(err)
+	}
+	if !replay.OK || replay.Data.State.Revision != 1 || replay.Data.StateHash == "" {
+		t.Fatalf("unexpected replay: %+v", replay)
+	}
+}
+
 func TestAsyncProposalJobHTTPFlow(t *testing.T) {
 	engine, err := rinruntime.Open(store.NewMemory(), policy.Deterministic{})
 	if err != nil {

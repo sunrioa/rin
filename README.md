@@ -2,7 +2,7 @@
 
 Rin 是一个面向游戏角色的轻量级 Agent Runtime。它作为游戏进程旁边的 Sidecar 运行，也可以直接作为 Go 包嵌入工具链。核心只使用 Go 标准库，不绑定视觉小说、RPG 引擎或任何模型供应商。
 
-当前版本：`v0.4.0`
+当前开发线：`v0.5.0`（Living Worlds）
 
 ## 它解决什么
 
@@ -18,6 +18,8 @@ Rin 将“角色思考”和“游戏世界事实”拆开：
 - 通用结构化 Generation Job 让剧情、任务描述和受限对白也经过 Sidecar，而不是让游戏保存供应商 Key。
 - 模型不可用时自动回退确定性 Policy，并用 `policy_source` 标明来源。
 - Ren'Py、Godot 4 和 Unity 适配器保持同一套 observe / propose / commit 权威边界。
+- 可选分层记忆、冲突认知、候选小目标、区域休眠和确定性多角色仲裁均由 Session feature 显式启用。
+- 脱敏 Timeline、指定 revision Replay 和 `rin inspect` 让长流程角色行为可以复现和审计。
 
 这套边界既适用于 Ren'Py 角色，也可用于 RPG NPC、队友、经营模拟居民和其他 AI 游戏实体。
 
@@ -66,14 +68,26 @@ go run ./cmd/rin serve
 | `GET` | `/v1/generation/jobs/{job_id}` | 查询生成任务与安全元数据 |
 | `DELETE` | `/v1/generation/jobs/{job_id}` | 取消生成任务 |
 | `POST` | `/v1/action/commit` | 接受或拒绝提案并记录结果 |
+| `POST` | `/v1/action/commit-batch` | 原子提交同一世界版本的多角色结果 |
+| `POST` | `/v1/session/activity` | 更新角色区域与 awake/dormant 状态 |
+| `POST` | `/v1/world/arbitrate` | 对并行角色提案进行确定性冲突仲裁 |
 | `POST` | `/v1/scheduler/due` | 查询当前 tick 应思考的角色 |
 | `POST` | `/v1/session/get` | 读取会话状态 |
 | `POST` | `/v1/session/snapshot` | 创建并原子保存快照 |
 | `POST` | `/v1/session/restore` | 校验并恢复快照 |
+| `POST` | `/v1/session/timeline` | 读取脱敏事件时间线 |
+| `POST` | `/v1/session/replay` | 重放到指定 revision 并返回 Snapshot |
 
 所有写请求都带调用方生成的 `request_id`，重复请求返回相同结果，不重复修改状态。同一 ID 被用于不同操作时返回冲突。
 
 完整字段和错误语义见 [协议文档](docs/protocol-v1.md)，职责边界见 [架构文档](docs/architecture.md)。
+
+离线检查一个会话（会验证日志并只打印脱敏时间线）：
+
+```bash
+go run ./cmd/rin inspect -data ./rin-data -session playthrough-1
+go run ./cmd/rin inspect -data ./rin-data -session playthrough-1 -revision 42
+```
 
 ## 游戏引擎适配
 
@@ -116,6 +130,6 @@ examples/      Go、Godot 与 Unity 最小接入示例
 
 ## 当前有意不做
 
-`v0.4.0` 不引入供应商 SDK、向量数据库、ORM、WebSocket、动态插件执行或任意文件访问。在线模型仍是可选能力；即使供应商或 Sidecar 不可用，游戏仍可继续使用确定性策略或自己的离线剧情。
+`v0.5.0` 不引入供应商 SDK、向量数据库、ORM、WebSocket、动态插件执行或任意文件访问。在线模型仍是可选能力；即使供应商或 Sidecar 不可用，游戏仍可继续使用确定性策略或自己的离线剧情。
 
 后续工作记录在 [ROADMAP.md](ROADMAP.md)。

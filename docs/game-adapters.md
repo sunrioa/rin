@@ -57,7 +57,7 @@ request_id = rin_schedule_proposal({
 
 `rin_proposal_status(request_id)` returns `pending`, `ready`, or `missing`; `rin_consume_proposal(request_id)` returns one plain JSON-compatible result. `rin_cancel_proposal` propagates cancellation to the Job API.
 
-The Python client also exposes `submit_generation_job`, `get_generation_job`, `cancel_generation_job`, `wait_for_generation`, and `generate_json`. Generation must run in the same process-local background pattern as proposals. `generate_json` accepts only the provider-free Rin request contract and returns one decoded JSON object plus bounded operational metadata. A game that persists request records should allowlist only the fields it needs; provider model names are useful for explicit probes but should not be copied into gameplay saves.
+The Python client also exposes `commit_batch`, `set_actor_activity`, `arbitrate`, `timeline`, `replay`, and the structured-generation methods. Generation must run in the same process-local background pattern as proposals. `generate_json` accepts only the provider-free Rin request contract and returns one decoded JSON object plus bounded operational metadata. A game that persists request records should allowlist only the fields it needs; provider model names are useful for explicit probes but should not be copied into gameplay saves.
 
 Threads, cancellation events, HTTP objects, and registries are process-local. Never assign them to `default`, persistent data, rollback state, or a save object. Only store accepted protocol snapshots and plain result dictionaries.
 
@@ -67,13 +67,13 @@ Native Ren'Py tests are offline unless `RIN_LIVE_TEST_ENABLED=1`, even if a deve
 
 Add [the client](../examples/godot/rin_client.gd) as a node or autoload. `propose_with_fallback` awaits `HTTPRequest` signals and timer ticks, so it does not block rendering. The [NPC example](../examples/godot/example_npc.gd) shows the complete propose, game apply, and commit sequence.
 
-Godot owns navigation, animation, combat, inventory, and dialogue rendering. The adapter caps response bytes, disables redirects, and accepts plaintext HTTP only for an exact loopback host and valid port.
+Godot owns navigation, animation, combat, inventory, and dialogue rendering. Helpers for activity, due actors, arbitration, batch commit, timeline, and replay are coroutines; call activity on simulation/region changes, not every frame. The adapter caps response bytes, disables redirects, and accepts plaintext HTTP only for an exact loopback host and valid port.
 
 ## Unity
 
 Attach [RinClient.cs](../examples/unity/RinClient.cs) to a GameObject. It uses `UnityWebRequest` coroutines and a capped streaming download handler; no JSON or networking package is required. [RinNpcExample.cs](../examples/unity/RinNpcExample.cs) shows the same apply-before-commit flow.
 
-Unity's `JsonUtility` adapter intentionally exposes a compact common schema. Games that use action parameter maps can extend the serializable request classes without changing the wire protocol.
+Unity's `JsonUtility` adapter exposes serializable DTOs for activity, scheduling, arbitration, batch commit, and timeline. Since `JsonUtility` cannot represent actor-ID keyed maps, its Replay helper returns the verified Snapshot header; projects that need the complete replayed state should parse the same endpoint with their existing dictionary-capable JSON package. Games that use action parameter maps can likewise extend the serializable request classes without changing the wire protocol.
 
 ## ai-galgame compatibility
 
