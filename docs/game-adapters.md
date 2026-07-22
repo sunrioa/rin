@@ -57,6 +57,8 @@ request_id = rin_schedule_proposal({
 
 `rin_proposal_status(request_id)` returns `pending`, `ready`, or `missing`; `rin_consume_proposal(request_id)` returns one plain JSON-compatible result. `rin_cancel_proposal` propagates cancellation to the Job API.
 
+The Python client also exposes `submit_generation_job`, `get_generation_job`, `cancel_generation_job`, `wait_for_generation`, and `generate_json`. Generation must run in the same process-local background pattern as proposals. `generate_json` accepts only the provider-free Rin request contract and returns one decoded JSON object plus bounded operational metadata. A game that persists request records should allowlist only the fields it needs; provider model names are useful for explicit probes but should not be copied into gameplay saves.
+
 Threads, cancellation events, HTTP objects, and registries are process-local. Never assign them to `default`, persistent data, rollback state, or a save object. Only store accepted protocol snapshots and plain result dictionaries.
 
 Native Ren'Py tests are offline unless `RIN_LIVE_TEST_ENABLED=1`, even if a developer shell contains a configured endpoint.
@@ -81,6 +83,18 @@ Unity's `JsonUtility` adapter intentionally exposes a compact common schema. Gam
 - actor-specific observation and belief visibility;
 - a goal-directed optional Storylet;
 - accepted commit, cooldown scheduling, and premature-proposal rejection.
+
+The game-specific `rin_story.py` layer additionally combines:
+
+- content-pack binding and one Rin Session per playthrough;
+- CanonLedger events as actor-scoped Observations;
+- free player text as an explicit Observation;
+- candidate-only heroine directions before scene, free-response, Storylet, and ending generation;
+- accepted direction Commit followed by Snapshot storage in the Ren'Py save;
+- restore IDs derived from both the saved Snapshot and current Sidecar head;
+- deterministic authored fallback whenever Sidecar generation is unavailable.
+
+The game settings contain only `RIN_BASE_URL`, optional `RIN_TOKEN`, and request deadlines. Provider endpoint, model ID, and provider API Key stay in the Rin process.
 
 Verify a local checkout and all content hashes:
 

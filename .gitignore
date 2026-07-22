@@ -5,4 +5,5 @@ __pycache__/
 /bin/
 /dist/
 /rin-data/
+/.cache/
 *.log

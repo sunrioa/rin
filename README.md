@@ -2,7 +2,7 @@
 
 Rin 是一个面向游戏角色的轻量级 Agent Runtime。它作为游戏进程旁边的 Sidecar 运行，也可以直接作为 Go 包嵌入工具链。核心只使用 Go 标准库，不绑定视觉小说、RPG 引擎或任何模型供应商。
 
-当前版本：`v0.3.0`
+当前版本：`v0.4.0`
 
 ## 它解决什么
 
@@ -15,6 +15,7 @@ Rin 将“角色思考”和“游戏世界事实”拆开：
 - 快照绑定 `game/content/version/hash`，篡改或串档会被拒绝。
 - 多 NPC 通过 tick 调度按需思考，不需要每帧调用模型。
 - 在线模型通过异步 Job 预取，慢请求、取消和状态过期不会冻结游戏主线程。
+- 通用结构化 Generation Job 让剧情、任务描述和受限对白也经过 Sidecar，而不是让游戏保存供应商 Key。
 - 模型不可用时自动回退确定性 Policy，并用 `policy_source` 标明来源。
 - Ren'Py、Godot 4 和 Unity 适配器保持同一套 observe / propose / commit 权威边界。
 
@@ -48,7 +49,7 @@ export RIN_TOKEN="$(openssl rand -hex 32)"
 go run ./cmd/rin serve
 ```
 
-客户端随后发送 `Authorization: Bearer $RIN_TOKEN`。Token、模型 API Key 和供应商配置均不会写入事件、快照或响应。
+客户端随后发送 `Authorization: Bearer $RIN_TOKEN`。Token、模型 API Key 和供应商 URL 均不会写入事件、快照或响应；Generation 结果只可带有经过长度限制的模型名、结束原因和 token 计数等非秘密运维元数据，游戏可按自己的持久化白名单继续过滤。
 
 ## API
 
@@ -61,6 +62,9 @@ go run ./cmd/rin serve
 | `POST` | `/v1/jobs/propose` | 异步提交角色提案任务 |
 | `GET` | `/v1/jobs/{job_id}` | 查询任务状态与结果 |
 | `DELETE` | `/v1/jobs/{job_id}` | 取消排队或执行中的任务 |
+| `POST` | `/v1/generation/jobs` | 异步提交结构化 JSON 生成任务 |
+| `GET` | `/v1/generation/jobs/{job_id}` | 查询生成任务与安全元数据 |
+| `DELETE` | `/v1/generation/jobs/{job_id}` | 取消生成任务 |
 | `POST` | `/v1/action/commit` | 接受或拒绝提案并记录结果 |
 | `POST` | `/v1/scheduler/due` | 查询当前 tick 应思考的角色 |
 | `POST` | `/v1/session/get` | 读取会话状态 |
@@ -101,6 +105,7 @@ httpapi/       严格 JSON、鉴权、请求大小限制
 policy/        零网络依赖的确定性离线策略
 provider/      OpenAI-compatible 客户端、重试与熔断
 jobs/          有界异步 Proposal worker queue
+generation/    有界结构化 Generation worker queue 与缓存
 adapters/      Ren'Py Python 客户端与桥接层
 compat/        可执行的游戏协议兼容向量
 protocol/      可跨语言实现的 v1 数据契约
@@ -111,6 +116,6 @@ examples/      Go、Godot 与 Unity 最小接入示例
 
 ## 当前有意不做
 
-`v0.3.0` 不引入供应商 SDK、向量数据库、ORM、WebSocket、动态插件执行或任意文件访问。在线模型只是可选 Policy；即使供应商或 Sidecar 不可用，游戏仍可继续使用确定性策略或自己的离线剧情。
+`v0.4.0` 不引入供应商 SDK、向量数据库、ORM、WebSocket、动态插件执行或任意文件访问。在线模型仍是可选能力；即使供应商或 Sidecar 不可用，游戏仍可继续使用确定性策略或自己的离线剧情。
 
 后续工作记录在 [ROADMAP.md](ROADMAP.md)。

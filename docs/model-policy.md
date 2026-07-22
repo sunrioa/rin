@@ -42,6 +42,13 @@ export RIN_MODEL_RESPONSE_FORMAT=json_object
 | `RIN_JOB_QUEUE_SIZE` | `64` | 等待队列大小 |
 | `RIN_JOB_MAX_RETAINED` | `512` | 包含完成项的最大 Job 数 |
 | `RIN_JOB_TTL` | `30m` | 完成 Job 的内存保留时间 |
+| `RIN_GENERATION_WORKERS` | `2` | 结构化生成 worker 数 |
+| `RIN_GENERATION_QUEUE_SIZE` | `64` | 生成等待队列大小 |
+| `RIN_GENERATION_MAX_RETAINED` | `512` | 包含完成项的最大生成 Job 数 |
+| `RIN_GENERATION_JOB_TTL` | `30m` | 完成生成 Job 的内存保留时间 |
+| `RIN_GENERATION_CACHE_ENTRIES` | `256` | 语义生成缓存条数 |
+| `RIN_GENERATION_CACHE_TTL` | `30m` | 语义生成缓存寿命 |
+| `RIN_GENERATION_MAX_OUTPUT_BYTES` | `524288` | 单个结构化结果最大字节数 |
 
 时长采用 Go duration，例如 `250ms`、`15s`、`2m`。
 
@@ -69,3 +76,5 @@ export RIN_MODEL="local-model"
 8. Engine 再检查当前 revision/head hash；变化则 Job 为 `stale`。
 
 模型只决定“建议执行哪个允许动作以及如何表达”，不能直接 commit，也不能改变世界状态。
+
+结构化 Generation API 复用相同 Provider 与熔断预算，但它不使用确定性 Policy 回退。调用方必须自己准备离线文本，并在接受结果前执行领域 Schema 与 Canon 校验。

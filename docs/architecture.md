@@ -57,6 +57,12 @@ OpenAI-compatible 客户端由标准库实现。每次调用具有 attempt timeo
 
 Job 元数据只在进程内保留，成功 Proposal 本身已进入事件日志。Sidecar 重启后，客户端可用同一 `request_id` 重新提交，Engine 会幂等返回已生成 Proposal。
 
+### Structured generation
+
+`generation.Manager` 为游戏拥有的受限 Prompt 提供另一条有界异步队列。它复用同一个 resilient Provider，但不接触 Session 状态，也不直接写事件日志。请求按完整 payload 幂等、按去掉 request ID 后的语义内容短期缓存；取消沿 context 传播到 Provider。
+
+Generation 只保证传输、大小和顶层 JSON Object 合法。各游戏仍必须验证自己的 `ScenePacket`、任务、对白或结局 Schema。若验证失败，游戏丢弃结果并使用本地内容；模型输出永远不会自动成为 Canon。
+
 ### Game adapters
 
 Ren'Py、Godot 和 Unity 适配器只转换 JSON/HTTP 与各自的异步机制，不复制 Runtime 状态机。在线结果带 `committable=true`；Sidecar 不可用时，适配器从游戏本次候选列表选择 authored fallback，标记 `committable=false`，游戏不得把本地 `offline.*` ID 发给 `/commit`。
@@ -92,6 +98,7 @@ rin-data/
 - Restore 会清空未提交 Proposal，避免读档后执行旧世界状态上的动作。
 - 已提交事件、记忆、事实、目标进度和调度 tick 会恢复。
 - 新数据目录可以导入 Snapshot；此时本地事件链从一条 restore 事件开始。
+- 重复载入同一存档时，调用方应让 restore request ID 同时绑定 Snapshot hash 与当前 Sidecar head，以区分网络重试和真正的再次回档。
 
 ## Model integration rule
 

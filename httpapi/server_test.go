@@ -10,10 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sunrioa/rin/generation"
 	"github.com/sunrioa/rin/httpapi"
 	"github.com/sunrioa/rin/jobs"
 	"github.com/sunrioa/rin/policy"
 	"github.com/sunrioa/rin/protocol"
+	"github.com/sunrioa/rin/provider"
 	rinruntime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
 )
@@ -160,6 +162,89 @@ func TestAsyncProposalJobHTTPFlow(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatal("async HTTP job did not finish")
+}
+
+func TestStructuredGenerationHTTPFlow(t *testing.T) {
+	engine, err := rinruntime.Open(store.NewMemory(), policy.Deterministic{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, err := generation.New(generationFixture{}, generation.Config{Workers: 1, QueueSize: 4, MaxJobs: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := manager.Close(ctx); err != nil {
+			t.Error(err)
+		}
+	}()
+	server := httpapi.New(engine, httpapi.Options{Generation: manager})
+	input := protocol.GenerationRequest{
+		ProtocolVersion: protocol.Version, RequestID: "generation.http", Kind: "scene",
+		ContextHash: strings.Repeat("a", 64), ResponseFormat: "json_object",
+		Messages:    []protocol.GenerationMessage{{Role: "user", Content: "Return JSON."}},
+		Temperature: 0.5, MaxTokens: 128,
+	}
+	response := perform(t, server, "/v1/generation/jobs", input)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("submit generation: %d %s", response.Code, response.Body.String())
+	}
+	var submitted struct {
+		OK   bool                             `json:"ok"`
+		Data protocol.GenerationJobSubmission `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &submitted); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		request := httptest.NewRequest(http.MethodGet, "/v1/generation/jobs/"+submitted.Data.JobID, nil)
+		response = httptest.NewRecorder()
+		server.ServeHTTP(response, request)
+		var result struct {
+			Data protocol.GenerationJob `json:"data"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if result.Data.Status == "succeeded" {
+			if result.Data.Result == nil || result.Data.Result.Content != `{"answer":"ok"}` {
+				t.Fatalf("unexpected generation: %+v", result.Data)
+			}
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("structured generation job did not finish")
+}
+
+func TestStructuredGenerationUnavailable(t *testing.T) {
+	server := newServer(t, httpapi.Options{})
+	input := protocol.GenerationRequest{
+		ProtocolVersion: protocol.Version, RequestID: "generation.unavailable", Kind: "scene",
+		ContextHash: strings.Repeat("a", 64), ResponseFormat: "json_object",
+		Messages:  []protocol.GenerationMessage{{Role: "user", Content: "Return JSON."}},
+		MaxTokens: 128,
+	}
+	response := perform(t, server, "/v1/generation/jobs", input)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("generation unavailable: %d %s", response.Code, response.Body.String())
+	}
+	var envelope protocol.APIResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Error == nil || envelope.Error.Code != "generation_unavailable" {
+		t.Fatalf("unexpected generation error: %+v", envelope.Error)
+	}
+}
+
+type generationFixture struct{}
+
+func (generationFixture) Complete(context.Context, provider.CompletionRequest) (provider.CompletionResponse, error) {
+	return provider.CompletionResponse{Content: `{"answer":"ok"}`, Model: "fixture"}, nil
 }
 
 func newServer(t *testing.T, options httpapi.Options) http.Handler {

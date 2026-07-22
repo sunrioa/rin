@@ -18,25 +18,39 @@ import (
 	rinruntime "github.com/sunrioa/rin/runtime"
 )
 
+type modelRuntime struct {
+	Policy           rinruntime.Policy
+	Mode             string
+	GenerationClient provider.Client
+}
+
 func buildPolicy(logger *slog.Logger) (rinruntime.Policy, string, error) {
+	runtime, err := buildModelRuntime(logger)
+	if err != nil {
+		return nil, "", err
+	}
+	return runtime.Policy, runtime.Mode, nil
+}
+
+func buildModelRuntime(logger *slog.Logger) (modelRuntime, error) {
 	mode := strings.ToLower(envOr("RIN_POLICY", "deterministic"))
 	if mode == "deterministic" {
-		return policy.Deterministic{}, "deterministic", nil
+		return modelRuntime{Policy: policy.Deterministic{}, Mode: "deterministic"}, nil
 	}
 	if mode != "model" {
-		return nil, "", errors.New("RIN_POLICY must be deterministic or model")
+		return modelRuntime{}, errors.New("RIN_POLICY must be deterministic or model")
 	}
 	baseURL := os.Getenv("RIN_MODEL_BASE_URL")
 	model := os.Getenv("RIN_MODEL")
 	if baseURL == "" || model == "" {
-		return nil, "", errors.New("model policy requires RIN_MODEL_BASE_URL and RIN_MODEL")
+		return modelRuntime{}, errors.New("model policy requires RIN_MODEL_BASE_URL and RIN_MODEL")
 	}
 	if err := validateModelEndpoint(baseURL, envBool("RIN_MODEL_ALLOW_INSECURE", false)); err != nil {
-		return nil, "", err
+		return modelRuntime{}, err
 	}
 	parsed, _ := url.Parse(baseURL)
 	if !isLoopbackHost(parsed.Hostname()) && os.Getenv("RIN_MODEL_API_KEY") == "" {
-		return nil, "", errors.New("remote model endpoint requires RIN_MODEL_API_KEY")
+		return modelRuntime{}, errors.New("remote model endpoint requires RIN_MODEL_API_KEY")
 	}
 	transport := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
@@ -54,7 +68,7 @@ func buildPolicy(logger *slog.Logger) (rinruntime.Policy, string, error) {
 		HTTPClient:     &http.Client{Transport: transport},
 	})
 	if err != nil {
-		return nil, "", err
+		return modelRuntime{}, err
 	}
 	resilient, err := provider.NewResilient(client, provider.ResilienceConfig{
 		MaxAttempts:      envInt("RIN_MODEL_MAX_ATTEMPTS", 2),
@@ -66,7 +80,7 @@ func buildPolicy(logger *slog.Logger) (rinruntime.Policy, string, error) {
 		OpenDuration:     envDuration("RIN_MODEL_BREAKER_OPEN", 20*time.Second),
 	})
 	if err != nil {
-		return nil, "", err
+		return modelRuntime{}, err
 	}
 	modelPolicy := policy.Model{Client: resilient}
 	cached, err := policy.NewCached(modelPolicy, policy.CacheConfig{
@@ -74,14 +88,17 @@ func buildPolicy(logger *slog.Logger) (rinruntime.Policy, string, error) {
 		TTL:        envDuration("RIN_MODEL_CACHE_TTL", 10*time.Minute),
 	})
 	if err != nil {
-		return nil, "", err
+		return modelRuntime{}, err
 	}
-	return policy.Failover{
+	selectedPolicy := policy.Failover{
 		Primary: cached, Fallback: policy.Deterministic{},
 		OnFallback: func(err error) {
 			logger.Warn("model policy used deterministic fallback", "error", err)
 		},
-	}, "model-with-fallback", nil
+	}
+	return modelRuntime{
+		Policy: selectedPolicy, Mode: "model-with-fallback", GenerationClient: resilient,
+	}, nil
 }
 
 func validateModelEndpoint(raw string, allowInsecure bool) error {

@@ -238,6 +238,56 @@ type ProposalJob struct {
 	Error           *ErrorDetail    `json:"error,omitempty"`
 }
 
+// GenerationMessage is the deliberately small prompt surface exposed to games.
+// Provider selection, credentials, tools, and transport options stay inside Rin.
+type GenerationMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type GenerationRequest struct {
+	ProtocolVersion string              `json:"protocol_version"`
+	RequestID       string              `json:"request_id"`
+	Kind            string              `json:"kind"`
+	ContextHash     string              `json:"context_hash"`
+	Messages        []GenerationMessage `json:"messages"`
+	Temperature     float64             `json:"temperature"`
+	MaxTokens       int                 `json:"max_tokens"`
+	ResponseFormat  string              `json:"response_format"`
+}
+
+type GenerationResult struct {
+	Content      string `json:"content"`
+	Model        string `json:"model,omitempty"`
+	FinishReason string `json:"finish_reason,omitempty"`
+	PromptTokens int    `json:"prompt_tokens,omitempty"`
+	OutputTokens int    `json:"output_tokens,omitempty"`
+	TotalTokens  int    `json:"total_tokens,omitempty"`
+	CacheHit     bool   `json:"cache_hit,omitempty"`
+}
+
+type GenerationJobSubmission struct {
+	ProtocolVersion string `json:"protocol_version"`
+	JobID           string `json:"job_id"`
+	Status          string `json:"status"`
+	Duplicate       bool   `json:"duplicate"`
+}
+
+type GenerationJob struct {
+	ProtocolVersion string            `json:"protocol_version"`
+	JobID           string            `json:"job_id"`
+	RequestID       string            `json:"request_id"`
+	Kind            string            `json:"kind"`
+	ContextHash     string            `json:"context_hash"`
+	Status          string            `json:"status"`
+	SubmittedAt     string            `json:"submitted_at"`
+	StartedAt       string            `json:"started_at,omitempty"`
+	FinishedAt      string            `json:"finished_at,omitempty"`
+	Result          *GenerationResult `json:"result,omitempty"`
+	Duplicate       bool              `json:"duplicate,omitempty"`
+	Error           *ErrorDetail      `json:"error,omitempty"`
+}
+
 type Snapshot struct {
 	ProtocolVersion string       `json:"protocol_version"`
 	StateHash       string       `json:"state_hash"`

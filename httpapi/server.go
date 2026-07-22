@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/sunrioa/rin/generation"
 	"github.com/sunrioa/rin/jobs"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
@@ -24,6 +25,7 @@ type Options struct {
 	MaxBodyBytes int64
 	Logger       *slog.Logger
 	Jobs         *jobs.Manager
+	Generation   *generation.Manager
 	PolicyMode   string
 }
 
@@ -33,6 +35,7 @@ type Server struct {
 	maxBodyBytes int64
 	logger       *slog.Logger
 	jobs         *jobs.Manager
+	generation   *generation.Manager
 	policyMode   string
 	handler      http.Handler
 }
@@ -52,7 +55,7 @@ func New(engine *rinruntime.Engine, options Options) *Server {
 	}
 	server := &Server{
 		engine: engine, token: options.Token, maxBodyBytes: maximum, logger: logger,
-		jobs: options.Jobs, policyMode: policyMode,
+		jobs: options.Jobs, generation: options.Generation, policyMode: policyMode,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", server.health)
@@ -67,6 +70,9 @@ func New(engine *rinruntime.Engine, options Options) *Server {
 	mux.HandleFunc("POST /v1/jobs/propose", server.submitProposalJob)
 	mux.HandleFunc("GET /v1/jobs/{job_id}", server.getProposalJob)
 	mux.HandleFunc("DELETE /v1/jobs/{job_id}", server.cancelProposalJob)
+	mux.HandleFunc("POST /v1/generation/jobs", server.submitGenerationJob)
+	mux.HandleFunc("GET /v1/generation/jobs/{job_id}", server.getGenerationJob)
+	mux.HandleFunc("DELETE /v1/generation/jobs/{job_id}", server.cancelGenerationJob)
 	server.handler = server.secure(server.authenticate(mux))
 	return server
 }
@@ -81,6 +87,7 @@ func (s *Server) health(response http.ResponseWriter, _ *http.Request) {
 		Data: map[string]any{
 			"status": "ok", "protocol_version": protocol.Version,
 			"policy_mode": s.policyMode, "async_jobs": s.jobs != nil,
+			"structured_generation": s.generation != nil,
 		},
 	})
 }
@@ -192,6 +199,41 @@ func (s *Server) cancelProposalJob(response http.ResponseWriter, request *http.R
 	s.respond(response, result, err)
 }
 
+func (s *Server) submitGenerationJob(response http.ResponseWriter, request *http.Request) {
+	if s.generation == nil {
+		s.writeError(response, http.StatusServiceUnavailable, "generation_unavailable", "structured generation is unavailable", "")
+		return
+	}
+	var input protocol.GenerationRequest
+	if !s.decode(response, request, &input) {
+		return
+	}
+	result, err := s.generation.Submit(input)
+	if err != nil {
+		s.respond(response, nil, err)
+		return
+	}
+	s.write(response, http.StatusAccepted, protocol.APIResponse{OK: true, Data: result})
+}
+
+func (s *Server) getGenerationJob(response http.ResponseWriter, request *http.Request) {
+	if s.generation == nil {
+		s.writeError(response, http.StatusServiceUnavailable, "generation_unavailable", "structured generation is unavailable", "")
+		return
+	}
+	result, err := s.generation.Get(request.PathValue("job_id"))
+	s.respond(response, result, err)
+}
+
+func (s *Server) cancelGenerationJob(response http.ResponseWriter, request *http.Request) {
+	if s.generation == nil {
+		s.writeError(response, http.StatusServiceUnavailable, "generation_unavailable", "structured generation is unavailable", "")
+		return
+	}
+	result, err := s.generation.Cancel(request.PathValue("job_id"))
+	s.respond(response, result, err)
+}
+
 func (s *Server) decode(response http.ResponseWriter, request *http.Request, target any) bool {
 	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
@@ -236,6 +278,10 @@ func (s *Server) respond(response http.ResponseWriter, data any, err error) {
 	case errors.Is(err, jobs.ErrQueueFull):
 		status = http.StatusTooManyRequests
 	case errors.Is(err, jobs.ErrClosed):
+		status = http.StatusServiceUnavailable
+	case errors.Is(err, generation.ErrQueueFull):
+		status = http.StatusTooManyRequests
+	case errors.Is(err, generation.ErrClosed):
 		status = http.StatusServiceUnavailable
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		status = http.StatusRequestTimeout

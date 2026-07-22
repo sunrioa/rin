@@ -33,6 +33,7 @@ class _Response:
 class _Opener:
     def __init__(self):
         self.polls = 0
+        self.generation_polls = 0
         self.authorization = ""
         self.last_payload = None
 
@@ -71,6 +72,34 @@ class _Opener:
                 "ok": True,
                 "data": {"job_id": "job.fixture", "status": "canceled"},
             })
+        if request.get_method() == "POST" and path == "/v1/generation/jobs":
+            return _Response(202, {
+                "ok": True,
+                "data": {"job_id": "gen.fixture", "status": "queued", "duplicate": False},
+            })
+        if request.get_method() == "GET" and path == "/v1/generation/jobs/gen.fixture":
+            self.generation_polls += 1
+            if self.generation_polls == 1:
+                return _Response(200, {
+                    "ok": True,
+                    "data": {"job_id": "gen.fixture", "status": "running"},
+                })
+            return _Response(200, {
+                "ok": True,
+                "data": {
+                    "job_id": "gen.fixture",
+                    "status": "succeeded",
+                    "result": {
+                        "content": '{"narration":"雨停了。"}',
+                        "model": "fixture-model",
+                    },
+                },
+            })
+        if request.get_method() == "DELETE" and path == "/v1/generation/jobs/gen.fixture":
+            return _Response(200, {
+                "ok": True,
+                "data": {"job_id": "gen.fixture", "status": "canceled"},
+            })
         if path == "/redirect":
             payload = json.dumps({"ok": False}).encode("utf-8")
             raise HTTPError(
@@ -95,6 +124,19 @@ def _proposal_request():
             {"id": "talk", "kind": "dialogue", "description": "Talk"},
             {"id": "wait", "kind": "wait", "description": "Wait"},
         ],
+    }
+
+
+def _generation_request():
+    return {
+        "protocol_version": rin_client.PROTOCOL_VERSION,
+        "request_id": "generation.fixture",
+        "kind": "scene",
+        "context_hash": "a" * 64,
+        "messages": [{"role": "user", "content": "Return JSON."}],
+        "temperature": 0.6,
+        "max_tokens": 512,
+        "response_format": "json_object",
     }
 
 
@@ -136,6 +178,18 @@ class RinClientTests(unittest.TestCase):
         self.assertEqual(result["proposal"]["action"]["id"], "wait")
         self.assertEqual(result["proposal"]["policy_source"], "adapter-offline")
         self.assertNotIn("fixture-token", json.dumps(result))
+
+    def test_structured_generation_flow(self):
+        client = _client_with_opener("fixture-token")
+        result = client.generate_json(
+            _generation_request(),
+            deadline_seconds=1,
+            poll_interval=0.01,
+        )
+        self.assertEqual(result["source"], "sidecar")
+        self.assertEqual(result["response"]["narration"], "雨停了。")
+        self.assertEqual(result["metadata"]["model"], "fixture-model")
+        self.assertEqual(client._opener.last_payload["kind"], "scene")
 
     def test_configuration_rejects_unsafe_remote_endpoints(self):
         invalid = (

@@ -29,7 +29,15 @@
 - [x] RPG 区域、可见性和任务事件约定
 - [x] 当前 `ai-galgame` 的协议兼容测试向量
 
-## v0.4.0 - Living worlds
+## v0.4.0 - Structured generation integration
+
+- [x] 通用异步结构化 Generation Job API
+- [x] 请求幂等、语义缓存、取消、输出大小和 JSON Object 校验
+- [x] Ren'Py Generation 客户端与 `ai-galgame` 全链路接入
+- [x] 游戏供应商凭据迁移到独立 Sidecar
+- [x] Observation / Proposal / Commit / Snapshot 与剧情生成组合流程
+
+## v0.5.0 - Living worlds
 
 - [ ] 分层记忆总结与可解释遗忘
 - [ ] 角色私有认知、传闻来源和事实冲突

@@ -30,7 +30,7 @@ func TestCompleteSendsSchemaAndDecodesFixture(t *testing.T) {
 		if request.Header.Get("Authorization") != "Bearer fixture-secret" {
 			t.Fatalf("missing authorization header")
 		}
-		if request.Header.Get("User-Agent") != "rin/0.3" {
+		if request.Header.Get("User-Agent") != "rin/0.4" {
 			t.Fatalf("unexpected user agent: %s", request.Header.Get("User-Agent"))
 		}
 		var body map[string]any

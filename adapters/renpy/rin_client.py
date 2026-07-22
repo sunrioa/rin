@@ -203,6 +203,15 @@ class RinClient:
     def cancel_proposal_job(self, job_id: str) -> Dict[str, Any]:
         return self._request("DELETE", "/v1/jobs/" + _path_identifier(job_id))
 
+    def submit_generation_job(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        return self._request("POST", "/v1/generation/jobs", request, expected_statuses=(202,))
+
+    def get_generation_job(self, job_id: str) -> Dict[str, Any]:
+        return self._request("GET", "/v1/generation/jobs/" + _path_identifier(job_id))
+
+    def cancel_generation_job(self, job_id: str) -> Dict[str, Any]:
+        return self._request("DELETE", "/v1/generation/jobs/" + _path_identifier(job_id))
+
     def commit(self, request: Dict[str, Any]) -> Dict[str, Any]:
         return self._request("POST", "/v1/action/commit", request)
 
@@ -310,9 +319,94 @@ class RinClient:
                 job_id=job_id,
             )
 
+    def wait_for_generation(
+        self,
+        job_id: str,
+        *,
+        deadline_seconds: float = 45.0,
+        poll_interval: float = 0.1,
+        cancel_event: Optional[threading.Event] = None,
+    ) -> Dict[str, Any]:
+        deadline_seconds = float(deadline_seconds)
+        poll_interval = float(poll_interval)
+        if not 0.05 <= deadline_seconds <= 300.0:
+            raise RinConfigurationError("invalid_deadline", "Generation deadline must be between 0.05 and 300 seconds")
+        if not 0.01 <= poll_interval <= 5.0:
+            raise RinConfigurationError("invalid_poll_interval", "Generation poll interval must be between 0.01 and 5 seconds")
+        deadline = self._clock() + deadline_seconds
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                self._cancel_generation_quietly(job_id)
+                raise RinJobError("job_canceled", "Generation job was canceled")
+            job = self.get_generation_job(job_id)
+            status = str(job.get("status", ""))
+            if status == "succeeded":
+                result = job.get("result")
+                if not isinstance(result, dict) or not isinstance(result.get("content"), str):
+                    raise RinProtocolError("invalid_job", "Successful generation job did not include content")
+                return job
+            if status in TERMINAL_JOB_STATES:
+                detail = job.get("error", {})
+                if not isinstance(detail, dict):
+                    detail = {}
+                raise RinJobError(
+                    _safe_text(detail.get("code"), 96) or "job_" + status,
+                    _safe_text(detail.get("message"), 500) or "Generation job ended as " + status,
+                    field=_safe_text(detail.get("field"), 160),
+                )
+            if status not in ("queued", "running"):
+                raise RinProtocolError("invalid_job", "Generation job returned an unknown status")
+            remaining = deadline - self._clock()
+            if remaining <= 0:
+                self._cancel_generation_quietly(job_id)
+                raise RinJobError("job_timeout", "Generation job exceeded its deadline")
+            delay = min(poll_interval, remaining)
+            if cancel_event is not None:
+                cancel_event.wait(delay)
+            else:
+                self._sleeper(delay)
+
+    def generate_json(
+        self,
+        request: Dict[str, Any],
+        *,
+        deadline_seconds: float = 45.0,
+        poll_interval: float = 0.1,
+        cancel_event: Optional[threading.Event] = None,
+    ) -> Dict[str, Any]:
+        submission = self.submit_generation_job(request)
+        job_id = str(submission.get("job_id", ""))
+        if not job_id:
+            raise RinProtocolError("invalid_submission", "Rin did not return a generation job id")
+        job = self.wait_for_generation(
+            job_id,
+            deadline_seconds=deadline_seconds,
+            poll_interval=poll_interval,
+            cancel_event=cancel_event,
+        )
+        result = _json_clone(job["result"])
+        try:
+            response = json.loads(result["content"])
+        except (TypeError, ValueError) as exc:
+            raise RinProtocolError("invalid_generation_json", "Rin generation content was not valid JSON") from exc
+        if not isinstance(response, dict):
+            raise RinProtocolError("invalid_generation_json", "Rin generation content must be one JSON object")
+        return {
+            "source": "sidecar",
+            "job_id": job_id,
+            "response": response,
+            "metadata": {key: value for key, value in result.items() if key != "content"},
+        }
+
     def _cancel_quietly(self, job_id: str) -> None:
         try:
             self.cancel_proposal_job(job_id)
+        except RinError:
+            pass
+
+    def _cancel_generation_quietly(self, job_id: str) -> None:
+        try:
+            self.cancel_generation_job(job_id)
         except RinError:
             pass
 
@@ -325,7 +419,7 @@ class RinClient:
         expected_statuses: Sequence[int] = (200,),
     ) -> Dict[str, Any]:
         body = None
-        headers = {"Accept": "application/json", "User-Agent": "rin-renpy/0.3"}
+        headers = {"Accept": "application/json", "User-Agent": "rin-renpy/0.4"}
         if payload is not None:
             if not isinstance(payload, dict):
                 raise RinProtocolError("invalid_request", "Rin request payload must be an object")
