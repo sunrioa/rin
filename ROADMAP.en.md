@@ -51,11 +51,6 @@ progress is not part of the public release definition.
 - [x] Multi-agent batching and regional dormancy
 - [x] Human-readable debug timeline and decision replay tools
 
-See
-[`docs/living-worlds-v0.5-plan.md`](docs/living-worlds-v0.5-plan.md)
-for the full protocol, compatibility strategy, phased commits, and acceptance
-matrix.
-
 ## v0.6.0 - Integration kits
 
 - [x] Dependency-free Python 3.9+ and JavaScript/TypeScript SDKs

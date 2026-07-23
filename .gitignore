@@ -10,3 +10,9 @@ __pycache__/
 sdk/csharp/**/bin/
 sdk/csharp/**/obj/
 sdk/python/**/*.egg-info/
+
+# Local-only maintainer documentation
+/docs/living-worlds-v0.5-plan.md
+/docs/living-worlds-v0.5-plan.zh-CN.md
+/docs/writing-guide.md
+/docs/writing-guide.zh-CN.md

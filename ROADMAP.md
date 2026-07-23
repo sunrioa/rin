@@ -49,9 +49,6 @@
 - [x] 多 Agent 批处理与区域休眠
 - [x] 人工调试时间线和决定回放工具
 
-详细协议、兼容策略、阶段提交与验收矩阵见
-[`docs/living-worlds-v0.5-plan.zh-CN.md`](docs/living-worlds-v0.5-plan.zh-CN.md)。
-
 ## v0.6.0 - Integration kits
 
 - [x] Python 3.9+ 与 JavaScript/TypeScript 零依赖 SDK

@@ -13,10 +13,8 @@ individual consuming games.
 | Ren'Py, Godot, and Unity | [Game adapters](game-adapters.md) | [游戏适配器](game-adapters.zh-CN.md) |
 | Regions, quests, and NPC actions | [RPG event conventions](rpg-events.md) | [RPG 事件约定](rpg-events.zh-CN.md) |
 | Cross-language clients and mods | [SDK and mod kits](sdk-and-mods.md) | [SDK 与 Mod 套件](sdk-and-mods.zh-CN.md) |
-| v0.5 implementation baseline | [Living Worlds plan](living-worlds-v0.5-plan.md) | [Living Worlds 计划](living-worlds-v0.5-plan.zh-CN.md) |
 | Security and reporting | [Security](../SECURITY.en.md) | [安全](../SECURITY.md) |
 | Release direction | [Roadmap](../ROADMAP.en.md) | [路线图](../ROADMAP.md) |
-| Public documentation rules | [Writing guide](writing-guide.md) | [文档规范](writing-guide.zh-CN.md) |
 | Repository overview | [README](../README.en.md) | [项目说明](../README.md) |
 
 SDK-specific quick starts are under [`sdk/`](../sdk/README.md). Fabric,

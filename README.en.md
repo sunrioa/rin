@@ -12,7 +12,6 @@ library and is independent of any specific game, engine, or model provider.
 
 Documentation index: [English](docs/README.md) |
 [简体中文](docs/README.zh-CN.md)
-Public prose follows the [documentation style guide](docs/writing-guide.md).
 
 ## Core capabilities
 
