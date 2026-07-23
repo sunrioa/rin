@@ -1,5 +1,7 @@
 # Roadmap
 
+[简体中文](ROADMAP.md) | [English](ROADMAP.en.md)
+
 ## v0.1.0 - Runtime foundation
 
 - [x] Go 标准库 HTTP Sidecar
@@ -46,6 +48,15 @@
 - [x] 人工调试时间线和决定回放工具
 
 详细协议、兼容策略、阶段提交与验收矩阵见
-[`docs/living-worlds-v0.5-plan.md`](docs/living-worlds-v0.5-plan.md)。
+[`docs/living-worlds-v0.5-plan.zh-CN.md`](docs/living-worlds-v0.5-plan.zh-CN.md)。
+
+## v0.6.0 - Integration kits
+
+- [x] Python 3.9+ 与 JavaScript/TypeScript 零依赖 SDK
+- [x] .NET 6、Java 17 可注入 JSON Codec 与 Lua 5.1 SDK
+- [x] 统一 20 路由契约、传输安全约束与跨语言 CI
+- [x] Fabric、BepInEx 6、Luanti NPC 示例 Mod
+- [ ] 在真实 Fabric/BepInEx/Luanti 游戏版本中完成人工安装与交互验收
+- [x] 以 MIT License 发布仓库、SDK 与示例 Mod
 
 每个阶段继续保持一个原则：模型可以提出意图和表达，游戏引擎决定现实发生了什么。

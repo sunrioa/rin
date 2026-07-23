@@ -1,5 +1,7 @@
 # RPG Event Conventions
 
+[English](rpg-events.md) | [简体中文](rpg-events.zh-CN.md)
+
 These conventions let RPGs, simulations, tactics games, and open-area NPC systems use Rin without giving an agent world authority.
 
 ## Identity and ticks

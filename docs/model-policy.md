@@ -1,8 +1,11 @@
 # Model Policy
 
+[English](model-policy.md) | [简体中文](model-policy.zh-CN.md)
+
 ## Enable
 
-Rin 默认使用 `deterministic`，不会产生任何模型网络请求。在线模式需要显式配置：
+Rin uses `deterministic` by default and makes no model network requests.
+Online mode must be enabled explicitly:
 
 ```bash
 export RIN_POLICY=model
@@ -12,49 +15,52 @@ export RIN_MODEL_API_KEY="..."
 rin serve
 ```
 
-Rin 使用 OpenAI-compatible `POST <base-url>/chat/completions`。默认请求严格 `json_schema`；若供应商只支持 JSON Object：
+Rin calls the OpenAI-compatible
+`POST <base-url>/chat/completions` endpoint. Requests use strict
+`json_schema` by default. If a provider supports only JSON Object mode:
 
 ```bash
 export RIN_MODEL_RESPONSE_FORMAT=json_object
 ```
 
-也可设为 `none`，但返回文本仍必须是单个、严格、无额外字段的 JSON Object。
+The value may also be `none`, but returned text must still be one strict JSON
+object with no extra fields.
 
 ## Environment
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `RIN_POLICY` | `deterministic` | `deterministic` 或 `model` |
-| `RIN_MODEL_BASE_URL` | - | OpenAI-compatible `/v1` 基地址 |
-| `RIN_MODEL` | - | 供应商模型 ID |
-| `RIN_MODEL_API_KEY` | - | 只从进程环境读取的 Bearer Key |
-| `RIN_MODEL_RESPONSE_FORMAT` | `json_schema` | `json_schema`、`json_object`、`none` |
-| `RIN_MODEL_ATTEMPT_TIMEOUT` | `15s` | 单次 HTTP 尝试上限 |
-| `RIN_MODEL_TOTAL_TIMEOUT` | `25s` | 包含重试与退避的总上限 |
-| `RIN_MODEL_MAX_ATTEMPTS` | `2` | 最大尝试次数，上限 5 |
-| `RIN_MODEL_INITIAL_BACKOFF` | `150ms` | 初始退避 |
-| `RIN_MODEL_MAX_BACKOFF` | `2s` | 退避及 Retry-After 上限 |
-| `RIN_MODEL_BREAKER_FAILURES` | `3` | 打开熔断器前的失败调用数 |
-| `RIN_MODEL_BREAKER_OPEN` | `20s` | 熔断开放时间 |
-| `RIN_MODEL_CACHE_ENTRIES` | `256` | 内存 Draft 缓存条数 |
-| `RIN_MODEL_CACHE_TTL` | `10m` | 相同 head hash 缓存寿命 |
-| `RIN_JOB_WORKERS` | `2` | 异步 Proposal worker 数 |
-| `RIN_JOB_QUEUE_SIZE` | `64` | 等待队列大小 |
-| `RIN_JOB_MAX_RETAINED` | `512` | 包含完成项的最大 Job 数 |
-| `RIN_JOB_TTL` | `30m` | 完成 Job 的内存保留时间 |
-| `RIN_GENERATION_WORKERS` | `2` | 结构化生成 worker 数 |
-| `RIN_GENERATION_QUEUE_SIZE` | `64` | 生成等待队列大小 |
-| `RIN_GENERATION_MAX_RETAINED` | `512` | 包含完成项的最大生成 Job 数 |
-| `RIN_GENERATION_JOB_TTL` | `30m` | 完成生成 Job 的内存保留时间 |
-| `RIN_GENERATION_CACHE_ENTRIES` | `256` | 语义生成缓存条数 |
-| `RIN_GENERATION_CACHE_TTL` | `30m` | 语义生成缓存寿命 |
-| `RIN_GENERATION_MAX_OUTPUT_BYTES` | `524288` | 单个结构化结果最大字节数 |
+| `RIN_POLICY` | `deterministic` | `deterministic` or `model` |
+| `RIN_MODEL_BASE_URL` | - | OpenAI-compatible `/v1` base URL |
+| `RIN_MODEL` | - | Provider model ID |
+| `RIN_MODEL_API_KEY` | - | Bearer key read only from process environment |
+| `RIN_MODEL_RESPONSE_FORMAT` | `json_schema` | `json_schema`, `json_object`, or `none` |
+| `RIN_MODEL_ATTEMPT_TIMEOUT` | `15s` | Maximum time for one HTTP attempt |
+| `RIN_MODEL_TOTAL_TIMEOUT` | `25s` | Total budget including retry and backoff |
+| `RIN_MODEL_MAX_ATTEMPTS` | `2` | Maximum attempts, capped at 5 |
+| `RIN_MODEL_INITIAL_BACKOFF` | `150ms` | Initial backoff |
+| `RIN_MODEL_MAX_BACKOFF` | `2s` | Maximum backoff and Retry-After |
+| `RIN_MODEL_BREAKER_FAILURES` | `3` | Failed calls before opening the breaker |
+| `RIN_MODEL_BREAKER_OPEN` | `20s` | Circuit-breaker open duration |
+| `RIN_MODEL_CACHE_ENTRIES` | `256` | In-memory draft-cache entries |
+| `RIN_MODEL_CACHE_TTL` | `10m` | Cache lifetime for the same head hash |
+| `RIN_JOB_WORKERS` | `2` | Asynchronous proposal workers |
+| `RIN_JOB_QUEUE_SIZE` | `64` | Proposal waiting-queue capacity |
+| `RIN_JOB_MAX_RETAINED` | `512` | Maximum jobs including completed entries |
+| `RIN_JOB_TTL` | `30m` | In-memory lifetime for completed jobs |
+| `RIN_GENERATION_WORKERS` | `2` | Structured-generation workers |
+| `RIN_GENERATION_QUEUE_SIZE` | `64` | Generation waiting-queue capacity |
+| `RIN_GENERATION_MAX_RETAINED` | `512` | Maximum generation jobs including completed entries |
+| `RIN_GENERATION_JOB_TTL` | `30m` | In-memory lifetime for completed generation jobs |
+| `RIN_GENERATION_CACHE_ENTRIES` | `256` | Semantic generation-cache entries |
+| `RIN_GENERATION_CACHE_TTL` | `30m` | Semantic generation-cache lifetime |
+| `RIN_GENERATION_MAX_OUTPUT_BYTES` | `524288` | Maximum bytes for one structured result |
 
-时长采用 Go duration，例如 `250ms`、`15s`、`2m`。
+Durations use Go syntax such as `250ms`, `15s`, and `2m`.
 
 ## Local models
 
-Loopback 地址允许 HTTP 和空 Key：
+Loopback addresses may use HTTP and an empty key:
 
 ```bash
 export RIN_POLICY=model
@@ -62,19 +68,25 @@ export RIN_MODEL_BASE_URL="http://127.0.0.1:11434/v1"
 export RIN_MODEL="local-model"
 ```
 
-非 loopback HTTP 默认拒绝。只有受控测试网络才应显式设置 `RIN_MODEL_ALLOW_INSECURE=true`。
+Non-loopback HTTP is rejected by default. Set
+`RIN_MODEL_ALLOW_INSECURE=true` only on a controlled test network.
 
 ## Runtime behavior
 
-1. 游戏提交异步 Proposal Job。
-2. 本地 Boundary Guard 先处理必须拒绝或重定向的情况。
-3. Cache 按当前 Session head hash 查找不可变 Draft。
-4. 未命中时构造最小、数据隔离的模型 Packet。
-5. Provider 在总预算内调用、重试或熔断。
-6. JSON Draft 经本地白名单验证。
-7. 任一步失败时使用确定性 Policy，`policy_source=deterministic-fallback`。
-8. Engine 再检查当前 revision/head hash；变化则 Job 为 `stale`。
+1. The game submits an asynchronous proposal job.
+2. The local boundary guard first handles mandatory refusal or redirection.
+3. The cache looks up an immutable draft by the current session head hash.
+4. On a miss, Rin builds a minimal, data-isolated model packet.
+5. The provider calls, retries, or opens its breaker within the total budget.
+6. The JSON draft receives local allowlist validation.
+7. If any step fails, Rin uses the deterministic policy and reports
+   `policy_source=deterministic-fallback`.
+8. The engine rechecks revision and head hash. If either changed, the job is
+   `stale`.
 
-模型只决定“建议执行哪个允许动作以及如何表达”，不能直接 commit，也不能改变世界状态。
+The model decides only which allowed action to recommend and how to express
+it. It cannot commit or change world state.
 
-结构化 Generation API 复用相同 Provider 与熔断预算，但它不使用确定性 Policy 回退。调用方必须自己准备离线文本，并在接受结果前执行领域 Schema 与 Canon 校验。
+The structured Generation API reuses the same provider and breaker budget,
+but it has no deterministic-policy fallback. The caller must provide offline
+text and validate domain schema and canon before accepting a result.

@@ -1,0 +1,20 @@
+{
+  "name": "@sunrioa/rin-sdk",
+  "version": "0.5.0",
+  "description": "Zero-dependency JavaScript client for the Rin game agent runtime",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.js"
+    }
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "private": true
+}

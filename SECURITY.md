@@ -1,10 +1,12 @@
 # Security
 
+[简体中文](SECURITY.md) | [English](SECURITY.en.md)
+
 ## Defaults
 
 - 服务默认只监听 `127.0.0.1`。
 - 非 loopback 地址必须同时传入 `-allow-remote` 并设置 `RIN_TOKEN`。
-- Rin v0.4 不提供入站 TLS；远程部署必须放在受控网络和 TLS 反向代理之后。
+- Rin 不终止入站 TLS；远程部署必须放在受控网络和 TLS 反向代理之后。
 - 除 `/health` 外，配置 Token 后所有端点都使用 constant-time Bearer 校验。
 - JSON 正文默认限制为 32 MiB（主要用于完整快照），未知字段、多个 JSON 值和非 UTF-8 内容被拒绝。
 - Session ID 只能使用安全标识符，HTTP 请求不能提供文件路径。

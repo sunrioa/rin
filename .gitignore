@@ -7,3 +7,6 @@ __pycache__/
 /rin-data/
 /.cache/
 *.log
+sdk/csharp/**/bin/
+sdk/csharp/**/obj/
+sdk/python/**/*.egg-info/

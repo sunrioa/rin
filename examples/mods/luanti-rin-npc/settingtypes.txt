@@ -1,0 +1,2 @@
+# Rin local origin. This example intentionally rejects remote origins and tokens.
+rin_npc_example.base_url (Rin local origin) string http://127.0.0.1:7374

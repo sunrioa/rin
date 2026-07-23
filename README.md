@@ -1,8 +1,12 @@
 # Rin
 
+[简体中文](README.md) | [English](README.en.md)
+
 Rin 是一个面向游戏角色的轻量级 Agent Runtime。它作为游戏进程旁边的 Sidecar 运行，也可以直接作为 Go 包嵌入工具链。核心只使用 Go 标准库，不绑定视觉小说、RPG 引擎或任何模型供应商。
 
 当前开发线：`v0.5.0`（Living Worlds）
+
+文档索引：[简体中文](docs/README.zh-CN.md) | [English](docs/README.md)
 
 ## 它解决什么
 
@@ -18,6 +22,7 @@ Rin 将“角色思考”和“游戏世界事实”拆开：
 - 通用结构化 Generation Job 让剧情、任务描述和受限对白也经过 Sidecar，而不是让游戏保存供应商 Key。
 - 模型不可用时自动回退确定性 Policy，并用 `policy_source` 标明来源。
 - Ren'Py、Godot 4 和 Unity 适配器保持同一套 observe / propose / commit 权威边界。
+- Python、JavaScript、C#、Java、Lua SDK 与 Fabric、BepInEx、Luanti 示例 Mod 提供快速接入层。
 - 可选分层记忆、冲突认知、候选小目标、区域休眠和确定性多角色仲裁均由 Session feature 显式启用。
 - 脱敏 Timeline、指定 revision Replay 和 `rin inspect` 让长流程角色行为可以复现和审计。
 
@@ -80,7 +85,7 @@ go run ./cmd/rin serve
 
 所有写请求都带调用方生成的 `request_id`，重复请求返回相同结果，不重复修改状态。同一 ID 被用于不同操作时返回冲突。
 
-完整字段和错误语义见 [协议文档](docs/protocol-v1.md)，职责边界见 [架构文档](docs/architecture.md)。
+完整字段和错误语义见 [协议文档](docs/protocol-v1.zh-CN.md)，职责边界见 [架构文档](docs/architecture.zh-CN.md)。
 
 离线检查一个会话（会验证日志并只打印脱敏时间线）：
 
@@ -94,8 +99,11 @@ go run ./cmd/rin inspect -data ./rin-data -session playthrough-1 -revision 42
 - Ren'Py：纯标准库 Python 客户端、`renpy.invoke_in_thread` 桥接与 authored 离线回退。
 - Godot 4：基于 `HTTPRequest` signal/timer 的异步客户端。
 - Unity：基于 `UnityWebRequest` coroutine 的异步客户端和有界响应处理。
+- 通用 SDK：Python 3.9+、Node/Fetch、.NET 6+、Java 17+ 与 Lua 5.1+。
+- 示例 Mod：Fabric 服务端、BepInEx 6 与本机 Sidecar 限定的 Luanti 服务端 Mod。
 
-安装、配置和离线语义见 [游戏适配文档](docs/game-adapters.md)。RPG 的区域、可见性、任务和多人 NPC 事件约定见 [RPG 事件约定](docs/rpg-events.md)。
+安装、配置和离线语义见 [游戏适配文档](docs/game-adapters.zh-CN.md)。RPG 的区域、可见性、任务和多人 NPC 事件约定见 [RPG 事件约定](docs/rpg-events.zh-CN.md)。
+跨语言目录规范、线程边界、凭据策略和 Mod 安装步骤见 [SDK 与 Mod 接入文档](docs/sdk-and-mods.zh-CN.md)。
 
 ## 可选模型 Policy
 
@@ -109,7 +117,7 @@ export RIN_MODEL_API_KEY="..."
 go run ./cmd/rin serve
 ```
 
-远程端点必须使用 HTTPS；本机 `127.0.0.1`、`::1`、`localhost` 模型可使用 HTTP 且可不配置 Key。模型调用具有独立超时、总预算、有限重试、熔断和有界缓存。详细配置见 [模型接入文档](docs/model-policy.md)。
+远程端点必须使用 HTTPS；本机 `127.0.0.1`、`::1`、`localhost` 模型可使用 HTTP 且可不配置 Key。模型调用具有独立超时、总预算、有限重试、熔断和有界缓存。详细配置见 [模型接入文档](docs/model-policy.zh-CN.md)。
 
 ## 目录
 
@@ -121,11 +129,12 @@ provider/      OpenAI-compatible 客户端、重试与熔断
 jobs/          有界异步 Proposal worker queue
 generation/    有界结构化 Generation worker queue 与缓存
 adapters/      Ren'Py Python 客户端与桥接层
+sdk/           Python、JavaScript、C#、Java、Lua 通用客户端与路由契约
 compat/        可执行的游戏协议兼容向量
 protocol/      可跨语言实现的 v1 数据契约
 runtime/       事件状态机、提案验证、快照和调度
 store/         JSONL 文件存储与内存存储
-examples/      Go、Godot 与 Unity 最小接入示例
+examples/      Go、Godot、Unity 与 Fabric/BepInEx/Luanti Mod 示例
 ```
 
 ## 当前有意不做
@@ -133,3 +142,7 @@ examples/      Go、Godot 与 Unity 最小接入示例
 `v0.5.0` 不引入供应商 SDK、向量数据库、ORM、WebSocket、动态插件执行或任意文件访问。在线模型仍是可选能力；即使供应商或 Sidecar 不可用，游戏仍可继续使用确定性策略或自己的离线剧情。
 
 后续工作记录在 [ROADMAP.md](ROADMAP.md)。
+
+## 许可证
+
+Rin 以 [MIT License](LICENSE) 发布。
