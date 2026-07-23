@@ -85,6 +85,19 @@ Ren'Py worker registry、Godot `HTTPRequest` 和 Unity coroutine 都只存在于
 
 Timeline 只从事件 payload 提取 ID 和枚举状态，不返回玩家原话、剧情摘要、Commit outcome 或模型内容。Replay 则运行同一个 reducer 到指定 revision，生成完整且可验证的 Snapshot，不写回 Store。`rin inspect` 复用这两条路径输出机器可读诊断；打开数据目录时仍会验证全部事件 hash chain。
 
+### Mutation 与状态闭包
+
+每个事件都先应用到隔离的候选 State。Reducer 随后校验完整
+`SessionState`，包括 Feature 门禁、容量、revision/tick 上界、Actor 引用和
+成对的 Belief 投影；只有通过校验的候选状态才能追加到 Store 并发布为 live
+State。因此 reducer 或候选校验失败既不会改变事件日志，也不会改变内存中的
+Session。Store 写入失败则遵循 outcome 协议单独定义的 append 确认与对账规则。
+
+Policy 调用收到 State、Actor 和请求的隔离副本。Policy 可以在本地读取或修改
+这些值，但不能绕过事件直接改变 live Session。Runtime 的有界保留也会闭合
+引用：Memory 归档会把 recalled ID 改写到替代 Summary，未启用归档时会移除
+被淘汰的引用，Belief 与 BeliefSet 则按确定性顺序成对淘汰。
+
 ### 存储
 
 文件存储结构：
@@ -113,7 +126,8 @@ rin-data/
 ## 存档与回滚
 
 - 游戏存档应保存 Rin 返回的 Snapshot，而不是内部文件路径。
-- Snapshot 带内容包 Binding 和状态哈希。
+- Snapshot 带内容包 Binding 和状态哈希。Rin 在计算哈希或保存前先校验克隆的
+  State，因此每个成功返回的 Snapshot 都通过与 Restore 相同的结构校验。
 - 启用 `outcome-reporting-v1` 后，Restore 会保留 pending Proposal，既让存档中
   尚未处理的 Proposal Attempt 能恢复，也让 Outcome Outbox 能补报读档前已经
   应用的动作。恢复出的 Proposal 不授权执行；游戏必须依赖持久化 Attempt 和
@@ -121,6 +135,10 @@ rin-data/
   重做已经处理的动作。
 - 未启用该 Feature 的 Session 保留旧版 Restore 行为并清空 Proposal。
 - 已提交事件、记忆、事实、目标进度和调度 tick 会恢复。
+- Restore 会开始一个新的本地事件链 generation；保留的 Proposal、Memory、
+  Belief、Activity 和 Arbitration revision 元数据会在发布恢复状态前重基到该
+  generation。导入的历史 Receipt revision 设为 0，本次 Restore Receipt 则记录
+  新的本地 generation。
 - 新数据目录可以导入 Snapshot；此时本地事件链从一条 restore 事件开始。
 - 重复载入同一存档时，调用方应让 restore request ID 同时绑定 Snapshot hash 与当前 Sidecar head，以区分网络重试和真正的再次回档。
 

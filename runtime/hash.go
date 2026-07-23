@@ -29,6 +29,14 @@ func hashJSON(value any) (string, error) {
 }
 
 func newEvent(state protocol.SessionState, eventType, requestID string, payload any, now time.Time) (protocol.EventRecord, error) {
+	if state.Revision == ^uint64(0) {
+		return protocol.EventRecord{}, NewFieldError(
+			"revision_overflow",
+			"session revision is exhausted",
+			"revision",
+			ErrConflict,
+		)
+	}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return protocol.EventRecord{}, err
@@ -60,6 +68,9 @@ func eventHash(event protocol.EventRecord) (string, error) {
 }
 
 func verifyEvent(previous protocol.SessionState, event protocol.EventRecord) error {
+	if previous.Revision == ^uint64(0) {
+		return fmt.Errorf("%w: revision %d cannot be followed by another event", ErrCorruptLog, previous.Revision)
+	}
 	if event.Sequence != previous.Revision+1 {
 		return fmt.Errorf("%w: sequence %d follows revision %d", ErrCorruptLog, event.Sequence, previous.Revision)
 	}
@@ -80,6 +91,9 @@ func SnapshotOf(state protocol.SessionState) (protocol.Snapshot, error) {
 	copyState, err := clone(state)
 	if err != nil {
 		return protocol.Snapshot{}, err
+	}
+	if err := protocol.ValidateSessionState(copyState); err != nil {
+		return protocol.Snapshot{}, fmt.Errorf("validate snapshot state: %w", err)
 	}
 	hash, err := hashJSON(copyState)
 	if err != nil {

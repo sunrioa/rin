@@ -13,9 +13,19 @@ const (
 	maxMemorySummaries    = 32
 	summaryMergeBatch     = 4
 	maxSummarySources     = 64
+	maxMemorySummaryLevel = 16
 )
 
-func compactActorMemories(sessionID string, actor *protocol.ActorState, revision uint64) error {
+func compactActorMemories(
+	sessionID string,
+	actor *protocol.ActorState,
+	revision uint64,
+	states ...*protocol.SessionState,
+) error {
+	var state *protocol.SessionState
+	if len(states) > 0 {
+		state = states[0]
+	}
 	for len(actor.Memories) > maxMemories {
 		window := len(actor.Memories) / 2
 		if window < memoryCompactionBatch {
@@ -67,14 +77,25 @@ func compactActorMemories(sessionID string, actor *protocol.ActorState, revision
 		}
 		actor.Memories = retained
 		actor.MemorySummaries = append(actor.MemorySummaries, summary)
+		replacements := make(map[string]string, len(selected))
+		for _, memory := range selected {
+			replacements[memory.ID] = summary.ID
+		}
+		rewriteRecalledMemoryReferences(state, actor, replacements)
 	}
 	for len(actor.MemorySummaries) > maxMemorySummaries {
 		sortMemorySummaries(actor.MemorySummaries)
-		merged, err := mergeMemorySummaries(sessionID, actor.ID, actor.MemorySummaries[:summaryMergeBatch], revision)
+		selected := actor.MemorySummaries[:summaryMergeBatch]
+		merged, err := mergeMemorySummaries(sessionID, actor.ID, selected, revision)
 		if err != nil {
 			return err
 		}
 		actor.MemorySummaries = append([]protocol.MemorySummary{merged}, actor.MemorySummaries[summaryMergeBatch:]...)
+		replacements := make(map[string]string, len(selected))
+		for _, summary := range selected {
+			replacements[summary.ID] = merged.ID
+		}
+		rewriteRecalledMemoryReferences(state, actor, replacements)
 	}
 	sortMemorySummaries(actor.MemorySummaries)
 	return nil
@@ -96,10 +117,7 @@ func summarizeMemories(sessionID, actorID string, memories []protocol.Memory, re
 		if memory.Importance > importance {
 			importance = memory.Importance
 		}
-		recallCount += memory.RecallCount
-		if recallCount > 1_000_000 {
-			recallCount = 1_000_000
-		}
+		recallCount = saturatingRecallAdd(recallCount, memory.RecallCount)
 		if memory.LastRecalledTick > lastRecalled {
 			lastRecalled = memory.LastRecalledTick
 		}
@@ -124,29 +142,34 @@ func mergeMemorySummaries(sessionID, actorID string, summaries []protocol.Memory
 	tags := make([]string, 0)
 	texts := make([]string, 0, len(summaries))
 	identityIDs := make([]string, 0, len(summaries))
-	level := 1
+	maxLevel := 1
 	importance := 1
 	recallCount := 0
 	lastRecalled := int64(0)
+	endTick := int64(0)
 	for _, summary := range summaries {
 		identityIDs = append(identityIDs, summary.ID)
 		sourceMemoryIDs = append(sourceMemoryIDs, summary.SourceMemoryIDs...)
 		sourceEventIDs = append(sourceEventIDs, summary.SourceEventIDs...)
 		tags = append(tags, summary.Tags...)
 		texts = append(texts, summary.Summary)
-		if summary.Level >= level {
-			level = summary.Level + 1
+		if summary.Level > maxLevel {
+			maxLevel = summary.Level
 		}
 		if summary.Importance > importance {
 			importance = summary.Importance
 		}
-		recallCount += summary.RecallCount
-		if recallCount > 1_000_000 {
-			recallCount = 1_000_000
-		}
+		recallCount = saturatingRecallAdd(recallCount, summary.RecallCount)
 		if summary.LastRecalledTick > lastRecalled {
 			lastRecalled = summary.LastRecalledTick
 		}
+		if summary.EndTick > endTick {
+			endTick = summary.EndTick
+		}
+	}
+	level := maxLevel + 1
+	if maxLevel >= maxMemorySummaryLevel {
+		level = maxMemorySummaryLevel
 	}
 	id, err := memorySummaryID(sessionID, actorID, level, identityIDs)
 	if err != nil {
@@ -156,9 +179,16 @@ func mergeMemorySummaries(sessionID, actorID string, summaries []protocol.Memory
 		ID: "summary." + id[:24], Level: level, Summary: joinSummaryText(texts),
 		Tags: boundedUnique(tags, 32), SourceMemoryIDs: boundedUnique(sourceMemoryIDs, maxSummarySources),
 		SourceEventIDs: boundedUnique(sourceEventIDs, maxSummarySources), StartTick: summaries[0].StartTick,
-		EndTick: summaries[len(summaries)-1].EndTick, Importance: importance, Reason: "archive_capacity",
+		EndTick: endTick, Importance: importance, Reason: "archive_capacity",
 		CreatedRevision: revision, RecallCount: recallCount, LastRecalledTick: lastRecalled,
 	}, nil
+}
+
+func saturatingRecallAdd(total, value int) int {
+	if total >= maxRecallCount || value >= maxRecallCount-total {
+		return maxRecallCount
+	}
+	return total + value
 }
 
 func memorySummaryID(sessionID, actorID string, level int, sourceIDs []string) (string, error) {

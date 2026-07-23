@@ -167,6 +167,24 @@ produces a complete, verifiable snapshot without writing to the store.
 `rin inspect` reuses both paths for machine-readable diagnostics; opening a
 data directory still verifies the entire event hash chain.
 
+### Mutation and state closure
+
+Every event is first applied to an isolated candidate state. The reducer then
+validates the complete `SessionState`, including feature-gated fields,
+capacities, revision and tick bounds, actor references, and paired belief
+projections. Only a valid candidate may be appended to the Store and published
+as the live state. A reducer or candidate-validation failure therefore leaves
+both the event log and the in-memory session unchanged. Store write failures
+use the separate append-confirmation and reconciliation rules described by the
+outcome protocol.
+
+Policy calls receive isolated copies of the State, Actor, and request. Policy
+code may inspect or mutate those values locally, but it cannot mutate the live
+session outside an event. Runtime-owned collections also close their
+references when bounded retention runs: memory compaction rewrites recalled
+IDs to the replacement Summary, non-archive eviction removes those references,
+and Belief/BeliefSet eviction is deterministic and paired.
+
 ### Store
 
 File-store layout:
@@ -206,7 +224,9 @@ only scheduling time, never boundaries or the action allowlist.
 ## Save and rollback
 
 - Game saves should store snapshots returned by Rin, not internal file paths.
-- A snapshot carries the content-pack binding and state hash.
+- A snapshot carries the content-pack binding and state hash. Rin validates a
+  cloned State before hashing or saving it, so every successfully returned
+  snapshot passes the same structural validation used by Restore.
 - With `outcome-reporting-v1`, Restore retains pending proposals so a saved,
   unhandled Proposal Attempt can resume, and so a game-save Outcome Outbox can
   report actions already applied before the save. Restored proposals never
@@ -217,6 +237,11 @@ only scheduling time, never boundaries or the action allowlist.
   proposals.
 - Committed events, memories, facts, goal progress, and scheduling ticks are
   restored.
+- Restore starts a new local event-chain generation. Retained Proposal,
+  Memory, Belief, Activity, and Arbitration revision metadata is rebased to
+  that generation before the restored State is published. Imported historical
+  Receipt revisions are set to zero; the new Restore Receipt records the local
+  generation.
 - A new data directory may import a snapshot; its local event chain then
   begins with a restore event.
 - When loading the same save repeatedly, callers should bind the restore
