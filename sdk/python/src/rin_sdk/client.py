@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import re
 import time
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 from urllib.error import HTTPError, URLError
@@ -14,6 +15,9 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 PROTOCOL_VERSION = "rin.protocol/v1"
 DEFAULT_BASE_URL = "http://127.0.0.1:7374"
 DEFAULT_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+_MAX_GENERATION_CONTENT_BYTES = 4 * 1024 * 1024
+_MAX_SIGNED_INT64 = (1 << 63) - 1
+_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
 _TERMINAL_JOB_STATES = frozenset(("succeeded", "failed", "stale", "canceled"))
 
 
@@ -102,9 +106,11 @@ class RinClient:
         return self._request("DELETE", "/v1/generation/jobs/" + _path_id(job_id))
 
     def commit(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Report a game-applied or rejected outcome; this does not execute it."""
         return self._post("/v1/action/commit", payload)
 
     def commit_batch(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Atomically report game outcomes produced from one world revision."""
         return self._post("/v1/action/commit-batch", payload)
 
     def set_actor_activity(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -132,10 +138,24 @@ class RinClient:
         return self._post("/v1/scheduler/due", payload)
 
     def wait_for_proposal(self, job_id: str, *, deadline: float = 25.0, interval: float = 0.1) -> Dict[str, Any]:
-        return self._wait_job(job_id, self.get_proposal_job, self.cancel_proposal_job, deadline, interval)
+        return self._wait_job(
+            job_id,
+            self.get_proposal_job,
+            self.cancel_proposal_job,
+            deadline,
+            interval,
+            "proposal",
+        )
 
     def wait_for_generation(self, job_id: str, *, deadline: float = 45.0, interval: float = 0.1) -> Dict[str, Any]:
-        return self._wait_job(job_id, self.get_generation_job, self.cancel_generation_job, deadline, interval)
+        return self._wait_job(
+            job_id,
+            self.get_generation_job,
+            self.cancel_generation_job,
+            deadline,
+            interval,
+            "generation",
+        )
 
     def _wait_job(
         self,
@@ -144,31 +164,64 @@ class RinClient:
         canceler: Callable[[str], Dict[str, Any]],
         deadline: float,
         interval: float,
+        result_kind: str,
     ) -> Dict[str, Any]:
         if not 0.05 <= deadline <= 300.0 or not 0.01 <= interval <= 5.0:
             raise RinConfigurationError("invalid_polling", "job deadline or interval is out of range")
         expires = self._clock() + deadline
         while True:
             job = getter(job_id)
-            status = str(job.get("status", ""))
-            if status == "succeeded":
-                return job
-            if status in _TERMINAL_JOB_STATES:
-                detail = job.get("error") if isinstance(job.get("error"), dict) else {}
-                raise RinAPIError(
-                    _safe_text(detail.get("code"), 96) or "job_" + status,
-                    _safe_text(detail.get("message"), 500) or "Rin job ended as " + status,
-                )
-            if status not in ("queued", "running"):
-                raise RinProtocolError("invalid_job", "Rin returned an unknown job status")
+            resolved = self._resolve_job(job, result_kind, job_id)
+            if resolved is not None:
+                return resolved
             remaining = expires - self._clock()
             if remaining <= 0:
                 try:
-                    canceler(job_id)
+                    canceled_job = canceler(job_id)
                 except RinError:
-                    pass
+                    raise RinAPIError("job_timeout", "Rin job exceeded its deadline") from None
+                resolved = self._resolve_job(canceled_job, result_kind, job_id)
+                if resolved is not None:
+                    return resolved
                 raise RinAPIError("job_timeout", "Rin job exceeded its deadline")
             self._sleeper(min(interval, remaining))
+
+    @staticmethod
+    def _resolve_job(job: Dict[str, Any], result_kind: str, expected_job_id: str) -> Optional[Dict[str, Any]]:
+        if not isinstance(job, dict):
+            raise RinProtocolError("invalid_job", "Rin returned an invalid job")
+        _validate_job_identity(job, result_kind, expected_job_id)
+        status = job.get("status")
+        if not isinstance(status, str):
+            raise RinProtocolError("invalid_job", "Rin returned an invalid job status")
+        if status == "succeeded":
+            if result_kind == "proposal":
+                proposal = job.get("proposal")
+                if not isinstance(proposal, dict):
+                    raise RinProtocolError("invalid_job", "Successful proposal job did not include a proposal")
+                if (
+                    not _is_protocol_id(proposal.get("id"))
+                    or not _is_protocol_id(proposal.get("actor_id"))
+                    or proposal.get("session_id") != job["session_id"]
+                    or proposal.get("request_id") != job["request_id"]
+                    or not _is_nonnegative_int64(proposal.get("tick"))
+                ):
+                    raise RinProtocolError("invalid_job", "Successful proposal job contained invalid identity fields")
+            if result_kind == "generation":
+                result = job.get("result")
+                content = result.get("content") if isinstance(result, dict) else None
+                if not _is_bounded_generation_content(content):
+                    raise RinProtocolError("invalid_job", "Successful generation job did not include content")
+            return job
+        if status in _TERMINAL_JOB_STATES:
+            detail = job.get("error") if isinstance(job.get("error"), dict) else {}
+            raise RinAPIError(
+                _safe_text(detail.get("code"), 96) or "job_" + status,
+                _safe_text(detail.get("message"), 500) or "Rin job ended as " + status,
+            )
+        if status not in ("queued", "running"):
+            raise RinProtocolError("invalid_job", "Rin returned an unknown job status")
+        return None
 
     def _post(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         return self._request("POST", path, payload)
@@ -312,6 +365,35 @@ def _path_id(value: str) -> str:
     ):
         raise RinConfigurationError("invalid_identifier", "Rin path identifier is invalid")
     return quote(text, safe="._-")
+
+
+def _validate_job_identity(job: Dict[str, Any], result_kind: str, expected_job_id: str) -> None:
+    response_job_id = job.get("job_id")
+    if not _is_protocol_id(response_job_id) or response_job_id != expected_job_id:
+        raise RinProtocolError("invalid_job", "Rin returned a job with an invalid or mismatched job_id")
+    if result_kind == "proposal":
+        if not _is_protocol_id(job.get("session_id")) or not _is_protocol_id(job.get("request_id")):
+            raise RinProtocolError("invalid_job", "Rin returned a proposal job with invalid identity fields")
+    elif result_kind == "generation":
+        if not _is_protocol_id(job.get("request_id")):
+            raise RinProtocolError("invalid_job", "Rin returned a generation job with an invalid request_id")
+
+
+def _is_protocol_id(value: Any) -> bool:
+    return isinstance(value, str) and _IDENTIFIER.fullmatch(value) is not None
+
+
+def _is_nonnegative_int64(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= _MAX_SIGNED_INT64
+
+
+def _is_bounded_generation_content(value: Any) -> bool:
+    if not isinstance(value, str) or not value.strip() or "\x00" in value:
+        return False
+    try:
+        return len(value.encode("utf-8")) <= _MAX_GENERATION_CONTENT_BYTES
+    except UnicodeEncodeError:
+        return False
 
 
 def _safe_text(value: Any, maximum: int) -> str:

@@ -29,7 +29,18 @@ const (
 )
 
 type Store interface {
+	// Create is an idempotent create-if-absent operation. Repeating an
+	// identical first EventRecord, including the exact Data bytes, is a
+	// successful durability confirmation; any different existing log must
+	// return ErrConflict without mutation.
 	Create(sessionID string, event protocol.EventRecord) error
+	// Append must compare the event with the current tail. Repeating an
+	// identical EventRecord, including the exact Data bytes, is an idempotent
+	// success; a different event at the same sequence or an unexpected
+	// previous hash must fail without mutation.
+	// It must never accept a partial record as a valid event. If an underlying
+	// write or rollback fails, Load must surface the incomplete tail as
+	// ErrCorruptLog instead of silently replaying it.
 	Append(sessionID string, event protocol.EventRecord) error
 	Load(sessionID string) ([]protocol.EventRecord, error)
 	ListSessions() ([]string, error)

@@ -39,17 +39,30 @@ SDK 当前以源码为主，尚未发布到语言注册表。应固定到带 Tag
 
 ## 接入生命周期
 
+以下“先应用、再回报”步骤要求创建 Session 时请求
+`outcome-reporting-v1`；否则 Runtime 会有意保留旧版 Commit 与重放行为。
+
 1. 捕获一个有界、由游戏拥有的事件并调用 `observe`。
 2. 只向 Rin 提供游戏能够安全实现的候选动作。
 3. 实时游戏使用异步 Proposal Job API。
 4. 用本地白名单验证返回的 Action ID 和 Payload。
 5. 切回引擎拥有的线程并应用动作。
-6. 用实际结果调用 `commit`，必要时提交拒绝。
-7. Rin 不可用时保留 authored 或 deterministic fallback。
+6. 在应用事务中把实际结果写入游戏自己的 Outcome Outbox。
+7. 从 Outbox 调用 `commit`，必要时回报拒绝；失败只重报，不重复应用动作。
+8. Rin 不可用时保留 authored 或 deterministic fallback。
+
+Proposal 提交、轮询、超时或取消若结果不确定，应标为 outcome-unknown 并
+fail closed；使用相同身份恢复，确认不存在在线 Proposal 前不得执行 fallback。
+提交前应持久化完整 Propose Request 与 Operation 身份，并在 `202` 后立即
+保存 Job ID。任何新 Turn 或 Fallback 之前都要先恢复这条记录；只有游戏结果、
+Applied Marker 与 Outcome Outbox 在同一个权威事务中落盘时才能清除。
 
 不要从渲染或 Update 循环调用在线 Proposal 或 Generation 端点。一次玩家
 交互最多启动一个 Job；普通帧只应检查本地 Future、Coroutine、Timer 或
 主线程队列。
+
+Commit 是结果记账而不是执行授权。Outbox、延迟结果、相同 `request_id` 重试
+和离线对账规则见[动作结果记账](outcome-reporting.zh-CN.md)。
 
 ## 凭据与传输
 

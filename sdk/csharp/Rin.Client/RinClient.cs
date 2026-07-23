@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -10,6 +11,8 @@ public sealed class RinClient : IDisposable
 {
     public const string ProtocolVersion = "rin.protocol/v1";
     public const string DefaultBaseUrl = "http://127.0.0.1:7374";
+
+    private const int MaxGenerationContentBytes = 4 * 1024 * 1024;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -82,9 +85,11 @@ public sealed class RinClient : IDisposable
     public Task<JsonElement> CancelGenerationJobAsync(string jobId, CancellationToken cancellationToken = default) =>
         RequestAsync(HttpMethod.Delete, "/v1/generation/jobs/" + PathId(jobId), null, 200, cancellationToken);
 
+    /// <summary>Reports an outcome the game already applied or rejected.</summary>
     public Task<JsonElement> CommitAsync(object payload, CancellationToken cancellationToken = default) =>
         PostAsync("/v1/action/commit", payload, 200, cancellationToken);
 
+    /// <summary>Atomically reports outcomes produced from one original world revision.</summary>
     public Task<JsonElement> CommitBatchAsync(object payload, CancellationToken cancellationToken = default) =>
         PostAsync("/v1/action/commit-batch", payload, 200, cancellationToken);
 
@@ -123,6 +128,7 @@ public sealed class RinClient : IDisposable
             CancelProposalJobAsync,
             deadline ?? TimeSpan.FromSeconds(25),
             interval ?? TimeSpan.FromMilliseconds(100),
+            JobResultKind.Proposal,
             cancellationToken);
 
     public Task<JsonElement> WaitForGenerationAsync(
@@ -136,6 +142,7 @@ public sealed class RinClient : IDisposable
             CancelGenerationJobAsync,
             deadline ?? TimeSpan.FromSeconds(45),
             interval ?? TimeSpan.FromMilliseconds(100),
+            JobResultKind.Generation,
             cancellationToken);
 
     public void Dispose() => httpClient.Dispose();
@@ -152,6 +159,7 @@ public sealed class RinClient : IDisposable
         Func<string, CancellationToken, Task<JsonElement>> canceler,
         TimeSpan deadline,
         TimeSpan interval,
+        JobResultKind resultKind,
         CancellationToken cancellationToken)
     {
         if (deadline < TimeSpan.FromMilliseconds(50) || deadline > TimeSpan.FromMinutes(5) ||
@@ -160,33 +168,234 @@ public sealed class RinClient : IDisposable
             throw new RinConfigurationException("invalid_polling", "Job deadline or interval is out of range");
         }
         var elapsed = Stopwatch.StartNew();
-        while (true)
+        try
         {
-            var job = await getter(jobId, cancellationToken).ConfigureAwait(false);
-            var status = TextProperty(job, "status", 32);
-            if (status == "succeeded") return job;
-            if (status is "failed" or "stale" or "canceled")
+            while (true)
             {
-                var detail = job.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.Object
-                    ? error
-                    : default;
-                throw new RinApiException(
-                    TextProperty(detail, "code", 96, "job_" + status),
-                    TextProperty(detail, "message", 500, "Rin job ended as " + status));
+                var job = await getter(jobId, cancellationToken).ConfigureAwait(false);
+                if (IsResolvedJob(job, resultKind, jobId)) return job;
+                var remaining = deadline - elapsed.Elapsed;
+                if (remaining <= TimeSpan.Zero)
+                {
+                    JsonElement canceledJob;
+                    try
+                    {
+                        canceledJob = await canceler(jobId, CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch (RinException)
+                    {
+                        throw new RinApiException("job_timeout", "Rin job exceeded its deadline");
+                    }
+                    if (IsResolvedJob(canceledJob, resultKind, jobId)) return canceledJob;
+                    throw new RinApiException("job_timeout", "Rin job exceeded its deadline");
+                }
+                await Task.Delay(interval < remaining ? interval : remaining, cancellationToken).ConfigureAwait(false);
             }
-            if (status is not ("queued" or "running"))
-            {
-                throw new RinProtocolException("invalid_job", "Rin returned an unknown job status");
-            }
-            var remaining = deadline - elapsed.Elapsed;
-            if (remaining <= TimeSpan.Zero)
-            {
-                try { await canceler(jobId, CancellationToken.None).ConfigureAwait(false); }
-                catch (RinException) { }
-                throw new RinApiException("job_timeout", "Rin job exceeded its deadline");
-            }
-            await Task.Delay(interval < remaining ? interval : remaining, cancellationToken).ConfigureAwait(false);
         }
+        catch (OperationCanceledException callerCancellation) when (cancellationToken.IsCancellationRequested)
+        {
+            return await ReconcileCallerCancellationAsync(
+                jobId,
+                canceler,
+                resultKind,
+                callerCancellation).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<JsonElement> ReconcileCallerCancellationAsync(
+        string jobId,
+        Func<string, CancellationToken, Task<JsonElement>> canceler,
+        JobResultKind resultKind,
+        OperationCanceledException callerCancellation)
+    {
+        JsonElement canceledJob;
+        try
+        {
+            // The caller token is already canceled. Reconciliation must get its own
+            // request deadline so a raced, durable proposal cannot be discarded.
+            canceledJob = await canceler(jobId, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (RinException)
+        {
+            throw new RinApiException(
+                "job_cancel_unconfirmed",
+                "Caller cancellation could not be confirmed with Rin");
+        }
+        catch (OperationCanceledException)
+        {
+            throw new RinApiException(
+                "job_cancel_unconfirmed",
+                "Caller cancellation could not be confirmed with Rin");
+        }
+
+        try
+        {
+            ValidateJobIdentity(canceledJob, resultKind, jobId, out _, out _);
+            var status = RequiredRawJobStatus(canceledJob);
+            if (status == "canceled")
+            {
+                throw callerCancellation;
+            }
+            if (IsResolvedJob(canceledJob, resultKind, jobId)) return canceledJob;
+        }
+        catch (RinProtocolException)
+        {
+            throw new RinApiException(
+                "job_outcome_unknown",
+                "Rin returned an invalid cancellation outcome");
+        }
+
+        throw new RinApiException(
+            "job_outcome_unknown",
+            "Rin did not confirm a terminal job outcome after caller cancellation");
+    }
+
+    private static bool IsResolvedJob(
+        JsonElement job,
+        JobResultKind resultKind,
+        string expectedJobId)
+    {
+        ValidateJobIdentity(job, resultKind, expectedJobId, out var jobSessionId, out var jobRequestId);
+        var status = RequiredRawJobStatus(job);
+        if (status == "succeeded")
+        {
+            if (resultKind == JobResultKind.Proposal)
+            {
+                if (!job.TryGetProperty("proposal", out var proposal) || proposal.ValueKind != JsonValueKind.Object)
+                {
+                    throw new RinProtocolException("invalid_job", "Successful proposal job did not include a proposal");
+                }
+                if (!TryIdentifierProperty(proposal, "id", out _) ||
+                    !TryIdentifierProperty(proposal, "actor_id", out _) ||
+                    !TryIdentifierProperty(proposal, "session_id", out var proposalSessionId) ||
+                    !TryIdentifierProperty(proposal, "request_id", out var proposalRequestId) ||
+                    proposalSessionId != jobSessionId ||
+                    proposalRequestId != jobRequestId ||
+                    !TryNonnegativeInt64Property(proposal, "tick"))
+                {
+                    throw new RinProtocolException(
+                        "invalid_job",
+                        "Successful proposal job contained invalid identity fields");
+                }
+            }
+            if (resultKind == JobResultKind.Generation)
+            {
+                if (!job.TryGetProperty("result", out var result) || result.ValueKind != JsonValueKind.Object ||
+                    !result.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.String)
+                {
+                    throw new RinProtocolException("invalid_job", "Successful generation job did not include content");
+                }
+                var value = content.GetString();
+                if (string.IsNullOrWhiteSpace(value) ||
+                    value.Contains('\0') ||
+                    Encoding.UTF8.GetByteCount(value) > MaxGenerationContentBytes)
+                {
+                    throw new RinProtocolException("invalid_job", "Successful generation job did not include bounded content");
+                }
+            }
+            return true;
+        }
+        if (status is "failed" or "stale" or "canceled")
+        {
+            var detail = job.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.Object
+                ? error
+                : default;
+            throw new RinApiException(
+                TextProperty(detail, "code", 96, "job_" + status),
+                TextProperty(detail, "message", 500, "Rin job ended as " + status));
+        }
+        if (status is not ("queued" or "running"))
+        {
+            throw new RinProtocolException("invalid_job", "Rin returned an unknown job status");
+        }
+        return false;
+    }
+
+    private static string RequiredRawJobStatus(JsonElement job)
+    {
+        if (job.ValueKind != JsonValueKind.Object ||
+            !job.TryGetProperty("status", out var property) ||
+            property.ValueKind != JsonValueKind.String)
+        {
+            throw new RinProtocolException("invalid_job", "Rin job status must be a string");
+        }
+        var status = property.GetString();
+        if (status is not ("queued" or "running" or "succeeded" or "failed" or "stale" or "canceled"))
+        {
+            throw new RinProtocolException("invalid_job", "Rin returned an unknown job status");
+        }
+        return status;
+    }
+
+    private static void ValidateJobIdentity(
+        JsonElement job,
+        JobResultKind resultKind,
+        string expectedJobId,
+        out string sessionId,
+        out string requestId)
+    {
+        sessionId = string.Empty;
+        requestId = string.Empty;
+        if (job.ValueKind != JsonValueKind.Object ||
+            !TryIdentifierProperty(job, "job_id", out var responseJobId) ||
+            responseJobId != expectedJobId)
+        {
+            throw new RinProtocolException(
+                "invalid_job",
+                "Rin returned a job with an invalid or mismatched job_id");
+        }
+        if (resultKind == JobResultKind.Proposal &&
+            (!TryIdentifierProperty(job, "session_id", out sessionId) ||
+             !TryIdentifierProperty(job, "request_id", out requestId)))
+        {
+            throw new RinProtocolException("invalid_job", "Rin returned a proposal job with invalid identity fields");
+        }
+        if (resultKind == JobResultKind.Generation &&
+            !TryIdentifierProperty(job, "request_id", out requestId))
+        {
+            throw new RinProtocolException("invalid_job", "Rin returned a generation job with an invalid request_id");
+        }
+    }
+
+    private static bool TryIdentifierProperty(JsonElement element, string name, out string value)
+    {
+        value = string.Empty;
+        if (element.ValueKind != JsonValueKind.Object ||
+            !element.TryGetProperty(name, out var property) ||
+            property.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+        value = property.GetString() ?? string.Empty;
+        return IsProtocolIdentifier(value);
+    }
+
+    private static bool IsProtocolIdentifier(string value)
+    {
+        if (value.Length is < 1 or > 96 || !IsAsciiLetterOrDigit(value[0])) return false;
+        return value.All(character => IsAsciiLetterOrDigit(character) || character is '.' or '_' or '-');
+    }
+
+    private static bool IsAsciiLetterOrDigit(char value) =>
+        value is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9';
+
+    private static bool TryNonnegativeInt64Property(JsonElement element, string name)
+    {
+        if (!element.TryGetProperty(name, out var property) ||
+            property.ValueKind != JsonValueKind.Number ||
+            !property.TryGetInt64(out var value) ||
+            value < 0)
+        {
+            return false;
+        }
+        var token = property.GetRawText();
+        return token.Length > 0 && token.All(character => character is >= '0' and <= '9');
+    }
+
+    private enum JobResultKind
+    {
+        Proposal,
+        Generation,
     }
 
     private Task<JsonElement> PostAsync(string path, object payload, int expectedStatus, CancellationToken cancellationToken)

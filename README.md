@@ -17,13 +17,17 @@ Rin 将“角色思考”和“游戏世界事实”拆开：
 
 - 游戏提交角色实际看见的 `Observation`，而不是把整个存档交给模型。
 - 角色根据记忆、目标、边界和当前允许动作生成 `ActionProposal`。
-- 提案不能直接改变剧情、背包、任务或关系；游戏验证并调用 `commit` 后才生效。
+- 提案不能直接改变剧情、背包、任务或关系；游戏验证并应用或拒绝后，
+  用 `commit` 向 Rin 回报实际结果。
 - 每次状态变化写入带哈希链的 JSONL 事件日志，可重放、可检查。
 - 快照绑定 `game/content/version/hash`，篡改或串档会被拒绝。
 - 多 NPC 通过 tick 调度按需思考，不需要每帧调用模型。
 - 在线模型通过异步 Job 预取，慢请求、取消和状态过期不会冻结游戏主线程。
 - 通用结构化 Generation Job 让剧情、任务描述和受限对白也经过 Sidecar，而不是让游戏保存供应商 Key。
 - 模型不可用时自动回退确定性 Policy，并用 `policy_source` 标明来源。
+- “游戏先处理、再回报”以及延迟结果合并要求新 Session 显式请求
+  `outcome-reporting-v1`；未启用的 Session 为保持重放兼容，继续使用旧版
+  Commit/stale 语义。
 - Ren'Py、Godot 4 和 Unity 适配器保持同一套 observe / propose / commit 权威边界。
 - Python、JavaScript、C#、Java、Lua SDK 与 Fabric、BepInEx、Luanti 示例 Mod 提供快速接入层。
 - 可选分层记忆、冲突认知、候选小目标、区域休眠和确定性多角色仲裁均由 Session feature 显式启用。
@@ -75,8 +79,8 @@ go run ./cmd/rin serve
 | `POST` | `/v1/generation/jobs` | 异步提交结构化 JSON 生成任务 |
 | `GET` | `/v1/generation/jobs/{job_id}` | 查询生成任务与安全元数据 |
 | `DELETE` | `/v1/generation/jobs/{job_id}` | 取消生成任务 |
-| `POST` | `/v1/action/commit` | 接受或拒绝提案并记录结果 |
-| `POST` | `/v1/action/commit-batch` | 原子提交同一世界版本的多角色结果 |
+| `POST` | `/v1/action/commit` | 记录游戏已经应用或拒绝的实际结果 |
+| `POST` | `/v1/action/commit-batch` | 原子记录同一原始世界版本的多角色结果 |
 | `POST` | `/v1/session/activity` | 更新角色区域与 awake/dormant 状态 |
 | `POST` | `/v1/world/arbitrate` | 对并行角色提案进行确定性冲突仲裁 |
 | `POST` | `/v1/scheduler/due` | 查询当前 tick 应思考的角色 |
@@ -88,7 +92,9 @@ go run ./cmd/rin serve
 
 所有写请求都带调用方生成的 `request_id`，重复请求返回相同结果，不重复修改状态。同一 ID 被用于不同操作时返回冲突。
 
-完整字段和错误语义见 [协议文档](docs/protocol-v1.zh-CN.md)，职责边界见 [架构文档](docs/architecture.zh-CN.md)。
+完整字段和错误语义见 [协议文档](docs/protocol-v1.zh-CN.md)，职责边界见
+[架构文档](docs/architecture.zh-CN.md)，应用、结果记账和重试顺序见
+[动作结果记账](docs/outcome-reporting.zh-CN.md)。
 
 离线检查一个会话（会验证日志并只打印脱敏时间线）：
 

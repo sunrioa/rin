@@ -1,6 +1,8 @@
 package io.github.sunrioa.rin;
 
 import java.io.ByteArrayOutputStream;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.http.HttpClient;
@@ -13,8 +15,8 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Collections;
-import java.util.List;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -29,6 +31,10 @@ public final class RinClient {
     public static final String PROTOCOL_VERSION = "rin.protocol/v1";
     public static final String DEFAULT_BASE_URL = "http://127.0.0.1:7374";
     public static final int DEFAULT_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+
+    private static final int MAX_GENERATION_CONTENT_BYTES = 4 * 1024 * 1024;
+    private static final long MAX_SAFE_DOUBLE_INTEGER = 9_007_199_254_740_991L;
+    private static final int MAX_SAFE_FLOAT_INTEGER = 16_777_215;
 
     private final String baseUrl;
     private final String token;
@@ -99,10 +105,12 @@ public final class RinClient {
         return request("DELETE", "/v1/generation/jobs/" + pathId(jobId), null, Set.of(200));
     }
 
+    /** Reports an outcome the game already applied or rejected. */
     public CompletableFuture<Map<String, Object>> commit(Map<String, ?> payload) {
         return post("/v1/action/commit", payload, 200);
     }
 
+    /** Atomically reports outcomes produced from one original world revision. */
     public CompletableFuture<Map<String, Object>> commitBatch(Map<String, ?> payload) {
         return post("/v1/action/commit-batch", payload, 200);
     }
@@ -140,19 +148,19 @@ public final class RinClient {
     }
 
     public CompletableFuture<Map<String, Object>> waitForProposal(String jobId) {
-        return waitForJob(jobId, this::getProposalJob, this::cancelProposalJob, Duration.ofSeconds(25), Duration.ofMillis(100));
+        return waitForJob(jobId, this::getProposalJob, this::cancelProposalJob, Duration.ofSeconds(25), Duration.ofMillis(100), "proposal");
     }
 
     public CompletableFuture<Map<String, Object>> waitForProposal(String jobId, Duration deadline, Duration interval) {
-        return waitForJob(jobId, this::getProposalJob, this::cancelProposalJob, deadline, interval);
+        return waitForJob(jobId, this::getProposalJob, this::cancelProposalJob, deadline, interval, "proposal");
     }
 
     public CompletableFuture<Map<String, Object>> waitForGeneration(String jobId) {
-        return waitForJob(jobId, this::getGenerationJob, this::cancelGenerationJob, Duration.ofSeconds(45), Duration.ofMillis(100));
+        return waitForJob(jobId, this::getGenerationJob, this::cancelGenerationJob, Duration.ofSeconds(45), Duration.ofMillis(100), "generation");
     }
 
     public CompletableFuture<Map<String, Object>> waitForGeneration(String jobId, Duration deadline, Duration interval) {
-        return waitForJob(jobId, this::getGenerationJob, this::cancelGenerationJob, deadline, interval);
+        return waitForJob(jobId, this::getGenerationJob, this::cancelGenerationJob, deadline, interval, "generation");
     }
 
     private CompletableFuture<Map<String, Object>> waitForJob(
@@ -160,7 +168,8 @@ public final class RinClient {
             Function<String, CompletableFuture<Map<String, Object>>> getter,
             Function<String, CompletableFuture<Map<String, Object>>> canceler,
             Duration deadline,
-            Duration interval) {
+            Duration interval,
+            String resultKind) {
         if (deadline == null || interval == null || deadline.compareTo(Duration.ofMillis(50)) < 0 ||
                 deadline.compareTo(Duration.ofMinutes(5)) > 0 || interval.compareTo(Duration.ofMillis(10)) < 0 ||
                 interval.compareTo(Duration.ofSeconds(5)) > 0) {
@@ -169,6 +178,64 @@ public final class RinClient {
         long expires = System.nanoTime() + deadline.toNanos();
         CompletableFuture<Map<String, Object>> result = new CompletableFuture<>();
         class Poller {
+            boolean resolve(Map<String, Object> job) {
+                if (job == null) {
+                    result.completeExceptionally(new RinProtocolException("invalid_job", "Rin returned an invalid job"));
+                    return true;
+                }
+                try {
+                    validateJobIdentity(job, resultKind, jobId);
+                } catch (RinProtocolException invalid) {
+                    result.completeExceptionally(invalid);
+                    return true;
+                }
+                Object statusValue = job.get("status");
+                if (!(statusValue instanceof String status)) {
+                    result.completeExceptionally(new RinProtocolException(
+                            "invalid_job",
+                            "Rin returned an invalid job status"));
+                    return true;
+                }
+                if (status.equals("succeeded")) {
+                    if (resultKind.equals("proposal") &&
+                            (!(job.get("proposal") instanceof Map<?, ?> proposal) ||
+                                    !validProposalIdentity(proposal, job))) {
+                        result.completeExceptionally(new RinProtocolException(
+                                "invalid_job",
+                                "Successful proposal job contained invalid identity fields"));
+                    } else if (resultKind.equals("generation") &&
+                            (!(job.get("result") instanceof Map<?, ?> generationResult) ||
+                                    !(generationResult.get("content") instanceof String content) ||
+                                    !validGenerationContent(content))) {
+                        result.completeExceptionally(new RinProtocolException(
+                                "invalid_job",
+                                "Successful generation job did not include bounded content"));
+                    } else {
+                        result.complete(job);
+                    }
+                    return true;
+                }
+                if (status.equals("failed") || status.equals("stale") || status.equals("canceled")) {
+                    Object value = job.get("error");
+                    Map<?, ?> detail = value instanceof Map<?, ?> map ? map : Map.of();
+                    result.completeExceptionally(new RinApiException(
+                            RinException.safeText(detail.get("code"), 96, "job_" + status),
+                            RinException.safeText(detail.get("message"), 500, "Rin job ended as " + status),
+                            0,
+                            ""));
+                    return true;
+                }
+                if (!status.equals("queued") && !status.equals("running")) {
+                    result.completeExceptionally(new RinProtocolException("invalid_job", "Rin returned an unknown job status"));
+                    return true;
+                }
+                return false;
+            }
+
+            void timeout() {
+                result.completeExceptionally(new RinApiException("job_timeout", "Rin job exceeded its deadline", 0, ""));
+            }
+
             void poll() {
                 if (result.isDone()) return;
                 getter.apply(jobId).whenComplete((job, failure) -> {
@@ -177,33 +244,33 @@ public final class RinClient {
                         result.completeExceptionally(unwrap(failure));
                         return;
                     }
-                    String status = RinException.safeText(job.get("status"), 32, "");
-                    if (status.equals("succeeded")) {
-                        result.complete(job);
-                        return;
-                    }
-                    if (status.equals("failed") || status.equals("stale") || status.equals("canceled")) {
-                        Object value = job.get("error");
-                        Map<?, ?> detail = value instanceof Map<?, ?> map ? map : Map.of();
-                        result.completeExceptionally(new RinApiException(
-                                RinException.safeText(detail.get("code"), 96, "job_" + status),
-                                RinException.safeText(detail.get("message"), 500, "Rin job ended as " + status),
-                                0,
-                                ""));
-                        return;
-                    }
-                    if (!status.equals("queued") && !status.equals("running")) {
-                        result.completeExceptionally(new RinProtocolException("invalid_job", "Rin returned an unknown job status"));
-                        return;
-                    }
+                    if (resolve(job)) return;
                     long remaining = expires - System.nanoTime();
                     if (remaining <= 0) {
+                        CompletableFuture<Map<String, Object>> cancellation;
                         try {
-                            canceler.apply(jobId);
+                            cancellation = canceler.apply(jobId);
                         } catch (RinException ignored) {
-                            // Timeout remains the useful result even if best-effort cancellation fails.
+                            timeout();
+                            return;
+                        } catch (RuntimeException unexpected) {
+                            result.completeExceptionally(unexpected);
+                            return;
                         }
-                        result.completeExceptionally(new RinApiException("job_timeout", "Rin job exceeded its deadline", 0, ""));
+                        if (cancellation == null) {
+                            result.completeExceptionally(new NullPointerException("Job canceler returned null"));
+                            return;
+                        }
+                        cancellation.whenComplete((canceledJob, cancelFailure) -> {
+                            if (result.isDone()) return;
+                            if (cancelFailure != null) {
+                                Throwable cause = unwrap(cancelFailure);
+                                if (cause instanceof RinException) timeout();
+                                else result.completeExceptionally(cause);
+                                return;
+                            }
+                            if (!resolve(canceledJob)) timeout();
+                        });
                         return;
                     }
                     long delay = Math.min(interval.toNanos(), remaining);
@@ -213,6 +280,96 @@ public final class RinClient {
         }
         new Poller().poll();
         return result;
+    }
+
+    private static void validateJobIdentity(
+            Map<String, Object> job,
+            String resultKind,
+            String expectedJobId) {
+        Object responseJobId = job.get("job_id");
+        if (!(responseJobId instanceof String id) ||
+                !isProtocolIdentifier(id) ||
+                !id.equals(expectedJobId)) {
+            throw new RinProtocolException(
+                    "invalid_job",
+                    "Rin returned a job with an invalid or mismatched job_id");
+        }
+        if (resultKind.equals("proposal") &&
+                (!isProtocolIdentifier(job.get("session_id")) ||
+                        !isProtocolIdentifier(job.get("request_id")))) {
+            throw new RinProtocolException(
+                    "invalid_job",
+                    "Rin returned a proposal job with invalid identity fields");
+        }
+        if (resultKind.equals("generation") && !isProtocolIdentifier(job.get("request_id"))) {
+            throw new RinProtocolException(
+                    "invalid_job",
+                    "Rin returned a generation job with an invalid request_id");
+        }
+    }
+
+    private static boolean validProposalIdentity(Map<?, ?> proposal, Map<String, Object> job) {
+        return isProtocolIdentifier(proposal.get("id")) &&
+                isProtocolIdentifier(proposal.get("actor_id")) &&
+                Objects.equals(proposal.get("session_id"), job.get("session_id")) &&
+                Objects.equals(proposal.get("request_id"), job.get("request_id")) &&
+                isNonnegativeSignedInt64(proposal.get("tick"));
+    }
+
+    private static boolean isProtocolIdentifier(Object value) {
+        if (!(value instanceof String text) || text.isEmpty() || text.length() > 96) return false;
+        char first = text.charAt(0);
+        if (!isAsciiLetterOrDigit(first)) return false;
+        for (int index = 1; index < text.length(); index++) {
+            char character = text.charAt(index);
+            if (!isAsciiLetterOrDigit(character) && character != '.' && character != '_' && character != '-') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isAsciiLetterOrDigit(char value) {
+        return value >= 'a' && value <= 'z' ||
+                value >= 'A' && value <= 'Z' ||
+                value >= '0' && value <= '9';
+    }
+
+    private static boolean isNonnegativeSignedInt64(Object value) {
+        if (value instanceof Byte || value instanceof Short || value instanceof Integer || value instanceof Long) {
+            return ((Number) value).longValue() >= 0;
+        }
+        if (value instanceof BigInteger integer) {
+            return integer.signum() >= 0 && integer.bitLength() <= 63;
+        }
+        if (value instanceof BigDecimal decimal) {
+            try {
+                return decimal.scale() <= 0 &&
+                        decimal.toBigIntegerExact().signum() >= 0 &&
+                        decimal.toBigIntegerExact().bitLength() <= 63;
+            } catch (ArithmeticException ignored) {
+                return false;
+            }
+        }
+        if (value instanceof Double number) {
+            return Double.isFinite(number) &&
+                    number >= 0 &&
+                    number <= MAX_SAFE_DOUBLE_INTEGER &&
+                    number == Math.rint(number);
+        }
+        if (value instanceof Float number) {
+            return Float.isFinite(number) &&
+                    number >= 0 &&
+                    number <= MAX_SAFE_FLOAT_INTEGER &&
+                    number == Math.rint(number);
+        }
+        return false;
+    }
+
+    private static boolean validGenerationContent(String content) {
+        return !content.isBlank() &&
+                content.indexOf('\0') < 0 &&
+                content.getBytes(StandardCharsets.UTF_8).length <= MAX_GENERATION_CONTENT_BYTES;
     }
 
     private CompletableFuture<Map<String, Object>> post(String path, Map<String, ?> payload, int expectedStatus) {

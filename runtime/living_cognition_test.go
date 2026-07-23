@@ -16,7 +16,7 @@ func TestLivingMemoryArchivesAndReplaysDeterministically(t *testing.T) {
 	eventStore := store.NewMemory()
 	engine := newEngine(t, eventStore, policy.Deterministic{})
 	create := createRequest("session.archive")
-	create.Features = []string{protocol.FeatureMemoryArchive}
+	create.Features = append(create.Features, protocol.FeatureMemoryArchive)
 	if _, err := engine.CreateSession(create); err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestLivingMemoryArchivesAndReplaysDeterministically(t *testing.T) {
 func TestBeliefConflictsRemainActorLocal(t *testing.T) {
 	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
 	create := createRequest("session.beliefs")
-	create.Features = []string{protocol.FeatureBeliefConflicts}
+	create.Features = append(create.Features, protocol.FeatureBeliefConflicts)
 	second := create.Actors[0]
 	second.ID = "npc.oren"
 	second.DisplayName = "Oren"
@@ -118,7 +118,7 @@ func TestBeliefConflictsRemainActorLocal(t *testing.T) {
 	}
 	mira := state.Actors["npc.mira"]
 	set := mira.BeliefSets["relic:location"]
-	if !set.Conflicted || len(set.Claims) != 2 || mira.Beliefs["relic:location"].Object != "harbor" {
+	if !set.Conflicted || len(set.Claims) != 2 || mira.Beliefs["relic:location"].Object != "tower" {
 		t.Fatalf("unexpected conflicting belief state: set=%+v selected=%+v", set, mira.Beliefs["relic:location"])
 	}
 	if len(state.Actors["npc.oren"].Beliefs) != 0 || len(state.Actors["npc.oren"].BeliefSets) != 0 {

@@ -50,6 +50,39 @@ client:get_proposal_job(string.char(228, 189, 156, 228, 184, 154), function(data
     assert(not data and err.code == "invalid_identifier")
 end)
 
+local function proposal(overrides)
+    local value = {
+        id = "proposal.fixture",
+        session_id = "session.fixture",
+        request_id = "request.fixture",
+        actor_id = "actor.fixture",
+        tick = 7,
+    }
+    for key, field in pairs(overrides or {}) do value[key] = field end
+    return value
+end
+
+local function proposal_job(status, overrides)
+    local value = {
+        job_id = "job.fixture",
+        session_id = "session.fixture",
+        request_id = "request.fixture",
+        status = status or "running",
+    }
+    for key, field in pairs(overrides or {}) do value[key] = field end
+    return value
+end
+
+local function generation_job(status, overrides)
+    local value = {
+        job_id = "job.fixture",
+        request_id = "generation.fixture",
+        status = status or "running",
+    }
+    for key, field in pairs(overrides or {}) do value[key] = field end
+    return value
+end
+
 local remote, remote_error = rin.new({
     base_url = "http://models.example",
     token = "fixture",
@@ -67,7 +100,7 @@ local polling_client = assert(rin.new({
         callback({ status = 200, body = "{}", headers = {} })
     end,
     json_encode = function() return "{}" end,
-    json_decode = function() return { ok = true, data = { status = "running" } } end,
+    json_decode = function() return { ok = true, data = proposal_job() } end,
     schedule = function(seconds, callback) clock = clock + seconds; callback() end,
     now = function() return clock end,
 }))
@@ -75,5 +108,74 @@ polling_client:wait_for_proposal("job.fixture", { deadline = 0.05, interval = 0.
     assert(not data and err.code == "job_timeout")
 end)
 assert(canceled, "timed-out job was not canceled")
+
+local function make_race_client(cancel_data, result_kind, get_data)
+    local race_clock = 0
+    local method = "GET"
+    local race_client = assert(rin.new({
+        http_fetch = function(request, callback)
+            method = request.method
+            callback({ status = 200, body = "{}", headers = {} })
+        end,
+        json_encode = function() return "{}" end,
+        json_decode = function()
+            return {
+                ok = true,
+                data = method == "DELETE" and cancel_data or
+                    get_data or (result_kind == "generation" and generation_job() or proposal_job()),
+            }
+        end,
+        schedule = function(seconds, callback)
+            race_clock = race_clock + seconds
+            callback()
+        end,
+        now = function() return race_clock end,
+    }))
+    return race_client
+end
+
+local proposal_race = make_race_client(proposal_job("succeeded", {
+    proposal = proposal({ id = "proposal.race" }),
+}), "proposal")
+proposal_race:wait_for_proposal("job.fixture", { deadline = 0.05, interval = 0.01 }, function(data, err)
+    assert(data and not err)
+    assert(data.proposal.id == "proposal.race", "proposal cancellation race result was discarded")
+end)
+
+local generation_race = make_race_client(generation_job("succeeded", {
+    result = { content = "finished at the deadline" },
+}), "generation")
+generation_race:wait_for_generation("job.fixture", { deadline = 0.05, interval = 0.01 }, function(data, err)
+    assert(data and not err)
+    assert(data.result.content == "finished at the deadline", "generation cancellation race result was discarded")
+end)
+
+local terminal_cancel = make_race_client(proposal_job("stale", {
+    error = { code = "proposal_stale", message = "World changed" },
+}), "proposal")
+terminal_cancel:wait_for_proposal("job.fixture", { deadline = 0.05, interval = 0.01 }, function(data, err)
+    assert(not data and err.code == "proposal_stale", "terminal cancellation result became job_timeout")
+end)
+
+local invalid_race = make_race_client(proposal_job("succeeded"), "proposal")
+invalid_race:wait_for_proposal("job.fixture", { deadline = 0.05, interval = 0.01 }, function(data, err)
+    assert(not data and err.code == "invalid_job", "successful proposal without payload was accepted")
+end)
+
+local crossed_get = make_race_client(
+    proposal_job("canceled"),
+    "proposal",
+    proposal_job("running", { job_id = "job.other" })
+)
+crossed_get:wait_for_proposal("job.fixture", { deadline = 0.05, interval = 0.01 }, function(data, err)
+    assert(not data and err.code == "invalid_job", "crossed GET job identity was accepted")
+end)
+
+local malformed_delete = make_race_client(proposal_job("succeeded", {
+    proposal = proposal({ tick = 1.5 }),
+}), "proposal")
+malformed_delete:wait_for_proposal("job.fixture", { deadline = 0.05, interval = 0.01 }, function(data, err)
+    assert(not data and err.code == "invalid_job", "malformed DELETE proposal identity was accepted")
+end)
 
 print("Rin Lua SDK tests passed")

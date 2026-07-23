@@ -28,6 +28,21 @@ type Goal struct {
 	Progress         int      `json:"progress"`
 	TargetProgress   int      `json:"target_progress"`
 	Status           string   `json:"status"`
+	// UpdatedTick is the latest game occurrence tick whose status or progress
+	// has been merged into this goal. It prevents a late outcome from
+	// overwriting a newer terminal status.
+	UpdatedTick int64 `json:"updated_tick,omitempty"`
+	// ProgressAccumulator preserves the unclamped sum of authoritative
+	// progress deltas. Progress is its bounded projection, so late positive and
+	// negative deltas produce the same value regardless of report order.
+	ProgressAccumulator int64 `json:"progress_accumulator,omitempty"`
+	// StatusExplicit distinguishes a game-supplied status from the automatic
+	// active/completed projection of progress.
+	StatusExplicit bool `json:"status_explicit,omitempty"`
+	// StatusUpdatedTick and StatusSourceEventID order explicit game status
+	// updates independently from progress-only updates.
+	StatusUpdatedTick   int64  `json:"status_updated_tick,omitempty"`
+	StatusSourceEventID string `json:"status_source_event_id,omitempty"`
 }
 
 type ActorSeed struct {
@@ -49,6 +64,9 @@ type Fact struct {
 	Visibility    []string `json:"visibility,omitempty"`
 	Confidence    int      `json:"confidence"`
 	SourceEventID string   `json:"source_event_id,omitempty"`
+	// ObservedTick records when the fact occurred in the authoritative game,
+	// rather than when its report reached Rin.
+	ObservedTick int64 `json:"observed_tick,omitempty"`
 }
 
 type Memory struct {
@@ -125,6 +143,11 @@ type ActionProposal struct {
 	GoalID               string     `json:"goal_id,omitempty"`
 	ProposedGoal         *Goal      `json:"proposed_goal,omitempty"`
 	Status               string     `json:"status"`
+	// OutcomeEventID and OutcomeTick are populated when the authoritative game
+	// reports this proposal's result. They also make rejected outcome event IDs
+	// discoverable and order accepted actions by occurrence rather than arrival.
+	OutcomeEventID string `json:"outcome_event_id,omitempty"`
+	OutcomeTick    int64  `json:"outcome_tick,omitempty"`
 }
 
 type ActorState struct {
@@ -139,9 +162,10 @@ type ActorState struct {
 }
 
 type RequestReceipt struct {
-	Kind     string `json:"kind"`
-	EntityID string `json:"entity_id,omitempty"`
-	Revision uint64 `json:"revision"`
+	Kind        string `json:"kind"`
+	EntityID    string `json:"entity_id,omitempty"`
+	Revision    uint64 `json:"revision"`
+	RequestHash string `json:"request_hash,omitempty"`
 }
 
 type SessionState struct {
@@ -205,6 +229,8 @@ type GoalUpdate struct {
 	Status        string `json:"status,omitempty"`
 }
 
+// CommitRequest reports the authoritative result after the game has applied or
+// rejected a proposal. It does not authorize or execute the proposed action.
 type CommitRequest struct {
 	ProtocolVersion string       `json:"protocol_version"`
 	SessionID       string       `json:"session_id"`

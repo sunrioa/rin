@@ -29,9 +29,26 @@ public final class RinClientTest {
                     Thread.currentThread().interrupt();
                 }
             }
-            byte[] body = mode[0].equals("oversized")
-                    ? new byte[2048]
-                    : "{}".getBytes(StandardCharsets.UTF_8);
+            byte[] body;
+            if (mode[0].equals("oversized")) {
+                body = new byte[2048];
+            } else if (mode[0].equals("proposal-race")) {
+                body = (lastRequest[0].equals("DELETE") ? "proposal-succeeded" : "job-running")
+                        .getBytes(StandardCharsets.UTF_8);
+            } else if (mode[0].equals("generation-race")) {
+                body = (lastRequest[0].equals("DELETE") ? "generation-succeeded" : "generation-running")
+                        .getBytes(StandardCharsets.UTF_8);
+            } else if (mode[0].equals("terminal-cancel")) {
+                body = (lastRequest[0].equals("DELETE") ? "job-stale" : "job-running")
+                        .getBytes(StandardCharsets.UTF_8);
+            } else if (mode[0].equals("crossed-get")) {
+                body = "job-crossed".getBytes(StandardCharsets.UTF_8);
+            } else if (mode[0].equals("malformed-delete")) {
+                body = (lastRequest[0].equals("DELETE") ? "proposal-malformed" : "job-running")
+                        .getBytes(StandardCharsets.UTF_8);
+            } else {
+                body = "{}".getBytes(StandardCharsets.UTF_8);
+            }
             int status = (lastRequest[1].equals("/v1/jobs/propose") || lastRequest[1].equals("/v1/generation/jobs")) ? 202 : 200;
             exchange.sendResponseHeaders(status, body.length);
             exchange.getResponseBody().write(body);
@@ -42,6 +59,54 @@ public final class RinClientTest {
         JsonCodec codec = new JsonCodec() {
             public String encode(Map<String, ?> value) { return "{}"; }
             public Map<String, Object> decodeObject(String json) {
+                if (json.equals("job-running")) {
+                    return Map.of("ok", true, "data", proposalJob("running"));
+                }
+                if (json.equals("proposal-succeeded")) {
+                    return Map.of(
+                            "ok", true,
+                            "data", proposalJob(
+                                    "succeeded",
+                                    Map.of(
+                                            "id", "proposal.race",
+                                            "session_id", "session.fixture",
+                                            "request_id", "request.fixture",
+                                            "actor_id", "actor.fixture",
+                                            "tick", 7L)));
+                }
+                if (json.equals("generation-running")) {
+                    return Map.of("ok", true, "data", generationJob("running"));
+                }
+                if (json.equals("generation-succeeded")) {
+                    return Map.of(
+                            "ok", true,
+                            "data", generationJob(
+                                    "succeeded",
+                                    Map.of("content", "finished at the deadline")));
+                }
+                if (json.equals("job-stale")) {
+                    return Map.of(
+                            "ok", true,
+                            "data", proposalJob(
+                                    "stale",
+                                    "error",
+                                    Map.of("code", "proposal_stale", "message", "World changed")));
+                }
+                if (json.equals("job-crossed")) {
+                    return Map.of("ok", true, "data", proposalJob("running", "job_id", "job.other"));
+                }
+                if (json.equals("proposal-malformed")) {
+                    return Map.of(
+                            "ok", true,
+                            "data", proposalJob(
+                                    "succeeded",
+                                    Map.of(
+                                            "id", "proposal.race",
+                                            "session_id", "session.fixture",
+                                            "request_id", "request.fixture",
+                                            "actor_id", "actor.fixture",
+                                            "tick", Double.valueOf(1.5))));
+                }
                 return Map.of("ok", true, "data", Map.of("status", "ok"));
             }
         };
@@ -117,6 +182,65 @@ public final class RinClientTest {
                 require(cause instanceof RinTransportException, "wrong timeout error type");
                 require("transport_timeout".equals(((RinTransportException) cause).code()), "wrong timeout error code");
             }
+            Thread.sleep(200);
+
+            mode[0] = "proposal-race";
+            Map<String, Object> proposalRace = client.waitForProposal(
+                    "job.fixture",
+                    Duration.ofMillis(50),
+                    Duration.ofMillis(10)).join();
+            Map<?, ?> proposal = (Map<?, ?>) proposalRace.get("proposal");
+            require("proposal.race".equals(proposal.get("id")), "proposal cancellation race result was discarded");
+
+            mode[0] = "generation-race";
+            Map<String, Object> generationRace = client.waitForGeneration(
+                    "job.fixture",
+                    Duration.ofMillis(50),
+                    Duration.ofMillis(10)).join();
+            Map<?, ?> generationResult = (Map<?, ?>) generationRace.get("result");
+            require(
+                    "finished at the deadline".equals(generationResult.get("content")),
+                    "generation cancellation race result was discarded");
+
+            mode[0] = "terminal-cancel";
+            try {
+                client.waitForProposal(
+                        "job.fixture",
+                        Duration.ofMillis(50),
+                        Duration.ofMillis(10)).join();
+                throw new AssertionError("terminal cancellation result was discarded");
+            } catch (CompletionException expected) {
+                Throwable cause = rootCause(expected);
+                require(cause instanceof RinApiException, "terminal cancellation returned wrong error type");
+                require(
+                        "proposal_stale".equals(((RinApiException) cause).code()),
+                        "terminal cancellation result became job_timeout");
+            }
+
+            mode[0] = "crossed-get";
+            try {
+                client.waitForProposal("job.fixture").join();
+                throw new AssertionError("crossed GET job identity was accepted");
+            } catch (CompletionException expected) {
+                Throwable cause = rootCause(expected);
+                require(cause instanceof RinProtocolException, "crossed GET returned wrong error type");
+                require("invalid_job".equals(((RinProtocolException) cause).code()), "crossed GET returned wrong error");
+            }
+
+            mode[0] = "malformed-delete";
+            try {
+                client.waitForProposal(
+                        "job.fixture",
+                        Duration.ofMillis(50),
+                        Duration.ofMillis(10)).join();
+                throw new AssertionError("malformed DELETE proposal identity was accepted");
+            } catch (CompletionException expected) {
+                Throwable cause = rootCause(expected);
+                require(cause instanceof RinProtocolException, "malformed DELETE returned wrong error type");
+                require(
+                        "invalid_job".equals(((RinProtocolException) cause).code()),
+                        "malformed DELETE returned wrong error");
+            }
         } finally {
             server.stop(0);
         }
@@ -130,5 +254,37 @@ public final class RinClientTest {
         Throwable result = error;
         while (result instanceof CompletionException && result.getCause() != null) result = result.getCause();
         return result;
+    }
+
+    private static Map<String, Object> proposalJob(String status) {
+        return proposalJob(status, Map.of());
+    }
+
+    private static Map<String, Object> proposalJob(String status, Map<String, Object> proposal) {
+        return proposalJob(status, "proposal", proposal);
+    }
+
+    private static Map<String, Object> proposalJob(String status, String key, Object value) {
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("job_id", "job.fixture");
+        result.put("session_id", "session.fixture");
+        result.put("request_id", "request.fixture");
+        result.put("status", status);
+        if (value instanceof Map<?, ?> map && !map.isEmpty()) result.put(key, value);
+        else if (!(value instanceof Map<?, ?>)) result.put(key, value);
+        return result;
+    }
+
+    private static Map<String, Object> generationJob(String status, Map<String, Object> generationResult) {
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("job_id", "job.fixture");
+        result.put("request_id", "generation.fixture");
+        result.put("status", status);
+        if (!generationResult.isEmpty()) result.put("result", generationResult);
+        return result;
+    }
+
+    private static Map<String, Object> generationJob(String status) {
+        return generationJob(status, Map.of());
     }
 }

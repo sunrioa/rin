@@ -14,6 +14,9 @@ local terminal_job_states = {
     canceled = true,
 }
 
+local max_generation_content_bytes = 4 * 1024 * 1024
+local max_safe_float_integer = 9007199254740991
+
 local function safe_text(value, maximum, fallback)
     local text = tostring(value or ""):gsub("%z", " "):gsub("%s+", " ")
     text = text:match("^%s*(.-)%s*$") or ""
@@ -28,6 +31,80 @@ local function failure(code, message, status, field)
         status = tonumber(status) or 0,
         field = safe_text(field, 160, ""),
     }
+end
+
+local function is_protocol_identifier(value)
+    if type(value) ~= "string" or #value < 1 or #value > 96 then return false end
+    for index = 1, #value do
+        local byte = value:byte(index)
+        local letter_or_digit = (byte >= 48 and byte <= 57) or
+            (byte >= 65 and byte <= 90) or (byte >= 97 and byte <= 122)
+        if not letter_or_digit and (index == 1 or (byte ~= 45 and byte ~= 46 and byte ~= 95)) then
+            return false
+        end
+    end
+    return true
+end
+
+local function is_nonnegative_signed_int64(value)
+    if type(value) ~= "number" or value ~= value or value < 0 then return false end
+    if type(math.type) == "function" and math.type(value) == "integer" then return true end
+    return value <= max_safe_float_integer and value == math.floor(value)
+end
+
+local function resolve_job(job, result_kind, expected_job_id)
+    if type(job) ~= "table" then
+        return nil, failure("invalid_job", "Rin returned an invalid job"), true
+    end
+    if not is_protocol_identifier(job.job_id) or job.job_id ~= expected_job_id then
+        return nil, failure("invalid_job", "Rin returned a job with an invalid or mismatched job_id"), true
+    end
+    if result_kind == "proposal" and
+        (not is_protocol_identifier(job.session_id) or not is_protocol_identifier(job.request_id)) then
+        return nil, failure("invalid_job", "Rin returned a proposal job with invalid identity fields"), true
+    end
+    if result_kind == "generation" and not is_protocol_identifier(job.request_id) then
+        return nil, failure("invalid_job", "Rin returned a generation job with an invalid request_id"), true
+    end
+    if type(job.status) ~= "string" then
+        return nil, failure("invalid_job", "Rin returned an invalid job status"), true
+    end
+    local status = job.status
+    if status == "succeeded" then
+        if result_kind == "proposal" then
+            local proposal = job.proposal
+            if type(proposal) ~= "table" or
+                not is_protocol_identifier(proposal.id) or
+                not is_protocol_identifier(proposal.actor_id) or
+                proposal.session_id ~= job.session_id or
+                proposal.request_id ~= job.request_id or
+                not is_nonnegative_signed_int64(proposal.tick) then
+                return nil, failure(
+                    "invalid_job",
+                    "Successful proposal job contained invalid identity fields"
+                ), true
+            end
+        end
+        if result_kind == "generation" then
+            local content = type(job.result) == "table" and job.result.content or nil
+            if type(content) ~= "string" or content:match("^%s*$") or
+                content:find("%z") or #content > max_generation_content_bytes then
+                return nil, failure(
+                    "invalid_job",
+                    "Successful generation job did not include bounded content"
+                ), true
+            end
+        end
+        return job, nil, true
+    end
+    if terminal_job_states[status] then
+        local detail = type(job.error) == "table" and job.error or {}
+        return nil, failure(detail.code or ("job_" .. status), detail.message or ("Rin job ended as " .. status)), true
+    end
+    if status ~= "queued" and status ~= "running" then
+        return nil, failure("invalid_job", "Rin returned an unknown job status"), true
+    end
+    return nil, nil, false
 end
 
 local function validate_token(value)
@@ -274,7 +351,9 @@ function Client:cancel_generation_job(job_id, callback)
     if not id then callback(nil, err); return end
     self:_request("DELETE", "/v1/generation/jobs/" .. id, nil, 200, callback)
 end
+-- Report outcomes the game already applied or rejected; this does not execute them.
 function Client:commit(payload, callback) self:_post("/v1/action/commit", payload, 200, callback) end
+-- Atomically report outcomes produced from one original world revision.
 function Client:commit_batch(payload, callback) self:_post("/v1/action/commit-batch", payload, 200, callback) end
 function Client:set_actor_activity(payload, callback) self:_post("/v1/session/activity", payload, 200, callback) end
 function Client:arbitrate(payload, callback) self:_post("/v1/world/arbitrate", payload, 200, callback) end
@@ -285,7 +364,7 @@ function Client:timeline(payload, callback) self:_post("/v1/session/timeline", p
 function Client:replay(payload, callback) self:_post("/v1/session/replay", payload, 200, callback) end
 function Client:due_agents(payload, callback) self:_post("/v1/scheduler/due", payload, 200, callback) end
 
-function Client:_wait_job(job_id, getter, canceler, options, callback)
+function Client:_wait_job(job_id, getter, canceler, options, callback, result_kind)
     options = options or {}
     local deadline = tonumber(options.deadline or 25)
     local interval = tonumber(options.interval or 0.1)
@@ -303,20 +382,22 @@ function Client:_wait_job(job_id, getter, canceler, options, callback)
     poll = function()
         getter(self, job_id, function(job, err)
             if err then callback(nil, err); return end
-            local status = tostring(job.status or "")
-            if status == "succeeded" then callback(job, nil); return end
-            if terminal_job_states[status] then
-                local detail = type(job.error) == "table" and job.error or {}
-                callback(nil, failure(detail.code or ("job_" .. status), detail.message or ("Rin job ended as " .. status)))
-                return
-            end
-            if status ~= "queued" and status ~= "running" then
-                callback(nil, failure("invalid_job", "Rin returned an unknown job status"))
-                return
-            end
+            local resolved, job_error, terminal = resolve_job(job, result_kind, job_id)
+            if terminal then callback(resolved, job_error); return end
             if self.now() >= expires then
-                canceler(self, job_id, function() end)
-                callback(nil, failure("job_timeout", "Rin job exceeded its deadline"))
+                canceler(self, job_id, function(canceled_job, cancel_error)
+                    if cancel_error then
+                        callback(nil, failure("job_timeout", "Rin job exceeded its deadline"))
+                        return
+                    end
+                    local canceled_result, canceled_error, canceled_terminal =
+                        resolve_job(canceled_job, result_kind, job_id)
+                    if canceled_terminal then
+                        callback(canceled_result, canceled_error)
+                    else
+                        callback(nil, failure("job_timeout", "Rin job exceeded its deadline"))
+                    end
+                end)
                 return
             end
             self.schedule(interval, poll)
@@ -326,14 +407,14 @@ function Client:_wait_job(job_id, getter, canceler, options, callback)
 end
 
 function Client:wait_for_proposal(job_id, options, callback)
-    self:_wait_job(job_id, Client.get_proposal_job, Client.cancel_proposal_job, options, callback)
+    self:_wait_job(job_id, Client.get_proposal_job, Client.cancel_proposal_job, options, callback, "proposal")
 end
 
 function Client:wait_for_generation(job_id, options, callback)
     local configured = {}
     for key, value in pairs(options or {}) do configured[key] = value end
     if configured.deadline == nil then configured.deadline = 45 end
-    self:_wait_job(job_id, Client.get_generation_job, Client.cancel_generation_job, configured, callback)
+    self:_wait_job(job_id, Client.get_generation_job, Client.cancel_generation_job, configured, callback, "generation")
 end
 
 return rin

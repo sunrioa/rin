@@ -114,7 +114,7 @@ func validateCommitItem(field string, item CommitItem) error {
 		return &ValidationError{Field: field, Message: "contains too many updates"}
 	}
 	for index, fact := range item.Facts {
-		if err := validateFact(fmt.Sprintf("%s.facts[%d]", field, index), fact); err != nil {
+		if err := validateRequestFact(fmt.Sprintf("%s.facts[%d]", field, index), fact); err != nil {
 			return err
 		}
 	}

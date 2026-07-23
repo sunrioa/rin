@@ -7,6 +7,7 @@ then store only its returned JSON-compatible dictionary on the main thread.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import ipaddress
 import json
@@ -22,11 +23,20 @@ from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_ope
 PROTOCOL_VERSION = "rin.protocol/v1"
 DEFAULT_BASE_URL = "http://127.0.0.1:7374"
 DEFAULT_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+MAX_GENERATION_CONTENT_BYTES = 4 * 1024 * 1024
+MAX_INT64 = (1 << 63) - 1
 TERMINAL_JOB_STATES = frozenset((
     "succeeded",
     "failed",
     "stale",
     "canceled",
+))
+UNRESOLVED_PROPOSAL_CODES = frozenset((
+    "proposal_outcome_unknown",
+    "job_outcome_unknown",
+    "job_cancel_unconfirmed",
+    "job_id_persistence_failed",
+    "job_timeout",
 ))
 
 
@@ -66,7 +76,17 @@ class RinAPIError(RinError):
 
 
 class RinJobError(RinAPIError):
-    pass
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        status: int = 0,
+        field: str = "",
+        job_id: str = "",
+    ) -> None:
+        self.job_id = _safe_text(job_id, 96)
+        super().__init__(code, message, status=status, field=field)
 
 
 class _NoRedirectHandler(HTTPRedirectHandler):
@@ -207,15 +227,23 @@ class RinClient:
         return self._request("POST", "/v1/generation/jobs", request, expected_statuses=(202,))
 
     def get_generation_job(self, job_id: str) -> Dict[str, Any]:
-        return self._request("GET", "/v1/generation/jobs/" + _path_identifier(job_id))
+        expected_job_id = _path_identifier(job_id)
+        job = self._request("GET", "/v1/generation/jobs/" + expected_job_id)
+        _validate_generation_job_shape(job, expected_job_id)
+        return job
 
     def cancel_generation_job(self, job_id: str) -> Dict[str, Any]:
-        return self._request("DELETE", "/v1/generation/jobs/" + _path_identifier(job_id))
+        expected_job_id = _path_identifier(job_id)
+        job = self._request("DELETE", "/v1/generation/jobs/" + expected_job_id)
+        _validate_generation_job_shape(job, expected_job_id)
+        return job
 
     def commit(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """Report a game-applied or rejected outcome; this does not execute it."""
         return self._request("POST", "/v1/action/commit", request)
 
     def commit_batch(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """Atomically report game outcomes produced from one world revision."""
         return self._request("POST", "/v1/action/commit-batch", request)
 
     def set_actor_activity(self, request: Dict[str, Any]) -> Dict[str, Any]:
@@ -249,6 +277,7 @@ class RinClient:
         deadline_seconds: float = 25.0,
         poll_interval: float = 0.1,
         cancel_event: Optional[threading.Event] = None,
+        expected_request: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         deadline_seconds = float(deadline_seconds)
         poll_interval = float(poll_interval)
@@ -256,38 +285,214 @@ class RinClient:
             raise RinConfigurationError("invalid_deadline", "Job deadline must be between 0.05 and 300 seconds")
         if not 0.01 <= poll_interval <= 5.0:
             raise RinConfigurationError("invalid_poll_interval", "Job poll interval must be between 0.01 and 5 seconds")
+        job_id = _path_identifier(job_id)
+        if expected_request is not None:
+            expected_request = _stable_proposal_request(expected_request)
         deadline = self._clock() + deadline_seconds
         while True:
             if cancel_event is not None and cancel_event.is_set():
-                self._cancel_quietly(job_id)
-                raise RinJobError("job_canceled", "Proposal job was canceled")
-            job = self.get_proposal_job(job_id)
-            status = str(job.get("status", ""))
-            if status == "succeeded":
-                proposal = job.get("proposal")
-                if not isinstance(proposal, dict):
-                    raise RinProtocolError("invalid_job", "Successful proposal job did not include a proposal")
-                return job
-            if status in TERMINAL_JOB_STATES:
-                detail = job.get("error", {})
-                if not isinstance(detail, dict):
-                    detail = {}
-                raise RinJobError(
-                    _safe_text(detail.get("code"), 96) or "job_" + status,
-                    _safe_text(detail.get("message"), 500) or "Proposal job ended as " + status,
-                    field=_safe_text(detail.get("field"), 160),
+                try:
+                    canceled_job = self.cancel_proposal_job(job_id)
+                except RinError:
+                    raise RinJobError(
+                        "job_cancel_unconfirmed",
+                        "Proposal job cancellation could not be confirmed",
+                        job_id=job_id,
+                    ) from None
+                resolved = self._resolve_proposal_job_or_unknown(
+                    canceled_job,
+                    job_id,
+                    expected_request,
                 )
-            if status not in ("queued", "running"):
-                raise RinProtocolError("invalid_job", "Proposal job returned an unknown status")
+                if resolved is not None:
+                    return resolved
+                raise RinJobError(
+                    "job_cancel_unconfirmed",
+                    "Proposal job cancellation did not reach a terminal state",
+                    job_id=job_id,
+                )
+            try:
+                job = self.get_proposal_job(job_id)
+            except RinAPIError as exc:
+                if exc.code == "job_not_found":
+                    raise
+                raise RinJobError(
+                    "job_outcome_unknown",
+                    "Proposal job lookup did not confirm an outcome",
+                    status=exc.status,
+                    field=exc.field,
+                    job_id=job_id,
+                ) from exc
+            except RinError as exc:
+                raise RinJobError(
+                    "job_outcome_unknown",
+                    "Proposal job lookup did not confirm an outcome",
+                    job_id=job_id,
+                ) from exc
+            resolved = self._resolve_proposal_job_or_unknown(
+                job,
+                job_id,
+                expected_request,
+            )
+            if resolved is not None:
+                return resolved
             remaining = deadline - self._clock()
             if remaining <= 0:
-                self._cancel_quietly(job_id)
-                raise RinJobError("job_timeout", "Proposal job exceeded its deadline")
+                try:
+                    canceled_job = self.cancel_proposal_job(job_id)
+                except RinError:
+                    raise RinJobError(
+                        "job_outcome_unknown",
+                        "Proposal deadline elapsed and cancellation could not be confirmed",
+                        job_id=job_id,
+                    ) from None
+                resolved = self._resolve_proposal_job_or_unknown(
+                    canceled_job,
+                    job_id,
+                    expected_request,
+                )
+                if resolved is not None:
+                    return resolved
+                raise RinJobError(
+                    "job_outcome_unknown",
+                    "Proposal deadline elapsed without a terminal cancellation result",
+                    job_id=job_id,
+                )
             delay = min(poll_interval, remaining)
             if cancel_event is not None:
                 cancel_event.wait(delay)
             else:
                 self._sleeper(delay)
+
+    @staticmethod
+    def _resolve_proposal_job(
+        job: Dict[str, Any],
+        job_id: str = "",
+        expected_request: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        if not isinstance(job, dict):
+            raise RinProtocolError("invalid_job", "Rin returned an invalid proposal job")
+        _validate_proposal_job_identity(job, job_id, expected_request)
+        status = job.get("status")
+        if not isinstance(status, str):
+            raise RinProtocolError("invalid_job", "Proposal job status must be a string")
+        if status == "succeeded":
+            if expected_request is None:
+                # Preserve the public wait_for_proposal(job_id) API. Without
+                # the original request it cannot prove the selected candidate,
+                # but it can still require a self-consistent Job/Proposal pair.
+                _validate_unbound_proposal_identity(job.get("proposal"), job)
+            else:
+                _validate_proposal_identity(job.get("proposal"), expected_request)
+            return job
+        if status in TERMINAL_JOB_STATES:
+            detail = job.get("error", {})
+            if not isinstance(detail, dict):
+                detail = {}
+            if status == "failed":
+                error_code = detail.get("code")
+                if not isinstance(error_code, str):
+                    raise RinProtocolError(
+                        "invalid_job",
+                        "Failed proposal job error code must be a string",
+                    )
+                try:
+                    error_code = _path_identifier(error_code)
+                except RinProtocolError as exc:
+                    raise RinProtocolError(
+                        "invalid_job",
+                        "Failed proposal job error code is invalid",
+                    ) from exc
+            else:
+                error_code = _safe_text(detail.get("code"), 96) or "job_" + status
+            raise RinJobError(
+                error_code,
+                _safe_text(detail.get("message"), 500) or "Proposal job ended as " + status,
+                field=_safe_text(detail.get("field"), 160),
+                job_id=job_id,
+            )
+        if status not in ("queued", "running"):
+            raise RinProtocolError("invalid_job", "Proposal job returned an unknown status")
+        return None
+
+    @classmethod
+    def _resolve_proposal_job_or_unknown(
+        cls,
+        job: Dict[str, Any],
+        job_id: str,
+        expected_request: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        try:
+            return cls._resolve_proposal_job(job, job_id, expected_request)
+        except RinJobError:
+            raise
+        except RinProtocolError as exc:
+            raise RinJobError(
+                "job_outcome_unknown",
+                "Proposal job returned an invalid outcome",
+                job_id=job_id,
+            ) from exc
+
+    def _submit_proposal_attempt(
+        self,
+        request: Dict[str, Any],
+        persist_job_id: Optional[Callable[[str], bool]],
+        previous_job_id: str,
+        allow_offline_before_submit: bool = True,
+    ) -> str:
+        try:
+            submission = self.submit_proposal_job(request)
+        except RinTransportError as exc:
+            if (
+                allow_offline_before_submit
+                and not previous_job_id
+                and exc.code == "transport_unavailable"
+            ):
+                raise
+            raise RinJobError(
+                "job_outcome_unknown" if previous_job_id else "proposal_outcome_unknown",
+                "Proposal submission did not confirm a durable Job",
+                job_id=previous_job_id,
+            ) from exc
+        except RinAPIError as exc:
+            if 400 <= exc.status < 500 and exc.status != 408:
+                # A bounded client error from Rin confirms that no new Job was
+                # accepted. Gateway/server failures remain delivery-ambiguous.
+                raise
+            raise RinJobError(
+                "job_outcome_unknown" if previous_job_id else "proposal_outcome_unknown",
+                "Proposal submission did not confirm a durable Job",
+                status=exc.status,
+                field=exc.field,
+                job_id=previous_job_id,
+            ) from exc
+        except RinError as exc:
+            raise RinJobError(
+                "job_outcome_unknown" if previous_job_id else "proposal_outcome_unknown",
+                "Proposal submission returned an invalid or ambiguous response",
+                job_id=previous_job_id,
+            ) from exc
+        job_id = str(submission.get("job_id", ""))
+        try:
+            job_id = _path_identifier(job_id)
+        except RinProtocolError as exc:
+            raise RinJobError(
+                "job_outcome_unknown" if previous_job_id else "proposal_outcome_unknown",
+                "Proposal submission did not return a usable Job identity",
+                job_id=previous_job_id,
+            ) from exc
+        if persist_job_id is not None:
+            try:
+                persisted = bool(persist_job_id(job_id))
+            except Exception:
+                persisted = False
+            if not persisted:
+                raise RinJobError(
+                    "job_id_persistence_failed",
+                    "Proposal Job identity could not be retained",
+                    job_id=job_id,
+                )
+        return job_id
 
     def propose_with_fallback(
         self,
@@ -297,28 +502,88 @@ class RinClient:
         deadline_seconds: float = 25.0,
         poll_interval: float = 0.1,
         cancel_event: Optional[threading.Event] = None,
+        known_job_id: str = "",
+        persist_job_id: Optional[Callable[[str], bool]] = None,
+        allow_offline_before_submit: bool = True,
     ) -> Dict[str, Any]:
-        job_id = ""
+        request = _stable_proposal_request(request)
         try:
-            submission = self.submit_proposal_job(request)
-            job_id = str(submission.get("job_id", ""))
+            job_id = _path_identifier(known_job_id) if known_job_id else ""
+        except RinProtocolError as exc:
+            raise RinJobError(
+                "job_outcome_unknown",
+                "The retained Proposal Job identity is invalid",
+                job_id=_safe_text(known_job_id, 96),
+            ) from exc
+        recovery_post_used = False
+        try:
             if not job_id:
-                raise RinProtocolError("invalid_submission", "Rin did not return a proposal job id")
-            job = self.wait_for_proposal(
-                job_id,
-                deadline_seconds=deadline_seconds,
-                poll_interval=poll_interval,
-                cancel_event=cancel_event,
-            )
-            return {
-                "source": "sidecar",
-                "committable": True,
-                "fallback_reason": "",
-                "job_id": job_id,
-                "proposal": _json_clone(job["proposal"]),
-            }
+                job_id = self._submit_proposal_attempt(
+                    request,
+                    persist_job_id,
+                    "",
+                    allow_offline_before_submit=allow_offline_before_submit,
+                )
+            while True:
+                try:
+                    job = self.wait_for_proposal(
+                        job_id,
+                        deadline_seconds=deadline_seconds,
+                        poll_interval=poll_interval,
+                        cancel_event=cancel_event,
+                        expected_request=request,
+                    )
+                except RinJobError as exc:
+                    if (
+                        exc.code == "proposal_outcome_unknown"
+                        and not recovery_post_used
+                        and not (cancel_event is not None and cancel_event.is_set())
+                    ):
+                        recovery_post_used = True
+                        job_id = self._submit_proposal_attempt(
+                            request,
+                            persist_job_id,
+                            exc.job_id or job_id,
+                            allow_offline_before_submit=False,
+                        )
+                        continue
+                    raise
+                except RinAPIError as exc:
+                    if (
+                        exc.code == "job_not_found"
+                        and not recovery_post_used
+                        and not (cancel_event is not None and cancel_event.is_set())
+                    ):
+                        recovery_post_used = True
+                        job_id = self._submit_proposal_attempt(
+                            request,
+                            persist_job_id,
+                            job_id,
+                            allow_offline_before_submit=False,
+                        )
+                        continue
+                    raise RinJobError(
+                        "job_outcome_unknown",
+                        "Proposal Job could not be recovered",
+                        job_id=job_id,
+                    ) from exc
+                return {
+                    "source": "sidecar",
+                    "committable": True,
+                    "fallback_reason": "",
+                    "job_id": job_id,
+                    "proposal": _json_clone(job["proposal"]),
+                }
         except RinJobError as exc:
-            if exc.code == "job_canceled":
+            job_id = exc.job_id or job_id
+            if (cancel_event is not None and cancel_event.is_set()) or exc.code in {
+                "job_canceled",
+                "job_cancel_unconfirmed",
+                "job_outcome_unknown",
+                "job_id_persistence_failed",
+                "job_timeout",
+                "proposal_outcome_unknown",
+            }:
                 raise
             return offline_proposal_result(
                 request,
@@ -326,12 +591,25 @@ class RinClient:
                 reason=exc.code,
                 job_id=job_id,
             )
-        except RinError as exc:
+        except RinAPIError:
+            # An HTTP error after POST began may have been produced by a
+            # reverse proxy after Rin durably created the Job (notably
+            # 502/504). Only a transport error proven to occur before delivery
+            # can authorize the local fallback below.
+            raise
+        except RinTransportError as exc:
+            if (
+                (cancel_event is not None and cancel_event.is_set())
+                or job_id
+                or not allow_offline_before_submit
+                or exc.code != "transport_unavailable"
+            ):
+                raise
             return offline_proposal_result(
                 request,
                 fallback_action_id=fallback_action_id,
                 reason=exc.code,
-                job_id=job_id,
+                job_id="",
             )
 
     def wait_for_generation(
@@ -348,38 +626,75 @@ class RinClient:
             raise RinConfigurationError("invalid_deadline", "Generation deadline must be between 0.05 and 300 seconds")
         if not 0.01 <= poll_interval <= 5.0:
             raise RinConfigurationError("invalid_poll_interval", "Generation poll interval must be between 0.01 and 5 seconds")
+        job_id = _path_identifier(job_id)
         deadline = self._clock() + deadline_seconds
         while True:
             if cancel_event is not None and cancel_event.is_set():
-                self._cancel_generation_quietly(job_id)
-                raise RinJobError("job_canceled", "Generation job was canceled")
-            job = self.get_generation_job(job_id)
-            status = str(job.get("status", ""))
-            if status == "succeeded":
-                result = job.get("result")
-                if not isinstance(result, dict) or not isinstance(result.get("content"), str):
-                    raise RinProtocolError("invalid_job", "Successful generation job did not include content")
-                return job
-            if status in TERMINAL_JOB_STATES:
-                detail = job.get("error", {})
-                if not isinstance(detail, dict):
-                    detail = {}
+                try:
+                    canceled_job = self.cancel_generation_job(job_id)
+                except RinError:
+                    raise RinJobError(
+                        "job_cancel_unconfirmed",
+                        "Generation job cancellation could not be confirmed",
+                        job_id=job_id,
+                    ) from None
+                resolved = self._resolve_generation_job(canceled_job, job_id)
+                if resolved is not None:
+                    return resolved
                 raise RinJobError(
-                    _safe_text(detail.get("code"), 96) or "job_" + status,
-                    _safe_text(detail.get("message"), 500) or "Generation job ended as " + status,
-                    field=_safe_text(detail.get("field"), 160),
+                    "job_cancel_unconfirmed",
+                    "Generation job cancellation did not reach a terminal state",
+                    job_id=job_id,
                 )
-            if status not in ("queued", "running"):
-                raise RinProtocolError("invalid_job", "Generation job returned an unknown status")
+            job = self.get_generation_job(job_id)
+            resolved = self._resolve_generation_job(job, job_id)
+            if resolved is not None:
+                return resolved
             remaining = deadline - self._clock()
             if remaining <= 0:
-                self._cancel_generation_quietly(job_id)
-                raise RinJobError("job_timeout", "Generation job exceeded its deadline")
+                try:
+                    canceled_job = self.cancel_generation_job(job_id)
+                except RinError:
+                    raise RinJobError(
+                        "job_timeout",
+                        "Generation job exceeded its deadline",
+                        job_id=job_id,
+                    ) from None
+                resolved = self._resolve_generation_job(canceled_job, job_id)
+                if resolved is not None:
+                    return resolved
+                raise RinJobError(
+                    "job_timeout",
+                    "Generation job exceeded its deadline",
+                    job_id=job_id,
+                )
             delay = min(poll_interval, remaining)
             if cancel_event is not None:
                 cancel_event.wait(delay)
             else:
                 self._sleeper(delay)
+
+    @staticmethod
+    def _resolve_generation_job(
+        job: Dict[str, Any],
+        expected_job_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        if not isinstance(job, dict):
+            raise RinProtocolError("invalid_job", "Rin returned an invalid generation job")
+        status = _validate_generation_job_shape(job, expected_job_id)
+        if status == "succeeded":
+            return job
+        if status in TERMINAL_JOB_STATES:
+            detail = job.get("error", {})
+            if not isinstance(detail, dict):
+                detail = {}
+            raise RinJobError(
+                _safe_text(detail.get("code"), 96) or "job_" + status,
+                _safe_text(detail.get("message"), 500) or "Generation job ended as " + status,
+                field=_safe_text(detail.get("field"), 160),
+                job_id=expected_job_id,
+            )
+        return None
 
     def generate_json(
         self,
@@ -401,7 +716,10 @@ class RinClient:
         )
         result = _json_clone(job["result"])
         try:
-            response = json.loads(result["content"])
+            response = json.loads(
+                result["content"],
+                parse_constant=_reject_json_constant,
+            )
         except (TypeError, ValueError) as exc:
             raise RinProtocolError("invalid_generation_json", "Rin generation content was not valid JSON") from exc
         if not isinstance(response, dict):
@@ -412,18 +730,6 @@ class RinClient:
             "response": response,
             "metadata": {key: value for key, value in result.items() if key != "content"},
         }
-
-    def _cancel_quietly(self, job_id: str) -> None:
-        try:
-            self.cancel_proposal_job(job_id)
-        except RinError:
-            pass
-
-    def _cancel_generation_quietly(self, job_id: str) -> None:
-        try:
-            self.cancel_generation_job(job_id)
-        except RinError:
-            pass
 
     def _request(
         self,
@@ -438,11 +744,17 @@ class RinClient:
         if payload is not None:
             if not isinstance(payload, dict):
                 raise RinProtocolError("invalid_request", "Rin request payload must be an object")
-            body = json.dumps(
-                payload,
-                ensure_ascii=False,
-                separators=(",", ":"),
-            ).encode("utf-8")
+            try:
+                body = json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            except (TypeError, ValueError) as exc:
+                raise RinProtocolError(
+                    "invalid_request",
+                    "Rin request payload is not JSON serializable",
+                ) from exc
             headers["Content-Type"] = "application/json"
         if self.token:
             headers["Authorization"] = "Bearer " + self.token
@@ -459,11 +771,20 @@ class RinClient:
             raise RinTransportError("transport_timeout", "Rin request timed out") from exc
         except URLError as exc:
             reason = getattr(exc, "reason", None)
-            code = "transport_timeout" if isinstance(reason, (socket.timeout, TimeoutError)) else "transport_failed"
-            message = "Rin request timed out" if code == "transport_timeout" else "Could not reach the Rin Sidecar"
+            if isinstance(reason, (socket.timeout, TimeoutError)):
+                code = "transport_timeout"
+                message = "Rin request timed out"
+            elif _definitely_not_delivered(reason):
+                code = "transport_unavailable"
+                message = "Could not connect to the Rin Sidecar"
+            else:
+                code = "transport_failed"
+                message = "Rin transport failed after delivery became uncertain"
             raise RinTransportError(code, message) from exc
         except OSError as exc:
-            raise RinTransportError("transport_failed", "Could not reach the Rin Sidecar") from exc
+            if _definitely_not_delivered(exc):
+                raise RinTransportError("transport_unavailable", "Could not connect to the Rin Sidecar") from exc
+            raise RinTransportError("transport_failed", "Rin transport failed after delivery became uncertain") from exc
         if status not in expected_statuses:
             decoded = _decode_json(response_payload, allow_failure=True)
             raise _error_from_envelope(decoded, status)
@@ -503,6 +824,14 @@ def _decode_json(payload: bytes, *, allow_failure: bool = False) -> Dict[str, An
     return decoded
 
 
+def _definitely_not_delivered(reason: Any) -> bool:
+    return isinstance(reason, OSError) and getattr(reason, "errno", None) in {
+        errno.ECONNREFUSED,
+        errno.ENETUNREACH,
+        errno.EHOSTUNREACH,
+    }
+
+
 def _path_identifier(value: str) -> str:
     text = str(value or "")
     if not text or len(text) > 96 or not text[0].isalnum():
@@ -510,6 +839,335 @@ def _path_identifier(value: str) -> str:
     if any(not (character.isascii() and (character.isalnum() or character in "._-")) for character in text):
         raise RinProtocolError("invalid_id", "Rin identifier is invalid")
     return text
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError("Non-finite JSON number is not permitted: " + value)
+
+
+def _strict_nonnegative_int64(value: Any) -> bool:
+    return (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and 0 <= value <= MAX_INT64
+    )
+
+
+def _normalized_action_spec(value: Any, *, field: str) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        raise RinProtocolError("invalid_job", field + " must be an object")
+    allowed = {"id", "kind", "description", "target_ids", "parameters"}
+    if any(key not in allowed for key in value):
+        raise RinProtocolError("invalid_job", field + " contains an unknown field")
+
+    action_id = value.get("id")
+    kind = value.get("kind")
+    description = value.get("description")
+    if not isinstance(action_id, str) or not isinstance(kind, str):
+        raise RinProtocolError("invalid_job", field + " must include string id and kind")
+    try:
+        action_id = _path_identifier(action_id)
+        kind = _path_identifier(kind)
+    except RinProtocolError as exc:
+        raise RinProtocolError("invalid_job", field + " contains an invalid id or kind") from exc
+    if (
+        not isinstance(description, str)
+        or not description.strip()
+        or len(description) > 300
+        or "\x00" in description
+    ):
+        raise RinProtocolError("invalid_job", field + " contains an invalid description")
+
+    target_ids = value.get("target_ids", [])
+    if not isinstance(target_ids, list) or len(target_ids) > 32:
+        raise RinProtocolError("invalid_job", field + " contains invalid target ids")
+    normalized_targets = []
+    for target_id in target_ids:
+        if not isinstance(target_id, str):
+            raise RinProtocolError("invalid_job", field + " contains a non-string target id")
+        try:
+            normalized_targets.append(_path_identifier(target_id))
+        except RinProtocolError as exc:
+            raise RinProtocolError("invalid_job", field + " contains an invalid target id") from exc
+
+    parameters = value.get("parameters", {})
+    if not isinstance(parameters, dict) or len(parameters) > 32:
+        raise RinProtocolError("invalid_job", field + " contains invalid parameters")
+    normalized_parameters = {}
+    for key, parameter in parameters.items():
+        if not isinstance(key, str) or not isinstance(parameter, str):
+            raise RinProtocolError("invalid_job", field + " contains a non-string parameter")
+        try:
+            normalized_key = _path_identifier(key)
+        except RinProtocolError as exc:
+            raise RinProtocolError("invalid_job", field + " contains an invalid parameter key") from exc
+        if len(parameter) > 500 or "\x00" in parameter:
+            raise RinProtocolError("invalid_job", field + " contains an invalid parameter value")
+        normalized_parameters[normalized_key] = parameter
+
+    return {
+        "id": action_id,
+        "kind": kind,
+        "description": description,
+        "target_ids": normalized_targets,
+        "parameters": normalized_parameters,
+    }
+
+
+def _stable_proposal_request(request: Any) -> Dict[str, Any]:
+    if not isinstance(request, dict):
+        raise RinProtocolError("invalid_request", "Proposal request must be an object")
+    try:
+        stable = _json_clone(request)
+    except (TypeError, ValueError) as exc:
+        raise RinProtocolError(
+            "invalid_request",
+            "Proposal request must be JSON serializable",
+        ) from exc
+
+    for field in ("session_id", "request_id", "actor_id"):
+        value = stable.get(field)
+        if not isinstance(value, str):
+            raise RinProtocolError("invalid_request", field + " must be a string")
+        try:
+            _path_identifier(value)
+        except RinProtocolError as exc:
+            raise RinProtocolError("invalid_request", field + " is invalid") from exc
+    if not _strict_nonnegative_int64(stable.get("tick")):
+        raise RinProtocolError(
+            "invalid_request",
+            "tick must be a non-negative signed 64-bit integer",
+        )
+    actions = stable.get("candidate_actions")
+    if not isinstance(actions, list) or not 1 <= len(actions) <= 32:
+        raise RinProtocolError(
+            "invalid_request",
+            "candidate_actions must contain 1-32 actions",
+        )
+    try:
+        normalized = [
+            _normalized_action_spec(action, field="candidate_actions")
+            for action in actions
+        ]
+    except RinProtocolError as exc:
+        raise RinProtocolError("invalid_request", exc.safe_message) from exc
+    if len({action["id"] for action in normalized}) != len(normalized):
+        raise RinProtocolError(
+            "invalid_request",
+            "candidate_actions must have unique ids",
+        )
+    return stable
+
+
+def _validate_proposal_job_identity(
+    job: Dict[str, Any],
+    expected_job_id: str,
+    expected_request: Optional[Dict[str, Any]],
+) -> None:
+    actual_job_id = job.get("job_id")
+    if not isinstance(actual_job_id, str):
+        raise RinProtocolError("invalid_job", "Proposal job id must be a string")
+    try:
+        actual_job_id = _path_identifier(actual_job_id)
+    except RinProtocolError as exc:
+        raise RinProtocolError("invalid_job", "Proposal job id is invalid") from exc
+    if actual_job_id != expected_job_id:
+        raise RinProtocolError("invalid_job", "Proposal job id did not match the requested job")
+
+    for field in ("session_id", "request_id"):
+        actual = job.get(field)
+        if not isinstance(actual, str):
+            raise RinProtocolError("invalid_job", "Proposal job " + field + " must be a string")
+        try:
+            _path_identifier(actual)
+        except RinProtocolError as exc:
+            raise RinProtocolError("invalid_job", "Proposal job " + field + " is invalid") from exc
+        if expected_request is not None and actual != expected_request.get(field):
+            raise RinProtocolError(
+                "invalid_job",
+                "Proposal job " + field + " did not match the stable request",
+            )
+
+
+def _validate_proposal_identity(
+    proposal: Any,
+    expected_request: Dict[str, Any],
+) -> None:
+    if not isinstance(proposal, dict):
+        raise RinProtocolError(
+            "invalid_job",
+            "Successful proposal job did not include a proposal",
+        )
+    proposal_id = proposal.get("id")
+    if not isinstance(proposal_id, str):
+        raise RinProtocolError("invalid_job", "Proposal id must be a string")
+    try:
+        _path_identifier(proposal_id)
+    except RinProtocolError as exc:
+        raise RinProtocolError("invalid_job", "Proposal id is invalid") from exc
+
+    for field in ("session_id", "request_id", "actor_id"):
+        actual = proposal.get(field)
+        if not isinstance(actual, str) or actual != expected_request.get(field):
+            raise RinProtocolError(
+                "invalid_job",
+                "Proposal " + field + " did not match the stable request",
+            )
+    tick = proposal.get("tick")
+    if (
+        not _strict_nonnegative_int64(tick)
+        or tick != expected_request.get("tick")
+    ):
+        raise RinProtocolError(
+            "invalid_job",
+            "Proposal tick did not match the stable request",
+        )
+
+    action = _normalized_action_spec(proposal.get("action"), field="proposal.action")
+    expected_actions = [
+        _normalized_action_spec(candidate, field="candidate_actions")
+        for candidate in expected_request["candidate_actions"]
+    ]
+    if action not in expected_actions:
+        raise RinProtocolError(
+            "invalid_job",
+            "Proposal action did not exactly match a candidate action",
+        )
+
+
+def _validate_unbound_proposal_identity(
+    proposal: Any,
+    job: Dict[str, Any],
+) -> None:
+    if not isinstance(proposal, dict):
+        raise RinProtocolError(
+            "invalid_job",
+            "Successful proposal job did not include a proposal",
+        )
+    proposal_id = proposal.get("id")
+    if not isinstance(proposal_id, str):
+        raise RinProtocolError("invalid_job", "Proposal id must be a string")
+    try:
+        _path_identifier(proposal_id)
+    except RinProtocolError as exc:
+        raise RinProtocolError("invalid_job", "Proposal id is invalid") from exc
+
+    for field in ("session_id", "request_id"):
+        actual = proposal.get(field)
+        if not isinstance(actual, str) or actual != job.get(field):
+            raise RinProtocolError(
+                "invalid_job",
+                "Proposal " + field + " did not match its Job",
+            )
+    actor_id = proposal.get("actor_id")
+    if not isinstance(actor_id, str):
+        raise RinProtocolError("invalid_job", "Proposal actor_id must be a string")
+    try:
+        _path_identifier(actor_id)
+    except RinProtocolError as exc:
+        raise RinProtocolError("invalid_job", "Proposal actor_id is invalid") from exc
+    if not _strict_nonnegative_int64(proposal.get("tick")):
+        raise RinProtocolError(
+            "invalid_job",
+            "Proposal tick must be a non-negative signed 64-bit integer",
+        )
+    _normalized_action_spec(proposal.get("action"), field="proposal.action")
+
+
+def _validate_generation_job_identity(
+    job: Dict[str, Any],
+    expected_job_id: str,
+) -> None:
+    actual_job_id = job.get("job_id")
+    if not isinstance(actual_job_id, str):
+        raise RinProtocolError("invalid_job", "Generation job id must be a string")
+    try:
+        actual_job_id = _path_identifier(actual_job_id)
+    except RinProtocolError as exc:
+        raise RinProtocolError("invalid_job", "Generation job id is invalid") from exc
+    if actual_job_id != expected_job_id:
+        raise RinProtocolError(
+            "invalid_job",
+            "Generation job id did not match the requested job",
+        )
+    request_id = job.get("request_id")
+    if not isinstance(request_id, str):
+        raise RinProtocolError(
+            "invalid_job",
+            "Generation job request id must be a string",
+        )
+    try:
+        _path_identifier(request_id)
+    except RinProtocolError as exc:
+        raise RinProtocolError(
+            "invalid_job",
+            "Generation job request id is invalid",
+        ) from exc
+
+
+def _validate_generation_job_shape(
+    job: Dict[str, Any],
+    expected_job_id: str,
+) -> str:
+    if not isinstance(job, dict):
+        raise RinProtocolError("invalid_job", "Rin returned an invalid generation job")
+    _validate_generation_job_identity(job, expected_job_id)
+    status = job.get("status")
+    if not isinstance(status, str) or status not in (
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "stale",
+        "canceled",
+    ):
+        raise RinProtocolError("invalid_job", "Generation job returned an invalid status")
+    if status == "succeeded":
+        _validate_generation_result(job.get("result"))
+    return status
+
+
+def _validate_generation_result(result: Any) -> None:
+    if not isinstance(result, dict) or not isinstance(result.get("content"), str):
+        raise RinProtocolError(
+            "invalid_job",
+            "Successful generation job did not include string content",
+        )
+    content = result["content"]
+    if not content.strip() or "\x00" in content:
+        raise RinProtocolError(
+            "invalid_job",
+            "Successful generation job content is empty or contains NUL",
+        )
+    try:
+        encoded_content = content.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise RinProtocolError(
+            "invalid_job",
+            "Successful generation job content is not valid UTF-8",
+        ) from exc
+    if len(encoded_content) > MAX_GENERATION_CONTENT_BYTES:
+        raise RinProtocolError(
+            "invalid_job",
+            "Successful generation job content exceeds 4 MiB",
+        )
+    for field in ("model", "finish_reason"):
+        if field in result and not isinstance(result[field], str):
+            raise RinProtocolError(
+                "invalid_job",
+                "Generation result " + field + " must be a string",
+            )
+    for field in ("prompt_tokens", "output_tokens", "total_tokens"):
+        if field in result and not _strict_nonnegative_int64(result[field]):
+            raise RinProtocolError(
+                "invalid_job",
+                "Generation result " + field + " must be a non-negative integer",
+            )
+    if "cache_hit" in result and not isinstance(result["cache_hit"], bool):
+        raise RinProtocolError(
+            "invalid_job",
+            "Generation result cache_hit must be a boolean",
+        )
 
 
 def offline_proposal_result(
@@ -595,35 +1253,68 @@ class BackgroundProposalRegistry:
         fallback_action_id: str = "",
         deadline_seconds: float = 25.0,
         poll_interval: float = 0.1,
+        known_job_id: str = "",
+        allow_offline_before_submit: bool = True,
     ) -> str:
         request_id = _path_identifier(str(request.get("request_id", "")))
+        if known_job_id:
+            known_job_id = _path_identifier(known_job_id)
+        request_snapshot = _json_clone(request)
         request_fingerprint = hashlib.sha256(json.dumps(
-            request,
+            request_snapshot,
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
         ).encode("utf-8")).hexdigest()
+        resumed = False
         with self._lock:
             if request_id in self._entries:
-                if self._entries[request_id]["request_fingerprint"] != request_fingerprint:
+                entry = self._entries[request_id]
+                if entry["request_fingerprint"] != request_fingerprint:
                     raise RinProtocolError(
                         "request_id_conflict",
                         "Request id was already used with a different proposal payload",
                     )
-                return request_id
-            self._prune_locked()
-            if len(self._entries) >= self.maximum:
-                raise RinProtocolError("registry_full", "Rin background registry is full")
-            cancel_event = threading.Event()
-            self._entries[request_id] = {
-                "status": "pending",
-                "request_fingerprint": request_fingerprint,
-                "cancel_event": cancel_event,
-                "result": None,
-                "error_code": "",
-            }
+                if entry["status"] != "unresolved":
+                    return request_id
+                resumed = True
+                cancel_event = threading.Event()
+                entry["status"] = "pending"
+                entry["cancel_event"] = cancel_event
+                entry["result"] = None
+                entry["error_code"] = ""
+                request_snapshot = _json_clone(entry["request"])
+                fallback_action_id = str(entry["fallback_action_id"])
+                deadline_seconds = float(entry["deadline_seconds"])
+                poll_interval = float(entry["poll_interval"])
+                known_job_id = str(entry.get("job_id", ""))
+                allow_offline_before_submit = False
+            else:
+                self._prune_locked()
+                if len(self._entries) >= self.maximum:
+                    raise RinProtocolError("registry_full", "Rin background registry is full")
+                cancel_event = threading.Event()
+                self._entries[request_id] = {
+                    "status": "pending",
+                    "request_fingerprint": request_fingerprint,
+                    "request": request_snapshot,
+                    "fallback_action_id": str(fallback_action_id),
+                    "deadline_seconds": float(deadline_seconds),
+                    "poll_interval": float(poll_interval),
+                    "job_id": known_job_id,
+                    "allow_offline_before_submit": bool(allow_offline_before_submit),
+                    "cancel_event": cancel_event,
+                    "result": None,
+                    "error_code": "",
+                }
 
-        request_snapshot = _json_clone(request)
+        def retain_job_id(job_id: str) -> bool:
+            with self._lock:
+                entry = self._entries.get(request_id)
+                if entry is None or entry["request_fingerprint"] != request_fingerprint:
+                    return False
+                entry["job_id"] = _path_identifier(job_id)
+                return True
 
         def worker() -> None:
             try:
@@ -633,25 +1324,41 @@ class BackgroundProposalRegistry:
                     deadline_seconds=deadline_seconds,
                     poll_interval=poll_interval,
                     cancel_event=cancel_event,
+                    known_job_id=known_job_id,
+                    persist_job_id=retain_job_id,
+                    allow_offline_before_submit=allow_offline_before_submit,
                 )
                 status = "complete"
                 error_code = ""
+                retained_job_id = str(result.get("job_id", ""))
             except RinError as exc:
                 result = None
-                status = "canceled" if exc.code == "job_canceled" else "failed"
+                if exc.code in UNRESOLVED_PROPOSAL_CODES:
+                    status = "unresolved"
+                else:
+                    status = "canceled" if exc.code == "job_canceled" else "failed"
                 error_code = exc.code
+                retained_job_id = getattr(exc, "job_id", "") or known_job_id
             with self._lock:
                 entry = self._entries.get(request_id)
                 if entry is not None:
                     entry["status"] = status
                     entry["result"] = _json_clone(result) if result is not None else None
                     entry["error_code"] = error_code
+                    if retained_job_id:
+                        entry["job_id"] = _path_identifier(retained_job_id)
 
         try:
             launch(worker)
         except Exception:
             with self._lock:
-                self._entries.pop(request_id, None)
+                if resumed:
+                    entry = self._entries.get(request_id)
+                    if entry is not None:
+                        entry["status"] = "unresolved"
+                        entry["error_code"] = "worker_start_failed"
+                else:
+                    self._entries.pop(request_id, None)
             raise RinTransportError("worker_start_failed", "Could not start Rin background worker")
         return request_id
 
@@ -669,7 +1376,25 @@ class BackgroundProposalRegistry:
             return {
                 "status": entry["status"],
                 "error_code": entry["error_code"],
+                "job_id": str(entry.get("job_id", "")),
                 "result": _json_clone(entry["result"]) if entry["result"] is not None else None,
+            }
+
+    def attempt(self, request_id: str) -> Optional[Dict[str, Any]]:
+        """Return a plain resumable record for a pending or unresolved attempt."""
+        with self._lock:
+            entry = self._entries.get(str(request_id))
+            if not entry or entry["status"] not in ("pending", "unresolved"):
+                return None
+            return {
+                "status": str(entry["status"]),
+                "request": _json_clone(entry["request"]),
+                "fallback_action_id": str(entry["fallback_action_id"]),
+                "job_id": str(entry.get("job_id", "")),
+                "error_code": str(entry.get("error_code", "")),
+                # Any game-persisted record is, by definition, a resumed
+                # attempt after reload and must never authorize offline work.
+                "allow_offline_before_submit": False,
             }
 
     def cancel(self, request_id: str) -> bool:

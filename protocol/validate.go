@@ -115,6 +115,17 @@ func validateGoal(field string, goal Goal) error {
 	if goal.Progress < 0 || goal.Progress > goal.TargetProgress {
 		return &ValidationError{Field: field + ".progress", Message: "must be between 0 and target_progress"}
 	}
+	if goal.UpdatedTick < 0 {
+		return &ValidationError{Field: field + ".updated_tick", Message: "must not be negative"}
+	}
+	if goal.StatusUpdatedTick < 0 {
+		return &ValidationError{Field: field + ".status_updated_tick", Message: "must not be negative"}
+	}
+	if goal.StatusSourceEventID != "" {
+		if err := validateID(field+".status_source_event_id", goal.StatusSourceEventID); err != nil {
+			return err
+		}
+	}
 	if goal.Status != "active" && goal.Status != "completed" && goal.Status != "released" {
 		return &ValidationError{Field: field + ".status", Message: "must be active, completed, or released"}
 	}
@@ -201,6 +212,18 @@ func ValidateCreateSession(request CreateSessionRequest) error {
 		if err := validateActor(fmt.Sprintf("actors[%d]", index), actor); err != nil {
 			return err
 		}
+		for goalIndex, goal := range actor.Goals {
+			if goal.UpdatedTick != 0 ||
+				goal.ProgressAccumulator != 0 ||
+				goal.StatusExplicit ||
+				goal.StatusUpdatedTick != 0 ||
+				goal.StatusSourceEventID != "" {
+				return &ValidationError{
+					Field:   fmt.Sprintf("actors[%d].goals[%d]", index, goalIndex),
+					Message: "server-owned occurrence metadata must be zero when creating a session",
+				}
+			}
+		}
 		if _, exists := seen[actor.ID]; exists {
 			return &ValidationError{Field: "actors", Message: "actor ids must be unique"}
 		}
@@ -225,9 +248,25 @@ func validateFact(field string, fact Fact) error {
 	if fact.Confidence < 0 || fact.Confidence > 100 {
 		return &ValidationError{Field: field + ".confidence", Message: "must be between 0 and 100"}
 	}
+	if fact.ObservedTick < 0 {
+		return &ValidationError{Field: field + ".observed_tick", Message: "must not be negative"}
+	}
 	if fact.SourceEventID != "" {
 		if err := validateID(field+".source_event_id", fact.SourceEventID); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func validateRequestFact(field string, fact Fact) error {
+	if err := validateFact(field, fact); err != nil {
+		return err
+	}
+	if fact.ObservedTick != 0 {
+		return &ValidationError{
+			Field:   field + ".observed_tick",
+			Message: "is server-owned and must be zero in requests",
 		}
 	}
 	return nil
@@ -267,7 +306,7 @@ func ValidateObserve(request ObserveRequest) error {
 		return &ValidationError{Field: "facts", Message: "must contain at most 64 values"}
 	}
 	for index, fact := range request.Facts {
-		if err := validateFact(fmt.Sprintf("facts[%d]", index), fact); err != nil {
+		if err := validateRequestFact(fmt.Sprintf("facts[%d]", index), fact); err != nil {
 			return err
 		}
 	}
@@ -341,8 +380,14 @@ func ValidatePropose(request ProposeRequest) error {
 		if err := validateGoal(field, goal); err != nil {
 			return err
 		}
-		if goal.Progress != 0 || goal.Status != "active" {
-			return &ValidationError{Field: field, Message: "candidate goals must be active with zero progress"}
+		if goal.Progress != 0 ||
+			goal.Status != "active" ||
+			goal.UpdatedTick != 0 ||
+			goal.ProgressAccumulator != 0 ||
+			goal.StatusExplicit ||
+			goal.StatusUpdatedTick != 0 ||
+			goal.StatusSourceEventID != "" {
+			return &ValidationError{Field: field, Message: "candidate goals must be active with zero progress and no state metadata"}
 		}
 		if _, exists := goalIDs[goal.ID]; exists {
 			return &ValidationError{Field: "candidate_goals", Message: "goal ids must be unique"}
@@ -374,7 +419,7 @@ func ValidateCommit(request CommitRequest) error {
 		return &ValidationError{Field: "commit", Message: "contains too many updates"}
 	}
 	for index, fact := range request.Facts {
-		if err := validateFact(fmt.Sprintf("facts[%d]", index), fact); err != nil {
+		if err := validateRequestFact(fmt.Sprintf("facts[%d]", index), fact); err != nil {
 			return err
 		}
 	}

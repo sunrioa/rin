@@ -6,6 +6,14 @@ extends Node
 
 const PROTOCOL_VERSION := "rin.protocol/v1"
 const TERMINAL_STATES := ["succeeded", "failed", "stale", "canceled"]
+const AMBIGUOUS_PROPOSAL_ERRORS := [
+	"proposal_outcome_unknown",
+	"job_outcome_unknown",
+	"job_cancel_unconfirmed",
+	"job_timeout",
+	"job_id_persistence_failed",
+]
+const MAX_SAFE_JSON_INTEGER := 9007199254740991
 
 @export var base_url := "http://127.0.0.1:7374"
 @export var token := ""
@@ -28,6 +36,10 @@ func health() -> Dictionary:
 
 func create_session(request: Dictionary) -> Dictionary:
 	return await _json_request(HTTPClient.METHOD_POST, "/v1/session/create", request, [200])
+
+
+func state(request: Dictionary) -> Dictionary:
+	return await _json_request(HTTPClient.METHOD_POST, "/v1/session/get", request, [200])
 
 
 func observe(request: Dictionary) -> Dictionary:
@@ -75,43 +87,56 @@ func propose_with_fallback(
 	request: Dictionary,
 	fallback_action_id: String = "",
 	cancel_check: Callable = Callable(),
+	known_job_id: String = "",
+	persist_job_id: Callable = Callable(),
+	allow_offline_before_submit: bool = true,
 ) -> Dictionary:
+	if not known_job_id.is_empty() and not _is_valid_protocol_id(known_job_id):
+		return _closed_result("invalid_job")
 	var validation_error := _validate_endpoint()
 	if not validation_error.is_empty():
-		return _offline_result(request, fallback_action_id, "invalid_endpoint")
+		if allow_offline_before_submit and known_job_id.is_empty():
+			return _offline_result(request, fallback_action_id, "invalid_endpoint")
+		if known_job_id.is_empty():
+			return _closed_result("proposal_outcome_unknown")
+		return _closed_result("proposal_outcome_unknown", known_job_id)
 
-	var submission := await _json_request(
-		HTTPClient.METHOD_POST,
-		"/v1/jobs/propose",
-		request,
-		[202],
-	)
-	if not submission.get("ok", false):
-		return _offline_result(
-			request,
-			fallback_action_id,
-			str(submission.get("error_code", "transport_failed")),
-		)
-	var job_id := str(submission.get("data", {}).get("job_id", ""))
+	var job_id: String = known_job_id
+	var recovery_post_used := false
 	if job_id.is_empty():
-		return _offline_result(request, fallback_action_id, "invalid_submission")
+		var submission := await _submit_proposal(request, persist_job_id)
+		if not submission.get("ok", false):
+			var submission_error := str(submission.get("error_code", "transport_failed"))
+			if (
+				allow_offline_before_submit
+				and submission_error == "transport_unavailable_before_send"
+				and not submission.has("status")
+			):
+				# DNS/connect/TLS setup failed before an HTTP request could reach
+				# Rin and no Proposal Job was created. Resumed attempts disable
+				# this path even when the current transport is unavailable.
+				return _offline_result(request, fallback_action_id, submission_error)
+			# A timeout, connection reset, 5xx from a reverse proxy, or an
+			# oversized/malformed response may hide a durable job. Never execute
+			# a second, offline action after submission began.
+			return _closed_result(
+				"proposal_outcome_unknown",
+				_valid_submission_job_id_or(submission, ""),
+			)
+		job_id = submission["job_id"]
 
 	var deadline_msec := Time.get_ticks_msec() + int(job_deadline_seconds * 1000.0)
 	while Time.get_ticks_msec() < deadline_msec:
+		if not _is_valid_protocol_id(job_id):
+			return _closed_result("invalid_job")
 		if cancel_check.is_valid() and bool(cancel_check.call()):
-			await _json_request(
-				HTTPClient.METHOD_DELETE,
-				"/v1/jobs/" + job_id.uri_encode(),
-				{},
-				[200],
+			return await _cancel_and_resolve(
+				request,
+				fallback_action_id,
+				job_id,
+				false,
+				"job_cancel_unconfirmed",
 			)
-			return {
-				"source": "canceled",
-				"committable": false,
-				"fallback_reason": "job_canceled",
-				"job_id": job_id,
-				"proposal": null,
-			}
 		var response := await _json_request(
 			HTTPClient.METHOD_GET,
 			"/v1/jobs/" + job_id.uri_encode(),
@@ -119,41 +144,354 @@ func propose_with_fallback(
 			[200],
 		)
 		if not response.get("ok", false):
-			return _offline_result(
-				request,
-				fallback_action_id,
-				str(response.get("error_code", "transport_failed")),
-				job_id,
+			if (
+				str(response.get("error_code", "")) == "job_not_found"
+				and not recovery_post_used
+			):
+				var recovered := await _submit_proposal(request, persist_job_id)
+				recovery_post_used = true
+				if not recovered.get("ok", false):
+					return _closed_result(
+						"proposal_outcome_unknown",
+						_valid_submission_job_id_or(recovered, job_id),
+					)
+				job_id = recovered["job_id"]
+				continue
+			return _closed_result("job_outcome_unknown", job_id)
+		var job = response.get("data")
+		if not job is Dictionary:
+			return _closed_result("invalid_job", job_id)
+		if not _job_matches_request(job, job_id, request):
+			return _closed_result("invalid_job_identity", job_id)
+		var status_value = job.get("status")
+		if typeof(status_value) != TYPE_STRING:
+			return _closed_result("invalid_job", job_id)
+		var status: String = status_value
+		if not _job_shape_matches_status(job, status):
+			return _closed_result("invalid_job", job_id)
+		if status == "succeeded":
+			var proposal = job.get("proposal")
+			return (
+				_sidecar_result(proposal, job_id)
+				if proposal is Dictionary and _proposal_matches_request(proposal, request)
+				else _closed_result(
+					"invalid_job_identity" if proposal is Dictionary else "invalid_job",
+					job_id,
+				)
 			)
-		var job: Dictionary = response.get("data", {})
-		var status := str(job.get("status", ""))
-		if status == "succeeded" and job.get("proposal") is Dictionary:
-			return {
-				"source": "sidecar",
-				"committable": true,
-				"fallback_reason": "",
-				"job_id": job_id,
-				"proposal": job["proposal"].duplicate(true),
-			}
 		if status in TERMINAL_STATES:
-			var detail: Dictionary = job.get("error", {})
-			return _offline_result(
+			var reason := _terminal_error_code(job)
+			if reason.is_empty():
+				return _closed_result("job_outcome_unknown", job_id)
+			if reason == "proposal_outcome_unknown" and not recovery_post_used:
+				var recovered := await _submit_proposal(request, persist_job_id)
+				recovery_post_used = true
+				if not recovered.get("ok", false):
+					return _closed_result(
+						"proposal_outcome_unknown",
+						_valid_submission_job_id_or(recovered, job_id),
+					)
+				job_id = recovered["job_id"]
+				continue
+			return _terminal_job_result(
 				request,
 				fallback_action_id,
-				str(detail.get("code", "job_" + status)),
 				job_id,
+				job,
+				true,
 			)
 		if status != "queued" and status != "running":
-			return _offline_result(request, fallback_action_id, "invalid_job", job_id)
+			return _closed_result("invalid_job", job_id)
 		await get_tree().create_timer(poll_interval_seconds).timeout
 
-	await _json_request(
+	return await _cancel_and_resolve(
+		request,
+		fallback_action_id,
+		job_id,
+		true,
+		"job_outcome_unknown",
+	)
+
+
+func _submit_proposal(
+	request: Dictionary,
+	persist_job_id: Callable,
+) -> Dictionary:
+	var submission := await _json_request(
+		HTTPClient.METHOD_POST,
+		"/v1/jobs/propose",
+		request,
+		[202],
+	)
+	if not submission.get("ok", false):
+		return submission
+	var submission_data = submission.get("data")
+	if not submission_data is Dictionary:
+		return {"ok": false, "error_code": "invalid_job"}
+	var job_id_value = submission_data.get("job_id")
+	if not _is_valid_protocol_id(job_id_value):
+		return {"ok": false, "error_code": "invalid_job"}
+	var job_id: String = job_id_value
+	# The game persists the accepted Job ID before polling or returning control.
+	# If that durable callback fails, the stable request remains sufficient for
+	# a later idempotent POST, but this invocation must fail closed.
+	if persist_job_id.is_valid() and not bool(persist_job_id.call(job_id)):
+		return {
+			"ok": false,
+			"error_code": "job_id_persistence_failed",
+			"job_id": job_id,
+		}
+	return {"ok": true, "job_id": job_id}
+
+
+func _cancel_and_resolve(
+	request: Dictionary,
+	fallback_action_id: String,
+	job_id: String,
+	allow_confirmed_terminal_fallback: bool,
+	unconfirmed_reason: String,
+) -> Dictionary:
+	if not _is_valid_protocol_id(job_id):
+		return _closed_result("invalid_job")
+	var response := await _json_request(
 		HTTPClient.METHOD_DELETE,
 		"/v1/jobs/" + job_id.uri_encode(),
 		{},
 		[200],
 	)
-	return _offline_result(request, fallback_action_id, "job_timeout", job_id)
+	if not response.get("ok", false):
+		return _closed_result(unconfirmed_reason, job_id)
+	var job = response.get("data")
+	if not job is Dictionary:
+		return _closed_result("invalid_job", job_id)
+	if not _job_matches_request(job, job_id, request):
+		return _closed_result("invalid_job_identity", job_id)
+	var status_value = job.get("status")
+	if typeof(status_value) != TYPE_STRING:
+		return _closed_result("invalid_job", job_id)
+	var status: String = status_value
+	if not _job_shape_matches_status(job, status):
+		return _closed_result("invalid_job", job_id)
+	if status == "succeeded":
+		var proposal = job.get("proposal")
+		return (
+			_sidecar_result(proposal, job_id)
+			if proposal is Dictionary and _proposal_matches_request(proposal, request)
+			else _closed_result(
+				"invalid_job_identity" if proposal is Dictionary else "invalid_job",
+				job_id,
+			)
+		)
+	if status in TERMINAL_STATES:
+		return _terminal_job_result(
+			request,
+			fallback_action_id,
+			job_id,
+			job,
+			allow_confirmed_terminal_fallback,
+		)
+	if status == "queued" or status == "running":
+		return _closed_result(unconfirmed_reason, job_id)
+	return _closed_result("invalid_job", job_id)
+
+
+func _terminal_job_result(
+	request: Dictionary,
+	fallback_action_id: String,
+	job_id: String,
+	job: Dictionary,
+	allow_fallback: bool,
+) -> Dictionary:
+	var reason := _terminal_error_code(job)
+	if reason.is_empty():
+		return _closed_result("job_outcome_unknown", job_id)
+	if reason in AMBIGUOUS_PROPOSAL_ERRORS:
+		return _closed_result(reason, job_id)
+	if allow_fallback:
+		return _offline_result(request, fallback_action_id, reason, job_id)
+	return _closed_result(reason, job_id, "canceled")
+
+
+func _sidecar_result(proposal: Dictionary, job_id: String) -> Dictionary:
+	return {
+		"source": "sidecar",
+		"committable": true,
+		"fallback_reason": "",
+		"job_id": job_id,
+		"proposal": proposal.duplicate(true),
+	}
+
+
+func _job_matches_request(
+	job: Dictionary,
+	job_id: String,
+	request: Dictionary,
+) -> bool:
+	return (
+		_same_protocol_id(job.get("job_id"), job_id)
+		and _same_protocol_id(job.get("session_id"), request.get("session_id"))
+		and _same_protocol_id(job.get("request_id"), request.get("request_id"))
+	)
+
+
+func _proposal_matches_request(
+	proposal: Dictionary,
+	request: Dictionary,
+) -> bool:
+	return (
+		_is_valid_protocol_id(proposal.get("id"))
+		and _same_protocol_id(proposal.get("session_id"), request.get("session_id"))
+		and _same_protocol_id(proposal.get("request_id"), request.get("request_id"))
+		and _same_protocol_id(proposal.get("actor_id"), request.get("actor_id"))
+		and _same_json_integer(proposal.get("tick"), request.get("tick"))
+		and _proposal_action_matches_request(proposal.get("action"), request)
+	)
+
+
+func _terminal_error_code(job: Dictionary) -> String:
+	var detail = job.get("error")
+	if not detail is Dictionary:
+		return ""
+	var code = detail.get("code")
+	return String(code) if _is_valid_protocol_id(code) else ""
+
+
+func _job_shape_matches_status(job: Dictionary, status: String) -> bool:
+	var has_proposal := job.has("proposal")
+	var has_error := job.has("error")
+	if status == "succeeded":
+		return has_proposal and job["proposal"] is Dictionary and not has_error
+	if status in ["failed", "stale", "canceled"]:
+		return not has_proposal and has_error and not _terminal_error_code(job).is_empty()
+	if status == "queued" or status == "running":
+		return not has_proposal and not has_error
+	return false
+
+
+func _valid_submission_job_id_or(submission: Dictionary, fallback: String) -> String:
+	var candidate = submission.get("job_id")
+	if not _is_valid_protocol_id(candidate):
+		return fallback
+	var valid_job_id: String = candidate
+	return valid_job_id
+
+
+func _proposal_action_matches_request(action: Variant, request: Dictionary) -> bool:
+	if not _is_valid_action_spec(action):
+		return false
+	var candidates = request.get("candidate_actions")
+	if not candidates is Array:
+		return false
+	for candidate in candidates:
+		if (
+			_is_valid_action_spec(candidate)
+			and action == candidate
+		):
+			return true
+	return false
+
+
+func _is_valid_action_spec(value: Variant) -> bool:
+	if not value is Dictionary:
+		return false
+	if (
+		not _is_valid_protocol_id(value.get("id"))
+		or not _is_valid_protocol_id(value.get("kind"))
+		or typeof(value.get("description")) != TYPE_STRING
+	):
+		return false
+	var description: String = value["description"]
+	if description.strip_edges().is_empty() or description.length() > 300:
+		return false
+	var target_ids = value.get("target_ids", [])
+	if not target_ids is Array or target_ids.size() > 32:
+		return false
+	for target_id in target_ids:
+		if not _is_valid_protocol_id(target_id):
+			return false
+	var parameters = value.get("parameters", {})
+	if not parameters is Dictionary or parameters.size() > 32:
+		return false
+	for key in parameters:
+		if (
+			not _is_valid_protocol_id(key)
+			or typeof(parameters[key]) != TYPE_STRING
+			or String(parameters[key]).length() > 500
+		):
+			return false
+	return true
+
+
+func _same_protocol_id(left: Variant, right: Variant) -> bool:
+	return (
+		_is_valid_protocol_id(left)
+		and _is_valid_protocol_id(right)
+		and left == right
+	)
+
+
+func _is_valid_protocol_id(value: Variant) -> bool:
+	if typeof(value) != TYPE_STRING:
+		return false
+	var text: String = value
+	if text.is_empty() or text.length() > 96:
+		return false
+	for index in range(text.length()):
+		var code := text.unicode_at(index)
+		var is_letter := (code >= 65 and code <= 90) or (code >= 97 and code <= 122)
+		var is_digit := code >= 48 and code <= 57
+		if index == 0:
+			if not is_letter and not is_digit:
+				return false
+		elif not is_letter and not is_digit and code not in [46, 95, 45]:
+			return false
+	return true
+
+
+func _same_json_integer(left: Variant, right: Variant) -> bool:
+	var left_type := typeof(left)
+	var right_type := typeof(right)
+	if left_type not in [TYPE_INT, TYPE_FLOAT]:
+		return false
+	if right_type not in [TYPE_INT, TYPE_FLOAT]:
+		return false
+	if left_type == TYPE_INT and right_type == TYPE_INT:
+		return left >= 0 and right >= 0 and left == right
+	if (
+		(left_type == TYPE_INT and (left < -MAX_SAFE_JSON_INTEGER or left > MAX_SAFE_JSON_INTEGER))
+		or (
+			right_type == TYPE_INT
+			and (right < -MAX_SAFE_JSON_INTEGER or right > MAX_SAFE_JSON_INTEGER)
+		)
+	):
+		return false
+	var left_number := float(left)
+	var right_number := float(right)
+	return (
+		is_finite(left_number)
+		and is_finite(right_number)
+		and left_number >= 0.0
+		and right_number >= 0.0
+		and abs(left_number) <= float(MAX_SAFE_JSON_INTEGER)
+		and abs(right_number) <= float(MAX_SAFE_JSON_INTEGER)
+		and floor(left_number) == left_number
+		and floor(right_number) == right_number
+		and left_number == right_number
+	)
+
+
+func _closed_result(
+	reason: String,
+	job_id: String = "",
+	source: String = "error",
+) -> Dictionary:
+	return {
+		"source": source,
+		"committable": false,
+		"fallback_reason": reason.left(96),
+		"job_id": job_id,
+		"proposal": null,
+	}
 
 
 func _json_request(
@@ -181,7 +519,7 @@ func _json_request(
 	var start_error := request.request(base_url + path, headers, method, body)
 	if start_error != OK:
 		request.queue_free()
-		return {"ok": false, "error_code": "transport_failed"}
+		return {"ok": false, "error_code": "transport_unavailable_before_send"}
 	var completed: Array = await request.request_completed
 	request.queue_free()
 	var transport_result: int = completed[0]
@@ -191,7 +529,15 @@ func _json_request(
 		var error_code := (
 			"response_too_large"
 			if transport_result == HTTPRequest.RESULT_BODY_SIZE_LIMIT_EXCEEDED
-			else "transport_failed"
+			else (
+				"transport_unavailable_before_send"
+				if transport_result in [
+					HTTPRequest.RESULT_CANT_CONNECT,
+					HTTPRequest.RESULT_CANT_RESOLVE,
+					HTTPRequest.RESULT_TLS_HANDSHAKE_ERROR,
+				]
+				else "transport_failed"
+			)
 		)
 		return {"ok": false, "error_code": error_code}
 	if response_body.size() > max_response_bytes:
@@ -226,12 +572,22 @@ func _offline_result(
 			"job_id": job_id,
 			"proposal": null,
 		}
-	var selected: Dictionary = candidates[0]
-	if not fallback_action_id.is_empty():
+	var selected: Dictionary
+	if fallback_action_id.is_empty():
+		selected = candidates[0]
+	else:
 		for candidate in candidates:
 			if candidate is Dictionary and str(candidate.get("id", "")) == fallback_action_id:
 				selected = candidate
 				break
+		if selected.is_empty():
+			return {
+				"source": "error",
+				"committable": false,
+				"fallback_reason": "invalid_fallback",
+				"job_id": job_id,
+				"proposal": null,
+			}
 	var kind := str(selected.get("kind", ""))
 	var stance := kind if kind in ["engage", "partial", "redirect", "refuse", "wait"] else "engage"
 	var fingerprint := JSON.stringify({
