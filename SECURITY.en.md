@@ -2,6 +2,9 @@
 
 [简体中文](SECURITY.md) | [English](SECURITY.en.md)
 
+This document defines Rin's supported security boundary, deployment
+requirements, and vulnerability-reporting process.
+
 ## Defaults
 
 - The service listens only on `127.0.0.1` by default.

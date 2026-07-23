@@ -3,7 +3,7 @@
   "id": "rin_npc_example",
   "version": "0.1.0",
   "name": "Rin NPC Example",
-  "description": "Reference Fabric integration for a Rin-backed NPC turn.",
+  "description": "Minimal server-side integration for the Rin agent runtime.",
   "authors": ["sunrioa"],
   "license": "MIT",
   "environment": "server",

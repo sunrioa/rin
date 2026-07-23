@@ -2,6 +2,8 @@
 
 [简体中文](ROADMAP.md) | [English](ROADMAP.en.md)
 
+路线图记录通用运行时能力；具体游戏的接入进度不属于公开版本定义。
+
 ## v0.1.0 - Runtime foundation
 
 - [x] Go 标准库 HTTP Sidecar
@@ -29,13 +31,13 @@
 - [x] Godot GDScript 示例
 - [x] Unity C# 示例
 - [x] RPG 区域、可见性和任务事件约定
-- [x] 当前 `ai-galgame` 的协议兼容测试向量
+- [x] 可执行的端到端协议兼容测试向量
 
 ## v0.4.0 - Structured generation integration
 
 - [x] 通用异步结构化 Generation Job API
 - [x] 请求幂等、语义缓存、取消、输出大小和 JSON Object 校验
-- [x] Ren'Py Generation 客户端与 `ai-galgame` 全链路接入
+- [x] Ren'Py Generation 客户端与端到端参考接入
 - [x] 游戏供应商凭据迁移到独立 Sidecar
 - [x] Observation / Proposal / Commit / Snapshot 与剧情生成组合流程
 

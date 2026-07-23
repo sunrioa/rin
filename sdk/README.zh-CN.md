@@ -2,8 +2,9 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-这些源码 SDK 暴露同一个 `rin.protocol/v1` HTTP 边界，不会把游戏权威移动
-到客户端库。
+面向 `rin.protocol/v1` HTTP 边界的轻量、源码优先客户端。
+
+这些 SDK 消除传输样板代码，不会把游戏权威移动到客户端库。
 
 | 语言 | 运行时 | JSON | 异步建议 |
 | --- | --- | --- | --- |

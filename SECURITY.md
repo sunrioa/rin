@@ -2,6 +2,8 @@
 
 [简体中文](SECURITY.md) | [English](SECURITY.en.md)
 
+本文说明 Rin 的受支持安全边界、部署要求和漏洞报告方式。
+
 ## Defaults
 
 - 服务默认只监听 `127.0.0.1`。

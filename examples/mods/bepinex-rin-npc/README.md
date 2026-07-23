@@ -2,6 +2,8 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
+A minimal plugin integration template for the Rin agent runtime.
+
 This source overlay targets BepInEx 6 on a modern Unity/.NET runtime.
 
 1. Create a plugin from the official BepInEx plugin template for the target

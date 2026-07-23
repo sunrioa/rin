@@ -2,13 +2,17 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
-Rin 是一个面向游戏角色的轻量级 Agent Runtime。它作为游戏进程旁边的 Sidecar 运行，也可以直接作为 Go 包嵌入工具链。核心只使用 Go 标准库，不绑定视觉小说、RPG 引擎或任何模型供应商。
+> 面向游戏的智能体运行时。
 
-当前开发线：`v0.5.0`（Living Worlds）
+Rin 在游戏循环之外管理角色记忆、目标、决策、异步模型任务和可验证回放。
+游戏始终保留世界权威，只接收经过本地约束验证的行动提案。Rin 可以作为
+Sidecar 运行，也可以作为 Go 包嵌入工具链；核心只使用 Go 标准库，不绑定
+具体游戏、引擎或模型供应商。
 
 文档索引：[简体中文](docs/README.zh-CN.md) | [English](docs/README.md)
+公共说明遵循 [文档规范](docs/writing-guide.zh-CN.md)。
 
-## 它解决什么
+## 核心能力
 
 Rin 将“角色思考”和“游戏世界事实”拆开：
 
@@ -26,7 +30,7 @@ Rin 将“角色思考”和“游戏世界事实”拆开：
 - 可选分层记忆、冲突认知、候选小目标、区域休眠和确定性多角色仲裁均由 Session feature 显式启用。
 - 脱敏 Timeline、指定 revision Replay 和 `rin inspect` 让长流程角色行为可以复现和审计。
 
-这套边界既适用于 Ren'Py 角色，也可用于 RPG NPC、队友、经营模拟居民和其他 AI 游戏实体。
+同一套边界可以服务叙事角色、RPG NPC、队友、模拟居民和服务器实体。
 
 ## 快速开始
 
@@ -137,9 +141,12 @@ store/         JSONL 文件存储与内存存储
 examples/      Go、Godot、Unity 与 Fabric/BepInEx/Luanti Mod 示例
 ```
 
-## 当前有意不做
+## 能力边界
 
-`v0.5.0` 不引入供应商 SDK、向量数据库、ORM、WebSocket、动态插件执行或任意文件访问。在线模型仍是可选能力；即使供应商或 Sidecar 不可用，游戏仍可继续使用确定性策略或自己的离线剧情。
+Rin 不负责渲染、导航、物理、战斗、背包、任务规则或任意脚本执行，也不把
+模型输出直接当作世界事实。项目不引入供应商 SDK、向量数据库、ORM、
+WebSocket、动态插件执行或任意文件访问。在线模型始终是可选能力；供应商或
+Sidecar 不可用时，游戏仍可使用确定性策略或自己的离线内容。
 
 后续工作记录在 [ROADMAP.md](ROADMAP.md)。
 

@@ -2,8 +2,10 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-这是完整的 Luanti 服务器 Mod。内置 `rin.lua` 是 `sdk/lua/rin.lua` 的
-Vendored Copy；仓库测试要求两份文件完全一致。
+面向 Rin 智能体运行时的最小服务端接入模板。
+
+该目录是完整的 Luanti 服务器 Mod。内置 `rin.lua` 是 `sdk/lua/rin.lua`
+的 Vendored Copy；仓库测试要求两份文件完全一致。
 
 1. 把该目录复制到 Luanti `mods` 或世界 `worldmods` 目录。
 2. 在 `minetest.conf` 中把 `rin_npc_example` 加入 `secure.http_mods`。

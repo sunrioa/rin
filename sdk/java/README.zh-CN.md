@@ -2,8 +2,10 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-要求 Java 17+。Transport 使用 JDK `HttpClient`；JSON 通过接口注入，因此
-游戏可以复用已有 Gson、Jackson 或引擎 Codec，不会产生第二套依赖图。
+面向 Java 17+、支持注入 JSON 边界的异步客户端。
+
+Transport 使用 JDK `HttpClient`；游戏可以复用已有 JSON Codec，不会产生
+第二套依赖图。
 
 ```java
 JsonCodec codec = new GsonJsonCodec(gameGson);

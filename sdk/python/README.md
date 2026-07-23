@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Requires Python 3.9+ and has no third-party dependencies.
+A dependency-free synchronous client for Python 3.9+.
 
 ```python
 from rin_sdk import PROTOCOL_VERSION, RinClient

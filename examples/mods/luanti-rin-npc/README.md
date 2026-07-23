@@ -2,7 +2,9 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-This is a complete server-side Luanti mod. The included `rin.lua` is a vendored
+A minimal server-side integration template for the Rin agent runtime.
+
+This directory is a complete Luanti mod. The included `rin.lua` is a vendored
 copy of `sdk/lua/rin.lua`; the repository test requires both copies to match.
 
 1. Copy this directory to the Luanti `mods` or world `worldmods` directory.

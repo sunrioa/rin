@@ -4,6 +4,9 @@
 
 Status: approved implementation baseline
 
+This document records the engine-neutral v0.5 implementation contract. It
+does not define or track any individual consuming game.
+
 ## 1. Objective
 
 Rin v0.5 turns the current single-character-compatible runtime into a small,
@@ -20,9 +23,8 @@ game rules                  -> apply or reject
 Rin                         -> record the observed result
 ```
 
-The first production consumer remains `ai-galgame`, but every new contract is
-defined in engine-neutral terms and covered by Go tests before a game adapter
-uses it.
+Every new contract is defined in engine-neutral terms and covered by Go tests
+before an adapter uses it.
 
 ## 2. Constraints
 
@@ -54,9 +56,9 @@ uses it.
 Unknown feature identifiers fail session creation. `/health` advertises the
 supported list so adapters can fail closed or omit unsupported features.
 
-The current `ai-galgame` integration enables memory archives and belief
-conflicts. It does not enable autonomous goal candidates or arbitration until
-the content pack supplies explicit candidates and multi-actor scenes.
+An integration may enable memory archives and belief conflicts without
+enabling autonomous goal candidates or arbitration. The latter features
+require explicit game-owned candidates and multi-actor scenes.
 
 ## 4. Memory Model
 
@@ -207,7 +209,7 @@ uses the same replay implementation as the HTTP endpoint.
 - Add plain-dictionary methods for activity, arbitration, batch commit,
   timeline, and replay.
 - Keep all HTTP and polling objects process-local.
-- Enable only memory and belief features for `ai-galgame` v1.2 content.
+- Allow an adapter to enable only the memory and belief features it supports.
 - Preserve authored fallback when Rin is disabled or unavailable.
 
 ### Godot 4
@@ -256,13 +258,12 @@ ticks and decides when an actor deserves a proposal job.
 - Update protocol, architecture, RPG, model-policy, and security docs.
 - Commit: `feat: add living world tooling and adapters`.
 
-### Phase E: game integration
+### Phase E: reference integration
 
-- Enable compatible cognition features when `ai-galgame` creates a new Rin
-  playthrough session.
+- Enable compatible cognition features when a game creates a new Rin session.
 - Extend compatibility vectors and process-level integration checks.
-- Keep old saves and classic mode unchanged.
-- Commit in the game repository: `feat: enable Rin living memory`.
+- Keep existing saves and non-Rin modes unchanged.
+- Record the integration change in the consuming repository.
 
 ## 12. Automated Verification
 
@@ -292,7 +293,7 @@ Game acceptance requires:
   Commit -> Snapshot -> Restore check;
 - Ren'Py lint and compile when the SDK is available.
 
-## 13. Manual Verification Deferred by Lock Screen
+## 13. Manual Verification
 
 - Inspect memory and relationship screens at supported desktop resolutions.
 - Play online across multiple chapters and confirm recalled lines feel natural.
@@ -313,6 +314,6 @@ Game acceptance requires:
 ## 15. Stop Condition
 
 Implementation is complete when all automated checks pass, each phase has a
-local commit, `ai-galgame` can opt into cognition without changing canonical
-story authority, and only the manual GUI, cross-engine scene, long-play, and
-human quality checks remain.
+local commit, a reference consumer can opt into cognition without changing
+canonical world authority, and only the manual GUI, cross-engine scene,
+long-play, and human quality checks remain.

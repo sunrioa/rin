@@ -2,9 +2,10 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Requires Java 17+. Transport uses the JDK `HttpClient`; JSON is injected so a
-game can reuse its existing Gson, Jackson, or engine codec without creating a
-second dependency graph.
+An asynchronous client for Java 17+ with an injectable JSON boundary.
+
+Transport uses the JDK `HttpClient`; a game can reuse its existing JSON codec
+without creating a second dependency graph.
 
 ```java
 JsonCodec codec = new GsonJsonCodec(gameGson);

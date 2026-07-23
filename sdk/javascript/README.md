@@ -2,8 +2,8 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Requires Node.js 18+ or a host that implements the standard Fetch API. The
-package has no runtime dependencies and includes TypeScript declarations.
+A zero-dependency Promise client for Node.js 18+ or any standard Fetch host.
+The package includes TypeScript declarations.
 
 ```js
 import { RinClient } from "@sunrioa/rin-sdk";

@@ -2,6 +2,8 @@
 
 [English](model-policy.md) | [简体中文](model-policy.zh-CN.md)
 
+模型接入是可选且有界的；没有供应商时，本地验证与确定性策略仍然可用。
+
 ## 启用
 
 Rin 默认使用 `deterministic`，不会产生任何模型网络请求。在线模式需要显式配置：

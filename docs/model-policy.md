@@ -2,6 +2,9 @@
 
 [English](model-policy.md) | [简体中文](model-policy.zh-CN.md)
 
+Model access is optional and bounded; local validation and the deterministic
+policy remain available without a provider.
+
 ## Enable
 
 Rin uses `deterministic` by default and makes no model network requests.

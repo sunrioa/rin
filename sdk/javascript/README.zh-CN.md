@@ -2,8 +2,8 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-要求 Node.js 18+ 或实现标准 Fetch API 的宿主。Package 没有运行时依赖，
-并包含 TypeScript Declaration。
+面向 Node.js 18+ 或标准 Fetch 宿主的零依赖 Promise 客户端，内含
+TypeScript 声明。
 
 ```js
 import { RinClient } from "@sunrioa/rin-sdk";

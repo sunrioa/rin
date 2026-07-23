@@ -2,9 +2,9 @@
 
 [English](sdk-and-mods.md) | [简体中文](sdk-and-mods.zh-CN.md)
 
-Rin remains a game-neutral sidecar. These SDKs remove repetitive HTTP,
-timeout, envelope, and job-polling code; they do not move world authority into
-the sidecar or model.
+Thin integration kits connect game-owned adapters to Rin without moving world
+authority into the sidecar or a model. They remove repetitive HTTP, timeout,
+envelope, and job-polling code.
 
 ## Support matrix
 

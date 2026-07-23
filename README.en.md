@@ -2,17 +2,19 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
-Rin is a lightweight agent runtime for game characters. It runs as a sidecar
-next to the game process and can also be embedded as a Go package in tooling.
-The core uses only the Go standard library and is not tied to visual novels,
-RPG engines, or any model provider.
+> Game-native agent runtime.
 
-Current development line: `v0.5.0` (Living Worlds)
+Rin manages character memory, goals, decisions, asynchronous model work, and
+verified replay outside the game loop. The game keeps world authority and
+receives only locally validated action proposals. Rin can run as a sidecar or
+be embedded as a Go package in tooling; its core uses only the Go standard
+library and is independent of any specific game, engine, or model provider.
 
 Documentation index: [English](docs/README.md) |
 [简体中文](docs/README.zh-CN.md)
+Public prose follows the [documentation style guide](docs/writing-guide.md).
 
-## What it solves
+## Core capabilities
 
 Rin separates character reasoning from game-world facts:
 
@@ -46,8 +48,8 @@ Rin separates character reasoning from game-world facts:
 - A redacted timeline, revision replay, and `rin inspect` make long-running
   character behavior reproducible and auditable.
 
-The same boundary works for Ren'Py characters, RPG NPCs, party companions,
-simulation residents, and other AI-driven game entities.
+The same boundary works for narrative characters, RPG NPCs, companions,
+simulation residents, and server-side entities.
 
 ## Quick start
 
@@ -177,12 +179,14 @@ store/         JSONL file store and in-memory store
 examples/      Go, Godot, Unity, and Fabric/BepInEx/Luanti mod examples
 ```
 
-## Intentionally out of scope
+## Scope boundaries
 
-`v0.5.0` does not add provider SDKs, a vector database, an ORM, WebSockets,
-dynamic plugin execution, or arbitrary file access. Online models remain
-optional. If either the provider or sidecar is unavailable, a game can
-continue with the deterministic policy or its own offline story.
+Rin does not own rendering, navigation, physics, combat, inventory, quest
+rules, or arbitrary script execution, and it never treats model output as
+world fact. The project does not add provider SDKs, a vector database, an ORM,
+WebSockets, dynamic plugin execution, or arbitrary file access. Online models
+remain optional; if either the provider or sidecar is unavailable, a game can
+continue with the deterministic policy or its own offline content.
 
 Future work is tracked in [ROADMAP.en.md](ROADMAP.en.md).
 

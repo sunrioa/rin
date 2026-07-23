@@ -2,8 +2,10 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-`Rin.Client` targets .NET 6+ and uses only `HttpClient` and
-`System.Text.Json`. Keep one client for the lifetime of the plugin or game.
+A dependency-free asynchronous client for .NET 6+.
+
+`Rin.Client` uses only `HttpClient` and `System.Text.Json`. Keep one client for
+the lifetime of the plugin or game.
 
 ```csharp
 using Rin.Client;

@@ -2,6 +2,8 @@
 
 [English](architecture.md) | [简体中文](architecture.zh-CN.md)
 
+Rin 是管理智能体状态与决策的引擎中立控制层，不是模拟或修改游戏世界的权威。
+
 ## 权威边界
 
 ```mermaid

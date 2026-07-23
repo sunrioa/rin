@@ -2,6 +2,9 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
+Rin documentation is organized by stable public contracts rather than by
+individual consuming games.
+
 | Topic | English | 简体中文 |
 | --- | --- | --- |
 | Architecture and authority boundary | [Architecture](architecture.md) | [架构](architecture.zh-CN.md) |
@@ -13,6 +16,7 @@
 | v0.5 implementation baseline | [Living Worlds plan](living-worlds-v0.5-plan.md) | [Living Worlds 计划](living-worlds-v0.5-plan.zh-CN.md) |
 | Security and reporting | [Security](../SECURITY.en.md) | [安全](../SECURITY.md) |
 | Release direction | [Roadmap](../ROADMAP.en.md) | [路线图](../ROADMAP.md) |
+| Public documentation rules | [Writing guide](writing-guide.md) | [文档规范](writing-guide.zh-CN.md) |
 | Repository overview | [README](../README.en.md) | [项目说明](../README.md) |
 
 SDK-specific quick starts are under [`sdk/`](../sdk/README.md). Fabric,

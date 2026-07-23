@@ -21,6 +21,7 @@ func TestBilingualDocumentationPairs(t *testing.T) {
 		{"../docs/protocol-v1.md", "../docs/protocol-v1.zh-CN.md"},
 		{"../docs/rpg-events.md", "../docs/rpg-events.zh-CN.md"},
 		{"../docs/sdk-and-mods.md", "../docs/sdk-and-mods.zh-CN.md"},
+		{"../docs/writing-guide.md", "../docs/writing-guide.zh-CN.md"},
 		{"../sdk/README.md", "../sdk/README.zh-CN.md"},
 		{"../sdk/python/README.md", "../sdk/python/README.zh-CN.md"},
 		{"../sdk/javascript/README.md", "../sdk/javascript/README.zh-CN.md"},
@@ -44,6 +45,59 @@ func TestBilingualDocumentationPairs(t *testing.T) {
 				t.Errorf("%s is missing the bilingual navigation", path)
 			}
 		}
+	}
+}
+
+func TestPublicDocumentationLanguage(t *testing.T) {
+	required := map[string]string{
+		"../README.en.md": "> Game-native agent runtime.",
+		"../README.md":    "> 面向游戏的智能体运行时。",
+	}
+	for path, marker := range required {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Errorf("%s: %v", path, err)
+			continue
+		}
+		if !strings.Contains(string(payload), marker) {
+			t.Errorf("%s is missing the canonical description %q", path, marker)
+		}
+	}
+
+	prohibited := []string{
+		"ai-galgame",
+		"unsent-letters",
+		"deferred by lock screen",
+		"因锁屏",
+	}
+	err := filepath.WalkDir("..", func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			switch entry.Name() {
+			case ".git", ".cache", "bin", "obj":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if filepath.Ext(path) != ".md" {
+			return nil
+		}
+		payload, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		text := strings.ToLower(string(payload))
+		for _, phrase := range prohibited {
+			if strings.Contains(text, phrase) {
+				t.Errorf("%s contains consumer-specific or local wording %q", path, phrase)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 

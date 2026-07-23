@@ -2,8 +2,8 @@
 
 [English](sdk-and-mods.md) | [简体中文](sdk-and-mods.zh-CN.md)
 
-Rin 仍是与游戏无关的 Sidecar。这些 SDK 消除重复的 HTTP、超时、Envelope
-和 Job 轮询代码，但不会把世界权威移入 Sidecar 或模型。
+轻量接入套件把游戏自有适配器连接到 Rin，不会把世界权威移入 Sidecar 或
+模型，同时消除重复的 HTTP、超时、Envelope 和 Job 轮询代码。
 
 ## 支持矩阵
 

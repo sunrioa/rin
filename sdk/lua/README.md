@@ -2,8 +2,9 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-The client supports Lua 5.1+ and does not assume a particular engine. Supply
-three adapters:
+An engine-neutral callback client for Lua 5.1+.
+
+Supply three host adapters:
 
 - `http_fetch(request, callback)` returns `{status, body, headers}` and must
   honor `follow_redirects = false`;

@@ -2,8 +2,10 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-`Rin.Client` 面向 .NET 6+，只使用 `HttpClient` 和 `System.Text.Json`。
-在插件或游戏生命周期内复用一个 Client。
+面向 .NET 6+ 的无第三方依赖异步客户端。
+
+`Rin.Client` 只使用 `HttpClient` 和 `System.Text.Json`。在插件或游戏生命周期
+内复用一个 Client。
 
 ```csharp
 using Rin.Client;

@@ -2,7 +2,9 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-客户端支持 Lua 5.1+，不假设具体引擎。需要提供三个 Adapter：
+面向 Lua 5.1+ 的引擎中立 Callback 客户端。
+
+宿主需要提供三个 Adapter：
 
 - `http_fetch(request, callback)` 返回 `{status, body, headers}`，并且必须
   遵守 `follow_redirects = false`；

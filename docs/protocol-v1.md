@@ -2,6 +2,9 @@
 
 [English](protocol-v1.md) | [简体中文](protocol-v1.zh-CN.md)
 
+This reference defines the stable HTTP and state contract between Rin and a
+game-owned adapter.
+
 ## Envelope
 
 Requests use `Content-Type: application/json`. The default maximum body is
@@ -62,7 +65,7 @@ with Windows file names.
       "boundaries": [
         {
           "id": "boundary.privacy",
-          "description": "Do not reveal private letters.",
+          "description": "Do not reveal private records.",
           "trigger_tags": ["private"],
           "response": "refuse"
         }

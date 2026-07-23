@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-要求 Python 3.9+，没有第三方依赖。
+面向 Python 3.9+ 的无第三方依赖同步客户端。
 
 ```python
 from rin_sdk import PROTOCOL_VERSION, RinClient

@@ -2,9 +2,10 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-这是面向 Fabric 专用服务器 Mod 的源码覆盖层，不是固定版本的 Gradle 模板。
-从当前官方 Fabric Project Generator 开始，确保 Minecraft、Loader、
-Mapping、Fabric API 和 Loom 版本互相兼容。
+面向 Rin 智能体运行时的最小服务端接入模板。
+
+该目录是源码覆盖层，不是固定版本的 Gradle 模板。从当前官方项目生成器
+开始，确保游戏、Loader、Mapping、API 和构建插件版本互相兼容。
 
 1. 生成 Java 21 / Minecraft 1.21+ Fabric 项目。
 2. 把本示例的 `src` 目录复制进去。

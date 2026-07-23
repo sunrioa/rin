@@ -2,7 +2,8 @@
 
 [English](game-adapters.md) | [简体中文](game-adapters.zh-CN.md)
 
-Rin adapters keep the same authority split on every engine:
+Adapters translate engine lifecycle events into the stable Rin protocol while
+keeping the same authority split:
 
 1. The game sends only events an actor actually observed.
 2. The game advertises a bounded list of actions that are currently legal.
@@ -77,38 +78,33 @@ Attach [RinClient.cs](../examples/unity/RinClient.cs) to a GameObject. It uses `
 
 Unity's `JsonUtility` adapter exposes serializable DTOs for activity, scheduling, arbitration, batch commit, and timeline. Since `JsonUtility` cannot represent actor-ID keyed maps, its Replay helper returns the verified Snapshot header; projects that need the complete replayed state should parse the same endpoint with their existing dictionary-capable JSON package. Games that use action parameter maps can likewise extend the serializable request classes without changing the wire protocol.
 
-## ai-galgame compatibility
+## Compatibility fixtures
 
-`compat/ai-galgame/vectors.json` is derived from `unsent-letters.rebuild` version `1.2.0`. It covers:
+The executable fixtures under `compat/` exercise a complete consumer flow
+without making that consumer part of Rin's public identity. They cover:
 
-- private-letter permission pressure selecting a local boundary refusal;
+- permission pressure selecting a local boundary refusal;
 - actor-specific observation and belief visibility;
-- a goal-directed optional Storylet;
+- goal-directed optional content;
 - accepted commit, cooldown scheduling, and premature-proposal rejection.
 
-The game-specific `rin_story.py` layer additionally combines:
+The reference flow combines:
 
-- content-pack binding and one Rin Session per playthrough;
-- CanonLedger events as actor-scoped Observations;
+- content binding and one Rin Session per game run;
+- canonical game events as actor-scoped Observations;
 - free player text as an explicit Observation;
-- candidate-only heroine directions before scene, free-response, Storylet, and ending generation;
-- accepted direction Commit followed by Snapshot storage in the Ren'Py save;
+- candidate-only character directions before structured content generation;
+- accepted direction Commit followed by Snapshot storage in the game save;
 - restore IDs derived from both the saved Snapshot and current Sidecar head;
 - deterministic authored fallback whenever Sidecar generation is unavailable.
 
-The game settings contain only `RIN_BASE_URL`, optional `RIN_TOKEN`, and request deadlines. Provider endpoint, model ID, and provider API Key stay in the Rin process.
-
-Verify a local checkout and all content hashes:
+Run the public compatibility suite with:
 
 ```bash
-python3 compat/ai-galgame/check_source.py --game-root /path/to/ai-galgame
 go test ./compat
 ```
 
-With a local Sidecar running, exercise the same vectors through the actual Python adapter:
-
-```bash
-python3 compat/ai-galgame/run_adapter_smoke.py
-```
-
-The vectors contain IDs, contracts, hashes, and short test events, not the game's full copyrighted story text or any provider credential.
+Fixtures contain IDs, contracts, hashes, and short test events, not a
+consumer's full content or any provider credential. Consumer-specific source
+verification may live beside a fixture, but it is not part of the public
+protocol contract.

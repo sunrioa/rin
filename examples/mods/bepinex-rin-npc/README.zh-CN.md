@@ -2,6 +2,8 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
+面向 Rin 智能体运行时的最小插件接入模板。
+
 该源码覆盖层面向现代 Unity/.NET 运行时上的 BepInEx 6。
 
 1. 使用官方 BepInEx Plugin Template，为目标游戏的 Backend 和 Framework

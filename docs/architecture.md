@@ -2,6 +2,9 @@
 
 [English](architecture.md) | [简体中文](architecture.zh-CN.md)
 
+Rin is an engine-neutral control plane for agent state and decisions, not the
+authority that simulates or mutates the game world.
+
 ## Authority boundary
 
 ```mermaid

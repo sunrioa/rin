@@ -2,6 +2,9 @@
 
 [简体中文](ROADMAP.md) | [English](ROADMAP.en.md)
 
+The roadmap tracks reusable runtime capabilities; individual game integration
+progress is not part of the public release definition.
+
 ## v0.1.0 - Runtime foundation
 
 - [x] Go standard-library HTTP sidecar
@@ -29,14 +32,14 @@
 - [x] Godot GDScript example
 - [x] Unity C# example
 - [x] RPG region, visibility, and quest event conventions
-- [x] Protocol compatibility vectors for the current `ai-galgame`
+- [x] Executable end-to-end protocol compatibility vectors
 
 ## v0.4.0 - Structured generation integration
 
 - [x] Generic asynchronous structured Generation Job API
 - [x] Request idempotency, semantic cache, cancellation, output-size limit,
   and JSON-object validation
-- [x] Ren'Py Generation client and end-to-end `ai-galgame` integration
+- [x] Ren'Py Generation client and an end-to-end reference integration
 - [x] Move game provider credentials into the independent sidecar
 - [x] Compose observation, proposal, commit, snapshot, and story generation
 

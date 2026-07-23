@@ -2,8 +2,10 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-These source SDKs expose the same `rin.protocol/v1` HTTP boundary without
-moving game authority into the client library.
+Thin, source-first clients for the `rin.protocol/v1` HTTP boundary.
+
+The SDKs remove transport boilerplate without moving game authority into the
+client library.
 
 | Language | Runtime | JSON | Async guidance |
 | --- | --- | --- | --- |

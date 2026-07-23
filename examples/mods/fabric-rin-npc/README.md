@@ -2,9 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-This is a source overlay for a dedicated-server Fabric mod, not a frozen
-Gradle template. Start from the current official Fabric project generator so
-Minecraft, Loader, mappings, Fabric API, and Loom stay on compatible versions.
+A minimal server-side integration template for the Rin agent runtime.
+
+This directory is a source overlay, not a frozen Gradle template. Start from
+the current official project generator so the game, loader, mappings, API, and
+build plugin stay on compatible versions.
 
 1. Generate a Java 21 / Minecraft 1.21+ Fabric project.
 2. Copy this example's `src` directory into it.
