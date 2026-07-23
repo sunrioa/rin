@@ -21,7 +21,11 @@
 - 拒绝重定向；
 - 强制请求超时和响应大小限制；
 - 错误只暴露有界 Rin Code，不暴露供应商正文或凭据；
-- Proposal 保持 Pending，直到游戏应用并 Commit。
+- Proposal 保持 Pending，直到游戏应用或拒绝后用 Commit 回报结果；Commit
+  是结果记账，不是执行授权。
+
+最后一条仅适用于显式请求 `outcome-reporting-v1` 的 Session；客户端不能对
+旧 Session 假设该语义。
 
 SDK 有意采用源码优先方式，尚未发布到 PyPI、npm、NuGet 或 Maven Central。
 Vendor 时应固定本仓库 Revision。路由兼容性由
@@ -30,5 +34,8 @@ Vendor 时应固定本仓库 Revision。路由兼容性由
 游戏专用示例位于 [`examples/mods`](../examples/mods)。它们展示宿主事件
 如何进入 Rin，以及游戏在何处验证并应用 Proposal。它们是接入模板，不是
 适用于每个游戏版本的通用补丁。
+
+所有 SDK 的 Commit 生命周期、Outbox 和重试规则以
+[`docs/outcome-reporting.zh-CN.md`](../docs/outcome-reporting.zh-CN.md) 为准。
 
 SDK 源码按 [MIT License](../LICENSE) 发布。

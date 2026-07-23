@@ -55,7 +55,7 @@ with Windows file names.
     "content_hash": "sha256:..."
   },
   "seed": 42,
-  "features": ["memory-archive-v1", "belief-conflicts-v1"],
+  "features": ["outcome-reporting-v1", "memory-archive-v1", "belief-conflicts-v1"],
   "actors": [
     {
       "id": "npc.mira",
@@ -102,10 +102,16 @@ session. `/health` returns the supported values:
   by the current request;
 - `actor-activity-v1`: enable region and awake/dormant lifecycle;
 - `arbitration-v1`: enable world revision, multi-actor arbitration, and atomic
-  batch commit.
+  batch commit;
+- `outcome-reporting-v1`: make the game the sole outcome authority, allow late
+  reports, and merge Facts, Goals, memories, actions, and scheduling by game
+  occurrence time.
 
-Legacy sessions that omit this field keep v0.4 behavior, including replay
-hashes and JSON shape.
+Legacy sessions that omit a feature keep the corresponding historical reducer
+behavior and replay result. In particular, `outcome-reporting-v1` is never
+enabled automatically for an existing event log. Feature-enabled returned
+state may include optional occurrence metadata; tolerant JSON decoders must
+ignore fields they do not recognize.
 
 ## Observe
 
@@ -140,6 +146,15 @@ hashes and JSON shape.
 Only actors in `observer_ids` receive the memory. If a fact has a
 `visibility` list, it is written only to observers on that list, preventing
 NPCs from learning events they did not perceive.
+
+With `outcome-reporting-v1`, Rin stamps each returned Fact with the enclosing
+request tick as `observed_tick`; callers do not set that field in requests
+(omitted or zero is accepted). An authoritative Observation may then arrive
+after the Session tick has advanced, including save/restore reconciliation.
+Rin preserves the original `tick`, orders memory by occurrence time, and
+prevents older Facts from replacing newer values. Sessions without the Feature
+keep the legacy monotonic-tick and arrival-order behavior and do not populate
+`observed_tick`.
 
 ## Propose
 
@@ -180,7 +195,8 @@ The returned proposal includes:
 - `recalled_memory_ids` and `goal_id`: auditable evidence;
 - `rationale`: one character-facing sentence for UI, not hidden model
   reasoning;
-- `status: pending`: the proposal has no effect until committed;
+- `status: pending`: Rin has not received the game's outcome; it is not an
+  action waiting for Rin to activate it;
 - `policy_source`: `model`, `model-cache`, `boundary-guard`,
   `deterministic-fallback`, or an offline source.
 
@@ -223,9 +239,24 @@ Status is `queued`, `running`, `succeeded`, `failed`, `stale`, or `canceled`.
 On success, `proposal` contains a normal ActionProposal. Failure returns only
 a safe error code, never a provider response body.
 
+Clients must inspect `job.error.code` before treating a terminal `failed` Job
+as proof that no Proposal exists. `proposal_outcome_unknown` means Rin could
+not determine or confirm whether the Proposal event became durable. Although
+the Job is terminal, this code is not a confirmed no-Proposal result: keep the
+durable Proposal Attempt, re-POST its exact same `request_id` and payload, then
+resume GET using the returned (normally unchanged) Job ID. Do not execute an
+offline fallback or start another Session mutation until reconciliation. A
+direct synchronous uncertainty may surface as HTTP `500`; other mutations
+blocked behind that uncertainty return HTTP `409` with the same code.
+
 Cancel with:
 
 `DELETE /v1/jobs/{job_id}`
+
+The response is the stable terminal job state. Canceling a running proposal
+waits for its in-flight Engine mutation to settle; if the Proposal already won
+the durable-write race, DELETE returns `succeeded` with that Proposal instead
+of hiding it as canceled. Clients must consume this response.
 
 Repeated submissions with the same session and `request_id` return the same
 job. A different payload returns `request_id_conflict`. The queue is bounded;
@@ -284,6 +315,12 @@ content.
 
 `POST /v1/action/commit`
 
+Commit records the authoritative outcome after the game applies or rejects a
+Proposal; it is not permission to execute. The game must revalidate and handle
+the action on its owning thread before sending Commit. `accepted=true` means
+the action actually took effect. `accepted=false` means that proposed effect
+did not occur.
+
 ```json
 {
   "protocol_version": "rin.protocol/v1",
@@ -302,7 +339,26 @@ content.
 
 Accepting a proposal records the action outcome, updates scheduling, marks
 recalled memories, and advances the associated goal by one. Rejecting a
-proposal does not modify actor memories, facts, or goals.
+proposal does not modify actor memories, facts, or goals; send facts learned
+from a failed attempt separately through `observe`. With
+`outcome-reporting-v1`, rejected reports must omit `facts` and `goal_updates`,
+and accepted reports may contain at most one update per Goal.
+
+With `outcome-reporting-v1`, `tick` is when the action happened or was
+rejected. It cannot predate the Proposal tick, but it may be older than the
+current Session tick when the report arrives. Rin records an Outcome the game
+already handled even if the current Revision or World Revision has advanced
+since the Proposal. Resolved Proposal state includes `outcome_event_id` and
+`outcome_tick`; Facts include `observed_tick`, and Goals include `updated_tick`
+plus an unclamped `progress_accumulator`, a `status_explicit` marker, and
+independent `status_updated_tick`/`status_source_event_id` ordering. These
+server-owned values preserve occurrence-time ordering and order-independent
+progress deltas when reports arrive late. Sessions without the Feature retain
+the legacy stale/tick validation and arrival-order reducer. Retry a timeout or
+temporary failure only with the same `request_id`; never execute the game
+action again. See
+[action outcome reporting](outcome-reporting.md) for the complete merge,
+Outbox, late-outcome, and migration rules.
 
 ## Living-world coordination
 
@@ -345,9 +401,11 @@ revision before calling `POST /v1/world/arbitrate`:
 Results are deterministically ordered by target priority, tick, actor ID, and
 proposal ID, then marked `selected` or `deferred`. Arbitration records a
 recommendation and never changes the game world directly. After applying
-selected actions, the game may use `POST /v1/action/commit-batch` to commit at
-most one result per actor. If any entry is stale or invalid, the entire batch
-is rejected without partial mutation.
+selected actions, the game may use `POST /v1/action/commit-batch` to record at
+most one result per actor. Every item must come from the same original
+`based_on_world_revision`, although Rin's current revision may have advanced
+when the report arrives. Mixed original revisions or any invalid item reject
+the entire batch without partial mutation.
 
 ## Scheduler
 
@@ -386,7 +444,14 @@ Restore:
 ```
 
 Restore rejects snapshots with an invalid hash, different session ID, or
-different binding, and clears pending proposals.
+different binding. With `outcome-reporting-v1`, it retains pending proposals
+for two durable recovery states: an unresolved Proposal Attempt received before
+the game handled it, or an already-handled operation whose saved Outcome Outbox
+still needs to report. A restored Proposal never authorizes execution. The game
+must use its saved Attempt and applied-operation marker to distinguish those
+states, revalidate an unhandled action before handling it, and never repeat an
+already-handled action. Sessions without the Feature retain legacy behavior
+and clear restored proposals.
 
 When a game repeatedly loads the same save, the restore `request_id` should
 bind both the target snapshot hash and the sidecar's current head hash. A
@@ -424,8 +489,10 @@ endpoint.
 | `401` | `unauthorized` | Missing or incorrect Bearer token |
 | `404` | `session_not_found` / `unknown_actor` | Entity does not exist |
 | `404` | `revision_not_found` | Replay revision does not exist |
-| `409` | `state_changed` / `proposal_stale` | Base state changed |
+| `409` | `state_changed` / `proposal_stale` | Base state changed during Proposal generation or pre-application Arbitration |
+| `409` | `proposal_base_mismatch` | A Batch Outcome mixes original world revisions |
 | `409` | `actor_not_due` | Actor has not reached its thinking tick |
+| `200` Job / `409` / `500` | `proposal_outcome_unknown` | Proposal durability is unresolved; retain the exact attempt and reconcile it without fallback |
 | `422` | `no_safe_action` | Boundary triggered without a safe candidate |
 | `413` | `body_too_large` | Request exceeds the body limit |
 | `429` | `jobs_queue_full` / `jobs_capacity` | Proposal queue or retention is full |

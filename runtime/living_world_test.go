@@ -15,7 +15,7 @@ import (
 func TestCandidateGoalIsAdoptedOnlyAfterAcceptedCommit(t *testing.T) {
 	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
 	create := createRequest("session.goals")
-	create.Features = []string{protocol.FeatureGoalCandidates}
+	create.Features = append(create.Features, protocol.FeatureGoalCandidates)
 	if _, err := engine.CreateSession(create); err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestCandidateGoalIsAdoptedOnlyAfterAcceptedCommit(t *testing.T) {
 func TestDormantActorIsExcludedUntilGameWakesIt(t *testing.T) {
 	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
 	create := createRequest("session.activity")
-	create.Features = []string{protocol.FeatureActorActivity}
+	create.Features = append(create.Features, protocol.FeatureActorActivity)
 	if _, err := engine.CreateSession(create); err != nil {
 		t.Fatal(err)
 	}
@@ -161,14 +161,18 @@ func TestArbitrationIsDeterministicAndBatchCommitIsAtomic(t *testing.T) {
 	if state.WorldRevision != 2 || state.Proposals[mira.ID].Status != "accepted" || state.Proposals[oren.ID].Status != "rejected" {
 		t.Fatalf("unexpected post-batch state: %+v", state)
 	}
-	if _, err := engine.Snapshot(sessionRequest(create.SessionID)); err != nil {
+	snapshot, err := engine.Snapshot(sessionRequest(create.SessionID))
+	if err != nil {
 		t.Fatalf("coordinated world snapshot should validate: %v", err)
+	}
+	if err := rinruntime.ValidateSnapshot(snapshot); err != nil {
+		t.Fatalf("coordinated world snapshot is not restorable: %v", err)
 	}
 }
 
-func TestBatchCommitRejectsStaleWorldWithoutPartialMutation(t *testing.T) {
+func TestBatchCommitReportsOutcomeAfterWorldAdvances(t *testing.T) {
 	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
-	create := twoActorWorldRequest("session.batch-stale")
+	create := twoActorWorldRequest("session.batch-late")
 	if _, err := engine.CreateSession(create); err != nil {
 		t.Fatal(err)
 	}
@@ -176,25 +180,69 @@ func TestBatchCommitRejectsStaleWorldWithoutPartialMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := engine.Observe(observeRequest(create.SessionID, "observe.change", "event.change", 0)); err != nil {
+	if _, err := engine.Observe(observeRequest(create.SessionID, "observe.change", "event.change", 5)); err != nil {
 		t.Fatal(err)
 	}
-	_, err = engine.CommitBatch(protocol.BatchCommitRequest{
-		ProtocolVersion: protocol.Version, SessionID: create.SessionID, RequestID: "commit.stale-batch", Tick: 0,
-		Items: []protocol.CommitItem{{ProposalID: proposal.ID, EventID: "event.should-not-commit", Accepted: true, Outcome: "Should not happen."}},
+	result, err := engine.CommitBatch(protocol.BatchCommitRequest{
+		ProtocolVersion: protocol.Version, SessionID: create.SessionID, RequestID: "commit.late-batch", Tick: 0,
+		Items: []protocol.CommitItem{{ProposalID: proposal.ID, EventID: "event.late-outcome", Accepted: true, Outcome: "The game already applied this outcome."}},
 	})
-	if !errors.Is(err, rinruntime.ErrStale) {
-		t.Fatalf("expected stale batch rejection, got %v", err)
+	if err != nil {
+		t.Fatalf("late batch outcome should be recorded: %v", err)
 	}
 	state, _ := engine.State(sessionRequest(create.SessionID))
-	if state.Proposals[proposal.ID].Status != "pending" || len(state.Actors["npc.mira"].RecentActions) != 0 {
-		t.Fatalf("failed batch partially mutated state: %+v", state)
+	if result.Revision != 4 ||
+		state.Tick != 5 ||
+		state.Proposals[proposal.ID].Status != "accepted" ||
+		len(state.Actors["npc.mira"].RecentActions) != 1 {
+		t.Fatalf("late batch outcome was not applied: result=%+v state=%+v", result, state)
+	}
+	snapshot, err := engine.Snapshot(sessionRequest(create.SessionID))
+	if err != nil {
+		t.Fatalf("late batch state should remain snapshot-compatible: %v", err)
+	}
+	if err := rinruntime.ValidateSnapshot(snapshot); err != nil {
+		t.Fatalf("late batch snapshot is not restorable: %v", err)
+	}
+}
+
+func TestBatchCommitRejectsMixedProposalBasesAtomically(t *testing.T) {
+	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	create := twoActorWorldRequest("session.batch-mixed-base")
+	if _, err := engine.CreateSession(create); err != nil {
+		t.Fatal(err)
+	}
+	mira, _, err := engine.Propose(context.Background(), targetedProposalRequest(create.SessionID, "propose.base-one", "npc.mira"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.Observe(observeRequest(create.SessionID, "observe.advance", "event.advance", 0)); err != nil {
+		t.Fatal(err)
+	}
+	oren, _, err := engine.Propose(context.Background(), targetedProposalRequest(create.SessionID, "propose.base-two", "npc.oren"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := engine.State(sessionRequest(create.SessionID))
+	_, err = engine.CommitBatch(protocol.BatchCommitRequest{
+		ProtocolVersion: protocol.Version, SessionID: create.SessionID, RequestID: "commit.mixed-base", Tick: 0,
+		Items: []protocol.CommitItem{
+			{ProposalID: mira.ID, EventID: "event.mira.mixed", Accepted: true, Outcome: "Mira outcome."},
+			{ProposalID: oren.ID, EventID: "event.oren.mixed", Accepted: true, Outcome: "Oren outcome."},
+		},
+	})
+	if !errors.Is(err, rinruntime.ErrConflict) || rinruntime.ErrorCode(err) != "proposal_base_mismatch" {
+		t.Fatalf("expected proposal_base_mismatch, got %v", err)
+	}
+	after, _ := engine.State(sessionRequest(create.SessionID))
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("mixed-base batch partially mutated state: before=%+v after=%+v", before, after)
 	}
 }
 
 func twoActorWorldRequest(sessionID string) protocol.CreateSessionRequest {
 	create := createRequest(sessionID)
-	create.Features = []string{protocol.FeatureArbitration}
+	create.Features = append(create.Features, protocol.FeatureArbitration)
 	oren := create.Actors[0]
 	oren.ID = "npc.oren"
 	oren.DisplayName = "Oren"

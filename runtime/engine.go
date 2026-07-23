@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -14,8 +15,14 @@ import (
 )
 
 type managedSession struct {
-	mu    sync.Mutex
-	state protocol.SessionState
+	mu                 sync.Mutex
+	state              protocol.SessionState
+	uncertainProposals map[string]uncertainProposalAppend
+}
+
+type uncertainProposalAppend struct {
+	event       protocol.EventRecord
+	requestHash string
 }
 
 type Engine struct {
@@ -79,12 +86,9 @@ func (e *Engine) CreateSession(request protocol.CreateSessionRequest) (protocol.
 	if err != nil {
 		return protocol.MutationResult{}, NewError("event_encode_failed", "could not encode session event", err)
 	}
-	state, err := applyEvent(protocol.SessionState{}, event)
+	state, err := e.createAndConfirm(request.SessionID, event)
 	if err != nil {
-		return protocol.MutationResult{}, NewError("event_apply_failed", "could not initialize session", err)
-	}
-	if err := e.store.Create(request.SessionID, event); err != nil {
-		return protocol.MutationResult{}, NewError("store_create_failed", "could not create session log", err)
+		return protocol.MutationResult{}, err
 	}
 	e.sessions[request.SessionID] = &managedSession{state: state}
 	return mutationResult(state, false), nil
@@ -106,7 +110,8 @@ func (e *Engine) Observe(request protocol.ObserveRequest) (protocol.MutationResu
 		}
 		return protocol.MutationResult{}, requestConflict(request.RequestID)
 	}
-	if request.Tick < session.state.Tick {
+	if !protocol.HasFeature(session.state.Features, protocol.FeatureOutcomeReporting) &&
+		request.Tick < session.state.Tick {
 		return protocol.MutationResult{}, NewFieldError("tick_regressed", "observation tick is older than session state", "tick", ErrConflict)
 	}
 	for _, actorID := range request.ObserverIDs {
@@ -134,6 +139,14 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 	if err := protocol.ValidatePropose(request); err != nil {
 		return protocol.ActionProposal{}, false, validationError(err)
 	}
+	requestHash, err := hashJSON(request)
+	if err != nil {
+		return protocol.ActionProposal{}, false, NewError(
+			"request_encode_failed",
+			"could not identify proposal request",
+			err,
+		)
+	}
 	session, err := e.session(request.SessionID)
 	if err != nil {
 		return protocol.ActionProposal{}, false, err
@@ -141,6 +154,10 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 	session.mu.Lock()
 	if receipt, found := session.state.Receipts[request.RequestID]; found {
 		if receipt.Kind == EventProposed {
+			if receipt.RequestHash != "" && receipt.RequestHash != requestHash {
+				session.mu.Unlock()
+				return protocol.ActionProposal{}, false, requestConflict(request.RequestID)
+			}
 			proposal, exists := session.state.Proposals[receipt.EntityID]
 			session.mu.Unlock()
 			if !exists {
@@ -150,6 +167,32 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 		}
 		session.mu.Unlock()
 		return protocol.ActionProposal{}, false, requestConflict(request.RequestID)
+	}
+	if uncertain, found := session.uncertainProposals[request.RequestID]; found {
+		if uncertain.requestHash != requestHash {
+			session.mu.Unlock()
+			return protocol.ActionProposal{}, false, requestConflict(request.RequestID)
+		}
+		if err := e.appendAndApply(session, uncertain.event); err != nil {
+			session.mu.Unlock()
+			return protocol.ActionProposal{}, false, err
+		}
+		delete(session.uncertainProposals, request.RequestID)
+		receipt := session.state.Receipts[request.RequestID]
+		proposal, exists := session.state.Proposals[receipt.EntityID]
+		session.mu.Unlock()
+		if !exists {
+			return protocol.ActionProposal{}, false, NewError(
+				"proposal_missing",
+				"reconciled proposal is no longer retained",
+				ErrNotFound,
+			)
+		}
+		return proposal, false, nil
+	}
+	if len(session.uncertainProposals) > 0 {
+		session.mu.Unlock()
+		return protocol.ActionProposal{}, false, unresolvedProposalError()
 	}
 	actor, exists := session.state.Actors[request.ActorID]
 	if !exists {
@@ -169,6 +212,14 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 			session.mu.Unlock()
 			return protocol.ActionProposal{}, false, NewFieldError("goal_exists", "candidate goal is already part of actor state", fmt.Sprintf("candidate_goals[%d].id", index), ErrConflict)
 		}
+	}
+	if !canRetainAnotherProposal(session.state) {
+		session.mu.Unlock()
+		return protocol.ActionProposal{}, false, NewError(
+			"proposal_capacity",
+			"all retained proposal slots are pending; report or reject an outcome before proposing again",
+			ErrConflict,
+		)
 	}
 	if actor.Activity != nil && actor.Activity.State == "dormant" {
 		session.mu.Unlock()
@@ -215,15 +266,50 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 	}
 	if receipt, found := session.state.Receipts[request.RequestID]; found {
 		if receipt.Kind == EventProposed {
-			proposal := session.state.Proposals[receipt.EntityID]
+			if receipt.RequestHash != "" && receipt.RequestHash != requestHash {
+				return protocol.ActionProposal{}, false, requestConflict(request.RequestID)
+			}
+			proposal, exists := session.state.Proposals[receipt.EntityID]
+			if !exists {
+				return protocol.ActionProposal{}, false, NewError("proposal_missing", "idempotent proposal is no longer retained", ErrNotFound)
+			}
 			return proposal, true, nil
 		}
 		return protocol.ActionProposal{}, false, requestConflict(request.RequestID)
+	}
+	if uncertain, found := session.uncertainProposals[request.RequestID]; found {
+		if uncertain.requestHash != requestHash {
+			return protocol.ActionProposal{}, false, requestConflict(request.RequestID)
+		}
+		if err := e.appendAndApply(session, uncertain.event); err != nil {
+			return protocol.ActionProposal{}, false, err
+		}
+		delete(session.uncertainProposals, request.RequestID)
+		receipt := session.state.Receipts[request.RequestID]
+		proposal, exists := session.state.Proposals[receipt.EntityID]
+		if !exists {
+			return protocol.ActionProposal{}, false, NewError(
+				"proposal_missing",
+				"reconciled proposal is no longer retained",
+				ErrNotFound,
+			)
+		}
+		return proposal, false, nil
+	}
+	if len(session.uncertainProposals) > 0 {
+		return protocol.ActionProposal{}, false, unresolvedProposalError()
 	}
 	worldChanged := arbitrationEnabled && session.state.WorldRevision != baseWorldRevision
 	legacyChanged := !arbitrationEnabled && (session.state.Revision != baseRevision || session.state.HeadHash != baseHash)
 	if worldChanged || legacyChanged {
 		return protocol.ActionProposal{}, false, NewError("state_changed", "session changed while policy was proposing; retry with a new request id", ErrStale)
+	}
+	if !canRetainAnotherProposal(session.state) {
+		return protocol.ActionProposal{}, false, NewError(
+			"proposal_capacity",
+			"all retained proposal slots are pending; report or reject an outcome before proposing again",
+			ErrConflict,
+		)
 	}
 	proposalHash, err := hashJSON(struct {
 		SessionID string `json:"session_id"`
@@ -254,11 +340,26 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 		ProposedGoal:         proposedGoal,
 		Status:               "pending",
 	}
-	event, err := newEvent(session.state, EventProposed, request.RequestID, proposedPayload{Proposal: proposal}, e.now())
+	event, err := newEvent(
+		session.state,
+		EventProposed,
+		request.RequestID,
+		proposedPayload{Proposal: proposal, RequestHash: requestHash},
+		e.now(),
+	)
 	if err != nil {
 		return protocol.ActionProposal{}, false, NewError("event_encode_failed", "could not encode proposal", err)
 	}
 	if err := e.appendAndApply(session, event); err != nil {
+		if ErrorCode(err) == "proposal_outcome_unknown" {
+			if session.uncertainProposals == nil {
+				session.uncertainProposals = make(map[string]uncertainProposalAppend)
+			}
+			session.uncertainProposals[request.RequestID] = uncertainProposalAppend{
+				event:       event,
+				requestHash: requestHash,
+			}
+		}
 		return protocol.ActionProposal{}, false, err
 	}
 	return proposal, false, nil
@@ -287,15 +388,53 @@ func (e *Engine) Commit(request protocol.CommitRequest) (protocol.MutationResult
 	if proposal.Status != "pending" {
 		return protocol.MutationResult{}, NewFieldError("proposal_resolved", "proposal was already resolved", "proposal_id", ErrConflict)
 	}
-	worldRevisionMismatch := proposal.BasedOnWorldRevision > 0 && proposal.BasedOnWorldRevision != session.state.WorldRevision
-	legacyRevisionMismatch := proposal.BasedOnWorldRevision == 0 && proposal.CreatedRevision != session.state.Revision
-	if request.Accepted && (worldRevisionMismatch || legacyRevisionMismatch) {
-		return protocol.MutationResult{}, NewError("proposal_stale", "session changed after the proposal was created", ErrStale)
+	outcomeReporting := protocol.HasFeature(session.state.Features, protocol.FeatureOutcomeReporting)
+	if outcomeReporting {
+		// Commit is the game authority's report of an outcome that it has
+		// already applied or rejected. State may advance before that report
+		// arrives, so only reject an impossible occurrence time.
+		if request.Tick < proposal.Tick {
+			return protocol.MutationResult{}, NewFieldError("tick_regressed", "commit tick is older than its proposal", "tick", ErrConflict)
+		}
+	} else {
+		// Preserve pre-feature event-log and API semantics for existing
+		// sessions. New integrations opt in through outcome-reporting-v1.
+		worldRevisionMismatch := proposal.BasedOnWorldRevision > 0 &&
+			proposal.BasedOnWorldRevision != session.state.WorldRevision
+		legacyRevisionMismatch := proposal.BasedOnWorldRevision == 0 &&
+			proposal.CreatedRevision != session.state.Revision
+		if request.Accepted && (worldRevisionMismatch || legacyRevisionMismatch) {
+			return protocol.MutationResult{}, NewError("proposal_stale", "session changed after the proposal was created", ErrStale)
+		}
+		if request.Tick < session.state.Tick || request.Tick < proposal.Tick {
+			return protocol.MutationResult{}, NewFieldError("tick_regressed", "commit tick is older than its proposal or session", "tick", ErrConflict)
+		}
 	}
-	if request.Tick < session.state.Tick || request.Tick < proposal.Tick {
-		return protocol.MutationResult{}, NewFieldError("tick_regressed", "commit tick is older than its proposal or session", "tick", ErrConflict)
+	if outcomeReporting {
+		if !request.Accepted && (len(request.Facts) > 0 || len(request.GoalUpdates) > 0) {
+			return protocol.MutationResult{}, NewFieldError(
+				"rejected_outcome_updates",
+				"rejected outcomes cannot carry facts or goal updates; report observations separately",
+				"accepted",
+				ErrConflict,
+			)
+		}
+		if duplicateGoalUpdate(request.GoalUpdates) {
+			return protocol.MutationResult{}, NewFieldError(
+				"duplicate_goal_update",
+				"goal updates must contain at most one entry per goal",
+				"goal_updates",
+				ErrConflict,
+			)
+		}
+	}
+	if eventIDExists(session.state, request.EventID) {
+		return protocol.MutationResult{}, NewFieldError("event_exists", "event id was already observed or reported", "event_id", ErrConflict)
 	}
 	actor := session.state.Actors[proposal.ActorID]
+	if request.Accepted && request.Tick > maxInt64-actor.ThinkEveryTicks {
+		return protocol.MutationResult{}, NewFieldError("tick_overflow", "commit tick cannot be scheduled safely", "tick", ErrConflict)
+	}
 	for index, update := range request.GoalUpdates {
 		if !goalExists(actor, update.GoalID) && (proposal.ProposedGoal == nil || proposal.ProposedGoal.ID != update.GoalID) {
 			return protocol.MutationResult{}, NewFieldError("unknown_goal", "goal update references an unknown goal", fmt.Sprintf("goal_updates[%d].goal_id", index), ErrNotFound)
@@ -330,10 +469,13 @@ func (e *Engine) CommitBatch(request protocol.BatchCommitRequest) (protocol.Muta
 		}
 		return protocol.MutationResult{}, requestConflict(request.RequestID)
 	}
-	if request.Tick < session.state.Tick {
+	outcomeReporting := protocol.HasFeature(session.state.Features, protocol.FeatureOutcomeReporting)
+	if !outcomeReporting && request.Tick < session.state.Tick {
 		return protocol.MutationResult{}, NewFieldError("tick_regressed", "batch commit tick is older than session state", "tick", ErrConflict)
 	}
 	actors := make(map[string]struct{}, len(request.Items))
+	eventIDs := make(map[string]struct{}, len(request.Items))
+	var baseWorldRevision uint64
 	for index, item := range request.Items {
 		proposal, exists := session.state.Proposals[item.ProposalID]
 		if !exists {
@@ -342,11 +484,39 @@ func (e *Engine) CommitBatch(request protocol.BatchCommitRequest) (protocol.Muta
 		if proposal.Status != "pending" {
 			return protocol.MutationResult{}, NewFieldError("proposal_resolved", "batch item references a resolved proposal", fmt.Sprintf("items[%d].proposal_id", index), ErrConflict)
 		}
-		if proposal.BasedOnWorldRevision == 0 || proposal.BasedOnWorldRevision != session.state.WorldRevision {
+		if outcomeReporting {
+			if proposal.BasedOnWorldRevision == 0 {
+				return protocol.MutationResult{}, NewFieldError("proposal_base_mismatch", "batch proposals must identify one world revision", "items", ErrConflict)
+			}
+			if index == 0 {
+				baseWorldRevision = proposal.BasedOnWorldRevision
+			} else if proposal.BasedOnWorldRevision != baseWorldRevision {
+				return protocol.MutationResult{}, NewFieldError("proposal_base_mismatch", "batch proposals were created from different world revisions", "items", ErrConflict)
+			}
+		} else if proposal.BasedOnWorldRevision == 0 ||
+			proposal.BasedOnWorldRevision != session.state.WorldRevision {
 			return protocol.MutationResult{}, NewError("proposal_stale", "batch contains a proposal from another world revision", ErrStale)
 		}
 		if request.Tick < proposal.Tick {
 			return protocol.MutationResult{}, NewFieldError("tick_regressed", "batch commit tick is older than a proposal", "tick", ErrConflict)
+		}
+		if outcomeReporting {
+			if !item.Accepted && (len(item.Facts) > 0 || len(item.GoalUpdates) > 0) {
+				return protocol.MutationResult{}, NewFieldError(
+					"rejected_outcome_updates",
+					"rejected outcomes cannot carry facts or goal updates; report observations separately",
+					fmt.Sprintf("items[%d].accepted", index),
+					ErrConflict,
+				)
+			}
+			if duplicateGoalUpdate(item.GoalUpdates) {
+				return protocol.MutationResult{}, NewFieldError(
+					"duplicate_goal_update",
+					"goal updates must contain at most one entry per goal",
+					fmt.Sprintf("items[%d].goal_updates", index),
+					ErrConflict,
+				)
+			}
 		}
 		if _, duplicate := actors[proposal.ActorID]; duplicate {
 			return protocol.MutationResult{}, NewFieldError("duplicate_actor", "batch may contain at most one proposal per actor", "items", ErrConflict)
@@ -355,7 +525,14 @@ func (e *Engine) CommitBatch(request protocol.BatchCommitRequest) (protocol.Muta
 		if eventIDExists(session.state, item.EventID) {
 			return protocol.MutationResult{}, NewFieldError("event_exists", "batch event id was already observed", fmt.Sprintf("items[%d].event_id", index), ErrConflict)
 		}
+		if _, duplicate := eventIDs[item.EventID]; duplicate {
+			return protocol.MutationResult{}, NewFieldError("event_exists", "batch event ids must be unique", fmt.Sprintf("items[%d].event_id", index), ErrConflict)
+		}
+		eventIDs[item.EventID] = struct{}{}
 		actor := session.state.Actors[proposal.ActorID]
+		if item.Accepted && request.Tick > maxInt64-actor.ThinkEveryTicks {
+			return protocol.MutationResult{}, NewFieldError("tick_overflow", "batch commit tick cannot be scheduled safely", "tick", ErrConflict)
+		}
 		for goalIndex, update := range item.GoalUpdates {
 			if !goalExists(actor, update.GoalID) && (proposal.ProposedGoal == nil || proposal.ProposedGoal.ID != update.GoalID) {
 				return protocol.MutationResult{}, NewFieldError("unknown_goal", "goal update references an unknown goal", fmt.Sprintf("items[%d].goal_updates[%d].goal_id", index, goalIndex), ErrNotFound)
@@ -531,14 +708,10 @@ func (e *Engine) Restore(request protocol.RestoreRequest) (protocol.MutationResu
 			e.mu.Unlock()
 			return protocol.MutationResult{}, NewError("event_encode_failed", "could not encode restore", err)
 		}
-		state, err := applyEvent(protocol.SessionState{}, event)
+		state, err := e.createAndConfirm(request.SessionID, event)
 		if err != nil {
 			e.mu.Unlock()
-			return protocol.MutationResult{}, NewError("event_apply_failed", "could not restore session", err)
-		}
-		if err := e.store.Create(request.SessionID, event); err != nil {
-			e.mu.Unlock()
-			return protocol.MutationResult{}, NewError("store_create_failed", "could not create restored session log", err)
+			return protocol.MutationResult{}, err
 		}
 		e.sessions[request.SessionID] = &managedSession{state: state}
 		e.mu.Unlock()
@@ -690,6 +863,17 @@ func uniqueSorted(values []string) []string {
 	return result
 }
 
+func duplicateGoalUpdate(updates []protocol.GoalUpdate) bool {
+	seen := make(map[string]struct{}, len(updates))
+	for _, update := range updates {
+		if _, exists := seen[update.GoalID]; exists {
+			return true
+		}
+		seen[update.GoalID] = struct{}{}
+	}
+	return false
+}
+
 func (e *Engine) session(id string) (*managedSession, error) {
 	e.mu.RLock()
 	session, exists := e.sessions[id]
@@ -701,15 +885,192 @@ func (e *Engine) session(id string) (*managedSession, error) {
 }
 
 func (e *Engine) appendAndApply(session *managedSession, event protocol.EventRecord) error {
-	state, err := applyEvent(session.state, event)
+	if len(session.uncertainProposals) > 0 && !isUncertainProposalRetry(session, event) {
+		return unresolvedProposalError()
+	}
+	candidate, err := clone(session.state)
+	if err != nil {
+		return NewError("state_copy_failed", "could not prepare an isolated state transition", err)
+	}
+	// JSON cloning intentionally drops empty `omitempty` maps. Reducers require
+	// these indexes to be writable even before their first entry is recorded.
+	if candidate.Proposals == nil {
+		candidate.Proposals = make(map[string]protocol.ActionProposal)
+	}
+	if candidate.Receipts == nil {
+		candidate.Receipts = make(map[string]protocol.RequestReceipt)
+	}
+	state, err := applyEvent(candidate, event)
 	if err != nil {
 		return NewError("event_apply_failed", "event could not be applied", err)
 	}
-	if err := e.store.Append(session.state.SessionID, event); err != nil {
-		return NewError("store_append_failed", "could not persist event", err)
+	if appendErr := e.store.Append(session.state.SessionID, event); appendErr != nil {
+		events, loadErr := e.store.Load(session.state.SessionID)
+		if loadErr == nil {
+			tail, reconciledState, matched, reconcileErr := reconcileTail(session.state, events, event)
+			if reconcileErr != nil {
+				if event.Type == EventProposed {
+					return NewError(
+						"proposal_outcome_unknown",
+						"persisted proposal event could not be reconciled; retry the same request id",
+						errors.Join(appendErr, reconcileErr),
+					)
+				}
+				return NewError("event_apply_failed", "persisted event could not be reconciled", reconcileErr)
+			}
+			if matched {
+				// Append may report a post-write Sync/Close failure. Standard
+				// stores make an exact append idempotent, so retry the persisted
+				// bytes to confirm durability. A later client retry can also
+				// reconcile the same logical event even though RecordedAt and
+				// Hash were regenerated.
+				if retryErr := e.store.Append(session.state.SessionID, tail); retryErr == nil {
+					session.state = reconciledState
+					return nil
+				} else {
+					if event.Type == EventProposed {
+						return NewError(
+							"proposal_outcome_unknown",
+							"proposal event may be durable but could not be confirmed; retry the same request id",
+							errors.Join(appendErr, retryErr),
+						)
+					}
+					return NewError(
+						"store_append_failed",
+						"event was written but its durable append could not be confirmed",
+						errors.Join(appendErr, retryErr),
+					)
+				}
+			}
+		}
+		if loadErr != nil {
+			appendErr = errors.Join(appendErr, loadErr)
+			if event.Type == EventProposed {
+				return NewError(
+					"proposal_outcome_unknown",
+					"proposal persistence could not be determined; retry the same request id",
+					appendErr,
+				)
+			}
+		}
+		return NewError("store_append_failed", "could not persist event", appendErr)
 	}
 	session.state = state
 	return nil
+}
+
+func isUncertainProposalRetry(session *managedSession, event protocol.EventRecord) bool {
+	for _, uncertain := range session.uncertainProposals {
+		if EventRecordsExactlyEqual(uncertain.event, event) {
+			return true
+		}
+	}
+	return false
+}
+
+func unresolvedProposalError() error {
+	return NewError(
+		"proposal_outcome_unknown",
+		"session has an unresolved proposal append; retry the same proposal request id before mutating it",
+		ErrConflict,
+	)
+}
+
+func (e *Engine) createAndConfirm(
+	sessionID string,
+	event protocol.EventRecord,
+) (protocol.SessionState, error) {
+	candidate, applyErr := applyEvent(protocol.SessionState{}, event)
+	if applyErr != nil {
+		return protocol.SessionState{}, NewError(
+			"event_apply_failed",
+			"session event could not be applied",
+			applyErr,
+		)
+	}
+	createErr := e.store.Create(sessionID, event)
+	if createErr == nil {
+		return candidate, nil
+	}
+	events, loadErr := e.store.Load(sessionID)
+	if loadErr == nil && len(events) == 1 {
+		persisted := events[0]
+		sameSequenceAndHash := persisted.Sequence == event.Sequence && persisted.Hash == event.Hash
+		if sameSequenceAndHash || eventsLogicallyEqual(persisted, event) {
+			reconciled, applyErr := applyEvent(protocol.SessionState{}, persisted)
+			if applyErr != nil {
+				return protocol.SessionState{}, NewError(
+					"event_apply_failed",
+					"persisted session event could not be reconciled",
+					applyErr,
+				)
+			}
+			if retryErr := e.store.Create(sessionID, persisted); retryErr == nil {
+				return reconciled, nil
+			} else {
+				return protocol.SessionState{}, NewError(
+					"store_create_failed",
+					"session event was written but its durable create could not be confirmed",
+					errors.Join(createErr, retryErr),
+				)
+			}
+		}
+	}
+	if loadErr != nil {
+		createErr = errors.Join(createErr, loadErr)
+	}
+	return protocol.SessionState{}, NewError("store_create_failed", "could not create session log", createErr)
+}
+
+func reconcileTail(
+	current protocol.SessionState,
+	events []protocol.EventRecord,
+	event protocol.EventRecord,
+) (protocol.EventRecord, protocol.SessionState, bool, error) {
+	if len(events) == 0 {
+		return protocol.EventRecord{}, protocol.SessionState{}, false, nil
+	}
+	tail := events[len(events)-1]
+	sameSequenceAndHash := tail.Sequence == event.Sequence && tail.Hash == event.Hash
+	if !sameSequenceAndHash && !eventsLogicallyEqual(tail, event) {
+		return protocol.EventRecord{}, protocol.SessionState{}, false, nil
+	}
+	reconciled, err := clone(current)
+	if err != nil {
+		return protocol.EventRecord{}, protocol.SessionState{}, false, err
+	}
+	if reconciled.Proposals == nil {
+		reconciled.Proposals = make(map[string]protocol.ActionProposal)
+	}
+	if reconciled.Receipts == nil {
+		reconciled.Receipts = make(map[string]protocol.RequestReceipt)
+	}
+	reconciled, err = applyEvent(reconciled, tail)
+	if err != nil {
+		return protocol.EventRecord{}, protocol.SessionState{}, false, err
+	}
+	return tail, reconciled, true, nil
+}
+
+// EventRecordsExactlyEqual defines durable Store idempotency for an
+// EventRecord. Data is intentionally compared as persisted bytes rather than
+// as semantically equivalent JSON.
+func EventRecordsExactlyEqual(left, right protocol.EventRecord) bool {
+	return left.Sequence == right.Sequence &&
+		left.Type == right.Type &&
+		left.RequestID == right.RequestID &&
+		left.PrevHash == right.PrevHash &&
+		left.Hash == right.Hash &&
+		left.RecordedAt == right.RecordedAt &&
+		bytes.Equal(left.Data, right.Data)
+}
+
+func eventsLogicallyEqual(left, right protocol.EventRecord) bool {
+	return left.Sequence == right.Sequence &&
+		left.Type == right.Type &&
+		left.RequestID == right.RequestID &&
+		left.PrevHash == right.PrevHash &&
+		bytes.Equal(left.Data, right.Data)
 }
 
 func mutationResult(state protocol.SessionState, duplicate bool) protocol.MutationResult {
@@ -734,6 +1095,11 @@ func duplicateReceipt(state protocol.SessionState, requestID, kind string) bool 
 }
 
 func eventIDExists(state protocol.SessionState, eventID string) bool {
+	for _, proposal := range state.Proposals {
+		if proposal.OutcomeEventID == eventID {
+			return true
+		}
+	}
 	for _, actor := range state.Actors {
 		for _, memory := range actor.Memories {
 			if memory.EventID == eventID {
@@ -752,6 +1118,18 @@ func eventIDExists(state protocol.SessionState, eventID string) bool {
 func goalExists(actor protocol.ActorState, goalID string) bool {
 	for _, goal := range actor.Goals {
 		if goal.ID == goalID {
+			return true
+		}
+	}
+	return false
+}
+
+func canRetainAnotherProposal(state protocol.SessionState) bool {
+	if len(state.Proposals) < maxProposals {
+		return true
+	}
+	for _, proposal := range state.Proposals {
+		if proposal.Status != "pending" {
 			return true
 		}
 	}

@@ -41,7 +41,9 @@ export class RinClient {
   submitGenerationJob(payload: RinObject): Promise<RinObject>;
   getGenerationJob(jobId: string): Promise<RinObject>;
   cancelGenerationJob(jobId: string): Promise<RinObject>;
+  /** Report an outcome the game already applied or rejected. */
   commit(payload: RinObject): Promise<RinObject>;
+  /** Atomically report outcomes produced from one original world revision. */
   commitBatch(payload: RinObject): Promise<RinObject>;
   setActorActivity(payload: RinObject): Promise<RinObject>;
   arbitrate(payload: RinObject): Promise<RinObject>;

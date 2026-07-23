@@ -12,7 +12,7 @@ flowchart LR
     G["Game engine\nworld authority"] -->|Observation| R["Rin runtime\nmemory + goals + policy"]
     R -->|ActionProposal| V["Schema + boundary + freshness validation"]
     V -->|candidate action only| G
-    G -->|Commit accepted/rejected| R
+    G -->|Applied/rejected outcome report| R
     R --> E["Hash-chained event log"]
     R --> S["Verified snapshot"]
     R -->|"bounded prompt packet"| P["Optional model provider"]
@@ -38,9 +38,13 @@ fields, and identifiers cannot contain path separators.
 `runtime.Engine` is a deterministic state machine. Each session has its own
 lock. Policy execution happens outside that lock, so a slow remote model does
 not block new observations or state reads. Legacy sessions use revision and
-head hash for staleness. Sessions with `arbitration-v1` use a
-`world_revision` that advances only when world facts change, allowing several
-actors to propose in parallel during one turn.
+head hash to detect stale Proposals before application. Sessions opting into
+`outcome-reporting-v1` use the game-authoritative apply-then-report lifecycle
+and occurrence-time merge described below. Sessions with
+`arbitration-v1` use a `world_revision` that advances with authoritative
+Observations and settled Outcomes, allowing several actors to propose in
+parallel during one turn. Once the game has handled an Outcome, Rin records it
+even when the report arrives after state has advanced.
 
 Detailed memory keeps a fixed window. `memory-archive-v1` compresses the
 oldest batch into a deterministic summary with source IDs, tick range, and
@@ -125,10 +129,13 @@ local content. Model output never becomes canon automatically.
 
 Ren'Py, Godot, and Unity adapters translate JSON/HTTP and engine-specific
 asynchrony without copying the runtime state machine. Online results have
-`committable=true`. When the sidecar is unavailable, an adapter chooses an
-authored fallback from the current candidate list and marks it
-`committable=false`; the game must not send a local `offline.*` ID to
-`/commit`.
+`committable=true`, meaning the game may report that Proposal ID after handling
+it, not that Rin authorizes execution. An adapter may choose an authored
+fallback from the current candidate list only when it knows submission never
+created an online Proposal (for example, the sidecar was disabled or the
+initial connection was refused), and marks it `committable=false`. A submit,
+poll, timeout, or cancellation with an unconfirmed outcome fails closed; the
+game must not send a local `offline.*` ID to `/commit`.
 
 The Ren'Py worker registry, Godot `HTTPRequest`, and Unity coroutines exist
 only in process memory. A game save stores snapshots and plain results, never
@@ -137,12 +144,15 @@ threads, futures, sockets, HTTP objects, or API tokens.
 ### Multi-actor coordination
 
 The game supplies the upper bound and semantic scope of candidate goals. A
-policy may only recommend adopting one; only an accepted commit writes the
-goal into an actor. The game's region or simulation system updates activity
-state. Dormant actors never wake themselves. Arbitration stably sorts
-proposals at the same world revision and records conflicts, but it does not
-execute actions. The game may adjust or reject them and then report actual
-outcomes through an atomic batch commit.
+policy may only recommend adopting one; the game applies it and reports an
+accepted Commit before Rin writes the goal into an actor. The game's region or
+simulation system updates activity state. Dormant actors never wake
+themselves. Arbitration stably sorts proposals at the same world revision and
+records conflicts, but it does not execute actions. With
+`outcome-reporting-v1`, the game may adjust or reject them and then report
+actual outcomes through an atomic Batch Commit.
+See [action outcome reporting](outcome-reporting.md) for the full transaction
+and Outbox rules.
 
 This lets Rin support visual novels, RPG NPCs, and simulation residents
 without taking responsibility for pathfinding, collision, quest rules, or a
@@ -183,8 +193,10 @@ coordinated store instead of sharing a JSONL directory.
 
 ## NPC scheduling
 
-Each actor declares `think_every_ticks`. After an action is accepted,
-`next_think_tick = commit.tick + think_every_ticks`. A game may call
+Each actor declares `think_every_ticks`. After the game applies an action and
+reports an accepted Commit,
+`next_think_tick = max(current, commit.tick + think_every_ticks)`, so a late
+report cannot move scheduling backward. A game may call
 `/v1/scheduler/due` when entering a region, ending a turn, advancing time, or
 handling a critical event. It should never poll a model from render frames.
 
@@ -195,8 +207,14 @@ only scheduling time, never boundaries or the action allowlist.
 
 - Game saves should store snapshots returned by Rin, not internal file paths.
 - A snapshot carries the content-pack binding and state hash.
-- Restore clears uncommitted proposals so an old-world action cannot execute
-  after loading.
+- With `outcome-reporting-v1`, Restore retains pending proposals so a saved,
+  unhandled Proposal Attempt can resume, and so a game-save Outcome Outbox can
+  report actions already applied before the save. Restored proposals never
+  authorize execution; the game must use its persisted Attempt and
+  applied-operation marker to distinguish the states, revalidate any action
+  that was not already handled, and never repeat one that was.
+- Sessions without that Feature retain legacy Restore behavior and clear
+  proposals.
 - Committed events, memories, facts, goal progress, and scheduling ticks are
   restored.
 - A new data directory may import a snapshot; its local event chain then

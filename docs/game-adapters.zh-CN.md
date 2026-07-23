@@ -11,11 +11,28 @@
 
 适配器会在协议提案外增加两个本地字段：
 
-- `committable=true`：提案来自当前 Sidecar 会话，游戏应用后可以发送到
-  `/v1/action/commit`。
-- `committable=false`：游戏使用了自己编写的离线回退。可以在本地应用，
-  但不能把 `offline.*` ID 发送给 Rin。Sidecar 恢复后，应通过 `observe`
-  报告实际产生的事件。
+- `committable=true`：提案来自当前 Sidecar 会话，游戏处理后可以把结果发送到
+  `/v1/action/commit`；它不是 Rin 的执行授权。
+- `committable=false`：当前没有可 Commit 的 Rin Proposal。只有
+  `source=offline` 且返回 Proposal 时才能应用本地回退；canceled/error
+  结果没有可执行动作。不能把 `offline.*` ID 发送给 Rin，Sidecar 恢复后
+  应通过 `observe` 报告已经应用的 fallback。
+
+提交、轮询或取消响应超时/丢失时，结果属于 outcome-unknown，而不是 offline；
+应以相同 request/job 身份恢复，确认不存在在线 Proposal 前不得选择 fallback。
+
+首次提交前应持久化 Proposal Attempt，其中包含字节等价的完整 Propose
+Request、游戏 Operation/Sequence 身份，并在 `202` 返回后立即补上 Job ID。
+后续交互必须恢复这条 Attempt，不能创建新 Request。只有在同一个权威事务中
+应用或拒绝返回的 Proposal，并写入 Applied Marker 与 Outcome Outbox 后，才能
+移除 Attempt。未决 Proposal Attempt 与未清空的 Outcome Outbox 都会阻止新
+Turn。
+
+新 Session 必须请求 `outcome-reporting-v1`，此时 Commit 才是已处理结果记账，
+而不是旧版的提交前语义。游戏应在同一个权威事务中应用
+或拒绝动作并写入本地 Outcome Outbox，再从 Outbox 向 Rin 回报。网络失败时只
+使用相同 `request_id` 重报，绝不能再次应用动作。详细规则见
+[动作结果记账](outcome-reporting.zh-CN.md)。
 
 ## Ren'Py
 
@@ -61,9 +78,14 @@ request_id = rin_schedule_proposal({
 }, fallback_action_id="respond.wait")
 ```
 
-`rin_proposal_status(request_id)` 返回 `pending`、`ready` 或 `missing`；
-`rin_consume_proposal(request_id)` 返回一个普通 JSON 兼容结果；
-`rin_cancel_proposal` 会把取消传递给 Job API。
+`rin_proposal_status(request_id)` 返回 `pending`、`ready`、`unresolved` 或
+`missing`；只有得到安全终态后，`rin_consume_proposal(request_id)` 才返回
+普通 JSON 兼容结果。状态为 `pending` 或 `unresolved` 时，应把
+`rin_proposal_attempt(request_id)` 返回的普通记录随游戏存档持久化；重启后
+把该记录交给 `rin_resume_proposal`，它会先恢复已知 Job，并且仅在 Rin 明确
+确认该 Job 不存在时最多重发一次完全相同的请求。未决 Attempt 既不能消费，
+也不能作为本地可确认取消处理。运行中的进程内 worker 则可由
+`rin_cancel_proposal` 把取消传递给 Job API。
 
 Python 客户端还提供 `commit_batch`、`set_actor_activity`、`arbitrate`、
 `timeline`、`replay` 和结构化生成方法。Generation 必须与 Proposal 一样
@@ -73,7 +95,7 @@ Python 客户端还提供 `commit_batch`、`set_actor_activity`、`arbitrate`、
 
 线程、取消事件、HTTP 对象和注册表都只属于当前进程。不要把它们赋给
 `default`、persistent 数据、rollback 状态或存档对象。只保存已接受的协议
-Snapshot 和普通结果字典。
+Snapshot、普通结果字典，以及上文所述的普通稳定 Proposal Attempt 记录。
 
 即使开发者 shell 配置了端点，Ren'Py 原生测试也默认离线；只有
 `RIN_LIVE_TEST_ENABLED=1` 才允许真实网络。
@@ -82,8 +104,18 @@ Snapshot 和普通结果字典。
 
 将[客户端](../examples/godot/rin_client.gd)添加为节点或 autoload。
 `propose_with_fallback` 等待 `HTTPRequest` signal 和 timer tick，不会阻塞
-渲染。[NPC 示例](../examples/godot/example_npc.gd)展示完整的提案、游戏应用
-和提交顺序。
+渲染。[NPC 示例](../examples/godot/example_npc.gd)展示提案、游戏应用和
+结果回报顺序。示例中的存储方法是有意保留的集成 Hook，并不是内存持久化
+实现；请用游戏存档系统替换 `_load_authoritative_state`、初始化、Attempt、
+事务、转换和确认 Hook。在加载 Hook 返回一个有效状态，或明确确认
+`not_found` 之前，示例会禁用 Turn，且不会向 Rin 发请求。
+
+启用玩法前，必须把 run ID、稳定 Create 请求、操作序号、协议 tick 高水位、
+完整 Proposal Attempt、applied marker 和 report Outbox 作为同一个游戏权威
+状态恢复。tick 高水位可防止引擎帧计数在重启归零后产生
+`tick_regressed`。I/O、解析或 schema 错误不等于 `not_found`，此时必须
+fail closed，不能生成新身份；只有确实 `not_found` 时，才可先持久化完整
+初始化状态，再发布新 run ID。
 
 Godot 负责导航、动画、战斗、背包和对白渲染。Activity、到期角色、仲裁、
 批量提交、时间线和回放 helper 都是 coroutine；只在模拟或区域变化时更新
@@ -95,7 +127,11 @@ loopback 主机和合法端口接受明文 HTTP。
 将 [RinClient.cs](../examples/unity/RinClient.cs) 挂载到 GameObject。它使用
 `UnityWebRequest` coroutine 和有上限的流式下载处理器，不需要额外 JSON
 或网络包。[RinNpcExample.cs](../examples/unity/RinNpcExample.cs)展示同样的
-先应用、后提交流程。
+先应用、后回报流程及同样的启动恢复门禁。请把
+`LoadAuthoritativeState` 和各持久化方法接入游戏存档；未配置时示例会有意
+保持禁用，而不会把存储失败当作新周目。恢复的 Unity 状态必须包含上述同一
+run ID、稳定 Create 请求、序号、tick 高水位、Proposal Attempt、applied
+marker 和 Outcome Outbox。
 
 Unity 的 `JsonUtility` 适配器为 Activity、调度、仲裁、批量提交和时间线
 提供可序列化 DTO。由于 `JsonUtility` 无法表示以 Actor ID 为键的 map，

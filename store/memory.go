@@ -25,20 +25,31 @@ func NewMemory() *Memory {
 func (s *Memory) Create(sessionID string, event protocol.EventRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, exists := s.events[sessionID]; exists {
+	if events, exists := s.events[sessionID]; exists {
+		if len(events) == 1 && rinruntime.EventRecordsExactlyEqual(events[0], event) {
+			return nil
+		}
 		return rinruntime.ErrConflict
 	}
-	s.events[sessionID] = []protocol.EventRecord{event}
+	s.events[sessionID] = []protocol.EventRecord{cloneEventRecord(event)}
 	return nil
 }
 
 func (s *Memory) Append(sessionID string, event protocol.EventRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, exists := s.events[sessionID]; !exists {
+	events, exists := s.events[sessionID]
+	if !exists {
 		return rinruntime.ErrNotFound
 	}
-	s.events[sessionID] = append(s.events[sessionID], event)
+	last := events[len(events)-1]
+	if rinruntime.EventRecordsExactlyEqual(event, last) {
+		return nil
+	}
+	if event.Sequence != last.Sequence+1 || event.PrevHash != last.Hash {
+		return rinruntime.ErrConflict
+	}
+	s.events[sessionID] = append(events, cloneEventRecord(event))
 	return nil
 }
 
@@ -49,7 +60,11 @@ func (s *Memory) Load(sessionID string) ([]protocol.EventRecord, error) {
 	if !exists {
 		return nil, rinruntime.ErrNotFound
 	}
-	return append([]protocol.EventRecord(nil), events...), nil
+	result := make([]protocol.EventRecord, len(events))
+	for index, event := range events {
+		result[index] = cloneEventRecord(event)
+	}
+	return result, nil
 }
 
 func (s *Memory) ListSessions() ([]string, error) {
@@ -71,4 +86,9 @@ func (s *Memory) SaveSnapshot(sessionID string, snapshot protocol.Snapshot) erro
 	}
 	s.snapshots[sessionID] = snapshot
 	return nil
+}
+
+func cloneEventRecord(event protocol.EventRecord) protocol.EventRecord {
+	event.Data = append([]byte(nil), event.Data...)
+	return event
 }

@@ -35,6 +35,7 @@ func ValidateSessionState(state SessionState) error {
 	if !hashPattern.MatchString(state.HeadHash) {
 		return &ValidationError{Field: "state.head_hash", Message: "must be a lowercase SHA-256 hash"}
 	}
+	outcomeReporting := HasFeature(state.Features, FeatureOutcomeReporting)
 	if len(state.Actors) == 0 || len(state.Actors) > 128 {
 		return &ValidationError{Field: "state.actors", Message: "must contain 1-128 actors"}
 	}
@@ -45,6 +46,52 @@ func ValidateSessionState(state SessionState) error {
 		}
 		if err := validateActor(base, actor.ActorSeed); err != nil {
 			return err
+		}
+		for index, goal := range actor.Goals {
+			if !outcomeReporting &&
+				(goal.UpdatedTick != 0 ||
+					goal.ProgressAccumulator != 0 ||
+					goal.StatusExplicit ||
+					goal.StatusUpdatedTick != 0 ||
+					goal.StatusSourceEventID != "") {
+				return &ValidationError{
+					Field:   fmt.Sprintf("%s.goals[%d]", base, index),
+					Message: "outcome occurrence metadata requires outcome-reporting-v1",
+				}
+			}
+			if goal.UpdatedTick > state.Tick {
+				return &ValidationError{
+					Field:   fmt.Sprintf("%s.goals[%d].updated_tick", base, index),
+					Message: "must not exceed the session tick",
+				}
+			}
+			if goal.StatusUpdatedTick > goal.UpdatedTick {
+				return &ValidationError{
+					Field:   fmt.Sprintf("%s.goals[%d].status_updated_tick", base, index),
+					Message: "must not exceed updated_tick",
+				}
+			}
+			if !goal.StatusExplicit &&
+				(goal.StatusUpdatedTick != 0 || goal.StatusSourceEventID != "") {
+				return &ValidationError{
+					Field:   fmt.Sprintf("%s.goals[%d]", base, index),
+					Message: "automatic status cannot carry explicit status metadata",
+				}
+			}
+			if outcomeReporting {
+				expected := goal.ProgressAccumulator
+				if expected < 0 {
+					expected = 0
+				} else if expected > int64(goal.TargetProgress) {
+					expected = int64(goal.TargetProgress)
+				}
+				if int64(goal.Progress) != expected {
+					return &ValidationError{
+						Field:   fmt.Sprintf("%s.goals[%d].progress", base, index),
+						Message: "must be the bounded projection of progress_accumulator",
+					}
+				}
+			}
 		}
 		if actor.NextThinkTick < 0 {
 			return &ValidationError{Field: base + ".next_think_tick", Message: "must not be negative"}
@@ -98,6 +145,12 @@ func ValidateSessionState(state SessionState) error {
 			if err := validateFact(field, fact); err != nil {
 				return err
 			}
+			if fact.ObservedTick > state.Tick {
+				return &ValidationError{Field: field + ".observed_tick", Message: "must not exceed the session tick"}
+			}
+			if !outcomeReporting && fact.ObservedTick != 0 {
+				return &ValidationError{Field: field + ".observed_tick", Message: "requires outcome-reporting-v1"}
+			}
 			for _, visibleActor := range fact.Visibility {
 				if _, exists := state.Actors[visibleActor]; !exists {
 					return &ValidationError{Field: field + ".visibility", Message: "references an unknown actor"}
@@ -112,7 +165,7 @@ func ValidateSessionState(state SessionState) error {
 		}
 		for key, set := range actor.BeliefSets {
 			field := base + ".belief_sets." + key
-			if err := validateBeliefSet(field, key, set, state.Revision); err != nil {
+			if err := validateBeliefSet(field, key, set, state.Revision, state.Tick, outcomeReporting); err != nil {
 				return err
 			}
 			selected, exists := actor.Beliefs[key]
@@ -196,6 +249,12 @@ func ValidateSessionState(state SessionState) error {
 				return err
 			}
 		}
+		if receipt.RequestHash != "" && !hashPattern.MatchString(receipt.RequestHash) {
+			return &ValidationError{
+				Field:   field + ".request_hash",
+				Message: "must be a lowercase SHA-256 digest",
+			}
+		}
 	}
 	return nil
 }
@@ -262,7 +321,14 @@ func validateMemorySummary(field string, summary MemorySummary) error {
 	return nil
 }
 
-func validateBeliefSet(field, key string, set BeliefSet, stateRevision uint64) error {
+func validateBeliefSet(
+	field string,
+	key string,
+	set BeliefSet,
+	stateRevision uint64,
+	stateTick int64,
+	outcomeReporting bool,
+) error {
 	if err := validateID(field+".subject_id", set.SubjectID); err != nil {
 		return err
 	}
@@ -285,6 +351,12 @@ func validateBeliefSet(field, key string, set BeliefSet, stateRevision uint64) e
 		claimField := fmt.Sprintf("%s.claims[%d]", field, index)
 		if err := validateFact(claimField+".fact", claim.Fact); err != nil {
 			return err
+		}
+		if claim.Fact.ObservedTick > stateTick {
+			return &ValidationError{Field: claimField + ".fact.observed_tick", Message: "must not exceed the session tick"}
+		}
+		if !outcomeReporting && claim.Fact.ObservedTick != 0 {
+			return &ValidationError{Field: claimField + ".fact.observed_tick", Message: "requires outcome-reporting-v1"}
 		}
 		if claim.Fact.SubjectID != set.SubjectID || claim.Fact.Predicate != set.Predicate {
 			return &ValidationError{Field: claimField + ".fact", Message: "must match its belief set"}
@@ -394,6 +466,28 @@ func validateProposal(field string, state SessionState, actor ActorState, propos
 	if proposal.Tick < 0 {
 		return &ValidationError{Field: field + ".tick", Message: "must not be negative"}
 	}
+	outcomeReporting := HasFeature(state.Features, FeatureOutcomeReporting)
+	if !outcomeReporting && (proposal.OutcomeEventID != "" || proposal.OutcomeTick != 0) {
+		return &ValidationError{Field: field, Message: "outcome occurrence metadata requires outcome-reporting-v1"}
+	}
+	if proposal.OutcomeEventID == "" {
+		if proposal.OutcomeTick != 0 {
+			return &ValidationError{Field: field + ".outcome_tick", Message: "requires outcome_event_id"}
+		}
+		if outcomeReporting && proposal.Status != "pending" {
+			return &ValidationError{Field: field + ".outcome_event_id", Message: "resolved proposals require outcome metadata"}
+		}
+	} else {
+		if err := validateID(field+".outcome_event_id", proposal.OutcomeEventID); err != nil {
+			return err
+		}
+		if proposal.Status == "pending" {
+			return &ValidationError{Field: field + ".outcome_event_id", Message: "pending proposals cannot have an outcome"}
+		}
+		if proposal.OutcomeTick < proposal.Tick || proposal.OutcomeTick > state.Tick {
+			return &ValidationError{Field: field + ".outcome_tick", Message: "must be between proposal tick and session tick"}
+		}
+	}
 	if !hashPattern.MatchString(proposal.BasedOnHeadHash) {
 		return &ValidationError{Field: field + ".based_on_head_hash", Message: "must be a lowercase SHA-256 hash"}
 	}
@@ -442,8 +536,15 @@ func validateProposal(field string, state SessionState, actor ActorState, propos
 			if err := validateGoal(field+".proposed_goal", *proposal.ProposedGoal); err != nil {
 				return err
 			}
-			if proposal.ProposedGoal.ID != proposal.GoalID || proposal.ProposedGoal.Progress != 0 || proposal.ProposedGoal.Status != "active" {
-				return &ValidationError{Field: field + ".proposed_goal", Message: "must match an active zero-progress goal_id"}
+			if proposal.ProposedGoal.ID != proposal.GoalID ||
+				proposal.ProposedGoal.Progress != 0 ||
+				proposal.ProposedGoal.Status != "active" ||
+				proposal.ProposedGoal.UpdatedTick != 0 ||
+				proposal.ProposedGoal.ProgressAccumulator != 0 ||
+				proposal.ProposedGoal.StatusExplicit ||
+				proposal.ProposedGoal.StatusUpdatedTick != 0 ||
+				proposal.ProposedGoal.StatusSourceEventID != "" {
+				return &ValidationError{Field: field + ".proposed_goal", Message: "must match an active zero-progress goal_id without state metadata"}
 			}
 			found = true
 		}

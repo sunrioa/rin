@@ -22,8 +22,8 @@ Rin separates character reasoning from game-world facts:
 - A character creates an `ActionProposal` from memories, goals, boundaries,
   and the actions currently allowed by the game.
 - A proposal cannot directly change plot, inventory, quests, or
-  relationships. It takes effect only after the game validates it and calls
-  `commit`.
+  relationships. The game validates and applies or rejects it, then uses
+  `commit` to report the actual outcome to Rin.
 - Every state change is written to a hash-chained JSONL event log that can be
   replayed and inspected.
 - Snapshots bind `game/content/version/hash`; tampered or mismatched saves are
@@ -37,6 +37,11 @@ Rin separates character reasoning from game-world facts:
   the game.
 - If a model is unavailable, Rin falls back to a deterministic policy and
   identifies the source with `policy_source`.
+
+The apply-then-report lifecycle and late-outcome merge require new Sessions to
+request `outcome-reporting-v1`. Sessions without that Feature retain the
+legacy pre-commit/staleness behavior for replay compatibility.
+
 - Ren'Py, Godot 4, and Unity adapters preserve the same
   observe/propose/commit authority boundary.
 - Python, JavaScript, C#, Java, and Lua SDKs plus Fabric, BepInEx, and Luanti
@@ -99,8 +104,8 @@ additional persistence allowlist.
 | `POST` | `/v1/generation/jobs` | Submit an asynchronous structured JSON generation job |
 | `GET` | `/v1/generation/jobs/{job_id}` | Read a generation job and safe metadata |
 | `DELETE` | `/v1/generation/jobs/{job_id}` | Cancel a generation job |
-| `POST` | `/v1/action/commit` | Accept or reject a proposal and record its outcome |
-| `POST` | `/v1/action/commit-batch` | Atomically commit multi-actor outcomes at one world revision |
+| `POST` | `/v1/action/commit` | Record an outcome the game already applied or rejected |
+| `POST` | `/v1/action/commit-batch` | Atomically record multi-actor outcomes from one original world revision |
 | `POST` | `/v1/session/activity` | Update actor region and awake/dormant state |
 | `POST` | `/v1/world/arbitrate` | Deterministically arbitrate conflicting parallel proposals |
 | `POST` | `/v1/scheduler/due` | Query actors due to think at the current tick |
@@ -115,8 +120,9 @@ request returns the same result without mutating state again. Reusing the same
 ID for another operation returns a conflict.
 
 See the [protocol reference](docs/protocol-v1.md) for complete fields and
-error semantics, and the [architecture guide](docs/architecture.md) for
-responsibility boundaries.
+error semantics, the [architecture guide](docs/architecture.md) for
+responsibility boundaries, and [action outcome reporting](docs/outcome-reporting.md)
+for application, recording, and retry order.
 
 Inspect a session offline. The command verifies the log and prints only a
 redacted timeline:

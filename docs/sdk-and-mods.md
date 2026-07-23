@@ -41,17 +41,36 @@ copy a single client file without its README and conformance version.
 
 ## Integration lifecycle
 
+The apply-then-report steps below require the created Session to request
+`outcome-reporting-v1`; otherwise the runtime intentionally preserves legacy
+Commit and replay behavior.
+
 1. Capture a bounded game-owned event and call `observe`.
 2. Give Rin only candidate actions the game can safely implement.
 3. Use the asynchronous Proposal Job API from real-time games.
 4. Validate the returned action ID and payload against a local allowlist.
 5. Marshal to the engine's owning thread and apply the action.
-6. Call `commit` with the actual outcome, including a rejection when needed.
-7. Keep an authored or deterministic fallback when Rin is unavailable.
+6. Persist the actual result in the game's Outcome Outbox as part of the apply
+   transaction.
+7. Call `commit` from the Outbox, including a rejection when needed. Retry a
+   failed report without applying the action again.
+8. Keep an authored or deterministic fallback when Rin is unavailable.
+
+Treat an ambiguous Proposal submit, poll, timeout, or cancellation as
+outcome-unknown and fail closed. Retry the same identity; do not execute the
+fallback unless the integration has confirmed that no online Proposal exists.
+Persist the complete Propose request and operation identity before submission,
+then persist the Job ID immediately after `202`. Resume that record before any
+new turn or fallback. Clear it only in the same authoritative transaction that
+stores the game result, applied marker, and Outcome Outbox entry.
 
 Never call online proposal or generation endpoints from a render/update loop.
 One player interaction may start one job; ordinary frames should only poll a
 local future, coroutine, timer, or main-thread queue.
+
+Commit records an outcome rather than authorizing execution. See
+[action outcome reporting](outcome-reporting.md) for Outbox, late-outcome,
+same-`request_id` retry, and offline reconciliation rules.
 
 ## Credentials and transport
 

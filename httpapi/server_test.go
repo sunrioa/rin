@@ -104,6 +104,205 @@ func TestHTTPFlowAndNoSafeAction(t *testing.T) {
 	}
 }
 
+func TestCommitHTTPReportsOutcomeAfterSessionAdvances(t *testing.T) {
+	server := newServer(t, httpapi.Options{})
+	create := apiCreateRequest()
+	create.Features = []string{protocol.FeatureOutcomeReporting}
+	if response := perform(t, server, "/v1/session/create", create); response.Code != http.StatusOK {
+		t.Fatalf("create: %d %s", response.Code, response.Body.String())
+	}
+	proposeResponse := perform(t, server, "/v1/agent/propose", protocol.ProposeRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       "session.http",
+		RequestID:       "propose.outcome-report",
+		ActorID:         "npc.http",
+		Tick:            0,
+		Intent:          "Wait for the game authority.",
+		CandidateActions: []protocol.ActionSpec{{
+			ID: "wait", Kind: "wait", Description: "wait",
+		}},
+	})
+	if proposeResponse.Code != http.StatusOK {
+		t.Fatalf("propose: %d %s", proposeResponse.Code, proposeResponse.Body.String())
+	}
+	var proposed struct {
+		OK   bool                    `json:"ok"`
+		Data protocol.ProposalResult `json:"data"`
+	}
+	if err := json.Unmarshal(proposeResponse.Body.Bytes(), &proposed); err != nil {
+		t.Fatal(err)
+	}
+	if !proposed.OK || proposed.Data.Proposal.ID == "" {
+		t.Fatalf("unexpected proposal response: %+v", proposed)
+	}
+	if response := perform(t, server, "/v1/session/observe", protocol.ObserveRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       "session.http",
+		RequestID:       "observe.after-apply",
+		EventID:         "event.after-apply",
+		Tick:            5,
+		ObserverIDs:     []string{"npc.http"},
+		Source:          "game",
+		Kind:            "world",
+		Summary:         "The authoritative game state advanced.",
+		Importance:      1,
+	}); response.Code != http.StatusOK {
+		t.Fatalf("observe: %d %s", response.Code, response.Body.String())
+	}
+	commitResponse := perform(t, server, "/v1/action/commit", protocol.CommitRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       "session.http",
+		RequestID:       "commit.outcome-report",
+		ProposalID:      proposed.Data.Proposal.ID,
+		EventID:         "event.outcome-report",
+		Tick:            0,
+		Accepted:        true,
+		Outcome:         "The game had already applied this action.",
+	})
+	if commitResponse.Code != http.StatusOK {
+		t.Fatalf("late outcome report: %d %s", commitResponse.Code, commitResponse.Body.String())
+	}
+	assertResponseOK(t, commitResponse)
+}
+
+func TestBatchCommitHTTPHandlesLateAndMixedBaseOutcomes(t *testing.T) {
+	t.Run("late outcome", func(t *testing.T) {
+		server := newServer(t, httpapi.Options{})
+		create := apiCreateRequest()
+		create.Features = []string{protocol.FeatureArbitration, protocol.FeatureOutcomeReporting}
+		if response := perform(t, server, "/v1/session/create", create); response.Code != http.StatusOK {
+			t.Fatalf("create: %d %s", response.Code, response.Body.String())
+		}
+		proposal := proposeHTTP(t, server, protocol.ProposeRequest{
+			ProtocolVersion: protocol.Version,
+			SessionID:       create.SessionID,
+			RequestID:       "propose.batch-http-late",
+			ActorID:         "npc.http",
+			Tick:            0,
+			Intent:          "Wait for the game authority.",
+			CandidateActions: []protocol.ActionSpec{{
+				ID: "wait", Kind: "wait", Description: "wait",
+			}},
+		})
+		if response := perform(t, server, "/v1/session/observe", protocol.ObserveRequest{
+			ProtocolVersion: protocol.Version,
+			SessionID:       create.SessionID,
+			RequestID:       "observe.batch-http-advance",
+			EventID:         "event.batch-http-advance",
+			Tick:            5,
+			ObserverIDs:     []string{"npc.http"},
+			Source:          "game",
+			Kind:            "world",
+			Summary:         "The authoritative game state advanced.",
+			Importance:      1,
+		}); response.Code != http.StatusOK {
+			t.Fatalf("observe: %d %s", response.Code, response.Body.String())
+		}
+		response := perform(t, server, "/v1/action/commit-batch", protocol.BatchCommitRequest{
+			ProtocolVersion: protocol.Version,
+			SessionID:       create.SessionID,
+			RequestID:       "commit.batch-http-late",
+			Tick:            0,
+			Items: []protocol.CommitItem{{
+				ProposalID: proposal.ID,
+				EventID:    "event.batch-http-late",
+				Accepted:   true,
+				Outcome:    "The game had already applied this batch item.",
+			}},
+		})
+		if response.Code != http.StatusOK {
+			t.Fatalf("late batch outcome: %d %s", response.Code, response.Body.String())
+		}
+		assertResponseOK(t, response)
+
+		stateResponse := perform(t, server, "/v1/session/get", protocol.SessionRequest{
+			ProtocolVersion: protocol.Version,
+			SessionID:       create.SessionID,
+		})
+		var stateEnvelope struct {
+			Data protocol.SessionState `json:"data"`
+		}
+		if err := json.Unmarshal(stateResponse.Body.Bytes(), &stateEnvelope); err != nil {
+			t.Fatal(err)
+		}
+		if stateEnvelope.Data.Tick != 5 ||
+			stateEnvelope.Data.Proposals[proposal.ID].Status != "accepted" {
+			t.Fatalf("late batch regressed HTTP state: %+v", stateEnvelope.Data)
+		}
+	})
+
+	t.Run("mixed bases", func(t *testing.T) {
+		server := newServer(t, httpapi.Options{})
+		create := apiCreateRequest()
+		create.SessionID = "session.http-mixed-base"
+		create.RequestID = "create.http-mixed-base"
+		create.Features = []string{protocol.FeatureArbitration, protocol.FeatureOutcomeReporting}
+		other := create.Actors[0]
+		other.ID = "npc.other"
+		other.DisplayName = "Other HTTP NPC"
+		create.Actors = append(create.Actors, other)
+		if response := perform(t, server, "/v1/session/create", create); response.Code != http.StatusOK {
+			t.Fatalf("create: %d %s", response.Code, response.Body.String())
+		}
+		older := proposeHTTP(t, server, protocol.ProposeRequest{
+			ProtocolVersion: protocol.Version,
+			SessionID:       create.SessionID,
+			RequestID:       "propose.http-base-one",
+			ActorID:         "npc.http",
+			Tick:            0,
+			Intent:          "Wait.",
+			CandidateActions: []protocol.ActionSpec{{
+				ID: "wait", Kind: "wait", Description: "wait",
+			}},
+		})
+		if response := perform(t, server, "/v1/session/observe", protocol.ObserveRequest{
+			ProtocolVersion: protocol.Version,
+			SessionID:       create.SessionID,
+			RequestID:       "observe.http-new-base",
+			EventID:         "event.http-new-base",
+			Tick:            5,
+			ObserverIDs:     []string{"npc.http", "npc.other"},
+			Source:          "game",
+			Kind:            "world",
+			Summary:         "The authoritative world revision advanced.",
+			Importance:      1,
+		}); response.Code != http.StatusOK {
+			t.Fatalf("observe: %d %s", response.Code, response.Body.String())
+		}
+		newer := proposeHTTP(t, server, protocol.ProposeRequest{
+			ProtocolVersion: protocol.Version,
+			SessionID:       create.SessionID,
+			RequestID:       "propose.http-base-two",
+			ActorID:         "npc.other",
+			Tick:            5,
+			Intent:          "Wait.",
+			CandidateActions: []protocol.ActionSpec{{
+				ID: "wait", Kind: "wait", Description: "wait",
+			}},
+		})
+		response := perform(t, server, "/v1/action/commit-batch", protocol.BatchCommitRequest{
+			ProtocolVersion: protocol.Version,
+			SessionID:       create.SessionID,
+			RequestID:       "commit.http-mixed-base",
+			Tick:            5,
+			Items: []protocol.CommitItem{
+				{ProposalID: older.ID, EventID: "event.http-old-base", Accepted: true, Outcome: "Old base."},
+				{ProposalID: newer.ID, EventID: "event.http-new-base-outcome", Accepted: true, Outcome: "New base."},
+			},
+		})
+		if response.Code != http.StatusConflict {
+			t.Fatalf("mixed-base batch: %d %s", response.Code, response.Body.String())
+		}
+		var envelope protocol.APIResponse
+		if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+			t.Fatal(err)
+		}
+		if envelope.Error == nil || envelope.Error.Code != "proposal_base_mismatch" {
+			t.Fatalf("unexpected mixed-base error: %+v", envelope.Error)
+		}
+	})
+}
+
 func TestTimelineAndReplayHTTPFlow(t *testing.T) {
 	server := newServer(t, httpapi.Options{})
 	if response := perform(t, server, "/v1/session/create", apiCreateRequest()); response.Code != http.StatusOK {
@@ -323,6 +522,25 @@ func assertResponseOK(t *testing.T, response *httptest.ResponseRecorder) {
 	if !envelope.OK || envelope.Error != nil {
 		t.Fatalf("unexpected response: %+v", envelope)
 	}
+}
+
+func proposeHTTP(t *testing.T, handler http.Handler, request protocol.ProposeRequest) protocol.ActionProposal {
+	t.Helper()
+	response := perform(t, handler, "/v1/agent/propose", request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("propose: %d %s", response.Code, response.Body.String())
+	}
+	var envelope struct {
+		OK   bool                    `json:"ok"`
+		Data protocol.ProposalResult `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.OK || envelope.Data.Proposal.ID == "" {
+		t.Fatalf("unexpected proposal response: %+v", envelope)
+	}
+	return envelope.Data.Proposal
 }
 
 func apiCreateRequest() protocol.CreateSessionRequest {

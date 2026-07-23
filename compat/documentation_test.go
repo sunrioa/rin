@@ -17,6 +17,7 @@ func TestBilingualDocumentationPairs(t *testing.T) {
 		{"../docs/architecture.md", "../docs/architecture.zh-CN.md"},
 		{"../docs/game-adapters.md", "../docs/game-adapters.zh-CN.md"},
 		{"../docs/model-policy.md", "../docs/model-policy.zh-CN.md"},
+		{"../docs/outcome-reporting.md", "../docs/outcome-reporting.zh-CN.md"},
 		{"../docs/protocol-v1.md", "../docs/protocol-v1.zh-CN.md"},
 		{"../docs/rpg-events.md", "../docs/rpg-events.zh-CN.md"},
 		{"../docs/sdk-and-mods.md", "../docs/sdk-and-mods.zh-CN.md"},
@@ -42,6 +43,128 @@ func TestBilingualDocumentationPairs(t *testing.T) {
 			if !strings.Contains(text, "[English]") || !strings.Contains(text, "[简体中文]") {
 				t.Errorf("%s is missing the bilingual navigation", path)
 			}
+		}
+	}
+}
+
+func TestPublicDocsUseOutcomeReportingSemantics(t *testing.T) {
+	required := map[string][]string{
+		"../docs/outcome-reporting.md": {
+			"sole authority for world facts",
+			"must never apply the action again",
+			"proposal_base_mismatch",
+			"observed_tick",
+			"updated_tick",
+			"progress_accumulator",
+			"status_explicit",
+			"status_updated_tick",
+			"status_source_event_id",
+			"outcome_event_id",
+			"arbitration-v1",
+			"BatchCommitRequest.tick",
+			"unhandled saved Attempt",
+		},
+		"../docs/outcome-reporting.zh-CN.md": {
+			"世界事实的唯一权威",
+			"不得重新应用动作",
+			"proposal_base_mismatch",
+			"observed_tick",
+			"updated_tick",
+			"progress_accumulator",
+			"status_explicit",
+			"status_updated_tick",
+			"status_source_event_id",
+			"outcome_event_id",
+			"arbitration-v1",
+			"BatchCommitRequest.tick",
+			"尚未处理的存档 Attempt",
+		},
+		"../docs/protocol-v1.md": {
+			"job.error.code",
+			"proposal_outcome_unknown",
+			"Job is terminal, this code",
+			"exact same `request_id` and payload",
+			"two durable recovery states",
+		},
+		"../docs/protocol-v1.zh-CN.md": {
+			"job.error.code",
+			"proposal_outcome_unknown",
+			"终态",
+			"完全相同的",
+			"两种持久恢复状态",
+		},
+		"../docs/game-adapters.md": {
+			"`unresolved`",
+			"`rin_proposal_attempt(request_id)`",
+			"`rin_resume_proposal`",
+			"positively confirmed `not_found`",
+			"unconfigured example intentionally remains disabled",
+			"tick high-water",
+		},
+		"../docs/game-adapters.zh-CN.md": {
+			"`unresolved`",
+			"`rin_proposal_attempt(request_id)`",
+			"`rin_resume_proposal`",
+			"确实 `not_found`",
+			"未配置时示例会有意",
+			"tick 高水位",
+		},
+	}
+	for path, fragments := range required {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, fragment := range fragments {
+			if !strings.Contains(string(payload), fragment) {
+				t.Errorf("%s is missing outcome-reporting rule %q", path, fragment)
+			}
+		}
+	}
+
+	optInDocs := []string{
+		"../README.md",
+		"../README.en.md",
+		"../docs/architecture.md",
+		"../docs/architecture.zh-CN.md",
+		"../docs/game-adapters.md",
+		"../docs/game-adapters.zh-CN.md",
+		"../docs/outcome-reporting.md",
+		"../docs/outcome-reporting.zh-CN.md",
+		"../docs/protocol-v1.md",
+		"../docs/protocol-v1.zh-CN.md",
+		"../docs/rpg-events.md",
+		"../docs/rpg-events.zh-CN.md",
+		"../docs/sdk-and-mods.md",
+		"../docs/sdk-and-mods.zh-CN.md",
+		"../sdk/README.md",
+		"../sdk/README.zh-CN.md",
+	}
+	for _, path := range optInDocs {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(payload), "outcome-reporting-v1") {
+			t.Errorf("%s does not identify the outcome semantics as an explicit feature", path)
+		}
+	}
+
+	prohibited := map[string]string{
+		"../README.md":                   "游戏验证并调用 `commit` 后才生效",
+		"../README.en.md":                "It takes effect only after the game validates it and calls",
+		"../docs/protocol-v1.zh-CN.md":   "`status: pending`：必须 commit 才生效",
+		"../docs/protocol-v1.md":         "the proposal has no effect until committed",
+		"../docs/game-adapters.zh-CN.md": "先应用、后提交流程",
+		"../docs/game-adapters.md":       "apply-before-commit flow",
+	}
+	for path, phrase := range prohibited {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(payload), phrase) {
+			t.Errorf("%s retains obsolete commit-as-authorization wording %q", path, phrase)
 		}
 	}
 }

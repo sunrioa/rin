@@ -2,6 +2,8 @@ export const PROTOCOL_VERSION = "rin.protocol/v1";
 export const DEFAULT_BASE_URL = "http://127.0.0.1:7374";
 export const DEFAULT_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 
+const MAX_GENERATION_CONTENT_BYTES = 4 * 1024 * 1024;
+const PROTOCOL_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/;
 const TERMINAL_JOB_STATES = new Set(["succeeded", "failed", "stale", "canceled"]);
 
 export class RinError extends Error {
@@ -63,7 +65,9 @@ export class RinClient {
   submitGenerationJob(payload) { return this.request("POST", "/v1/generation/jobs", payload, [202]); }
   getGenerationJob(jobId) { return this.request("GET", `/v1/generation/jobs/${pathId(jobId)}`); }
   cancelGenerationJob(jobId) { return this.request("DELETE", `/v1/generation/jobs/${pathId(jobId)}`); }
+  // Report outcomes the game already applied or rejected; never use as execution authorization.
   commit(payload) { return this.post("/v1/action/commit", payload); }
+  // Atomically report outcomes whose proposals share one original world revision.
   commitBatch(payload) { return this.post("/v1/action/commit-batch", payload); }
   setActorActivity(payload) { return this.post("/v1/session/activity", payload); }
   arbitrate(payload) { return this.post("/v1/world/arbitrate", payload); }
@@ -78,17 +82,17 @@ export class RinClient {
     return this.waitJob(jobId, this.getProposalJob.bind(this), this.cancelProposalJob.bind(this), {
       deadlineMs: 25000,
       ...options,
-    });
+    }, "proposal");
   }
 
   waitForGeneration(jobId, options = {}) {
     return this.waitJob(jobId, this.getGenerationJob.bind(this), this.cancelGenerationJob.bind(this), {
       deadlineMs: 45000,
       ...options,
-    });
+    }, "generation");
   }
 
-  async waitJob(jobId, getter, canceler, { deadlineMs, intervalMs = 100 }) {
+  async waitJob(jobId, getter, canceler, { deadlineMs, intervalMs = 100 }, resultKind = "") {
     if (!Number.isFinite(deadlineMs) || deadlineMs < 50 || deadlineMs > 300000 ||
         !Number.isFinite(intervalMs) || intervalMs < 10 || intervalMs > 5000) {
       throw new RinConfigurationError("invalid_polling", "job deadline or interval is out of range");
@@ -96,21 +100,19 @@ export class RinClient {
     const expires = this.now() + deadlineMs;
     for (;;) {
       const job = await getter(jobId);
-      const status = String(job.status || "");
-      if (status === "succeeded") return job;
-      if (TERMINAL_JOB_STATES.has(status)) {
-        const detail = isObject(job.error) ? job.error : {};
-        throw new RinAPIError(
-          safeText(detail.code, 96) || `job_${status}`,
-          safeText(detail.message, 500) || `Rin job ended as ${status}`,
-        );
-      }
-      if (status !== "queued" && status !== "running") {
-        throw new RinProtocolError("invalid_job", "Rin returned an unknown job status");
-      }
+      const resolved = resolveJob(job, resultKind, jobId);
+      if (resolved) return resolved;
       const remaining = expires - this.now();
       if (remaining <= 0) {
-        try { await canceler(jobId); } catch (error) { if (!(error instanceof RinError)) throw error; }
+        let canceledJob;
+        try {
+          canceledJob = await canceler(jobId);
+        } catch (error) {
+          if (!(error instanceof RinError)) throw error;
+          throw new RinAPIError("job_timeout", "Rin job exceeded its deadline");
+        }
+        const canceledResult = resolveJob(canceledJob, resultKind, jobId);
+        if (canceledResult) return canceledResult;
         throw new RinAPIError("job_timeout", "Rin job exceeded its deadline");
       }
       await this.sleep(Math.min(intervalMs, remaining));
@@ -295,6 +297,71 @@ function apiError(envelope, status) {
 
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function resolveJob(job, resultKind = "", expectedJobId = "") {
+  if (!isObject(job)) {
+    throw new RinProtocolError("invalid_job", "Rin returned an invalid job");
+  }
+  validateJobIdentity(job, resultKind, expectedJobId);
+  if (typeof job.status !== "string") {
+    throw new RinProtocolError("invalid_job", "Rin returned an invalid job status");
+  }
+  const status = job.status;
+  if (status === "succeeded") {
+    if (resultKind === "proposal") {
+      const proposal = job.proposal;
+      if (!isObject(proposal)) {
+        throw new RinProtocolError("invalid_job", "Successful proposal job did not include a proposal");
+      }
+      if (!isProtocolIdentifier(proposal.id) ||
+          !isProtocolIdentifier(proposal.actor_id) ||
+          proposal.session_id !== job.session_id ||
+          proposal.request_id !== job.request_id ||
+          !Number.isSafeInteger(proposal.tick) ||
+          proposal.tick < 0) {
+        throw new RinProtocolError("invalid_job", "Successful proposal job contained invalid identity fields");
+      }
+    }
+    if (resultKind === "generation") {
+      const content = isObject(job.result) ? job.result.content : null;
+      if (typeof content !== "string" ||
+          content.trim().length === 0 ||
+          content.includes("\0") ||
+          new TextEncoder().encode(content).byteLength > MAX_GENERATION_CONTENT_BYTES) {
+        throw new RinProtocolError("invalid_job", "Successful generation job did not include content");
+      }
+    }
+    return job;
+  }
+  if (TERMINAL_JOB_STATES.has(status)) {
+    const detail = isObject(job.error) ? job.error : {};
+    throw new RinAPIError(
+      safeText(detail.code, 96) || `job_${status}`,
+      safeText(detail.message, 500) || `Rin job ended as ${status}`,
+    );
+  }
+  if (status !== "queued" && status !== "running") {
+    throw new RinProtocolError("invalid_job", "Rin returned an unknown job status");
+  }
+  return null;
+}
+
+function validateJobIdentity(job, resultKind, expectedJobId) {
+  if (!isProtocolIdentifier(job.job_id) || job.job_id !== expectedJobId) {
+    throw new RinProtocolError("invalid_job", "Rin returned a job with an invalid or mismatched job_id");
+  }
+  if (resultKind === "proposal") {
+    if (!isProtocolIdentifier(job.session_id) || !isProtocolIdentifier(job.request_id)) {
+      throw new RinProtocolError("invalid_job", "Rin returned a proposal job with invalid identity fields");
+    }
+  } else if (resultKind === "generation" && !isProtocolIdentifier(job.request_id)) {
+    throw new RinProtocolError("invalid_job", "Rin returned a generation job with an invalid request_id");
+  }
+}
+
+function isProtocolIdentifier(value) {
+  return typeof value === "string" && PROTOCOL_IDENTIFIER.test(value);
 }
 
 function safeText(value, maximum) {

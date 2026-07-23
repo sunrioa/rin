@@ -49,6 +49,7 @@ type jobState struct {
 	requestHash string
 	cancel      context.CancelFunc
 	ctx         context.Context
+	done        chan struct{}
 	completedAt time.Time
 }
 
@@ -115,6 +116,41 @@ func (m *Manager) Submit(request protocol.ProposeRequest) (protocol.ProposalJobS
 		if existing.requestHash != requestHash {
 			return protocol.ProposalJobSubmission{}, rinruntime.NewFieldError("request_id_conflict", "request id was already used with a different proposal payload", "request_id", rinruntime.ErrConflict)
 		}
+		if proposalOutcomeUnknown(existing.public) {
+			// An unknown outcome is not a reusable terminal answer. Re-submitting
+			// the exact identity asks Engine.Propose to reconcile the durable
+			// event. Replace the attempt instead of mutating it so a Cancel call
+			// already waiting on the old done channel still observes that
+			// attempt's final result.
+			select {
+			case m.queue <- existingID:
+				existing.cancel()
+				jobContext, cancel := context.WithCancel(m.ctx)
+				m.jobs[existingID] = &jobState{
+					public: protocol.ProposalJob{
+						ProtocolVersion: protocol.Version,
+						JobID:           existingID,
+						SessionID:       request.SessionID,
+						RequestID:       request.RequestID,
+						Status:          "queued",
+						SubmittedAt:     now.UTC().Format(time.RFC3339Nano),
+					},
+					request:     request,
+					requestHash: requestHash,
+					cancel:      cancel,
+					ctx:         jobContext,
+					done:        make(chan struct{}),
+				}
+				return protocol.ProposalJobSubmission{
+					ProtocolVersion: protocol.Version,
+					JobID:           existingID,
+					Status:          "queued",
+					Duplicate:       true,
+				}, nil
+			default:
+				return protocol.ProposalJobSubmission{}, rinruntime.NewError("jobs_queue_full", "proposal job queue is full", ErrQueueFull)
+			}
+		}
 		return protocol.ProposalJobSubmission{
 			ProtocolVersion: protocol.Version, JobID: existing.public.JobID, Status: existing.public.Status, Duplicate: true,
 		}, nil
@@ -130,6 +166,7 @@ func (m *Manager) Submit(request protocol.ProposeRequest) (protocol.ProposalJobS
 			RequestID: request.RequestID, Status: "queued", SubmittedAt: now.UTC().Format(time.RFC3339Nano),
 		},
 		request: request, requestHash: requestHash, cancel: cancel, ctx: jobContext,
+		done: make(chan struct{}),
 	}
 	m.jobs[jobID] = state
 	m.byRequest[requestKey] = jobID
@@ -156,21 +193,41 @@ func (m *Manager) Get(jobID string) (protocol.ProposalJob, error) {
 
 func (m *Manager) Cancel(jobID string) (protocol.ProposalJob, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	state, exists := m.jobs[jobID]
 	if !exists {
+		m.mu.Unlock()
 		return protocol.ProposalJob{}, rinruntime.NewFieldError("job_not_found", "proposal job does not exist", "job_id", rinruntime.ErrNotFound)
 	}
 	if terminal(state.public.Status) {
-		return cloneJob(state.public), nil
+		result := cloneJob(state.public)
+		m.mu.Unlock()
+		return result, nil
 	}
 	state.cancel()
-	now := m.now()
-	state.public.Status = "canceled"
-	state.public.FinishedAt = now.UTC().Format(time.RFC3339Nano)
-	state.public.Error = &protocol.ErrorDetail{Code: "job_canceled", Message: "proposal job was canceled"}
-	state.completedAt = now
-	return cloneJob(state.public), nil
+	if state.public.Status == "queued" {
+		now := m.now()
+		state.public.Status = "canceled"
+		state.public.FinishedAt = now.UTC().Format(time.RFC3339Nano)
+		state.public.Error = &protocol.ErrorDetail{Code: "job_canceled", Message: "proposal job was canceled"}
+		state.completedAt = now
+		close(state.done)
+		result := cloneJob(state.public)
+		m.mu.Unlock()
+		return result, nil
+	}
+	done := state.done
+	m.mu.Unlock()
+
+	// A running Engine.Propose may already be inside its durable append after
+	// the final context check. Wait for the worker to publish the truth:
+	// either cancellation prevented the event, or a persisted Proposal won the
+	// race and must be returned instead of hidden behind a transient canceled
+	// response.
+	<-done
+	m.mu.Lock()
+	result := cloneJob(state.public)
+	m.mu.Unlock()
+	return result, nil
 }
 
 func (m *Manager) Close(ctx context.Context) error {
@@ -180,12 +237,15 @@ func (m *Manager) Close(ctx context.Context) error {
 		m.cancel()
 		now := m.now()
 		for _, state := range m.jobs {
-			if !terminal(state.public.Status) {
+			if state.public.Status == "queued" {
 				state.cancel()
 				state.public.Status = "canceled"
 				state.public.FinishedAt = now.UTC().Format(time.RFC3339Nano)
 				state.public.Error = &protocol.ErrorDetail{Code: "jobs_closed", Message: "proposal job manager stopped"}
 				state.completedAt = now
+				close(state.done)
+			} else if state.public.Status == "running" {
+				state.cancel()
 			}
 		}
 	}
@@ -238,6 +298,8 @@ func (m *Manager) run(jobID string) {
 		state.public.Error = nil
 	} else if state.public.Status != "canceled" {
 		switch {
+		case rinruntime.ErrorCode(err) == "proposal_outcome_unknown":
+			state.public.Status = "failed"
 		case errors.Is(err, rinruntime.ErrStale):
 			state.public.Status = "stale"
 		case errors.Is(err, context.Canceled):
@@ -249,6 +311,7 @@ func (m *Manager) run(jobID string) {
 	}
 	state.public.FinishedAt = now.UTC().Format(time.RFC3339Nano)
 	state.completedAt = now
+	close(state.done)
 }
 
 func (m *Manager) cleanup(now time.Time) {
@@ -298,10 +361,16 @@ func hashRequest(request protocol.ProposeRequest) (string, error) {
 
 func jobError(err error) *protocol.ErrorDetail {
 	code := rinruntime.ErrorCode(err)
-	if errors.Is(err, context.Canceled) {
+	if code != "proposal_outcome_unknown" && errors.Is(err, context.Canceled) {
 		code = "job_canceled"
 	}
 	return &protocol.ErrorDetail{Code: code, Message: err.Error(), Field: rinruntime.ErrorField(err)}
+}
+
+func proposalOutcomeUnknown(job protocol.ProposalJob) bool {
+	return job.Status == "failed" &&
+		job.Error != nil &&
+		job.Error.Code == "proposal_outcome_unknown"
 }
 
 func terminal(status string) bool {

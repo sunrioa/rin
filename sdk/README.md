@@ -22,7 +22,11 @@ All clients follow these rules:
 - redirects are rejected;
 - request timeouts and response-size limits are mandatory;
 - errors expose bounded Rin codes, not provider bodies or credentials;
-- proposals remain pending until the game applies and commits them.
+- proposals remain pending until the game applies or rejects them and reports
+  the result with Commit; Commit records an outcome and is not authorization.
+
+That final rule applies to Sessions which explicitly request
+`outcome-reporting-v1`; clients must not assume it for legacy Sessions.
 
 The SDKs are intentionally source-first and are not yet published to PyPI,
 npm, NuGet, or Maven Central. Pin this repository revision when vendoring one.
@@ -32,5 +36,8 @@ Game-specific examples live under [`examples/mods`](../examples/mods). They
 show where host events enter Rin and where the game validates and applies a
 proposal. They are integration templates, not universal patches for every
 game version.
+
+All SDKs follow the Commit lifecycle, Outbox, and retry rules in
+[`docs/outcome-reporting.md`](../docs/outcome-reporting.md).
 
 The SDK source is released under the [MIT License](../LICENSE).

@@ -8,6 +8,7 @@ individual consuming games.
 | Topic | English | 简体中文 |
 | --- | --- | --- |
 | Architecture and authority boundary | [Architecture](architecture.md) | [架构](architecture.zh-CN.md) |
+| Proposal, application, and outcome transactions | [Action outcome reporting](outcome-reporting.md) | [动作结果记账](outcome-reporting.zh-CN.md) |
 | HTTP and state contract | [Protocol v1](protocol-v1.md) | [协议 v1](protocol-v1.zh-CN.md) |
 | Online-model configuration | [Model policy](model-policy.md) | [模型策略](model-policy.zh-CN.md) |
 | Ren'Py, Godot, and Unity | [Game adapters](game-adapters.md) | [游戏适配器](game-adapters.zh-CN.md) |
