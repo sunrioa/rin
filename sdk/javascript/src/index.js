@@ -142,53 +142,101 @@ export class RinClient {
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-    let response;
     try {
-      response = await this.fetch(`${this.baseUrl}${path}`, {
+      const response = await this.fetch(`${this.baseUrl}${path}`, {
         method,
         headers,
         body,
         signal: controller.signal,
         redirect: "error",
       });
+      const declared = response.headers?.get?.("content-length");
+      if (declared !== null && declared !== undefined && declared !== "") {
+        const length = Number(declared);
+        if (!Number.isSafeInteger(length) || length < 0) {
+          throw new RinProtocolError("invalid_response", "Rin returned an invalid Content-Length");
+        }
+        if (length > this.maxResponseBytes) {
+          await cancelBody(response);
+          throw new RinProtocolError("response_too_large", "Rin response exceeds the configured limit");
+        }
+      }
+      const raw = await readBoundedBody(response, this.maxResponseBytes);
+
+      let envelope;
+      try {
+        envelope = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw));
+      } catch (cause) {
+        throw new RinProtocolError("invalid_response", "Rin returned invalid JSON", { cause });
+      }
+      if (!isObject(envelope)) {
+        throw new RinProtocolError("invalid_response", "Rin response must be an object");
+      }
+      if (!expectedStatuses.includes(response.status) || envelope.ok !== true) {
+        throw apiError(envelope, response.status);
+      }
+      if (!isObject(envelope.data)) {
+        throw new RinProtocolError("invalid_response", "Rin response data must be an object");
+      }
+      return envelope.data;
     } catch (cause) {
       if (cause instanceof RinError) throw cause;
-      throw new RinTransportError("transport_failed", "Rin is unavailable", { cause });
+      const timedOut = controller.signal.aborted;
+      throw new RinTransportError(
+        timedOut ? "transport_timeout" : "transport_failed",
+        timedOut ? "Rin request timed out" : "Rin is unavailable",
+        { cause },
+      );
     } finally {
       clearTimeout(timer);
     }
+  }
+}
 
-    const declared = response.headers?.get?.("content-length");
-    if (declared !== null && declared !== undefined && declared !== "") {
-      const length = Number(declared);
-      if (!Number.isSafeInteger(length) || length < 0) {
-        throw new RinProtocolError("invalid_response", "Rin returned an invalid Content-Length");
-      }
-      if (length > this.maxResponseBytes) {
-        throw new RinProtocolError("response_too_large", "Rin response exceeds the configured limit");
-      }
-    }
-    const raw = await response.arrayBuffer();
-    if (raw.byteLength > this.maxResponseBytes) {
+async function readBoundedBody(response, maximum) {
+  const reader = response.body?.getReader?.();
+  if (!reader) {
+    const raw = new Uint8Array(await response.arrayBuffer());
+    if (raw.byteLength > maximum) {
       throw new RinProtocolError("response_too_large", "Rin response exceeds the configured limit");
     }
+    return raw;
+  }
 
-    let envelope;
-    try {
-      envelope = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw));
-    } catch (cause) {
-      throw new RinProtocolError("invalid_response", "Rin returned invalid JSON", { cause });
+  const chunks = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!(value instanceof Uint8Array)) {
+        throw new RinProtocolError("invalid_response", "Rin response stream returned an invalid chunk");
+      }
+      total += value.byteLength;
+      if (total > maximum) {
+        await reader.cancel();
+        throw new RinProtocolError("response_too_large", "Rin response exceeds the configured limit");
+      }
+      chunks.push(value);
     }
-    if (!isObject(envelope)) {
-      throw new RinProtocolError("invalid_response", "Rin response must be an object");
-    }
-    if (!expectedStatuses.includes(response.status) || envelope.ok !== true) {
-      throw apiError(envelope, response.status);
-    }
-    if (!isObject(envelope.data)) {
-      throw new RinProtocolError("invalid_response", "Rin response data must be an object");
-    }
-    return envelope.data;
+  } finally {
+    reader.releaseLock?.();
+  }
+
+  const raw = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    raw.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return raw;
+}
+
+async function cancelBody(response) {
+  try {
+    await response.body?.cancel?.();
+  } catch {
+    // The response is already being rejected; cancellation is best effort.
   }
 }
 

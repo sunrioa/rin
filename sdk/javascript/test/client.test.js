@@ -69,8 +69,50 @@ test("unsafe identifiers and oversized responses are rejected", async () => {
     maxResponseBytes: 1024,
     fetch: async () => response(200, { ok: true, data: {} }, { "content-length": "2048" }),
   });
-  assert.throws(() => client.getProposalJob("作业"), RinConfigurationError);
+  assert.throws(() => client.getProposalJob("\u4f5c\u4e1a"), RinConfigurationError);
   await assert.rejects(client.health(), RinProtocolError);
+});
+
+test("streamed responses are capped before the full body is buffered", async () => {
+  let reads = 0;
+  let canceled = false;
+  const body = {
+    getReader: () => ({
+      read: async () => {
+        reads += 1;
+        return { done: false, value: new Uint8Array(600) };
+      },
+      cancel: async () => { canceled = true; },
+      releaseLock: () => {},
+    }),
+  };
+  const client = new RinClient(undefined, {
+    maxResponseBytes: 1024,
+    fetch: async () => ({ status: 200, headers: { get: () => null }, body }),
+  });
+  await assert.rejects(client.health(), RinProtocolError);
+  assert.equal(reads, 2);
+  assert.equal(canceled, true);
+});
+
+test("the deadline remains active while a streamed body is read", async () => {
+  const client = new RinClient(undefined, {
+    timeoutMs: 50,
+    fetch: async (_url, options) => ({
+      status: 200,
+      headers: { get: () => null },
+      body: {
+        getReader: () => ({
+          read: () => new Promise((_resolve, reject) => {
+            options.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+          }),
+          cancel: async () => {},
+          releaseLock: () => {},
+        }),
+      },
+    }),
+  });
+  await assert.rejects(client.health(), (error) => error.code === "transport_timeout");
 });
 
 test("API errors expose only the bounded protocol detail", async () => {

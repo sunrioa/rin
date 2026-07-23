@@ -7,7 +7,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from rin_sdk import RinAPIError, RinClient, RinConfigurationError  # noqa: E402
+from rin_sdk import (  # noqa: E402
+    RinAPIError,
+    RinClient,
+    RinConfigurationError,
+    RinProtocolError,
+    RinTransportError,
+)
 
 
 class _Response:
@@ -81,7 +87,7 @@ class RinClientTests(unittest.TestCase):
     def test_job_id_is_ascii_and_path_safe(self):
         client = RinClient()
         client._opener = _Opener()
-        for invalid in ("", "../job", "job/other", "作业"):
+        for invalid in ("", "../job", "job/other", "\u4f5c\u4e1a"):
             with self.subTest(job_id=invalid), self.assertRaises(RinConfigurationError):
                 client.get_proposal_job(invalid)
 
@@ -108,6 +114,38 @@ class RinClientTests(unittest.TestCase):
             client.health()
         self.assertEqual(caught.exception.code, "invalid_request")
         self.assertEqual(caught.exception.status, 400)
+
+    def test_invalid_payload_and_content_length_are_protocol_errors(self):
+        client = RinClient()
+        with self.assertRaises(RinProtocolError):
+            client.observe({"recursive": object()})
+
+        response = _Response(200, {"ok": True, "data": {}})
+        response.headers["Content-Length"] = "-1"
+
+        class NegativeLengthOpener:
+            def open(self, request, timeout):
+                del request, timeout
+                return response
+
+        client._opener = NegativeLengthOpener()
+        with self.assertRaises(RinProtocolError):
+            client.health()
+
+    def test_redirect_is_rejected(self):
+        client = RinClient()
+
+        class RedirectOpener:
+            def open(self, request, timeout):
+                del request, timeout
+                from urllib.error import HTTPError
+
+                raise HTTPError("http://127.0.0.1", 302, "Found", {"Location": "https://example.com"}, io.BytesIO(b""))
+
+        client._opener = RedirectOpener()
+        with self.assertRaises(RinTransportError) as caught:
+            client.health()
+        self.assertEqual(caught.exception.code, "redirect_rejected")
 
 
 if __name__ == "__main__":

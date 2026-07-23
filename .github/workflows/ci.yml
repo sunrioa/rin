@@ -39,3 +39,42 @@ jobs:
           cache: true
       - name: Build
         run: go build -trimpath ./cmd/rin
+
+  sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Test Python SDK
+        run: python -m unittest discover -s sdk/python/tests -p 'test_*.py'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+      - name: Test JavaScript SDK
+        working-directory: sdk/javascript
+        run: node --test
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Compile and test Java SDK
+        run: |
+          mkdir -p .cache/java-sdk
+          find sdk/java/src/main/java sdk/java/test -name '*.java' > .cache/java-sdk/sources.txt
+          javac --add-modules jdk.httpserver -d .cache/java-sdk @.cache/java-sdk/sources.txt
+          java --add-modules jdk.httpserver -cp .cache/java-sdk io.github.sunrioa.rin.RinClientTest
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "6.0.x"
+      - name: Build and test C# SDK
+        run: dotnet run --project sdk/csharp/Rin.Client.Tests/Rin.Client.Tests.csproj --nologo
+      - name: Update package index for Lua
+        run: sudo apt-get update
+      - name: Install Lua
+        run: sudo apt-get install -y lua5.1 lua5.4
+      - name: Test Lua SDK on Lua 5.1
+        run: lua5.1 sdk/lua/test_client.lua
+      - name: Test Lua SDK on Lua 5.4
+        run: lua5.4 sdk/lua/test_client.lua

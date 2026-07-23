@@ -187,7 +187,10 @@ class RinClient:
         if payload is not None:
             if not isinstance(payload, dict):
                 raise RinProtocolError("invalid_request", "Rin payload must be an object")
-            body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            try:
+                body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            except (TypeError, ValueError) as exc:
+                raise RinProtocolError("invalid_request", "Rin payload is not JSON serializable") from exc
             headers["Content-Type"] = "application/json"
         if self.token:
             headers["Authorization"] = "Bearer " + self.token
@@ -196,7 +199,10 @@ class RinClient:
             with self._opener.open(request, timeout=self.timeout) as response:
                 return self._decode(response, int(response.getcode()), tuple(expected_statuses))
         except HTTPError as exc:
-            return self._decode_error(exc, int(exc.code))
+            try:
+                return self._decode_error(exc, int(exc.code))
+            finally:
+                exc.close()
         except (URLError, TimeoutError, OSError) as exc:
             raise RinTransportError("transport_failed", "Rin is unavailable") from exc
 
@@ -204,7 +210,10 @@ class RinClient:
         declared = response.headers.get("Content-Length", "")
         if declared:
             try:
-                if int(declared) > self.max_response_bytes:
+                length = int(declared)
+                if length < 0:
+                    raise RinProtocolError("invalid_response", "Rin returned an invalid Content-Length")
+                if length > self.max_response_bytes:
                     raise RinProtocolError("response_too_large", "Rin response exceeds the configured limit")
             except ValueError as exc:
                 raise RinProtocolError("invalid_response", "Rin returned an invalid Content-Length") from exc
@@ -220,6 +229,8 @@ class RinClient:
         return data
 
     def _decode_error(self, response: HTTPError, status: int) -> Dict[str, Any]:
+        if 300 <= status < 400:
+            raise RinTransportError("redirect_rejected", "Rin endpoint attempted to redirect")
         raw = response.read(self.max_response_bytes + 1)
         if len(raw) > self.max_response_bytes:
             raise RinProtocolError("response_too_large", "Rin error response exceeds the configured limit")
