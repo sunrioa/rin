@@ -1,5 +1,7 @@
 # Rin JavaScript SDK
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 Requires Node.js 18+ or a host that implements the standard Fetch API. The
 package has no runtime dependencies and includes TypeScript declarations.
 

@@ -1,5 +1,7 @@
 # Architecture
 
+[English](architecture.md) | [简体中文](architecture.zh-CN.md)
+
 ## Authority boundary
 
 ```mermaid
@@ -14,76 +16,147 @@ flowchart LR
     P -->|"structured draft"| V
 ```
 
-游戏引擎始终拥有世界权威。Rin 不直接修改场景、任务、物品、战斗、角色位置、关键选择或存档。Policy 只能从本次请求的 `candidate_actions` 中选择一个动作；运行时还会检查角色、目标、记忆引用、边界、会话 revision 和内容绑定。
+The game engine always owns world authority. Rin never directly changes
+scenes, quests, items, combat, character positions, critical choices, or
+saves. A policy may choose only from the current request's
+`candidate_actions`; the runtime also verifies actor, goal, memory references,
+boundaries, session revision, and content binding.
 
 ## Components
 
 ### Protocol
 
-`protocol` 是唯一需要被其他语言复刻的层。所有请求显式携带 `rin.protocol/v1`，未知 JSON 字段会被 HTTP 层拒绝，标识符禁止路径分隔符。
+`protocol` is the only layer other languages need to reproduce. Every request
+explicitly carries `rin.protocol/v1`. The HTTP layer rejects unknown JSON
+fields, and identifiers cannot contain path separators.
 
 ### Runtime
 
-`runtime.Engine` 是确定性状态机。每个会话单独加锁；Policy 在锁外执行，因此远程模型变慢不会阻塞新的观察或读状态。旧会话继续用 revision/head hash 判断过期；启用 `arbitration-v1` 的会话使用只在世界事实变化时前进的 `world_revision`，因此同一轮多个角色可以并行提出动作。
+`runtime.Engine` is a deterministic state machine. Each session has its own
+lock. Policy execution happens outside that lock, so a slow remote model does
+not block new observations or state reads. Legacy sessions use revision and
+head hash for staleness. Sessions with `arbitration-v1` use a
+`world_revision` that advances only when world facts change, allowing several
+actors to propose in parallel during one turn.
 
-详细记忆保持固定窗口；`memory-archive-v1` 将最旧批次压成带来源 ID、tick 范围和原因的确定性摘要，并在摘要达到上限后继续分层合并。`belief-conflicts-v1` 为每个角色保留最多八条来源声明，同时维持旧 `beliefs` 字段作为当前选中投影。两者都完全由事件重放恢复，不依赖向量数据库。
+Detailed memory keeps a fixed window. `memory-archive-v1` compresses the
+oldest batch into a deterministic summary with source IDs, tick range, and
+reason, then continues hierarchical merging when summaries reach their cap.
+`belief-conflicts-v1` keeps up to eight sourced claims per actor while
+retaining the legacy `beliefs` field as the currently selected projection.
+Both are reconstructed entirely by event replay and require no vector
+database.
 
 ### Policy
 
-Policy 接口只返回 `ProposalDraft`。运行时不信任实现：动作必须来自白名单，记忆和目标 ID 必须真实存在，文本长度与 stance 必须合法。
+The policy interface returns only a `ProposalDraft`. The runtime does not
+trust its implementation: actions must come from the allowlist, memory and
+goal IDs must exist, and text length and stance must be valid.
 
-内置 `policy.Deterministic` 是离线基线：
+The built-in `policy.Deterministic` is the offline baseline:
 
-1. 标签命中边界时只选择对应的 `refuse`、`redirect` 或 `wait` 动作。
-2. 否则优先服务高优先级主动目标。
-3. 用重要度、近期性、标签和召回次数选择最多三条记忆。
-4. 对重复动作降权，以固定 seed 和请求上下文确定性打破平局。
+1. If tags trigger a boundary, choose only its matching `refuse`, `redirect`,
+   or `wait` action.
+2. Otherwise, prefer the highest-priority active goal.
+3. Select up to three memories by importance, recency, tags, and recall count.
+4. Penalize repeated actions and break ties deterministically from a fixed
+   seed and request context.
 
-在线模型 Policy 只替换第 2–4 步，不绕过运行时验证器。
+The online model policy replaces only steps 2 through 4. It never bypasses the
+runtime validator.
 
 ### Model policy
 
-模型 Policy 只构造最小上下文包。系统指令与游戏数据分成两个 message，玩家输入、剧情文本和内容包字段全部位于 `untrusted_game_data`；同时给出独立 `contract`，列出唯一合法的 action、memory 和 goal ID。供应商即使不支持严格 JSON Schema，返回结果仍会在本地执行 unknown-field、类型、长度和 ID 白名单校验。
+The model policy builds a minimal context packet. System instructions and
+game data are separate messages. Player input, story text, and content-pack
+fields all live under `untrusted_game_data`; a separate `contract` lists the
+only legal action, memory, and goal IDs. Even when a provider does not support
+strict JSON Schema, the result still receives local unknown-field, type,
+length, and ID-allowlist validation.
 
-角色边界在调用供应商之前本地处理。触发边界时直接使用 `boundary-guard`，不会依赖模型自行拒绝。
+Character boundaries are handled locally before calling a provider. A
+triggered boundary uses `boundary-guard` directly instead of relying on the
+model to refuse.
 
 ### Provider resilience
 
-OpenAI-compatible 客户端由标准库实现。每次调用具有 attempt timeout 和 total timeout，只重试网络、429、408 和 5xx 等暂时错误；连续失败会打开 circuit breaker，开放期直接进入离线回退。响应正文、Prompt 和 Key 不写入错误、日志或状态。
+The OpenAI-compatible client uses only the standard library. Each call has an
+attempt timeout and total timeout. Only temporary failures such as network
+errors, 429, 408, and 5xx responses are retried. Repeated failures open a
+circuit breaker; while open, calls immediately enter offline fallback.
+Response bodies, prompts, and keys are never written to errors, logs, or
+state.
 
-模型 Draft 按 Session head hash、Actor 和语义请求建立有界内存缓存。相同 key 的并发调用合并成一次供应商请求；状态变化后 head hash 改变，旧结果不会命中新世界状态。
+Model drafts use a bounded in-memory cache keyed by session head hash, actor,
+and semantic request. Concurrent calls with the same key collapse into one
+provider request. Once state changes, the head hash changes and an old result
+cannot match the new world state.
 
 ### Async jobs
 
-`jobs.Manager` 使用有界 worker 和 queue。游戏先提交 `/v1/jobs/propose`，继续渲染与接收输入，再通过 GET 轮询。若思考期间 Session 变化，Job 结束为 `stale`，不会写入旧提案；取消会沿 context 传递到 HTTP Provider。
+`jobs.Manager` uses bounded workers and a bounded queue. A game first submits
+`/v1/jobs/propose`, continues rendering and accepting input, then polls with
+GET. If the session changes while an actor is thinking, the job ends as
+`stale` and no obsolete proposal is written. Cancellation propagates through
+context to the HTTP provider.
 
-Job 元数据只在进程内保留，成功 Proposal 本身已进入事件日志。Sidecar 重启后，客户端可用同一 `request_id` 重新提交，Engine 会幂等返回已生成 Proposal。
+Job metadata remains in process memory. A successful proposal is already in
+the event log. After a sidecar restart, a client may resubmit the same
+`request_id`; the engine idempotently returns the proposal it already
+generated.
 
 ### Structured generation
 
-`generation.Manager` 为游戏拥有的受限 Prompt 提供另一条有界异步队列。它复用同一个 resilient Provider，但不接触 Session 状态，也不直接写事件日志。请求按完整 payload 幂等、按去掉 request ID 后的语义内容短期缓存；取消沿 context 传播到 Provider。
+`generation.Manager` provides another bounded asynchronous queue for
+game-owned constrained prompts. It reuses the resilient provider but does not
+read session state or write directly to the event log. Requests are
+idempotent over the complete payload and briefly cached by semantic content
+after removing the request ID. Cancellation propagates to the provider.
 
-Generation 只保证传输、大小和顶层 JSON Object 合法。各游戏仍必须验证自己的 `ScenePacket`、任务、对白或结局 Schema。若验证失败，游戏丢弃结果并使用本地内容；模型输出永远不会自动成为 Canon。
+Generation guarantees only transport, size, and a valid top-level JSON
+object. Each game must still validate its own `ScenePacket`, quest, dialogue,
+or ending schema. If validation fails, the game discards the result and uses
+local content. Model output never becomes canon automatically.
 
 ### Game adapters
 
-Ren'Py、Godot 和 Unity 适配器只转换 JSON/HTTP 与各自的异步机制，不复制 Runtime 状态机。在线结果带 `committable=true`；Sidecar 不可用时，适配器从游戏本次候选列表选择 authored fallback，标记 `committable=false`，游戏不得把本地 `offline.*` ID 发给 `/commit`。
+Ren'Py, Godot, and Unity adapters translate JSON/HTTP and engine-specific
+asynchrony without copying the runtime state machine. Online results have
+`committable=true`. When the sidecar is unavailable, an adapter chooses an
+authored fallback from the current candidate list and marks it
+`committable=false`; the game must not send a local `offline.*` ID to
+`/commit`.
 
-Ren'Py worker registry、Godot `HTTPRequest` 和 Unity coroutine 都只存在于进程内。游戏存档保存 Snapshot 与普通结果，不保存线程、Future、Socket、HTTP 对象或 API Token。
+The Ren'Py worker registry, Godot `HTTPRequest`, and Unity coroutines exist
+only in process memory. A game save stores snapshots and plain results, never
+threads, futures, sockets, HTTP objects, or API tokens.
 
 ### Multi-actor coordination
 
-候选目标仍由游戏提供上限和语义范围，Policy 只能建议采用；只有 accepted Commit 才把目标写进 Actor。Activity 状态由游戏的区域或模拟系统更新，Dormant 角色不会自行唤醒。Arbitration 对同一 world revision 的 Proposal 做稳定排序并记录冲突，但不执行动作；游戏可以调整、拒绝，再以原子 Batch Commit 汇报实际结果。
+The game supplies the upper bound and semantic scope of candidate goals. A
+policy may only recommend adopting one; only an accepted commit writes the
+goal into an actor. The game's region or simulation system updates activity
+state. Dormant actors never wake themselves. Arbitration stably sorts
+proposals at the same world revision and records conflicts, but it does not
+execute actions. The game may adjust or reject them and then report actual
+outcomes through an atomic batch commit.
 
-这使 Rin 可以服务视觉小说、RPG NPC 和模拟居民，同时不承担寻路、碰撞、任务规则或 Scene Tree 等引擎职责。
+This lets Rin support visual novels, RPG NPCs, and simulation residents
+without taking responsibility for pathfinding, collision, quest rules, or a
+scene tree.
 
 ### Observability
 
-Timeline 只从事件 payload 提取 ID 和枚举状态，不返回玩家原话、剧情摘要、Commit outcome 或模型内容。Replay 则运行同一个 reducer 到指定 revision，生成完整且可验证的 Snapshot，不写回 Store。`rin inspect` 复用这两条路径输出机器可读诊断；打开数据目录时仍会验证全部事件 hash chain。
+Timeline extracts only IDs and enum states from event payloads. It does not
+return the player's original words, story summaries, commit outcomes, or
+model content. Replay runs the same reducer to a selected revision and
+produces a complete, verifiable snapshot without writing to the store.
+`rin inspect` reuses both paths for machine-readable diagnostics; opening a
+data directory still verifies the entire event hash chain.
 
 ### Store
 
-文件存储结构：
+File-store layout:
 
 ```text
 rin-data/
@@ -93,25 +166,46 @@ rin-data/
         └── snapshot-<revision>-<hash>.json
 ```
 
-事件哈希覆盖 sequence、type、request ID、记录时间、上一事件哈希和 payload。启动时完整重放并验证；任何断链、改写或未知事件类型都会阻止会话加载。快照通过同目录临时文件、`fsync` 和 rename 写成按 revision/hash 命名的不可变文件，权限为 `0600`，不依赖各平台不同的覆盖 rename 行为。
+An event hash covers sequence, type, request ID, recorded time, previous event
+hash, and payload. Startup fully replays and verifies the chain. A broken
+link, rewritten record, or unknown event type prevents session loading.
+Snapshots are immutable files named by revision and hash, written through a
+temporary file in the same directory, `fsync`, and rename with `0600`
+permissions. This avoids relying on platform-specific overwrite-rename
+behavior.
 
-文件 Store 是单写者设计：同一数据目录同时只能由一个 Rin 进程使用。需要多实例时应实现外部协调的 Store，而不是共享 JSONL 目录。
+The file store is single-writer. Only one Rin process may use a data directory
+at a time. Multi-instance deployments should implement an externally
+coordinated store instead of sharing a JSONL directory.
 
 ## NPC scheduling
 
-每个 Actor 声明 `think_every_ticks`。动作被接受后，`next_think_tick = commit.tick + think_every_ticks`。游戏可在区域进入、回合结束、分钟推进或关键事件后调用 `/v1/scheduler/due`，不应在渲染帧中轮询模型。
+Each actor declares `think_every_ticks`. After an action is accepted,
+`next_think_tick = commit.tick + think_every_ticks`. A game may call
+`/v1/scheduler/due` when entering a region, ending a turn, advancing time, or
+handling a critical event. It should never poll a model from render frames.
 
-紧急事件可在 propose 请求中设置 `urgent: true`，但它只绕过调度时间，不绕过边界和动作白名单。
+An urgent event may set `urgent: true` on a propose request. Urgency bypasses
+only scheduling time, never boundaries or the action allowlist.
 
 ## Save and rollback
 
-- 游戏存档应保存 Rin 返回的 Snapshot，而不是内部文件路径。
-- Snapshot 带内容包 Binding 和状态哈希。
-- Restore 会清空未提交 Proposal，避免读档后执行旧世界状态上的动作。
-- 已提交事件、记忆、事实、目标进度和调度 tick 会恢复。
-- 新数据目录可以导入 Snapshot；此时本地事件链从一条 restore 事件开始。
-- 重复载入同一存档时，调用方应让 restore request ID 同时绑定 Snapshot hash 与当前 Sidecar head，以区分网络重试和真正的再次回档。
+- Game saves should store snapshots returned by Rin, not internal file paths.
+- A snapshot carries the content-pack binding and state hash.
+- Restore clears uncommitted proposals so an old-world action cannot execute
+  after loading.
+- Committed events, memories, facts, goal progress, and scheduling ticks are
+  restored.
+- A new data directory may import a snapshot; its local event chain then
+  begins with a restore event.
+- When loading the same save repeatedly, callers should bind the restore
+  request ID to both the saved snapshot hash and current sidecar head. This
+  distinguishes a network retry from a real second rollback.
 
 ## Model integration rule
 
-推荐把模型调用实现为另一个 `Policy`，或由上层 Showrunner 先生成结构化 Draft。供应商请求必须有超时和取消，API Key 只从进程环境或宿主安全存储读取。模型不接触事件文件、快照路径、游戏脚本和任意工具执行。
+Implement model access as another `Policy`, or let a higher-level showrunner
+produce a structured draft first. Provider requests must have timeouts and
+cancellation. Read API keys only from the process environment or secure host
+storage. Models receive no event files, snapshot paths, game scripts, or
+arbitrary tool execution.

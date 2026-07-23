@@ -1,5 +1,7 @@
 # Game Adapters
 
+[English](game-adapters.md) | [简体中文](game-adapters.zh-CN.md)
+
 Rin adapters keep the same authority split on every engine:
 
 1. The game sends only events an actor actually observed.

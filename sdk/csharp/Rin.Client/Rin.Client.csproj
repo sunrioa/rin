@@ -7,5 +7,6 @@
     <PackageId>Rin.Game.Client</PackageId>
     <Version>0.5.0</Version>
     <Description>Dependency-free .NET client for the Rin game agent runtime.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 </Project>

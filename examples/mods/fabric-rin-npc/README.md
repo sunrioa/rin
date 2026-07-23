@@ -1,5 +1,7 @@
 # Fabric Rin NPC example
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 This is a source overlay for a dedicated-server Fabric mod, not a frozen
 Gradle template. Start from the current official Fabric project generator so
 Minecraft, Loader, mappings, Fabric API, and Loom stay on compatible versions.

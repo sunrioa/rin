@@ -1,5 +1,7 @@
 # Rin SDKs
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 These source SDKs expose the same `rin.protocol/v1` HTTP boundary without
 moving game authority into the client library.
 
@@ -28,3 +30,5 @@ Game-specific examples live under [`examples/mods`](../examples/mods). They
 show where host events enter Rin and where the game validates and applies a
 proposal. They are integration templates, not universal patches for every
 game version.
+
+The SDK source is released under the [MIT License](../LICENSE).

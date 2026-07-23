@@ -2,8 +2,8 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-`Rin.Client` targets .NET 6+ and uses only `HttpClient` and
-`System.Text.Json`. Keep one client for the lifetime of the plugin or game.
+`Rin.Client` 面向 .NET 6+，只使用 `HttpClient` 和 `System.Text.Json`。
+在插件或游戏生命周期内复用一个 Client。
 
 ```csharp
 using Rin.Client;
@@ -18,11 +18,11 @@ var health = await rin.HealthAsync();
 Console.WriteLine(health.GetProperty("status").GetString());
 ```
 
-Build the source project with:
+构建并运行源码测试：
 
 ```bash
 dotnet run --project sdk/csharp/Rin.Client.Tests/Rin.Client.Tests.csproj
 ```
 
-Unity and BepInEx callers must await off the render loop, then marshal the
-validated result back to Unity's main thread before touching game objects.
+Unity 和 BepInEx 调用方必须在渲染循环外 `await`，验证结果后再切回 Unity
+主线程操作 GameObject。

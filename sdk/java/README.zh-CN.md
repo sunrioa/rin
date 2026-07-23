@@ -2,9 +2,8 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Requires Java 17+. Transport uses the JDK `HttpClient`; JSON is injected so a
-game can reuse its existing Gson, Jackson, or engine codec without creating a
-second dependency graph.
+要求 Java 17+。Transport 使用 JDK `HttpClient`；JSON 通过接口注入，因此
+游戏可以复用已有 Gson、Jackson 或引擎 Codec，不会产生第二套依赖图。
 
 ```java
 JsonCodec codec = new GsonJsonCodec(gameGson);
@@ -19,11 +18,11 @@ RinClient rin = new RinClient(
 rin.health().thenAccept(data -> System.out.println(data.get("status")));
 ```
 
-`JsonCodec.decodeObject` must reject a non-object root. Calls return
-`CompletableFuture`; schedule any Minecraft or other engine mutation back on
-the owning game thread.
+`JsonCodec.decodeObject` 必须拒绝非 Object 根节点。调用返回
+`CompletableFuture`；Minecraft 或其他引擎状态修改必须重新安排到引擎
+拥有的游戏线程。
 
-Compile the SDK and its dependency-free smoke test with JDK 17:
+使用 JDK 17 编译 SDK 和无依赖 Smoke Test：
 
 ```bash
 make test-sdk-java

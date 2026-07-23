@@ -1,8 +1,12 @@
 # Rin
 
+[简体中文](README.md) | [English](README.en.md)
+
 Rin 是一个面向游戏角色的轻量级 Agent Runtime。它作为游戏进程旁边的 Sidecar 运行，也可以直接作为 Go 包嵌入工具链。核心只使用 Go 标准库，不绑定视觉小说、RPG 引擎或任何模型供应商。
 
 当前开发线：`v0.5.0`（Living Worlds）
+
+文档索引：[简体中文](docs/README.zh-CN.md) | [English](docs/README.md)
 
 ## 它解决什么
 
@@ -81,7 +85,7 @@ go run ./cmd/rin serve
 
 所有写请求都带调用方生成的 `request_id`，重复请求返回相同结果，不重复修改状态。同一 ID 被用于不同操作时返回冲突。
 
-完整字段和错误语义见 [协议文档](docs/protocol-v1.md)，职责边界见 [架构文档](docs/architecture.md)。
+完整字段和错误语义见 [协议文档](docs/protocol-v1.zh-CN.md)，职责边界见 [架构文档](docs/architecture.zh-CN.md)。
 
 离线检查一个会话（会验证日志并只打印脱敏时间线）：
 
@@ -98,8 +102,8 @@ go run ./cmd/rin inspect -data ./rin-data -session playthrough-1 -revision 42
 - 通用 SDK：Python 3.9+、Node/Fetch、.NET 6+、Java 17+ 与 Lua 5.1+。
 - 示例 Mod：Fabric 服务端、BepInEx 6 与本机 Sidecar 限定的 Luanti 服务端 Mod。
 
-安装、配置和离线语义见 [游戏适配文档](docs/game-adapters.md)。RPG 的区域、可见性、任务和多人 NPC 事件约定见 [RPG 事件约定](docs/rpg-events.md)。
-跨语言目录规范、线程边界、凭据策略和 Mod 安装步骤见 [SDK 与 Mod 接入文档](docs/sdk-and-mods.md)。
+安装、配置和离线语义见 [游戏适配文档](docs/game-adapters.zh-CN.md)。RPG 的区域、可见性、任务和多人 NPC 事件约定见 [RPG 事件约定](docs/rpg-events.zh-CN.md)。
+跨语言目录规范、线程边界、凭据策略和 Mod 安装步骤见 [SDK 与 Mod 接入文档](docs/sdk-and-mods.zh-CN.md)。
 
 ## 可选模型 Policy
 
@@ -113,7 +117,7 @@ export RIN_MODEL_API_KEY="..."
 go run ./cmd/rin serve
 ```
 
-远程端点必须使用 HTTPS；本机 `127.0.0.1`、`::1`、`localhost` 模型可使用 HTTP 且可不配置 Key。模型调用具有独立超时、总预算、有限重试、熔断和有界缓存。详细配置见 [模型接入文档](docs/model-policy.md)。
+远程端点必须使用 HTTPS；本机 `127.0.0.1`、`::1`、`localhost` 模型可使用 HTTP 且可不配置 Key。模型调用具有独立超时、总预算、有限重试、熔断和有界缓存。详细配置见 [模型接入文档](docs/model-policy.zh-CN.md)。
 
 ## 目录
 
@@ -138,3 +142,7 @@ examples/      Go、Godot、Unity 与 Fabric/BepInEx/Luanti Mod 示例
 `v0.5.0` 不引入供应商 SDK、向量数据库、ORM、WebSocket、动态插件执行或任意文件访问。在线模型仍是可选能力；即使供应商或 Sidecar 不可用，游戏仍可继续使用确定性策略或自己的离线剧情。
 
 后续工作记录在 [ROADMAP.md](ROADMAP.md)。
+
+## 许可证
+
+Rin 以 [MIT License](LICENSE) 发布。

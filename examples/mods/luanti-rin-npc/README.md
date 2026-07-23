@@ -1,5 +1,7 @@
 # Luanti Rin NPC example
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 This is a complete server-side Luanti mod. The included `rin.lua` is a vendored
 copy of `sdk/lua/rin.lua`; the repository test requires both copies to match.
 

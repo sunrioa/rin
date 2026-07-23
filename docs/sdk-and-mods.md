@@ -1,5 +1,7 @@
 # SDK and mod integration kits
 
+[English](sdk-and-mods.md) | [简体中文](sdk-and-mods.zh-CN.md)
+
 Rin remains a game-neutral sidecar. These SDKs remove repetitive HTTP,
 timeout, envelope, and job-polling code; they do not move world authority into
 the sidecar or model.
@@ -110,5 +112,5 @@ both Lua 5.1 and 5.4; the other jobs use each SDK's minimum supported runtime.
 
 The examples were written for Rin and do not copy implementation code from
 those projects. Links document host lifecycle, metadata, and transport APIs.
-This repository does not currently contain a license file, so choose and add
-one before distributing SDK packages or example mods.
+Rin's SDKs, examples, and documentation are distributed under the
+[MIT License](../LICENSE).

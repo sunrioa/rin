@@ -5,6 +5,7 @@
   "name": "Rin NPC Example",
   "description": "Reference Fabric integration for a Rin-backed NPC turn.",
   "authors": ["sunrioa"],
+  "license": "MIT",
   "environment": "server",
   "entrypoints": {
     "main": ["io.github.sunrioa.rin.example.RinNpcMod"]

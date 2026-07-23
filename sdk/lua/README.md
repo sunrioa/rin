@@ -1,5 +1,7 @@
 # Rin Lua SDK
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 The client supports Lua 5.1+ and does not assume a particular engine. Supply
 three adapters:
 

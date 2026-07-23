@@ -1,5 +1,7 @@
 # Rin v0.5 Living Worlds Implementation Plan
 
+[English](living-worlds-v0.5-plan.md) | [简体中文](living-worlds-v0.5-plan.zh-CN.md)
+
 Status: approved implementation baseline
 
 ## 1. Objective
