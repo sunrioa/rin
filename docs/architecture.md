@@ -430,23 +430,25 @@ must implement an externally coordinated Store instead of sharing a JSONL
 directory.
 
 The bundled file store is supported only on a local filesystem where exclusive
-file locking, same-directory atomic rename, file sync, and directory sync have
-reliable local semantics. NFS, SMB, FUSE mounts, and cloud-synchronized
-directories are unsupported even for one Rin process. Put an externally
-coordinated Store in front of remote or shared storage instead of pointing the
-JSONL store at it.
+file locking, same-directory atomic rename, and the platform durability
+primitives below have reliable local semantics. NFS, SMB, FUSE mounts, and
+cloud-synchronized directories are unsupported even for one Rin process. Put
+an externally coordinated Store in front of remote or shared storage instead
+of pointing the JSONL store at it.
 
 File creation and append sync `events.jsonl`; the corresponding index write is
-synced separately. New Session directories are renamed into place and their
-parent directory is synced. Snapshot, checkpoint, and rebuilt-index publication
-uses a synced temporary file, rename, and directory sync; retention deletion is
-followed by another directory sync. Unix temporary files use `0600`. Windows
-files inherit the data-root ACL, which operators must restrict to the Sidecar
-account. Unix uses `fsync`; Windows uses `FlushFileBuffers`. A crash after a
-durable event but before its index update leaves a stale derived index that is
-rebuilt from the log. These are local-filesystem crash-consistency measures,
-not a guarantee against storage hardware, kernel, filesystem, backup, or
-operator failures.
+synced separately. On Unix, new Session directories are renamed into place and
+their parent directory is synced. Snapshot, checkpoint, and rebuilt-index
+publication uses a synced temporary file, rename, and (on Unix) directory sync;
+retention deletion is followed by another Unix directory sync. Unix temporary
+files use `0600`. Windows files inherit the data-root ACL, which operators must
+restrict to the Sidecar account. Unix uses file/directory `fsync`. Windows uses
+`FlushFileBuffers` for files and `MoveFileExW(MOVEFILE_WRITE_THROUGH)` for
+published renames; Windows does not document `FlushFileBuffers` for directory
+handles. A crash after a durable event but before its index update leaves a
+stale derived index that is rebuilt from the log. These are local-filesystem
+crash-consistency measures, not a guarantee against storage hardware, kernel,
+filesystem, backup, or operator failures.
 
 Lazy loading changes where cost is paid; it does not make unbounded lineage
 free. Engine Open is proportional to Session-directory enumeration rather

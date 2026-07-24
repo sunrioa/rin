@@ -172,9 +172,11 @@ genesis 到 head 审计所有 Session 时，调用 `Engine.VerifyAll()`。
 `flock`，`windows` 使用无共享模式的独占文件 handle。其他所有 GOOS 上，
 `store.OpenFile` 返回 `ErrDataDirectoryLockUnsupported` 并 fail closed。
 
-随附 File Store 只能用于本机独占文件锁、同目录原子 rename、file sync 与
-directory sync 语义可靠的本地文件系统。不支持 NFS、SMB、FUSE mount 和
-云同步目录；远程或共享存储必须使用外部协调的 Store。
+随附 File Store 只能用于本机独占文件锁、同目录原子 rename 与平台持久化
+primitive 语义可靠的本地文件系统。Unix 使用 file/directory `fsync`；Windows
+使用 `FlushFileBuffers` 同步文件，并用带 `MOVEFILE_WRITE_THROUGH` 的
+`MoveFileExW` 发布 rename。不支持 NFS、SMB、FUSE mount 和云同步目录；远程或
+共享存储必须使用外部协调的 Store。
 
 事件日志采用 `retain_forever`，因为 Replay、持久 Identifier History 与审计
 依赖它。File Store 默认保留每个 Session 最近 2 个有效内部 checkpoint 和最近

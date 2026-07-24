@@ -217,8 +217,10 @@ handle opened without sharing. On every other GOOS, `store.OpenFile` returns
 `ErrDataDirectoryLockUnsupported` and fails closed.
 
 Use the bundled file store only on a local filesystem with reliable exclusive
-file locking, same-directory atomic rename, file sync, and directory sync
-semantics.
+file locking, same-directory atomic rename, and platform durability primitives.
+Unix uses file/directory `fsync`; Windows syncs files with
+`FlushFileBuffers` and publishes renames with
+`MoveFileExW(MOVEFILE_WRITE_THROUGH)`.
 NFS, SMB, FUSE mounts, and cloud-synchronized directories are unsupported;
 remote or shared storage requires an externally coordinated Store.
 

@@ -348,7 +348,7 @@ func writeEventIndex(directory string, index *eventIndex) error {
 	if err := temporary.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(temporaryName, filepath.Join(directory, "events.idx")); err != nil {
+	if err := renameDurably(temporaryName, filepath.Join(directory, "events.idx")); err != nil {
 		return err
 	}
 	return syncDirectory(directory)

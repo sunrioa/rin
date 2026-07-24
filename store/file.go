@@ -251,7 +251,7 @@ func (s *File) Create(sessionID string, event protocol.EventRecord) error {
 	if err := syncDirectory(temporary); err != nil {
 		return err
 	}
-	if err := os.Rename(temporary, directory); err != nil {
+	if err := renameDurably(temporary, directory); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return s.confirmExistingCreate(
 				sessionID,

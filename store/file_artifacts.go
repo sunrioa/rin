@@ -61,7 +61,7 @@ func (s *File) writeJSONAtomically(
 	if err := temporary.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(temporaryName, destination); err != nil {
+	if err := renameDurably(temporaryName, destination); err != nil {
 		return err
 	}
 	return s.syncDir(directory)

@@ -91,14 +91,16 @@ handle。其他所有 GOOS 上，`store.OpenFile` 返回
 `ErrDataDirectoryLockUnsupported` 并 fail closed。高可用或多实例宿主必须实现
 另一个外部协调 Store，不能共享 JSONL 目录。
 
-随附 JSONL Store 只支持本机独占文件锁、同目录原子 rename、file sync 与
-directory sync 语义可靠的本地文件系统。不支持 NFS、SMB、FUSE mount 和
-云同步目录；远程或共享存储必须使用外部协调的 Store。
+随附 JSONL Store 只支持本机独占文件锁、同目录原子 rename 与下述平台持久化
+primitive 语义可靠的本地文件系统。不支持 NFS、SMB、FUSE mount 和云同步目录；
+远程或共享存储必须使用外部协调的 Store。
 
-Unix file/directory `fsync` 与 Windows `FlushFileBuffers` 会缩小崩溃窗口，陈旧
-派生索引会从权威事件日志重建，但这些机制不是针对存储硬件、kernel、
-filesystem、备份或运维故障的绝对持久性保证。复制数据目录前应停止 Sidecar，
-或使用协调一致的存储快照。
+Unix 使用 file/directory `fsync`。Windows 使用 `FlushFileBuffers` 同步文件，
+并以 `MoveFileExW(MOVEFILE_WRITE_THROUGH)` 发布 rename，因为 Windows 没有
+规定可对 directory handle 调用 `FlushFileBuffers`。这些操作会缩小崩溃窗口，
+陈旧派生索引会从权威事件日志重建，但不是针对存储硬件、kernel、filesystem、
+备份或运维故障的绝对持久性保证。复制数据目录前应停止 Sidecar，或使用协调
+一致的存储快照。
 
 ## Reporting
 

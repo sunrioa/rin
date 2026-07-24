@@ -301,19 +301,21 @@ lease。其他所有 GOOS 上，`store.OpenFile` 返回
 `ErrDataDirectoryLockUnsupported` 并 fail closed。多实例部署必须实现外部协调
 的 Store，不能共享 JSONL 目录。
 
-随附 File Store 只支持本机独占文件锁、同目录原子 rename、file sync 与
-directory sync 都具有可靠本地语义的本地文件系统。即使只有一个 Rin 进程，也
-不支持 NFS、SMB、FUSE mount 或云同步目录。远程或共享存储必须使用外部协调的
-Store，不能让 JSONL Store 直接指向这些目录。
+随附 File Store 只支持本机独占文件锁、同目录原子 rename 与下述平台持久化
+primitive 都具有可靠本地语义的本地文件系统。即使只有一个 Rin 进程，也不支持
+NFS、SMB、FUSE mount 或云同步目录。远程或共享存储必须使用外部协调的 Store，
+不能让 JSONL Store 直接指向这些目录。
 
-文件创建与 append 会同步 `events.jsonl`，对应索引写入单独同步。新 Session
-目录 rename 到位后还会同步父目录。Snapshot、checkpoint 与重建索引均通过已
-同步的临时文件、rename 和 directory sync 发布；保留策略删除旧文件后也会再次
-directory sync。Unix 临时文件使用 `0600`，Windows 文件继承数据根目录 ACL，
-且部署方必须把 ACL 限制到 Sidecar 账户。Unix 使用 `fsync`，Windows 使用
-`FlushFileBuffers`。如果事件已持久而索引更新前崩溃，留下的陈旧派生索引会从
-日志重建。这些是本地文件系统 crash-consistency 措施，不是对存储硬件、
-kernel、filesystem、备份或运维故障的绝对保证。
+文件创建与 append 会同步 `events.jsonl`，对应索引写入单独同步。在 Unix 上，
+新 Session 目录 rename 到位后还会同步父目录；Snapshot、checkpoint 与重建索引
+均通过已同步的临时文件、rename 和 directory sync 发布，保留策略删除旧文件后
+也会再次 directory sync。Unix 临时文件使用 `0600`，Windows 文件继承数据根
+目录 ACL，且部署方必须把 ACL 限制到 Sidecar 账户。Unix 使用 file/directory
+`fsync`。Windows 使用 `FlushFileBuffers` 同步文件，并以
+`MoveFileExW(MOVEFILE_WRITE_THROUGH)` 发布 rename；Windows 没有规定可对
+directory handle 调用 `FlushFileBuffers`。如果事件已持久而索引更新前崩溃，
+留下的陈旧派生索引会从日志重建。这些是本地文件系统 crash-consistency 措施，
+不是对存储硬件、kernel、filesystem、备份或运维故障的绝对保证。
 
 Lazy load 只是转移成本，不会让无限增长的 lineage 免费。Engine Open 成本与
 Session 目录枚举相关，而不再读取每个日志正文。某 Session 第一次访问仍需

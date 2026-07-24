@@ -138,16 +138,18 @@ multi-instance hosts must implement another externally coordinated Store
 rather than share the JSONL directory.
 
 The bundled JSONL store is supported only on a local filesystem with reliable
-exclusive file locking, same-directory atomic rename, file sync, and directory
-sync semantics. NFS, SMB, FUSE mounts, and cloud-synchronized directories are
-not supported. Remote or shared storage requires an externally coordinated
-Store.
+exclusive file locking, same-directory atomic rename, and the platform
+durability primitives described below. NFS, SMB, FUSE mounts, and
+cloud-synchronized directories are not supported. Remote or shared storage
+requires an externally coordinated Store.
 
-Unix file/directory `fsync` and Windows `FlushFileBuffers` calls narrow crash
-windows, and a stale derived index is rebuilt from the authoritative event log.
-They are not an absolute durability guarantee against storage hardware, kernel,
-filesystem, backup, or operator failure. Stop the Sidecar or use a coordinated
-snapshot before copying the data directory.
+Unix uses file/directory `fsync`. Windows uses `FlushFileBuffers` for file data
+and `MoveFileExW(MOVEFILE_WRITE_THROUGH)` for published renames because Windows
+does not document `FlushFileBuffers` for directory handles. These operations
+narrow crash windows, and a stale derived index is rebuilt from the
+authoritative event log. They are not an absolute durability guarantee against
+storage hardware, kernel, filesystem, backup, or operator failure. Stop the
+Sidecar or use a coordinated snapshot before copying the data directory.
 
 ## Reporting
 
