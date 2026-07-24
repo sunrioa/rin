@@ -302,7 +302,7 @@ func (s *File) Append(sessionID string, event protocol.EventRecord) error {
 	}
 
 	path := filepath.Join(directory, "events.jsonl")
-	file, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND, 0o600)
+	file, err := os.OpenFile(path, os.O_RDWR, 0o600)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return rinruntime.ErrNotFound
@@ -366,7 +366,7 @@ func (s *File) retryUncertainAppend(
 	}
 	file, err := os.OpenFile(
 		filepath.Join(directory, "events.jsonl"),
-		os.O_RDWR|os.O_APPEND,
+		os.O_RDWR,
 		0o600,
 	)
 	if err != nil {
@@ -569,6 +569,13 @@ func encodeEventRecord(event protocol.EventRecord) ([]byte, error) {
 }
 
 func writeEventPayload(file *os.File, payload []byte) error {
+	// Do not open authoritative logs with O_APPEND. On Windows, Go implements
+	// O_APPEND with FILE_APPEND_DATA and deliberately omits FILE_WRITE_DATA;
+	// that access mode cannot truncate a failed append on the same handle.
+	// Session serialization makes this explicit end seek safe.
+	if _, err := file.Seek(0, io.SeekEnd); err != nil {
+		return err
+	}
 	if _, err := file.Write(payload); err != nil {
 		return err
 	}

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -269,6 +270,9 @@ func TestMemoryStoreAppendIsIdempotentAndChecksExpectedHead(t *testing.T) {
 }
 
 func TestSnapshotFileIsPrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows file privacy is enforced by inherited ACLs, not POSIX mode bits")
+	}
 	directory := t.TempDir()
 	fileStore, err := store.OpenFile(directory)
 	if err != nil {
