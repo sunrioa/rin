@@ -50,6 +50,8 @@ zero, `start_head_hash` is empty, `event_count` is greater than zero, and
 `terminal_revision` equals `event_count`. It uses only lowercase hexadecimal
 SHA-256 (`hash_algorithm: "sha256"`). Revisions, counts, and lineage generation
 must remain exact JSON integers no greater than `9007199254740991`.
+Lineage generation is the zero-based count of durable Restore events, so a
+Session created normally has generation zero.
 
 Checksums use the compact UTF-8 JSON produced by the declared wire member order
 in the protocol structs, with no insignificant whitespace. `EventRecord.Data`

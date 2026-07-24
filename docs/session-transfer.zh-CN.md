@@ -42,6 +42,8 @@ Complete frame 重复终止 revision、head 和 event count，并携带按 frame
 `terminal_revision` 必须等于 `event_count`。算法只允许小写十六进制 SHA-256
 （`hash_algorithm: "sha256"`）。Revision、count 和 lineage generation 必须是
 不超过 `9007199254740991` 的精确 JSON integer。
+Lineage generation 是 durable Restore event 的 zero-based count，因此普通
+Create 创建的 Session generation 为零。
 
 Checksum 输入是 protocol struct 所声明 wire member 顺序生成的 compact UTF-8
 JSON，不含无意义空白。`EventRecord.Data` 保持原 compact JSON 的 member 顺序和

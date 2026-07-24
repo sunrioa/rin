@@ -70,6 +70,11 @@ func TestTransferFramesValidateAndHashDeterministically(t *testing.T) {
 func TestTransferManifestRejectsNonGenesisAndUnsafeBounds(t *testing.T) {
 	record := validTransferRecord(t, 1, "", "b")
 	valid := validTransferManifest(record)
+	zeroRestoreGeneration := valid
+	zeroRestoreGeneration.LineageGeneration = 0
+	if err := protocol.ValidateTransferManifest(zeroRestoreGeneration); err != nil {
+		t.Fatalf("zero-Restore lineage generation was rejected: %v", err)
+	}
 	tests := []struct {
 		name   string
 		field  string
@@ -103,12 +108,6 @@ func TestTransferManifestRejectsNonGenesisAndUnsafeBounds(t *testing.T) {
 			name: "count mismatch", field: "terminal_revision",
 			mutate: func(value *protocol.TransferManifest) {
 				value.TerminalRevision = 2
-			},
-		},
-		{
-			name: "zero lineage generation", field: "lineage_generation",
-			mutate: func(value *protocol.TransferManifest) {
-				value.LineageGeneration = 0
 			},
 		},
 		{

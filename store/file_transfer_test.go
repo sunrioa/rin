@@ -203,7 +203,7 @@ func fileTransferFixture(
 		TerminalRevision:  tail.Sequence,
 		TerminalHeadHash:  tail.Hash,
 		EventCount:        uint64(len(events)),
-		LineageGeneration: 1,
+		LineageGeneration: 0,
 		HashAlgorithm:     protocol.TransferHashAlgorithm,
 	}
 	hasher := protocol.NewTransferStreamHasher()

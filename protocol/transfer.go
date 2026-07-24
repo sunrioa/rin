@@ -111,12 +111,6 @@ func ValidateTransferManifest(manifest TransferManifest) error {
 	); err != nil {
 		return err
 	}
-	if manifest.LineageGeneration == 0 {
-		return transferValidationError(
-			"lineage_generation",
-			"must be greater than zero",
-		)
-	}
 	if manifest.StartRevision != 0 || manifest.StartHeadHash != "" {
 		return transferValidationError(
 			"start_revision",
