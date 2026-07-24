@@ -11,6 +11,9 @@ import (
 const (
 	maxMemories      = 128
 	maxRecentActions = 32
+	maxGoals         = 32
+	maxBeliefs       = 256
+	maxRecallCount   = 1_000_000
 	maxProposals     = 64
 	maxReceipts      = 1024
 	maxArbitrations  = 32
@@ -82,6 +85,14 @@ func applyEvent(state protocol.SessionState, event protocol.EventRecord) (protoc
 	state.Revision = event.Sequence
 	state.HeadHash = event.Hash
 	trimReceipts(&state)
+	if err := protocol.ValidateSessionState(state); err != nil {
+		return protocol.SessionState{}, fmt.Errorf(
+			"%w: invalid state after %s: %v",
+			ErrCorruptLog,
+			event.Type,
+			err,
+		)
+	}
 	return state, nil
 }
 
@@ -164,11 +175,11 @@ func applyObserved(state *protocol.SessionState, event protocol.EventRecord) err
 			sortActorMemories(&actor)
 		}
 		if protocol.HasFeature(state.Features, protocol.FeatureMemoryArchive) {
-			if err := compactActorMemories(state.SessionID, &actor, event.Sequence); err != nil {
+			if err := compactActorMemories(state.SessionID, &actor, event.Sequence, state); err != nil {
 				return err
 			}
 		} else if len(actor.Memories) > maxMemories {
-			actor.Memories = append([]protocol.Memory(nil), actor.Memories[len(actor.Memories)-maxMemories:]...)
+			trimActorMemories(state, &actor)
 		}
 		applyFacts(
 			&actor,
@@ -185,8 +196,7 @@ func applyObserved(state *protocol.SessionState, event protocol.EventRecord) err
 		state.Tick = request.Tick
 	}
 	state.Receipts[request.RequestID] = protocol.RequestReceipt{Kind: EventObserved, EntityID: request.EventID, Revision: event.Sequence}
-	advanceWorldRevision(state)
-	return nil
+	return advanceWorldRevision(state)
 }
 
 func applyProposed(state *protocol.SessionState, event protocol.EventRecord) error {
@@ -226,8 +236,7 @@ func applyCommitted(state *protocol.SessionState, event protocol.EventRecord) er
 		state.Tick = request.Tick
 	}
 	state.Receipts[request.RequestID] = protocol.RequestReceipt{Kind: EventCommitted, EntityID: request.ProposalID, Revision: event.Sequence}
-	advanceWorldRevision(state)
-	return nil
+	return advanceWorldRevision(state)
 }
 
 func applyBatchCommitted(state *protocol.SessionState, event protocol.EventRecord) error {
@@ -246,8 +255,7 @@ func applyBatchCommitted(state *protocol.SessionState, event protocol.EventRecor
 	state.Receipts[payload.Request.RequestID] = protocol.RequestReceipt{
 		Kind: EventBatchCommitted, EntityID: payload.Request.SessionID, Revision: event.Sequence,
 	}
-	advanceWorldRevision(state)
-	return nil
+	return advanceWorldRevision(state)
 }
 
 func applyCommitItem(state *protocol.SessionState, item protocol.CommitItem, tick int64, revision uint64) error {
@@ -271,6 +279,9 @@ func applyCommitItem(state *protocol.SessionState, item protocol.CommitItem, tic
 	}
 	actor := state.Actors[proposal.ActorID]
 	if proposal.ProposedGoal != nil && !goalExists(actor, proposal.ProposedGoal.ID) {
+		if len(actor.Goals) >= maxGoals {
+			return fmt.Errorf("%w: actor goal capacity exceeded", ErrCorruptLog)
+		}
 		goal := *proposal.ProposedGoal
 		if outcomeReporting {
 			goal.UpdatedTick = tick
@@ -321,11 +332,11 @@ func applyCommitItem(state *protocol.SessionState, item protocol.CommitItem, tic
 			sortActorMemories(&actor)
 		}
 		if protocol.HasFeature(state.Features, protocol.FeatureMemoryArchive) {
-			if err := compactActorMemories(state.SessionID, &actor, revision); err != nil {
+			if err := compactActorMemories(state.SessionID, &actor, revision, state); err != nil {
 				return err
 			}
 		} else if len(actor.Memories) > maxMemories {
-			actor.Memories = append([]protocol.Memory(nil), actor.Memories[len(actor.Memories)-maxMemories:]...)
+			trimActorMemories(state, &actor)
 		}
 	}
 	applyFacts(
@@ -378,8 +389,7 @@ func applyActivityUpdated(state *protocol.SessionState, event protocol.EventReco
 	state.Receipts[payload.Request.RequestID] = protocol.RequestReceipt{
 		Kind: EventActivityUpdated, EntityID: payload.Request.SessionID, Revision: event.Sequence,
 	}
-	advanceWorldRevision(state)
-	return nil
+	return advanceWorldRevision(state)
 }
 
 func applyArbitrated(state *protocol.SessionState, event protocol.EventRecord) error {
@@ -429,67 +439,104 @@ func applyRestored(current protocol.SessionState, event protocol.EventRecord) (p
 		if restored.Proposals == nil {
 			restored.Proposals = make(map[string]protocol.ActionProposal)
 		}
-		rebaseRestoredRevisions(&restored, event.Sequence)
 	}
-	if protocol.HasFeature(restored.Features, protocol.FeatureArbitration) {
-		advanceWorldRevision(&restored)
-	}
+	advanceRestoredWorldRevision(&restored)
+	rebaseRestoredRevisions(&restored, event.Sequence, event.Sequence-1, event.PrevHash)
 	if restored.Receipts == nil {
 		restored.Receipts = make(map[string]protocol.RequestReceipt)
 	}
-	if outcomeReporting {
-		// Receipt revisions belong to the event chain that produced the
-		// Snapshot. Rebase the restored generation so capacity trimming keeps
-		// the new restore receipt and later Outbox acknowledgements first.
-		for requestID, receipt := range restored.Receipts {
-			receipt.Revision = 0
-			restored.Receipts[requestID] = receipt
-		}
+	// Receipt revisions belong to the event chain that produced the Snapshot.
+	// Mark imported entries as historical so capacity trimming keeps the new
+	// restore receipt and later acknowledgements first.
+	for requestID, receipt := range restored.Receipts {
+		receipt.Revision = 0
+		restored.Receipts[requestID] = receipt
 	}
 	restored.Receipts[event.RequestID] = protocol.RequestReceipt{Kind: EventSessionRestored, EntityID: restored.SessionID, Revision: event.Sequence}
 	return restored, nil
 }
 
-func rebaseRestoredRevisions(state *protocol.SessionState, revision uint64) {
+func rebaseRestoredRevisions(
+	state *protocol.SessionState,
+	createdRevision uint64,
+	basedOnRevision uint64,
+	basedOnHeadHash string,
+) {
 	for actorID, actor := range state.Actors {
 		for index := range actor.Memories {
-			actor.Memories[index].CreatedRevision = revision
+			actor.Memories[index].CreatedRevision = createdRevision
 		}
 		for index := range actor.MemorySummaries {
-			actor.MemorySummaries[index].CreatedRevision = revision
+			actor.MemorySummaries[index].CreatedRevision = createdRevision
 		}
 		for key, set := range actor.BeliefSets {
 			for index := range set.Claims {
-				set.Claims[index].ObservedRevision = revision
+				set.Claims[index].ObservedRevision = createdRevision
 			}
 			actor.BeliefSets[key] = set
 		}
 		for index := range actor.RecentActions {
-			actor.RecentActions[index].CreatedRevision = revision
+			rebaseProposal(
+				&actor.RecentActions[index],
+				state,
+				createdRevision,
+				basedOnRevision,
+				basedOnHeadHash,
+			)
 		}
 		if actor.Activity != nil {
 			activity := *actor.Activity
-			activity.UpdatedRevision = revision
+			activity.UpdatedRevision = createdRevision
 			actor.Activity = &activity
 		}
 		state.Actors[actorID] = actor
 	}
 	for proposalID, proposal := range state.Proposals {
-		proposal.CreatedRevision = revision
+		rebaseProposal(&proposal, state, createdRevision, basedOnRevision, basedOnHeadHash)
 		state.Proposals[proposalID] = proposal
 	}
 	for index := range state.Arbitrations {
-		state.Arbitrations[index].CreatedRevision = revision
+		state.Arbitrations[index].CreatedRevision = createdRevision
 	}
 }
 
-func advanceWorldRevision(state *protocol.SessionState) {
+func rebaseProposal(
+	proposal *protocol.ActionProposal,
+	state *protocol.SessionState,
+	createdRevision uint64,
+	basedOnRevision uint64,
+	basedOnHeadHash string,
+) {
+	proposal.BasedOnRevision = basedOnRevision
+	proposal.BasedOnHeadHash = basedOnHeadHash
+	proposal.CreatedRevision = createdRevision
+	if protocol.HasFeature(state.Features, protocol.FeatureArbitration) {
+		proposal.BasedOnWorldRevision = state.WorldRevision
+	} else {
+		proposal.BasedOnWorldRevision = 0
+	}
+}
+
+func advanceWorldRevision(state *protocol.SessionState) error {
+	if !protocol.HasFeature(state.Features, protocol.FeatureArbitration) {
+		return nil
+	}
+	if state.WorldRevision == ^uint64(0) {
+		return fmt.Errorf("%w: world revision overflow", ErrCorruptLog)
+	}
+	state.WorldRevision++
+	return nil
+}
+
+func advanceRestoredWorldRevision(state *protocol.SessionState) {
 	if !protocol.HasFeature(state.Features, protocol.FeatureArbitration) {
 		return
 	}
-	state.WorldRevision++
-	if state.WorldRevision == 0 {
-		state.WorldRevision = 1
+	// A successfully exported Snapshot must remain restorable even at the
+	// uint64 ceiling. The new event-chain generation still invalidates stale
+	// proposal bases; only the imported world counter saturates here.
+	if state.WorldRevision < ^uint64(0) {
+		state.WorldRevision++
 	}
 }
 
@@ -550,6 +597,34 @@ func applyFacts(
 		set.Conflicted = beliefObjectCount(set.Claims) > 1
 		actor.BeliefSets[key] = set
 		actor.Beliefs[key] = selected.Fact
+	}
+	trimBeliefs(actor, preserveConflicts)
+}
+
+func trimBeliefs(actor *protocol.ActorState, preserveConflicts bool) {
+	if len(actor.Beliefs) <= maxBeliefs {
+		return
+	}
+	keys := make([]string, 0, len(actor.Beliefs))
+	for key := range actor.Beliefs {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		left := actor.Beliefs[keys[i]]
+		right := actor.Beliefs[keys[j]]
+		if left.ObservedTick != right.ObservedTick {
+			return left.ObservedTick < right.ObservedTick
+		}
+		if left.SourceEventID != right.SourceEventID {
+			return left.SourceEventID < right.SourceEventID
+		}
+		return keys[i] < keys[j]
+	})
+	for _, key := range keys[:len(keys)-maxBeliefs] {
+		delete(actor.Beliefs, key)
+		if preserveConflicts {
+			delete(actor.BeliefSets, key)
+		}
 	}
 }
 
@@ -716,7 +791,9 @@ func markRecalled(actor *protocol.ActorState, ids []string, tick int64, outcomeR
 	}
 	for index := range actor.Memories {
 		if _, exists := selected[actor.Memories[index].ID]; exists {
-			actor.Memories[index].RecallCount++
+			if actor.Memories[index].RecallCount < maxRecallCount {
+				actor.Memories[index].RecallCount++
+			}
 			if !outcomeReporting || tick > actor.Memories[index].LastRecalledTick {
 				actor.Memories[index].LastRecalledTick = tick
 			}
@@ -724,12 +801,78 @@ func markRecalled(actor *protocol.ActorState, ids []string, tick int64, outcomeR
 	}
 	for index := range actor.MemorySummaries {
 		if _, exists := selected[actor.MemorySummaries[index].ID]; exists {
-			actor.MemorySummaries[index].RecallCount++
+			if actor.MemorySummaries[index].RecallCount < maxRecallCount {
+				actor.MemorySummaries[index].RecallCount++
+			}
 			if !outcomeReporting || tick > actor.MemorySummaries[index].LastRecalledTick {
 				actor.MemorySummaries[index].LastRecalledTick = tick
 			}
 		}
 	}
+}
+
+func trimActorMemories(state *protocol.SessionState, actor *protocol.ActorState) {
+	if len(actor.Memories) <= maxMemories {
+		return
+	}
+	removedCount := len(actor.Memories) - maxMemories
+	replacements := make(map[string]string, removedCount)
+	for _, memory := range actor.Memories[:removedCount] {
+		replacements[memory.ID] = ""
+	}
+	actor.Memories = append([]protocol.Memory(nil), actor.Memories[removedCount:]...)
+	rewriteRecalledMemoryReferences(state, actor, replacements)
+}
+
+func rewriteRecalledMemoryReferences(
+	state *protocol.SessionState,
+	actor *protocol.ActorState,
+	replacements map[string]string,
+) {
+	for index := range actor.RecentActions {
+		actor.RecentActions[index].RecalledMemoryIDs = rewriteMemoryIDs(
+			actor.RecentActions[index].RecalledMemoryIDs,
+			replacements,
+		)
+	}
+	if state == nil {
+		return
+	}
+	for proposalID, proposal := range state.Proposals {
+		if proposal.ActorID != actor.ID {
+			continue
+		}
+		proposal.RecalledMemoryIDs = rewriteMemoryIDs(proposal.RecalledMemoryIDs, replacements)
+		state.Proposals[proposalID] = proposal
+	}
+}
+
+func rewriteMemoryIDs(ids []string, replacements map[string]string) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	rewritten := make([]string, 0, min(len(ids), 8))
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if replacement, exists := replacements[id]; exists {
+			id = replacement
+		}
+		if id == "" {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		rewritten = append(rewritten, id)
+		if len(rewritten) == 8 {
+			break
+		}
+	}
+	if len(rewritten) == 0 {
+		return nil
+	}
+	return rewritten
 }
 
 func sortActorMemories(actor *protocol.ActorState) {

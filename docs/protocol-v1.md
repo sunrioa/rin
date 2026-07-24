@@ -424,6 +424,45 @@ the entire batch without partial mutation.
 Results are stably sorted by `next_think_tick` and actor ID for turn-based,
 regional, and time-sliced games.
 
+## State closure and bounded retention
+
+Every successful mutation produces a complete State that passes the same
+structural validation used by Snapshot and Restore. Reducers validate an
+isolated candidate before Store append, so an invalid transition is rejected
+without a partial in-memory or durable update. Dynamic references such as Fact
+visibility must name actors in the Session. With `belief-conflicts-v1`,
+`beliefs` and `belief_sets` have exactly the same keys and selected Fact.
+
+Retained collections use these protocol bounds:
+
+| Collection | Bound | Full-capacity behavior |
+|---|---:|---|
+| Actor Goals | 32, including distinct pending ProposedGoal reservations | Reject a new reservation; never silently drop a Goal |
+| Actor detailed Memories | 128 | Archive into a Summary when `memory-archive-v1` is enabled; otherwise evict details and remove their recalled references |
+| Actor Memory Summaries | 32 | Deterministically merge older summaries; level saturates at 16 |
+| Actor Beliefs / BeliefSets | 256 keys | Deterministically evict the oldest projected key and its paired set |
+| Actor RecentActions | 32 | Retain the latest game-occurrence outcomes |
+| Session Proposals | 64 | Evict only resolved proposals; fail closed when all retained proposals are pending |
+| Session Arbitrations | 32 | Retain the latest records |
+| Session Receipts | 1024 | Retain the newest revision generation |
+
+Recall counts saturate at 1,000,000. Memory compaction rewrites a Proposal or
+RecentAction reference to the replacement Summary ID; non-archive eviction
+removes the unavailable ID. Revisions, ticks, selected belief sources, Goal
+status sources, and visibility actors retained by Memory, Summary, Belief,
+Activity, Goal, and outcome metadata must remain inside the containing State.
+Retained Proposal and Arbitration tick fields are not upper-bounded by
+`state.tick` and may describe work ahead of it; live Propose and Arbitrate
+requests still reject tick regression. `nil` and an empty Fact visibility list
+are the same JSON contract value.
+
+An `event_id` is rejected while it is discoverable from any retained Proposal,
+RecentAction, Goal status, Memory, Summary, Belief claim, or observation
+Receipt. The current v1 hot path does not scan the unbounded event log after
+all bounded projections of that ID have been evicted; applications must still
+use globally unique IDs. This retained-State implementation does not yet
+provide a permanent Event ID index beyond those projections.
+
 ## Snapshot and restore
 
 Snapshot and Session State requests use the same shape:
@@ -444,7 +483,21 @@ Restore:
 ```
 
 Restore rejects snapshots with an invalid hash, different session ID, or
-different binding. With `outcome-reporting-v1`, it retains pending proposals
+different binding. Rin validates a cloned State before computing or saving a
+Snapshot, so every successfully returned Snapshot immediately passes
+`ValidateSnapshot` and can be imported into a fresh or non-exhausted matching
+Session.
+
+Restore writes a new local event-chain generation. Retained nested revision
+metadata is rebased to the Restore event; a retained Proposal references the
+preceding local revision and head hash. On a fresh import that base is revision
+zero with an empty head hash. Imported historical Receipt revisions become
+zero before the new Restore Receipt is inserted, so a full 1,024-entry map
+cannot evict the operation that just succeeded. World revision advances
+without wrapping; importing an already-maximal world revision keeps it
+saturated, while later world mutations fail closed.
+
+With `outcome-reporting-v1`, Restore retains pending proposals
 for two durable recovery states: an unresolved Proposal Attempt received before
 the game handled it, or an already-handled operation whose saved Outcome Outbox
 still needs to report. A restored Proposal never authorizes execution. The game

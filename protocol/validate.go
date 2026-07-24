@@ -151,11 +151,16 @@ func validateActor(field string, actor ActorSeed) error {
 	if len(actor.Boundaries) > 24 {
 		return &ValidationError{Field: field + ".boundaries", Message: "must contain at most 24 values"}
 	}
+	boundaryIDs := make(map[string]struct{}, len(actor.Boundaries))
 	for index, boundary := range actor.Boundaries {
 		base := fmt.Sprintf("%s.boundaries[%d]", field, index)
 		if err := validateID(base+".id", boundary.ID); err != nil {
 			return err
 		}
+		if _, exists := boundaryIDs[boundary.ID]; exists {
+			return &ValidationError{Field: field + ".boundaries", Message: "boundary ids must be unique"}
+		}
+		boundaryIDs[boundary.ID] = struct{}{}
 		if err := validateText(base+".description", boundary.Description, 300, true); err != nil {
 			return err
 		}
@@ -169,10 +174,15 @@ func validateActor(field string, actor ActorSeed) error {
 	if len(actor.Goals) > 32 {
 		return &ValidationError{Field: field + ".goals", Message: "must contain at most 32 values"}
 	}
+	goalIDs := make(map[string]struct{}, len(actor.Goals))
 	for index, goal := range actor.Goals {
 		if err := validateGoal(fmt.Sprintf("%s.goals[%d]", field, index), goal); err != nil {
 			return err
 		}
+		if _, exists := goalIDs[goal.ID]; exists {
+			return &ValidationError{Field: field + ".goals", Message: "goal ids must be unique"}
+		}
+		goalIDs[goal.ID] = struct{}{}
 	}
 	if len(actor.Metadata) > 32 {
 		return &ValidationError{Field: field + ".metadata", Message: "must contain at most 32 values"}
@@ -207,6 +217,7 @@ func ValidateCreateSession(request CreateSessionRequest) error {
 	if len(request.Actors) == 0 || len(request.Actors) > 128 {
 		return &ValidationError{Field: "actors", Message: "must contain 1-128 actors"}
 	}
+	outcomeReporting := HasFeature(request.Features, FeatureOutcomeReporting)
 	seen := make(map[string]struct{}, len(request.Actors))
 	for index, actor := range request.Actors {
 		if err := validateActor(fmt.Sprintf("actors[%d]", index), actor); err != nil {
@@ -221,6 +232,12 @@ func ValidateCreateSession(request CreateSessionRequest) error {
 				return &ValidationError{
 					Field:   fmt.Sprintf("actors[%d].goals[%d]", index, goalIndex),
 					Message: "server-owned occurrence metadata must be zero when creating a session",
+				}
+			}
+			if outcomeReporting && goal.Status == "active" && goal.Progress >= goal.TargetProgress {
+				return &ValidationError{
+					Field:   fmt.Sprintf("actors[%d].goals[%d].status", index, goalIndex),
+					Message: "active status must match initial progress when outcome-reporting-v1 is enabled",
 				}
 			}
 		}

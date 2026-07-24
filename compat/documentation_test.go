@@ -169,6 +169,77 @@ func TestPublicDocsUseOutcomeReportingSemantics(t *testing.T) {
 	}
 }
 
+func TestStateClosureDocumentationContract(t *testing.T) {
+	required := map[string][]string{
+		"../docs/protocol-v1.md": {
+			"Actor Goals | 32",
+			"Actor detailed Memories | 128",
+			"Actor Beliefs / BeliefSets | 256",
+			"Recall counts saturate at 1,000,000",
+			"Retained Proposal and Arbitration tick fields are not upper-bounded",
+			"Imported historical Receipt revisions become",
+			"provide a permanent Event ID index",
+		},
+		"../docs/protocol-v1.zh-CN.md": {
+			"Actor Goals | 32",
+			"Actor 详细 Memories | 128",
+			"Actor Beliefs / BeliefSets | 256",
+			"RecallCount 在 1,000,000 饱和",
+			"State 中保留的 Proposal 与 Arbitration tick 不受",
+			"导入的历史 Receipt revision 会在",
+			"尚未提供超出这些投影的永久 Event ID",
+		},
+		"../docs/architecture.md": {
+			"reducer or candidate-validation failure",
+			"Policy calls receive isolated copies",
+			"Receipt revisions are set to zero",
+		},
+		"../docs/architecture.zh-CN.md": {
+			"reducer 或候选校验失败",
+			"Policy 调用收到 State、Actor 和请求的隔离副本",
+			"历史 Receipt revision 设为 0",
+		},
+	}
+	for path, fragments := range required {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, fragment := range fragments {
+			if !strings.Contains(string(payload), fragment) {
+				t.Errorf("%s is missing state-closure rule %q", path, fragment)
+			}
+		}
+	}
+
+	prohibited := map[string][]string{
+		"../docs/architecture.md": {
+			"A failed transition therefore leaves both the event log",
+			"Receipt revision metadata is rebased",
+		},
+		"../docs/architecture.zh-CN.md": {
+			"失败的转换既不会改变事件日志",
+		},
+		"../docs/protocol-v1.md": {
+			"persistent idempotency index described in the migration roadmap",
+		},
+		"../docs/protocol-v1.zh-CN.md": {
+			"迁移路线中的持久幂等索引",
+		},
+	}
+	for path, fragments := range prohibited {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, fragment := range fragments {
+			if strings.Contains(string(payload), fragment) {
+				t.Errorf("%s retains obsolete state-closure wording %q", path, fragment)
+			}
+		}
+	}
+}
+
 func TestPublicDocumentationLanguage(t *testing.T) {
 	required := map[string]string{
 		"../README.en.md": "> Game-native agent runtime.",

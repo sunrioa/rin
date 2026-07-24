@@ -383,12 +383,8 @@ func TestSnapshotTamperAndFreshRestore(t *testing.T) {
 	actor := invalidState.Actors["npc.mira"]
 	actor.Memories[0].Summary = ""
 	invalidState.Actors["npc.mira"] = actor
-	invalidSnapshot, err := rinruntime.SnapshotOf(invalidState)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := rinruntime.ValidateSnapshot(invalidSnapshot); err == nil {
-		t.Fatal("internally hashed but structurally invalid snapshot should be rejected")
+	if _, err := rinruntime.SnapshotOf(invalidState); err == nil {
+		t.Fatal("SnapshotOf should reject structurally invalid state before hashing")
 	}
 	snapshot, err = engine.Snapshot(sessionRequest("session.snapshot"))
 	if err != nil {
@@ -470,7 +466,7 @@ func TestFreshRestoreRetainsPendingProposalForSavedOutcomeOutbox(t *testing.T) {
 		snapshot.State.Receipts[requestID] = protocol.RequestReceipt{
 			Kind:     rinruntime.EventObserved,
 			EntityID: fmt.Sprintf("legacy.event.%04d", index),
-			Revision: snapshot.State.Revision + uint64(index),
+			Revision: snapshot.State.Revision,
 		}
 	}
 	snapshot, err = rinruntime.SnapshotOf(snapshot.State)

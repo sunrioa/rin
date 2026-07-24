@@ -84,7 +84,7 @@ func (e *Engine) CreateSession(request protocol.CreateSessionRequest) (protocol.
 	payload := createdPayload{Request: request}
 	event, err := newEvent(protocol.SessionState{}, EventSessionCreated, request.RequestID, payload, e.now())
 	if err != nil {
-		return protocol.MutationResult{}, NewError("event_encode_failed", "could not encode session event", err)
+		return protocol.MutationResult{}, eventEncodeError(err, "could not encode session event")
 	}
 	state, err := e.createAndConfirm(request.SessionID, event)
 	if err != nil {
@@ -110,6 +110,9 @@ func (e *Engine) Observe(request protocol.ObserveRequest) (protocol.MutationResu
 		}
 		return protocol.MutationResult{}, requestConflict(request.RequestID)
 	}
+	if err := worldRevisionAdvanceError(session.state); err != nil {
+		return protocol.MutationResult{}, err
+	}
 	if !protocol.HasFeature(session.state.Features, protocol.FeatureOutcomeReporting) &&
 		request.Tick < session.state.Tick {
 		return protocol.MutationResult{}, NewFieldError("tick_regressed", "observation tick is older than session state", "tick", ErrConflict)
@@ -119,12 +122,15 @@ func (e *Engine) Observe(request protocol.ObserveRequest) (protocol.MutationResu
 			return protocol.MutationResult{}, NewFieldError("unknown_actor", "observer is not registered", "observer_ids", ErrNotFound)
 		}
 	}
+	if err := validateFactVisibility(session.state, request.Facts, "facts"); err != nil {
+		return protocol.MutationResult{}, err
+	}
 	if eventIDExists(session.state, request.EventID) {
 		return protocol.MutationResult{}, NewFieldError("event_exists", "event id was already observed", "event_id", ErrConflict)
 	}
 	event, err := newEvent(session.state, EventObserved, request.RequestID, observedPayload{Request: request}, e.now())
 	if err != nil {
-		return protocol.MutationResult{}, NewError("event_encode_failed", "could not encode observation", err)
+		return protocol.MutationResult{}, eventEncodeError(err, "could not encode observation")
 	}
 	if err := e.appendAndApply(session, event); err != nil {
 		return protocol.MutationResult{}, err
@@ -139,7 +145,15 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 	if err := protocol.ValidatePropose(request); err != nil {
 		return protocol.ActionProposal{}, false, validationError(err)
 	}
-	requestHash, err := hashJSON(request)
+	requestSnapshot, err := clone(request)
+	if err != nil {
+		return protocol.ActionProposal{}, false, NewError(
+			"request_copy_failed",
+			"could not prepare an isolated policy request",
+			err,
+		)
+	}
+	requestHash, err := hashJSON(requestSnapshot)
 	if err != nil {
 		return protocol.ActionProposal{}, false, NewError(
 			"request_encode_failed",
@@ -207,10 +221,19 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 		session.mu.Unlock()
 		return protocol.ActionProposal{}, false, NewFieldError("feature_not_enabled", "candidate goals require goal-candidates-v1", "candidate_goals", ErrConflict)
 	}
-	for index, goal := range request.CandidateGoals {
+	for index, goal := range requestSnapshot.CandidateGoals {
 		if goalExists(actor, goal.ID) {
 			session.mu.Unlock()
 			return protocol.ActionProposal{}, false, NewFieldError("goal_exists", "candidate goal is already part of actor state", fmt.Sprintf("candidate_goals[%d].id", index), ErrConflict)
+		}
+		if pendingProposedGoalReserved(session.state, actor.ID, goal.ID, "") {
+			session.mu.Unlock()
+			return protocol.ActionProposal{}, false, NewFieldError(
+				"goal_exists",
+				"candidate goal is already reserved by a pending proposal",
+				fmt.Sprintf("candidate_goals[%d].id", index),
+				ErrConflict,
+			)
 		}
 	}
 	if !canRetainAnotherProposal(session.state) {
@@ -233,10 +256,38 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 		session.mu.Unlock()
 		return protocol.ActionProposal{}, false, NewError("actor_not_due", "actor is not scheduled to think yet", ErrNotDue)
 	}
+	if session.state.Revision == ^uint64(0) {
+		session.mu.Unlock()
+		return protocol.ActionProposal{}, false, NewFieldError(
+			"revision_overflow",
+			"session revision is exhausted",
+			"revision",
+			ErrConflict,
+		)
+	}
+	validationActor, err := clone(actor)
+	if err != nil {
+		session.mu.Unlock()
+		return protocol.ActionProposal{}, false, NewError(
+			"state_copy_failed",
+			"could not prepare an isolated actor validation context",
+			err,
+		)
+	}
 	stateCopy, err := clone(session.state)
 	if err != nil {
 		session.mu.Unlock()
 		return protocol.ActionProposal{}, false, NewError("state_copy_failed", "could not prepare policy context", err)
+	}
+	policyActor, exists := stateCopy.Actors[request.ActorID]
+	if !exists {
+		session.mu.Unlock()
+		return protocol.ActionProposal{}, false, NewFieldError("unknown_actor", "actor is not registered", "actor_id", ErrNotFound)
+	}
+	policyRequest, err := clone(requestSnapshot)
+	if err != nil {
+		session.mu.Unlock()
+		return protocol.ActionProposal{}, false, NewError("request_copy_failed", "could not prepare policy context", err)
 	}
 	baseRevision := session.state.Revision
 	baseHash := session.state.HeadHash
@@ -244,7 +295,7 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 	arbitrationEnabled := protocol.HasFeature(session.state.Features, protocol.FeatureArbitration)
 	session.mu.Unlock()
 
-	draft, err := e.policy.Propose(ctx, PolicyContext{State: stateCopy, Actor: actor, Request: request})
+	draft, err := e.policy.Propose(ctx, PolicyContext{State: stateCopy, Actor: policyActor, Request: policyRequest})
 	if err != nil {
 		if errors.Is(err, ErrNoSafeAction) {
 			return protocol.ActionProposal{}, false, NewError("no_safe_action", "no candidate action satisfies the actor boundary", err)
@@ -254,7 +305,7 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 	if err := ctx.Err(); err != nil {
 		return protocol.ActionProposal{}, false, NewError("proposal_canceled", "proposal request was canceled", err)
 	}
-	selected, proposedGoal, err := validateDraft(request, actor, draft)
+	selected, proposedGoal, err := validateDraft(requestSnapshot, validationActor, draft)
 	if err != nil {
 		return protocol.ActionProposal{}, false, err
 	}
@@ -311,6 +362,17 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 			ErrConflict,
 		)
 	}
+	if proposedGoal != nil {
+		if err := validateProposedGoalReservation(
+			session.state,
+			request.ActorID,
+			proposedGoal.ID,
+			"",
+			"proposed_goal.id",
+		); err != nil {
+			return protocol.ActionProposal{}, false, err
+		}
+	}
 	proposalHash, err := hashJSON(struct {
 		SessionID string `json:"session_id"`
 		RequestID string `json:"request_id"`
@@ -348,7 +410,7 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 		e.now(),
 	)
 	if err != nil {
-		return protocol.ActionProposal{}, false, NewError("event_encode_failed", "could not encode proposal", err)
+		return protocol.ActionProposal{}, false, eventEncodeError(err, "could not encode proposal")
 	}
 	if err := e.appendAndApply(session, event); err != nil {
 		if ErrorCode(err) == "proposal_outcome_unknown" {
@@ -380,6 +442,9 @@ func (e *Engine) Commit(request protocol.CommitRequest) (protocol.MutationResult
 			return mutationResult(session.state, true), nil
 		}
 		return protocol.MutationResult{}, requestConflict(request.RequestID)
+	}
+	if err := worldRevisionAdvanceError(session.state); err != nil {
+		return protocol.MutationResult{}, err
 	}
 	proposal, exists := session.state.Proposals[request.ProposalID]
 	if !exists {
@@ -428,12 +493,26 @@ func (e *Engine) Commit(request protocol.CommitRequest) (protocol.MutationResult
 			)
 		}
 	}
+	if err := validateFactVisibility(session.state, request.Facts, "facts"); err != nil {
+		return protocol.MutationResult{}, err
+	}
 	if eventIDExists(session.state, request.EventID) {
 		return protocol.MutationResult{}, NewFieldError("event_exists", "event id was already observed or reported", "event_id", ErrConflict)
 	}
 	actor := session.state.Actors[proposal.ActorID]
 	if request.Accepted && request.Tick > maxInt64-actor.ThinkEveryTicks {
 		return protocol.MutationResult{}, NewFieldError("tick_overflow", "commit tick cannot be scheduled safely", "tick", ErrConflict)
+	}
+	if request.Accepted && proposal.ProposedGoal != nil {
+		if err := validateProposedGoalReservation(
+			session.state,
+			proposal.ActorID,
+			proposal.ProposedGoal.ID,
+			proposal.ID,
+			"proposal_id",
+		); err != nil {
+			return protocol.MutationResult{}, err
+		}
 	}
 	for index, update := range request.GoalUpdates {
 		if !goalExists(actor, update.GoalID) && (proposal.ProposedGoal == nil || proposal.ProposedGoal.ID != update.GoalID) {
@@ -442,7 +521,7 @@ func (e *Engine) Commit(request protocol.CommitRequest) (protocol.MutationResult
 	}
 	event, err := newEvent(session.state, EventCommitted, request.RequestID, committedPayload{Request: request}, e.now())
 	if err != nil {
-		return protocol.MutationResult{}, NewError("event_encode_failed", "could not encode action commit", err)
+		return protocol.MutationResult{}, eventEncodeError(err, "could not encode action commit")
 	}
 	if err := e.appendAndApply(session, event); err != nil {
 		return protocol.MutationResult{}, err
@@ -468,6 +547,9 @@ func (e *Engine) CommitBatch(request protocol.BatchCommitRequest) (protocol.Muta
 			return mutationResult(session.state, true), nil
 		}
 		return protocol.MutationResult{}, requestConflict(request.RequestID)
+	}
+	if err := worldRevisionAdvanceError(session.state); err != nil {
+		return protocol.MutationResult{}, err
 	}
 	outcomeReporting := protocol.HasFeature(session.state.Features, protocol.FeatureOutcomeReporting)
 	if !outcomeReporting && request.Tick < session.state.Tick {
@@ -518,6 +600,13 @@ func (e *Engine) CommitBatch(request protocol.BatchCommitRequest) (protocol.Muta
 				)
 			}
 		}
+		if err := validateFactVisibility(
+			session.state,
+			item.Facts,
+			fmt.Sprintf("items[%d].facts", index),
+		); err != nil {
+			return protocol.MutationResult{}, err
+		}
 		if _, duplicate := actors[proposal.ActorID]; duplicate {
 			return protocol.MutationResult{}, NewFieldError("duplicate_actor", "batch may contain at most one proposal per actor", "items", ErrConflict)
 		}
@@ -533,6 +622,17 @@ func (e *Engine) CommitBatch(request protocol.BatchCommitRequest) (protocol.Muta
 		if item.Accepted && request.Tick > maxInt64-actor.ThinkEveryTicks {
 			return protocol.MutationResult{}, NewFieldError("tick_overflow", "batch commit tick cannot be scheduled safely", "tick", ErrConflict)
 		}
+		if item.Accepted && proposal.ProposedGoal != nil {
+			if err := validateProposedGoalReservation(
+				session.state,
+				proposal.ActorID,
+				proposal.ProposedGoal.ID,
+				proposal.ID,
+				fmt.Sprintf("items[%d].proposal_id", index),
+			); err != nil {
+				return protocol.MutationResult{}, err
+			}
+		}
 		for goalIndex, update := range item.GoalUpdates {
 			if !goalExists(actor, update.GoalID) && (proposal.ProposedGoal == nil || proposal.ProposedGoal.ID != update.GoalID) {
 				return protocol.MutationResult{}, NewFieldError("unknown_goal", "goal update references an unknown goal", fmt.Sprintf("items[%d].goal_updates[%d].goal_id", index, goalIndex), ErrNotFound)
@@ -541,7 +641,7 @@ func (e *Engine) CommitBatch(request protocol.BatchCommitRequest) (protocol.Muta
 	}
 	event, err := newEvent(session.state, EventBatchCommitted, request.RequestID, batchCommittedPayload{Request: request}, e.now())
 	if err != nil {
-		return protocol.MutationResult{}, NewError("event_encode_failed", "could not encode batch commit", err)
+		return protocol.MutationResult{}, eventEncodeError(err, "could not encode batch commit")
 	}
 	if err := e.appendAndApply(session, event); err != nil {
 		return protocol.MutationResult{}, err
@@ -568,6 +668,9 @@ func (e *Engine) SetActorActivity(request protocol.SetActorActivityRequest) (pro
 		}
 		return protocol.MutationResult{}, requestConflict(request.RequestID)
 	}
+	if err := worldRevisionAdvanceError(session.state); err != nil {
+		return protocol.MutationResult{}, err
+	}
 	if request.Tick < session.state.Tick {
 		return protocol.MutationResult{}, NewFieldError("tick_regressed", "activity tick is older than session state", "tick", ErrConflict)
 	}
@@ -578,7 +681,7 @@ func (e *Engine) SetActorActivity(request protocol.SetActorActivityRequest) (pro
 	}
 	event, err := newEvent(session.state, EventActivityUpdated, request.RequestID, activityUpdatedPayload{Request: request}, e.now())
 	if err != nil {
-		return protocol.MutationResult{}, NewError("event_encode_failed", "could not encode actor activity", err)
+		return protocol.MutationResult{}, eventEncodeError(err, "could not encode actor activity")
 	}
 	if err := e.appendAndApply(session, event); err != nil {
 		return protocol.MutationResult{}, err
@@ -648,7 +751,7 @@ func (e *Engine) Arbitrate(request protocol.ArbitrateRequest) (protocol.Arbitrat
 	}
 	event, err := newEvent(session.state, EventArbitrated, request.RequestID, arbitratedPayload{Record: record}, e.now())
 	if err != nil {
-		return protocol.ArbitrationRecord{}, false, NewError("event_encode_failed", "could not encode arbitration", err)
+		return protocol.ArbitrationRecord{}, false, eventEncodeError(err, "could not encode arbitration")
 	}
 	if err := e.appendAndApply(session, event); err != nil {
 		return protocol.ArbitrationRecord{}, false, err
@@ -706,7 +809,7 @@ func (e *Engine) Restore(request protocol.RestoreRequest) (protocol.MutationResu
 		event, err := newEvent(protocol.SessionState{}, EventSessionRestored, request.RequestID, restoredPayload{Snapshot: request.Snapshot}, e.now())
 		if err != nil {
 			e.mu.Unlock()
-			return protocol.MutationResult{}, NewError("event_encode_failed", "could not encode restore", err)
+			return protocol.MutationResult{}, eventEncodeError(err, "could not encode restore")
 		}
 		state, err := e.createAndConfirm(request.SessionID, event)
 		if err != nil {
@@ -732,7 +835,7 @@ func (e *Engine) Restore(request protocol.RestoreRequest) (protocol.MutationResu
 	}
 	event, err := newEvent(session.state, EventSessionRestored, request.RequestID, restoredPayload{Snapshot: request.Snapshot}, e.now())
 	if err != nil {
-		return protocol.MutationResult{}, NewError("event_encode_failed", "could not encode restore", err)
+		return protocol.MutationResult{}, eventEncodeError(err, "could not encode restore")
 	}
 	if err := e.appendAndApply(session, event); err != nil {
 		return protocol.MutationResult{}, err
@@ -1100,7 +1203,17 @@ func eventIDExists(state protocol.SessionState, eventID string) bool {
 			return true
 		}
 	}
+	for _, receipt := range state.Receipts {
+		if receipt.Kind == EventObserved && receipt.EntityID == eventID {
+			return true
+		}
+	}
 	for _, actor := range state.Actors {
+		for _, goal := range actor.Goals {
+			if goal.StatusSourceEventID == eventID {
+				return true
+			}
+		}
 		for _, memory := range actor.Memories {
 			if memory.EventID == eventID {
 				return true
@@ -1111,8 +1224,54 @@ func eventIDExists(state protocol.SessionState, eventID string) bool {
 				return true
 			}
 		}
+		for _, proposal := range actor.RecentActions {
+			if proposal.OutcomeEventID == eventID {
+				return true
+			}
+		}
+		for _, fact := range actor.Beliefs {
+			if fact.SourceEventID == eventID {
+				return true
+			}
+		}
+		for _, set := range actor.BeliefSets {
+			for _, claim := range set.Claims {
+				if claim.Fact.SourceEventID == eventID {
+					return true
+				}
+			}
+		}
 	}
 	return false
+}
+
+func validateFactVisibility(state protocol.SessionState, facts []protocol.Fact, field string) error {
+	for factIndex, fact := range facts {
+		for actorIndex, actorID := range fact.Visibility {
+			if _, exists := state.Actors[actorID]; !exists {
+				return NewFieldError(
+					"unknown_actor",
+					"fact visibility references an unregistered actor",
+					fmt.Sprintf("%s[%d].visibility[%d]", field, factIndex, actorIndex),
+					ErrNotFound,
+				)
+			}
+		}
+	}
+	return nil
+}
+
+func worldRevisionAdvanceError(state protocol.SessionState) error {
+	if protocol.HasFeature(state.Features, protocol.FeatureArbitration) &&
+		state.WorldRevision == ^uint64(0) {
+		return NewFieldError(
+			"world_revision_overflow",
+			"world revision is exhausted",
+			"world_revision",
+			ErrConflict,
+		)
+	}
+	return nil
 }
 
 func goalExists(actor protocol.ActorState, goalID string) bool {
@@ -1122,6 +1281,64 @@ func goalExists(actor protocol.ActorState, goalID string) bool {
 		}
 	}
 	return false
+}
+
+func pendingProposedGoalReserved(
+	state protocol.SessionState,
+	actorID string,
+	goalID string,
+	excludedProposalID string,
+) bool {
+	for proposalID, proposal := range state.Proposals {
+		if proposalID == excludedProposalID ||
+			proposal.ActorID != actorID ||
+			proposal.Status != "pending" ||
+			proposal.ProposedGoal == nil {
+			continue
+		}
+		if proposal.ProposedGoal.ID == goalID {
+			return true
+		}
+	}
+	return false
+}
+
+func validateProposedGoalReservation(
+	state protocol.SessionState,
+	actorID string,
+	goalID string,
+	excludedProposalID string,
+	field string,
+) error {
+	actor, exists := state.Actors[actorID]
+	if !exists {
+		return NewFieldError("unknown_actor", "proposal actor is not registered", field, ErrNotFound)
+	}
+	if goalExists(actor, goalID) {
+		return NewFieldError("goal_exists", "proposed goal is already part of actor state", field, ErrConflict)
+	}
+	reservedIDs := make(map[string]struct{})
+	for proposalID, proposal := range state.Proposals {
+		if proposalID == excludedProposalID ||
+			proposal.ActorID != actorID ||
+			proposal.Status != "pending" ||
+			proposal.ProposedGoal == nil {
+			continue
+		}
+		if proposal.ProposedGoal.ID == goalID {
+			return NewFieldError("goal_exists", "proposed goal is already reserved by a pending proposal", field, ErrConflict)
+		}
+		reservedIDs[proposal.ProposedGoal.ID] = struct{}{}
+	}
+	if len(actor.Goals)+len(reservedIDs)+1 > 32 {
+		return NewFieldError(
+			"goal_capacity",
+			"actor cannot retain more than 32 goals including pending goal reservations",
+			field,
+			ErrConflict,
+		)
+	}
+	return nil
 }
 
 func canRetainAnotherProposal(state protocol.SessionState) bool {
@@ -1134,6 +1351,13 @@ func canRetainAnotherProposal(state protocol.SessionState) bool {
 		}
 	}
 	return false
+}
+
+func eventEncodeError(err error, message string) error {
+	if ErrorCode(err) == "revision_overflow" {
+		return err
+	}
+	return NewError("event_encode_failed", message, err)
 }
 
 func validateDraft(request protocol.ProposeRequest, actor protocol.ActorState, draft ProposalDraft) (protocol.ActionSpec, *protocol.Goal, error) {
