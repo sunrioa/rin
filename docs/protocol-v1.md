@@ -7,9 +7,11 @@ game-owned adapter.
 
 ## Envelope
 
-Requests use `Content-Type: application/json`. The default maximum body is
-32 MiB so a complete save snapshot can fit; individual fields and arrays have
-smaller structural limits. A successful response is:
+Requests use `Content-Type: application/json`. The default maximum request body
+is 32 MiB; individual fields and arrays have smaller structural limits.
+Identifier History grows with a Session lineage, so the current HTTP and SDK
+limits do not guarantee that every arbitrarily long Session Snapshot will fit.
+A successful response is:
 
 ```json
 {"ok":true,"data":{}}
@@ -38,6 +40,62 @@ body must contain:
 IDs are 1 to 96 characters and may contain only letters, digits, `.`, `_`,
 and `-`. This prevents path traversal at the source and remains compatible
 with Windows file names.
+
+## Durable request and event identities
+
+Every mutation that durably changes a Session carries a caller-generated
+`request_id`. Within one Session lineage, including restarts, Restore
+generations, and branches later abandoned by Restore, Rin permanently binds
+that ID to:
+
+- the mutation kind;
+- a SHA-256 digest of the complete request after strict decoding into its typed
+  protocol value and canonical JSON encoding; and
+- the first durable operation result.
+
+Object member order and insignificant JSON whitespace therefore do not change
+the identity; array order and every typed field do. An exact retry returns the
+first result without another mutation. Mutation responses retain the first
+event's `revision` and `head_hash`; Proposal and Arbitration return their
+original typed result. The retry response alone sets `duplicate=true`.
+These revision/head fields acknowledge the first operation and are not the
+Session's current head; call `/v1/session/get` when the current State is needed.
+Reusing a `request_id` for another kind or payload returns
+`409 request_id_conflict`.
+
+Observe, Commit, and every Commit Batch item share one permanent
+`(session_id, event_id)` namespace. Once an Event ID has been accepted anywhere
+in that lineage, another request using it returns `409 event_exists`. Event ID
+is not a second idempotency key: only an exact retry with the original
+`request_id` returns a duplicate success. Different Sessions may use the same
+ID, although globally unique caller IDs are recommended for save portability.
+
+The bounded `state.receipts` map is a hot compatibility and diagnostic
+projection, not the authoritative idempotency index. Evicting a Receipt,
+Proposal, Arbitration, Memory, Summary, or other State projection never makes
+its request or Event ID reusable.
+
+Proposal Job and Generation Job records use separate bounded, in-process
+retention rules described below. They are not themselves durable Session
+mutations.
+
+If an append or initial Create/fresh-Restore write fails and Rin cannot prove
+whether the event became durable, a non-Proposal endpoint returns
+`mutation_outcome_unknown`. This is an unresolved outcome, not a confirmed
+failure or success. The caller must retain the operation and retry its exact
+mutation kind, typed payload, `request_id`, and any Event IDs. An altered
+same-ID retry returns `409 request_id_conflict`; any other mutation for that
+Session is blocked with `409 mutation_outcome_unknown` until the exact retry
+confirms the tail. The operation that first exposes the storage uncertainty
+normally returns HTTP `500` and may do so again while confirmation remains
+unavailable. A successful recovery can be a normal or duplicate response
+depending on which durable evidence Rin confirms; in either case, it never
+applies the logical mutation twice.
+
+Proposal appends retain the compatibility code
+`proposal_outcome_unknown` and the same fail-closed exact-retry rule. Never
+replace either unresolved request with a new ID or let an offline fallback
+overtake it.
 
 ## Create session
 
@@ -258,9 +316,13 @@ waits for its in-flight Engine mutation to settle; if the Proposal already won
 the durable-write race, DELETE returns `succeeded` with that Proposal instead
 of hiding it as canceled. Clients must consume this response.
 
-Repeated submissions with the same session and `request_id` return the same
-job. A different payload returns `request_id_conflict`. The queue is bounded;
-when full it returns `429 jobs_queue_full`.
+While a Proposal Job record remains in the process, repeated submissions with
+the same Session and `request_id` return that Job; a different payload returns
+`request_id_conflict`. Job metadata is not durable and may disappear after its
+retention TTL or a restart. The resulting Proposal is a durable Session
+mutation: resubmitting its exact request lets the Engine return the original
+Proposal even when the process-local Job record must be reconstructed. The
+queue is bounded; when full it returns `429 jobs_queue_full`.
 
 ## Structured generation jobs
 
@@ -304,12 +366,14 @@ model name, finish reason, token usage, and `cache_hit`. Rin parses output
 again; arrays, plain text, empty content, invalid UTF-8, NUL, and oversized
 content fail.
 
-The same `request_id` and payload return the same job. Semantically identical
-requests with different IDs may hit the short-lived cache. Generation jobs do
-not enter the event log. A game must validate the result against its own
-content contract before accepting it into canon. Provider failure never
-generates replacement story automatically; callers must supply offline
-content.
+The same `request_id` and payload return the same Job only while that
+process-local record remains retained. Semantically identical requests with
+different IDs may hit the short-lived cache. Generation Jobs do not enter the
+event log; after Job eviction or a sidecar restart, the same request may invoke
+the provider again and produce another result. A game must validate the result
+against its own content contract before accepting it into canon. Provider
+failure never generates replacement story automatically; callers must supply
+offline content.
 
 ## Commit
 
@@ -444,7 +508,7 @@ Retained collections use these protocol bounds:
 | Actor RecentActions | 32 | Retain the latest game-occurrence outcomes |
 | Session Proposals | 64 | Evict only resolved proposals; fail closed when all retained proposals are pending |
 | Session Arbitrations | 32 | Retain the latest records |
-| Session Receipts | 1024 | Retain the newest revision generation |
+| Session Receipts | 1024 | Retain the newest revision generation as a hot projection; permanent request identity is stored separately |
 
 Recall counts saturate at 1,000,000. Memory compaction rewrites a Proposal or
 RecentAction reference to the replacement Summary ID; non-archive eviction
@@ -456,12 +520,12 @@ Retained Proposal and Arbitration tick fields are not upper-bounded by
 requests still reject tick regression. `nil` and an empty Fact visibility list
 are the same JSON contract value.
 
-An `event_id` is rejected while it is discoverable from any retained Proposal,
-RecentAction, Goal status, Memory, Summary, Belief claim, or observation
-Receipt. The current v1 hot path does not scan the unbounded event log after
-all bounded projections of that ID have been evicted; applications must still
-use globally unique IDs. This retained-State implementation does not yet
-provide a permanent Event ID index beyond those projections.
+Request and Event IDs remain reserved by Identifier History after every bounded
+State projection has been evicted. This permanent ledger is reconstructed from
+the event log at startup and is carried by Snapshot and Replay independently
+from `SessionState`. Applications should still generate globally unique IDs:
+that avoids collisions when a legacy Snapshot cannot prove its complete
+pre-export history.
 
 ## Snapshot and restore
 
@@ -478,7 +542,18 @@ Restore:
   "protocol_version": "rin.protocol/v1",
   "session_id": "playthrough-1",
   "request_id": "restore.save-slot-2",
-  "snapshot": {"protocol_version":"rin.protocol/v1","state_hash":"...","state":{}}
+  "snapshot": {
+    "protocol_version": "rin.protocol/v1",
+    "state_hash": "...",
+    "state": {},
+    "identifier_history": {
+      "version": "identifier-history-v1",
+      "coverage_complete": true,
+      "requests": {},
+      "events": {}
+    },
+    "identifier_history_hash": "..."
+  }
 }
 ```
 
@@ -488,6 +563,23 @@ Snapshot, so every successfully returned Snapshot immediately passes
 `ValidateSnapshot` and can be imported into a fresh or non-exhausted matching
 Session.
 
+`state_hash` covers the bounded `state`; `identifier_history_hash` separately
+covers the canonical JSON form of `identifier_history`. The history uses
+version `identifier-history-v1`. Its request entries retain canonical request
+digests and original result coordinates or typed Proposal/Arbitration results;
+its event entries retain every accepted Event ID. `coverage_complete=true`
+means the producer knows the complete imported lineage. Supplying only one of
+the two history fields, malformed history, or a hash mismatch is
+`400 invalid_snapshot`.
+
+A legacy v1 Snapshot without these two fields remains restorable, but Rin
+imports it with `coverage_complete=false`. It can seed only IDs still
+discoverable from that Snapshot; IDs evicted before export are unknowable.
+Incomplete coverage is sticky across every later Snapshot and Restore merge
+and is never promoted to complete. Every ID first accepted after import is
+still retained permanently. Applications using legacy saves must therefore
+continue to generate globally unique IDs.
+
 Restore writes a new local event-chain generation. Retained nested revision
 metadata is rebased to the Restore event; a retained Proposal references the
 preceding local revision and head hash. On a fresh import that base is revision
@@ -496,6 +588,20 @@ zero before the new Restore Receipt is inserted, so a full 1,024-entry map
 cannot evict the operation that just succeeded. World revision advances
 without wrapping; importing an already-maximal world revision keeps it
 saturated, while later world mutations fail closed.
+
+Restore unions the target Session's current Identifier History with the
+Snapshot history before adding the Restore request. IDs from the current branch
+remain tombstoned even when Restore abandons that branch. A verified mapping
+that disagrees between the histories rejects Restore atomically with
+`409 identifier_history_conflict`; neither history is overwritten. Legacy log
+entries which reused an ID, or whose exact typed request digest cannot be
+recovered, remain readable as ambiguous tombstones. Any later attempt to use
+such a request ID fails closed with `409 request_id_conflict`.
+
+An original duplicate result imported from another Restore generation may
+contain the revision/head of its source generation and need not identify an
+event replayable in the new local chain. It remains the immutable receipt for
+that operation; query State for the current local head.
 
 With `outcome-reporting-v1`, Restore retains pending proposals
 for two durable recovery states: an unresolved Proposal Attempt received before
@@ -532,16 +638,33 @@ to rebuild a selected revision, then returns an in-memory snapshot:
 
 Replay includes actor memories and story state present at that revision, so
 it keeps the Session API authentication boundary and is not a redacted log
-endpoint.
+endpoint. The replayed `state` is revision-specific, but its Identifier History
+contains the complete local-lineage tombstone set, including IDs first used
+after the selected State revision. This deliberate asymmetry prevents
+restoring an old Replay Snapshot from making a later ID reusable. Identifier
+result revisions may therefore be greater than `snapshot.state.revision`.
+
+Identifier History and its retained Proposal/Arbitration results grow linearly
+with successful mutations. It can contain historical model-authored text which
+bounded cognition State has already evicted, so protect Snapshot files and
+bodies at the same sensitivity level as the event log. Current request and SDK
+response-size limits remain hard transport boundaries; complete large-lineage
+transport requires the planned bounded archive/streaming follow-up rather than
+silently truncating Identifier History.
 
 ## Common errors
 
 | HTTP | Code | Meaning |
 | --- | --- | --- |
 | `400` | `invalid_json` / `invalid_request` | JSON or field-contract error |
+| `400` | `invalid_snapshot` | State or Identifier History is malformed or its hash does not match |
 | `401` | `unauthorized` | Missing or incorrect Bearer token |
 | `404` | `session_not_found` / `unknown_actor` | Entity does not exist |
 | `404` | `revision_not_found` | Replay revision does not exist |
+| `409` | `request_id_conflict` | Request ID is ambiguous or was already bound to another kind or payload |
+| `409` | `event_exists` | Event ID is already reserved in this Session lineage |
+| `409` | `identifier_history_conflict` | Restore histories contain incompatible verified identities |
+| `409` / `500` | `mutation_outcome_unknown` | A non-Proposal mutation may be durable; retain it and retry only the exact request before any other mutation |
 | `409` | `state_changed` / `proposal_stale` | Base state changed during Proposal generation or pre-application Arbitration |
 | `409` | `proposal_base_mismatch` | A Batch Outcome mixes original world revisions |
 | `409` | `actor_not_due` | Actor has not reached its thinking tick |

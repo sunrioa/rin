@@ -361,9 +361,11 @@ type GenerationJob struct {
 }
 
 type Snapshot struct {
-	ProtocolVersion string       `json:"protocol_version"`
-	StateHash       string       `json:"state_hash"`
-	State           SessionState `json:"state"`
+	ProtocolVersion       string             `json:"protocol_version"`
+	StateHash             string             `json:"state_hash"`
+	State                 SessionState       `json:"state"`
+	IdentifierHistory     *IdentifierHistory `json:"identifier_history,omitempty"`
+	IdentifierHistoryHash string             `json:"identifier_history_hash,omitempty"`
 }
 
 type EventRecord struct {

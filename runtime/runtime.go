@@ -29,6 +29,14 @@ const (
 )
 
 type Store interface {
+	// Operations for one session must be linearizable and Load must provide
+	// read-after-write consistency with Create and Append. In particular, after
+	// a failed Create, Load returning ErrNotFound is treated as proof that no
+	// first event was written; after a failed Append, Load returning the prior
+	// tail is treated as proof that the candidate event was not written. A
+	// Store which cannot make either observation authoritative must return an
+	// uncertainty error from Load rather than stale data. Eventually consistent
+	// implementations do not satisfy this interface.
 	// Create is an idempotent create-if-absent operation. Repeating an
 	// identical first EventRecord, including the exact Data bytes, is a
 	// successful durability confirmation; any different existing log must

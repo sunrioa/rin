@@ -21,7 +21,7 @@ func (e *Engine) Timeline(request protocol.TimelineRequest) (protocol.TimelineRe
 	session.mu.Lock()
 	defer session.mu.Unlock()
 
-	events, _, err := e.loadAndReplay(request.SessionID, 0)
+	events, _, _, err := e.loadAndReplay(request.SessionID, 0)
 	if err != nil {
 		return protocol.TimelineResponse{}, err
 	}
@@ -61,14 +61,14 @@ func (e *Engine) Replay(request protocol.ReplayRequest) (protocol.Snapshot, erro
 	session.mu.Lock()
 	defer session.mu.Unlock()
 
-	_, state, err := e.loadAndReplay(request.SessionID, request.Revision)
+	_, state, identifiers, err := e.loadAndReplay(request.SessionID, request.Revision)
 	if err != nil {
 		return protocol.Snapshot{}, err
 	}
 	if state.Revision != request.Revision {
 		return protocol.Snapshot{}, NewFieldError("revision_not_found", "requested revision does not exist", "revision", ErrNotFound)
 	}
-	snapshot, err := SnapshotOf(state)
+	snapshot, err := snapshotWithIdentifiers(state, identifiers)
 	if err != nil {
 		return protocol.Snapshot{}, NewError("replay_failed", "could not snapshot replayed state", err)
 	}
@@ -76,22 +76,63 @@ func (e *Engine) Replay(request protocol.ReplayRequest) (protocol.Snapshot, erro
 }
 
 // A target revision of zero verifies and replays the complete log.
-func (e *Engine) loadAndReplay(sessionID string, targetRevision uint64) ([]protocol.EventRecord, protocol.SessionState, error) {
+func (e *Engine) loadAndReplay(
+	sessionID string,
+	targetRevision uint64,
+) ([]protocol.EventRecord, protocol.SessionState, protocol.IdentifierHistory, error) {
 	events, err := e.store.Load(sessionID)
 	if err != nil {
-		return nil, protocol.SessionState{}, NewError("store_load_failed", "could not load session log", err)
+		return nil, protocol.SessionState{}, protocol.IdentifierHistory{}, NewError(
+			"store_load_failed",
+			"could not load session log",
+			err,
+		)
 	}
-	var state protocol.SessionState
+	state, identifiers, err := replayEvents(events, targetRevision)
+	if err != nil {
+		return nil, protocol.SessionState{}, protocol.IdentifierHistory{}, NewError(
+			"replay_failed",
+			"session event log is invalid",
+			err,
+		)
+	}
+	return events, state, identifiers, nil
+}
+
+// replayEvents reconstructs State as of targetRevision while projecting
+// identifier membership through the complete local log. Consequently a
+// Replay Snapshot cannot release IDs used on a later, abandoned branch.
+func replayEvents(
+	events []protocol.EventRecord,
+	targetRevision uint64,
+) (protocol.SessionState, protocol.IdentifierHistory, error) {
+	var (
+		state       protocol.SessionState
+		targetState protocol.SessionState
+		err         error
+	)
+	identifiers := newIdentifierHistory(true)
 	for _, event := range events {
-		if targetRevision > 0 && event.Sequence > targetRevision {
-			break
-		}
 		state, err = applyEvent(state, event)
 		if err != nil {
-			return nil, protocol.SessionState{}, NewError("replay_failed", "session event log is invalid", err)
+			return protocol.SessionState{}, protocol.IdentifierHistory{}, err
+		}
+		identifierDelta, identityErr := prepareIdentifierEvent(identifiers, event)
+		if identityErr != nil {
+			return protocol.SessionState{}, protocol.IdentifierHistory{}, identityErr
+		}
+		applyIdentifierDelta(&identifiers, identifierDelta)
+		if targetRevision > 0 && event.Sequence == targetRevision {
+			targetState, err = clone(state)
+			if err != nil {
+				return protocol.SessionState{}, protocol.IdentifierHistory{}, err
+			}
 		}
 	}
-	return events, state, nil
+	if targetRevision > 0 {
+		return targetState, identifiers, nil
+	}
+	return state, identifiers, nil
 }
 
 func timelineEntry(event protocol.EventRecord) (protocol.TimelineEntry, error) {

@@ -101,20 +101,35 @@ Attempt，从而关闭“收到 Proposal 到持久化结果报告”之间的崩
 
 游戏应在同一个权威事务中应用动作并持久化 Outcome Outbox 项。Outbox 至少保存：
 
-- 稳定且唯一的 Commit `request_id` 和 `event_id`；
+- 在整个 Session lineage 内稳定且唯一的 Commit `request_id` 和 `event_id`；
 - `proposal_id`、发生 tick、accepted、outcome；
 - 回报所需的 tags、facts 和 goal updates。
 
 一个 accepted 回报对每个 Goal 最多包含一条 update，避免发生时间合并受数组
 顺序影响。
 
-网络超时或暂时错误时，游戏只使用同一 `request_id` 重报，不得重新应用动作。
-收到成功或明确 duplicate 后才能删除 Outbox 项。创建游戏存档前应先排空
-Outbox，或者把未确认项、Proposal Attempt 与匹配的 Rin Snapshot 一起保存。
-Restore 会保留 pending Proposal，既让尚未处理的存档 Attempt 能恢复并重新
-校验，也让已经处理的 Operation 通过存档 Outbox 完整补报 Fact、Goal update、
-近期动作和调度影响。恢复出的 Proposal 绝不授权执行动作；游戏必须用持久化
-Attempt 与 applied-operation marker 区分尚未处理的动作和绝不能重做的动作。
+网络超时或暂时错误时，游戏只使用同一 `request_id` 重报完全相同的 typed
+payload，不得重新应用动作。Rin 会把该 ID 绑定到完整请求的 canonical digest；
+改变 Event ID、tick、accepted、outcome、tag、Fact、Goal update 或任何其他
+typed 字段都会返回 `request_id_conflict`，不会产生第二种解释。
+
+`mutation_outcome_unknown` 表示 Commit 可能已经持久化，但 Rin 无法完成确认。
+游戏必须保留 Outbox 项、绝不重新应用动作，并且只重试这条完全相同的 Commit；
+对账完成前，其他 Session mutation 会被有意阻塞。Proposal 生成继续使用兼容
+错误码 `proposal_outcome_unknown`，并要求同样的 exact-attempt 恢复。
+
+明确 duplicate success 会带首次 Commit 的 revision/head 和
+`duplicate=true`；这些字段是不可变操作回执，不是 Rin 当前 State head。收到
+普通成功或这种明确 duplicate 后才能删除 Outbox 项。来自其他请求的
+`event_exists` 是冲突，不是该 Outbox 项已经记账的证明，不能据此确认或删除。
+
+创建游戏存档前应先排空 Outbox，或者把未确认项、Proposal Attempt 与匹配的
+Rin Snapshot 一起保存。Snapshot Identifier History 会跨重启和 Restore 永久
+携带已接受的 Request/Event ID。Restore 会保留 pending Proposal，既让尚未
+处理的存档 Attempt 能恢复并重新校验，也让已经处理的 Operation 通过存档
+Outbox 完整补报 Fact、Goal update、近期动作和调度影响。恢复出的 Proposal
+绝不授权执行动作；游戏必须用持久化 Attempt 与 applied-operation marker
+区分尚未处理的动作和绝不能重做的动作。
 
 若 Sidecar Session 无法恢复、因而确实不存在匹配 Proposal，`observe` 只是降级
 对账路径：它能按原始发生 tick 恢复权威事件的记忆和 Fact，但不能重建
@@ -131,3 +146,9 @@ Proposal 专属的 Goal delta、近期动作或调度。此时应把最终的绝
 持久状态元数据，因此绝不会自动加到已有 Session。未启用 Feature 的旧 Session
 与事件日志继续保持历史重放结果。启用后的 Proposal、Fact 和 Goal 状态可能带有
 上述可选发生时间元数据；Feature 启用前的 Snapshot 按旧语义继续可读。
+
+Identifier History 是与 `outcome-reporting-v1` 无关的线格式增量。不带 History
+的旧 Snapshot 仍可读取，但 coverage 会永久标记为不完整，因为导出前已淘汰的
+ID 无法恢复。导入这类存档的游戏必须继续使用全局唯一 Request/Event ID。
+Restore 会合并当前分支与导入 Snapshot 的 History，因此回滚不会允许重新使用
+被放弃 future 中的 ID。

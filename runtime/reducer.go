@@ -22,11 +22,13 @@ const (
 )
 
 type createdPayload struct {
-	Request protocol.CreateSessionRequest `json:"request"`
+	Request     protocol.CreateSessionRequest `json:"request"`
+	RequestHash string                        `json:"request_hash,omitempty"`
 }
 
 type observedPayload struct {
-	Request protocol.ObserveRequest `json:"request"`
+	Request     protocol.ObserveRequest `json:"request"`
+	RequestHash string                  `json:"request_hash,omitempty"`
 }
 
 type proposedPayload struct {
@@ -35,23 +37,28 @@ type proposedPayload struct {
 }
 
 type committedPayload struct {
-	Request protocol.CommitRequest `json:"request"`
+	Request     protocol.CommitRequest `json:"request"`
+	RequestHash string                 `json:"request_hash,omitempty"`
 }
 
 type batchCommittedPayload struct {
-	Request protocol.BatchCommitRequest `json:"request"`
+	Request     protocol.BatchCommitRequest `json:"request"`
+	RequestHash string                      `json:"request_hash,omitempty"`
 }
 
 type activityUpdatedPayload struct {
-	Request protocol.SetActorActivityRequest `json:"request"`
+	Request     protocol.SetActorActivityRequest `json:"request"`
+	RequestHash string                           `json:"request_hash,omitempty"`
 }
 
 type arbitratedPayload struct {
-	Record protocol.ArbitrationRecord `json:"record"`
+	Record      protocol.ArbitrationRecord `json:"record"`
+	RequestHash string                     `json:"request_hash,omitempty"`
 }
 
 type restoredPayload struct {
-	Snapshot protocol.Snapshot `json:"snapshot"`
+	Snapshot    protocol.Snapshot `json:"snapshot"`
+	RequestHash string            `json:"request_hash,omitempty"`
 }
 
 func applyEvent(state protocol.SessionState, event protocol.EventRecord) (protocol.SessionState, error) {
@@ -132,7 +139,12 @@ func applyCreated(state protocol.SessionState, event protocol.EventRecord) (prot
 		Actors:          actors,
 		Proposals:       make(map[string]protocol.ActionProposal),
 		Receipts: map[string]protocol.RequestReceipt{
-			request.RequestID: {Kind: EventSessionCreated, EntityID: request.SessionID, Revision: event.Sequence},
+			request.RequestID: {
+				Kind:        EventSessionCreated,
+				EntityID:    request.SessionID,
+				Revision:    event.Sequence,
+				RequestHash: payload.RequestHash,
+			},
 		},
 	}
 	if protocol.HasFeature(request.Features, protocol.FeatureArbitration) {
@@ -195,7 +207,9 @@ func applyObserved(state *protocol.SessionState, event protocol.EventRecord) err
 	if request.Tick > state.Tick {
 		state.Tick = request.Tick
 	}
-	state.Receipts[request.RequestID] = protocol.RequestReceipt{Kind: EventObserved, EntityID: request.EventID, Revision: event.Sequence}
+	state.Receipts[request.RequestID] = protocol.RequestReceipt{
+		Kind: EventObserved, EntityID: request.EventID, Revision: event.Sequence, RequestHash: payload.RequestHash,
+	}
 	return advanceWorldRevision(state)
 }
 
@@ -235,7 +249,9 @@ func applyCommitted(state *protocol.SessionState, event protocol.EventRecord) er
 	if request.Tick > state.Tick {
 		state.Tick = request.Tick
 	}
-	state.Receipts[request.RequestID] = protocol.RequestReceipt{Kind: EventCommitted, EntityID: request.ProposalID, Revision: event.Sequence}
+	state.Receipts[request.RequestID] = protocol.RequestReceipt{
+		Kind: EventCommitted, EntityID: request.ProposalID, Revision: event.Sequence, RequestHash: payload.RequestHash,
+	}
 	return advanceWorldRevision(state)
 }
 
@@ -254,6 +270,7 @@ func applyBatchCommitted(state *protocol.SessionState, event protocol.EventRecor
 	}
 	state.Receipts[payload.Request.RequestID] = protocol.RequestReceipt{
 		Kind: EventBatchCommitted, EntityID: payload.Request.SessionID, Revision: event.Sequence,
+		RequestHash: payload.RequestHash,
 	}
 	return advanceWorldRevision(state)
 }
@@ -388,6 +405,7 @@ func applyActivityUpdated(state *protocol.SessionState, event protocol.EventReco
 	}
 	state.Receipts[payload.Request.RequestID] = protocol.RequestReceipt{
 		Kind: EventActivityUpdated, EntityID: payload.Request.SessionID, Revision: event.Sequence,
+		RequestHash: payload.RequestHash,
 	}
 	return advanceWorldRevision(state)
 }
@@ -403,6 +421,7 @@ func applyArbitrated(state *protocol.SessionState, event protocol.EventRecord) e
 	}
 	state.Receipts[payload.Record.RequestID] = protocol.RequestReceipt{
 		Kind: EventArbitrated, EntityID: payload.Record.ID, Revision: event.Sequence,
+		RequestHash: payload.RequestHash,
 	}
 	return nil
 }
@@ -452,7 +471,10 @@ func applyRestored(current protocol.SessionState, event protocol.EventRecord) (p
 		receipt.Revision = 0
 		restored.Receipts[requestID] = receipt
 	}
-	restored.Receipts[event.RequestID] = protocol.RequestReceipt{Kind: EventSessionRestored, EntityID: restored.SessionID, Revision: event.Sequence}
+	restored.Receipts[event.RequestID] = protocol.RequestReceipt{
+		Kind: EventSessionRestored, EntityID: restored.SessionID, Revision: event.Sequence,
+		RequestHash: payload.RequestHash,
+	}
 	return restored, nil
 }
 

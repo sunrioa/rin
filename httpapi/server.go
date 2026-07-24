@@ -318,7 +318,9 @@ func (s *Server) respond(response http.ResponseWriter, data any, err error) {
 	}
 	status := http.StatusInternalServerError
 	switch {
-	case protocol.IsValidationError(err), rinruntime.ErrorCode(err) == "invalid_request":
+	case protocol.IsValidationError(err),
+		rinruntime.ErrorCode(err) == "invalid_request",
+		rinruntime.ErrorCode(err) == "invalid_snapshot":
 		status = http.StatusBadRequest
 	case errors.Is(err, rinruntime.ErrNotFound):
 		status = http.StatusNotFound

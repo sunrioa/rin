@@ -122,23 +122,42 @@ Proposal and persisting its eventual report.
 The game should apply an action and persist an Outcome Outbox entry in the same
 authoritative transaction. An entry contains at least:
 
-- stable and unique Commit `request_id` and `event_id` values;
+- stable Commit `request_id` and `event_id` values which are unique throughout
+  the Session lineage;
 - `proposal_id`, occurrence tick, accepted, and outcome;
 - any tags, facts, and goal updates needed by the report.
 
 An accepted report contains at most one update for each Goal. This removes
 array-order ambiguity when occurrence-time updates merge.
 
-On a timeout or temporary error, the game only reports the same entry again
-with the same `request_id`; it must never apply the action again. Remove an
-entry only after success or an explicit duplicate response. Drain the Outbox
-before creating a game save, or save all unacknowledged entries together with
-the matching Rin Snapshot and Proposal Attempts. Restore retains pending
-Proposals both so an unhandled saved Attempt can resume and be revalidated, and
-so an already-handled operation's saved Outbox can still report its complete
-Facts, Goal updates, recent action, and scheduling effects. A restored Proposal
-does not authorize execution: the persisted Attempt and applied-operation
-marker distinguish an unhandled action from one that must never run again.
+On a timeout or temporary error, the game reports the exact same typed payload
+again with the same `request_id`; it must never apply the action again. Rin
+binds that ID to the canonical complete request digest. Changing an Event ID,
+tick, accepted value, outcome, tag, Fact, Goal update, or any other typed field
+returns `request_id_conflict` instead of creating a second interpretation.
+
+`mutation_outcome_unknown` means Commit may already be durable but Rin could
+not confirm it. Keep the Outbox entry, do not execute the action again, and
+retry only that exact Commit. Other Session mutations are intentionally
+blocked until it is reconciled. Proposal production uses the compatible
+`proposal_outcome_unknown` code and requires the same exact-attempt recovery.
+
+An exact duplicate success carries the original Commit revision/head with
+`duplicate=true`; those fields are an immutable operation receipt, not Rin's
+current State head. Remove an Outbox entry only after a normal success or this
+explicit duplicate response. `event_exists` from a different request is a
+conflict, not proof that this Outbox entry was recorded, and must not by itself
+acknowledge or delete the entry.
+
+Drain the Outbox before creating a game save, or save all unacknowledged
+entries together with the matching Rin Snapshot and Proposal Attempts.
+Snapshot Identifier History permanently carries accepted request and Event IDs
+across restart and Restore. Restore retains pending Proposals both so an
+unhandled saved Attempt can resume and be revalidated, and so an
+already-handled operation's saved Outbox can still report its complete Facts,
+Goal updates, recent action, and scheduling effects. A restored Proposal does
+not authorize execution: the persisted Attempt and applied-operation marker
+distinguish an unhandled action from one that must never run again.
 
 If the sidecar session cannot be restored and therefore truly has no matching
 Proposal, `observe` is a degraded reconciliation path for the authoritative
@@ -160,3 +179,11 @@ existing session. Sessions and event logs without it keep their historical
 replay result. Feature-enabled Proposal, Fact, and Goal state may include the
 optional occurrence metadata described above; older pre-feature snapshots
 remain readable under legacy semantics.
+
+Identifier History is wire-additive and independent of
+`outcome-reporting-v1`. A legacy Snapshot without it remains readable but is
+marked with permanently incomplete coverage because IDs evicted before export
+cannot be recovered. A game importing such a save must continue to use globally
+unique request and Event IDs. History from the current branch and imported
+Snapshot is unioned on Restore, so rolling back never authorizes reuse of an ID
+from the abandoned future.

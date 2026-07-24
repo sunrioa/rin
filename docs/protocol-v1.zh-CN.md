@@ -6,7 +6,10 @@
 
 ## Envelope 封装
 
-请求使用 `Content-Type: application/json`，默认最大 32 MiB，以容纳完整存档快照；各类数组和字段仍有更小的结构上限。成功响应：
+请求使用 `Content-Type: application/json`，默认最大请求体为 32 MiB；各类数组
+和字段仍有更小的结构上限。Identifier History 会随 Session lineage 增长，因此
+当前 HTTP 与 SDK 上限不能保证任意长 Session 的每份 Snapshot 都能装入。成功
+响应：
 
 ```json
 {"ok":true,"data":{}}
@@ -32,6 +35,52 @@
 ```
 
 ID 长度为 1–96，只允许字母、数字、`.`、`_`、`-`，从源头阻止路径穿越并保持 Windows 文件名兼容。
+
+## 持久 Request 与 Event 身份
+
+每个持久修改 Session 的 mutation 都带调用方生成的 `request_id`。在同一
+Session lineage 内，包括重启、Restore generation 和后来被 Restore 放弃的
+分支，Rin 会把该 ID 永久绑定到：
+
+- mutation 类型；
+- 完整请求经严格解码为协议类型、再做 canonical JSON 编码后的 SHA-256 digest；
+- 首次持久操作结果。
+
+因此 Object 成员顺序和无意义 JSON 空白不影响身份；数组顺序及每个 typed 字段
+都会影响。完全相同的重试不会再次修改状态，而是返回首次结果。Mutation 响应
+保留首次事件的 `revision` 与 `head_hash`，Proposal 和 Arbitration 则返回原始
+typed 结果；只有重试响应会设置 `duplicate=true`。这些 revision/head 是首次
+操作的确认，不是 Session 当前 head；需要当前 State 时应调用
+`/v1/session/get`。同一 `request_id` 用于其他类型或 payload 时返回
+`409 request_id_conflict`。
+
+Observe、Commit 与 Commit Batch 的每个 Item 共用一个永久的
+`(session_id, event_id)` 命名空间。Event ID 一旦在该 lineage 中被接受，其他
+请求再次使用就返回 `409 event_exists`。Event ID 不是第二个幂等键：只有携带
+原始 `request_id` 的完全相同重试才返回 duplicate success。不同 Session 可以
+使用相同 ID，但为了存档可移植性，仍建议调用方生成全局唯一 ID。
+
+有界 `state.receipts` map 只是兼容与诊断所用的热投影，不是权威幂等索引。
+Receipt、Proposal、Arbitration、Memory、Summary 或其他 State 投影被淘汰，都
+不会让其 Request/Event ID 重新可用。
+
+Proposal Job 与 Generation Job 记录遵循下文独立的、有界进程内保留规则；它们
+本身不是持久 Session mutation。
+
+如果 append 或首次 Create/fresh Restore 写入失败，且 Rin 无法证明事件是否
+已经持久化，非 Proposal 端点会返回 `mutation_outcome_unknown`。这表示结果
+未决，既不是确认失败，也不是确认成功。调用方必须保留该 Operation，并以完全
+相同的 mutation 类型、typed payload、`request_id` 和所有 Event ID 重试。同一
+ID 下改变请求会返回 `409 request_id_conflict`；在 exact retry 确认 tail 前，
+该 Session 的其他 mutation 都会被阻塞，并返回
+`409 mutation_outcome_unknown`。首次暴露 Store 未决状态的 Operation 通常
+返回 HTTP `500`；确认仍不可用时，exact retry 也可能再次返回该状态。恢复成功
+后可能是普通响应，也可能是 duplicate，取决于 Rin 最终确认的持久证据；无论
+哪种情况，都不会再次应用同一逻辑 mutation。
+
+Proposal append 继续使用兼容错误码 `proposal_outcome_unknown`，并遵循相同的
+fail-closed exact-retry 规则。不得把任一种未决请求换成新 ID，也不得让离线
+fallback 越过它。
 
 ## 创建会话
 
@@ -227,7 +276,11 @@ GET。完成对账前不得执行离线 fallback，也不得开始其他 Session
 mutation 结算；若 Proposal 已赢得持久写入竞态，DELETE 会返回带 Proposal 的
 `succeeded`，而不是把它隐藏成 canceled。客户端必须消费该响应。
 
-相同 Session 和 `request_id` 的重复提交返回同一个 Job。若 payload 不同则返回 `request_id_conflict`。Job 队列有界，满载时返回 `429 jobs_queue_full`。
+Proposal Job 记录仍在当前进程中保留时，相同 Session 和 `request_id` 的重复
+提交返回该 Job；payload 不同则返回 `request_id_conflict`。Job 元数据不持久，
+可能在保留 TTL 后或重启时消失。其产出的 Proposal 是持久 Session mutation：
+重新提交完全相同的请求时，即使需要重建进程内 Job，Engine 仍会返回原始
+Proposal。Job 队列有界，满载时返回 `429 jobs_queue_full`。
 
 ## 结构化生成任务
 
@@ -262,7 +315,11 @@ DELETE /v1/generation/jobs/{job_id}
 
 状态为 `queued`、`running`、`succeeded`、`failed` 或 `canceled`。成功结果包含 JSON Object 原文以及模型名、finish reason、token usage、`cache_hit` 等有界元数据。Rin 会再次解析输出，数组、纯文本、空内容、非法 UTF-8、NUL 和超出大小限制的内容均失败。
 
-同一 `request_id` 与相同 payload 返回同一 Job；相同语义但不同 ID 可以命中短期缓存。Generation 任务不写入事件日志，游戏应先按自己的内容契约验证结果，再决定是否接受到 Canon。供应商失败不会自动生成替代剧情，调用方必须提供离线内容。
+只有对应进程内记录仍被保留时，同一 `request_id` 与相同 payload 才返回同一
+Job；相同语义但不同 ID 可以命中短期缓存。Generation Job 不写入事件日志；
+Job 被淘汰或 Sidecar 重启后，相同请求可能再次调用 Provider 并得到另一结果。
+游戏应先按自己的内容契约验证结果，再决定是否接受到 Canon。供应商失败不会
+自动生成替代剧情，调用方必须提供离线内容。
 
 ## 提交结果
 
@@ -376,7 +433,7 @@ Actor。启用 `belief-conflicts-v1` 后，`beliefs` 与 `belief_sets` 必须具
 | Actor RecentActions | 32 | 保留按游戏发生时间排序的最新 outcome |
 | Session Proposals | 64 | 只淘汰 resolved Proposal；全部为 pending 时 fail closed |
 | Session Arbitrations | 32 | 保留最新记录 |
-| Session Receipts | 1024 | 保留最新 revision generation |
+| Session Receipts | 1024 | 作为热投影保留最新 revision generation；永久 Request 身份另行保存 |
 
 RecallCount 在 1,000,000 饱和。Memory 归档会把 Proposal 或 RecentAction 的
 引用改写到替代 Summary ID；未启用归档时会移除不可用 ID。revision、tick、
@@ -386,11 +443,10 @@ Summary、Belief、Activity、Goal 和 outcome 元数据都必须处在容器 St
 上界限制，可以描述其后的工作；实时 Propose 与 Arbitrate 请求仍会拒绝 tick
 倒退。Fact visibility 的 `null`/缺省与空数组属于相同 JSON 契约值。
 
-只要 `event_id` 仍能从保留的 Proposal、RecentAction、Goal status、Memory、
-Summary、Belief claim 或 observation Receipt 找到，就会被拒绝。当前 v1 热
-路径不会在该 ID 的所有有界投影均被淘汰后扫描无界事件日志；应用仍必须生成
-全局唯一 ID。当前 retained-State 实现尚未提供超出这些投影的永久 Event ID
-索引。
+所有有界 State 投影被淘汰后，Identifier History 仍会保留 Request 与 Event
+ID。启动时会从事件日志重建这份永久 ledger，Snapshot 与 Replay 也会在
+`SessionState` 之外携带它。应用仍应生成全局唯一 ID，从而避免旧 Snapshot
+无法证明其完整导出前历史时发生碰撞。
 
 ## Snapshot 与 Restore
 
@@ -407,7 +463,18 @@ Restore：
   "protocol_version": "rin.protocol/v1",
   "session_id": "playthrough-1",
   "request_id": "restore.save-slot-2",
-  "snapshot": {"protocol_version":"rin.protocol/v1","state_hash":"...","state":{}}
+  "snapshot": {
+    "protocol_version": "rin.protocol/v1",
+    "state_hash": "...",
+    "state": {},
+    "identifier_history": {
+      "version": "identifier-history-v1",
+      "coverage_complete": true,
+      "requests": {},
+      "events": {}
+    },
+    "identifier_history_hash": "..."
+  }
 }
 ```
 
@@ -416,12 +483,38 @@ Restore 拒绝 hash 错误、Session ID 不同或 Binding 不同的快照。Rin 
 通过 `ValidateSnapshot`，并可导入空 Session 或尚未耗尽 revision 的匹配
 Session。
 
+`state_hash` 覆盖有界 `state`，`identifier_history_hash` 则独立覆盖
+`identifier_history` 的 canonical JSON。History 版本为
+`identifier-history-v1`；其中 Request entry 保存 canonical request digest 与
+原始结果坐标或 typed Proposal/Arbitration 结果，Event entry 保存每个已接受的
+Event ID。`coverage_complete=true` 表示生成方知道完整的 imported lineage。
+只提供两个 History 字段中的一个、History 结构非法或 hash 不匹配时，均返回
+`400 invalid_snapshot`。
+
+不带这两个字段的旧版 v1 Snapshot 仍可 Restore，但 Rin 会以
+`coverage_complete=false` 导入。它只能从 Snapshot 中仍可发现的 ID 建立
+索引；导出前已被淘汰的 ID 无法获知。不完整 coverage 会沿以后每次 Snapshot
+与 Restore 合并永久传播，绝不会升级成 complete。导入后首次接受的每个新 ID
+仍会永久保存。使用旧存档的应用因此必须继续生成全局唯一 ID。
+
 Restore 会写入新的本地事件链 generation。保留的嵌套 revision 元数据会重基
 到 Restore 事件；保留 Proposal 引用前一个本地 revision 与 head hash。Fresh
 import 的 base 是 revision 0 和空 head hash。导入的历史 Receipt revision 会在
 插入本次 Restore Receipt 前改为 0，因此已经装满 1,024 项的 map 不会淘汰刚
 成功的操作。World revision 只前进、不回绕；导入已经达到最大值的 world
 revision 时保持饱和，后续 world mutation 则 fail closed。
+
+Restore 会先合并目标 Session 当前的 Identifier History 与 Snapshot History，
+再加入本次 Restore request。即使 Restore 放弃当前分支，该分支中的 ID 仍作为
+tombstone 保留。两份 History 中 verified mapping 不一致时，以
+`409 identifier_history_conflict` 原子拒绝 Restore，绝不覆盖任一方。旧日志
+中重复使用过的 ID，或者无法恢复完整 typed request digest 的记录，会作为
+ambiguous tombstone 保持可读；以后任何使用这类 request ID 的尝试都会以
+`409 request_id_conflict` fail closed。
+
+从其他 Restore generation 导入的原始 duplicate 结果可能带来源 generation
+的 revision/head，不一定对应新本地事件链中可 Replay 的事件。它仍是该操作的
+不可变回执；当前本地 head 应通过 State 查询。
 
 启用
 `outcome-reporting-v1` 时，它会为两种持久恢复状态保留 pending Proposal：
@@ -449,16 +542,32 @@ Feature 的 Session 保留旧版行为并清空恢复出的 Proposal。
 {"protocol_version":"rin.protocol/v1","session_id":"playthrough-1","revision":42}
 ```
 
-Replay 会包含该 revision 已存在的角色记忆和剧情状态，因此沿用 Session API 的鉴权边界，不能当作脱敏日志接口。
+Replay 会包含该 revision 已存在的角色记忆和剧情状态，因此沿用 Session API
+的鉴权边界，不能当作脱敏日志接口。重放出的 `state` 对应指定 revision，但其
+Identifier History 会携带完整的本地 lineage tombstone 集，包括在该 State
+revision 之后首次使用的 ID。这种有意的不对称可防止 Restore 旧 Replay
+Snapshot 后重新使用后来的 ID；Identifier result revision 因此可以大于
+`snapshot.state.revision`。
+
+Identifier History 及其中保留的 Proposal/Arbitration 结果会随成功 mutation
+线性增长，也可能包含已从有界 cognition State 淘汰的历史模型文本，因此
+Snapshot 文件和正文必须按事件日志同等敏感级别保护。当前请求体与 SDK 响应
+大小上限仍是硬传输边界；完整传输大型 lineage 需要后续的有界 archive/streaming
+方案，不能静默截断 Identifier History。
 
 ## 常见错误
 
 | HTTP | 错误码 | 含义 |
 | --- | --- | --- |
 | `400` | `invalid_json` / `invalid_request` | JSON 或字段契约错误 |
+| `400` | `invalid_snapshot` | State 或 Identifier History 非法，或其 hash 不匹配 |
 | `401` | `unauthorized` | Bearer Token 缺失或错误 |
 | `404` | `session_not_found` / `unknown_actor` | 实体不存在 |
 | `404` | `revision_not_found` | Replay revision 不存在 |
+| `409` | `request_id_conflict` | Request ID ambiguous，或已绑定其他类型/payload |
+| `409` | `event_exists` | Event ID 已在该 Session lineage 中保留 |
+| `409` | `identifier_history_conflict` | Restore 的两份 History 含不兼容 verified identity |
+| `409` / `500` | `mutation_outcome_unknown` | 非 Proposal mutation 可能已持久化；保留它，并在任何其他 mutation 前只重试完全相同的请求 |
 | `409` | `state_changed` / `proposal_stale` | Proposal 生成或应用前仲裁的基础状态已改变 |
 | `409` | `proposal_base_mismatch` | Batch Outcome 混合了不同的原始 world revision |
 | `409` | `actor_not_due` | 尚未到该角色的思考 tick |

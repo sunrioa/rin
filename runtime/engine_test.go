@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -95,7 +96,7 @@ func TestEngineEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !repeated.Duplicate || repeated.Revision != 4 {
+	if !repeated.Duplicate || repeated.Revision != 2 {
 		t.Fatalf("expected idempotent result, got %+v", repeated)
 	}
 }
@@ -768,7 +769,7 @@ func (p *firstCallBlockingPolicy) Propose(ctx context.Context, input rinruntime.
 	}, nil
 }
 
-func TestConcurrentIdempotentProposeReportsEvictedProposal(t *testing.T) {
+func TestConcurrentIdempotentProposeReturnsOriginalEvictedProposal(t *testing.T) {
 	const sessionID = "session.concurrent-evicted-proposal"
 	policy := &firstCallBlockingPolicy{
 		started: make(chan struct{}),
@@ -786,10 +787,15 @@ func TestConcurrentIdempotentProposeReportsEvictedProposal(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := proposeRequest(sessionID, "propose.concurrent-evicted", 0, nil)
-	firstResult := make(chan error, 1)
+	type proposalCallResult struct {
+		proposal  protocol.ActionProposal
+		duplicate bool
+		err       error
+	}
+	firstResult := make(chan proposalCallResult, 1)
 	go func() {
-		_, _, err := engine.Propose(context.Background(), request)
-		firstResult <- err
+		result, duplicate, err := engine.Propose(context.Background(), request)
+		firstResult <- proposalCallResult{proposal: result, duplicate: duplicate, err: err}
 	}()
 	select {
 	case <-policy.started:
@@ -837,9 +843,9 @@ func TestConcurrentIdempotentProposeReportsEvictedProposal(t *testing.T) {
 
 	close(policy.release)
 	select {
-	case err := <-firstResult:
-		if !errors.Is(err, rinruntime.ErrNotFound) || rinruntime.ErrorCode(err) != "proposal_missing" {
-			t.Fatalf("blocked idempotent call should report its evicted proposal, got %v", err)
+	case result := <-firstResult:
+		if result.err != nil || !result.duplicate || !reflect.DeepEqual(result.proposal, proposal) {
+			t.Fatalf("blocked idempotent call did not return its original proposal: %+v", result)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("blocked idempotent call did not return")

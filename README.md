@@ -90,7 +90,23 @@ go run ./cmd/rin serve
 | `POST` | `/v1/session/timeline` | 读取脱敏事件时间线 |
 | `POST` | `/v1/session/replay` | 重放到指定 revision 并返回 Snapshot |
 
-所有写请求都带调用方生成的 `request_id`，重复请求返回相同结果，不重复修改状态。同一 ID 被用于不同操作时返回冲突。
+每个持久 Session mutation 都带调用方生成的 `request_id`。在同一 Session
+lineage 内，Rin 会把该 ID 永久绑定到 mutation 类型、canonical typed JSON
+payload 和首次持久结果。完全相同的重试不会修改状态，而是返回首次结果的
+revision/head（或原始 Proposal/Arbitration），并设置 `duplicate=true`；同一 ID
+用于不同操作或 payload 时返回 `409 request_id_conflict`。Observe、Commit 与
+Batch 的每个 Item 共用一个永久、Session-scoped 的 `event_id` 命名空间。有界
+State Receipt 只是这份历史的热投影。
+
+如果 Rin 无法确认非 Proposal mutation 是否已经写入持久 Store，会返回
+`mutation_outcome_unknown`。调用方必须保留原 Operation，并以完全相同的类型、
+payload 和 ID 重试；在同一 Request ID 下改变请求会返回
+`request_id_conflict`，其他 Session mutation 则会被这条未决 tail 阻塞。
+Proposal 写入继续使用兼容错误码 `proposal_outcome_unknown`，恢复规则相同。
+
+Proposal 与 Generation Job 记录采用独立的、有界进程内保留策略。特别是
+Generation Job 被淘汰或 Sidecar 重启后，同一请求可能再次执行；持久 Session
+mutation 的保证不适用于 Generation Job。
 
 完整字段和错误语义见 [协议文档](docs/protocol-v1.zh-CN.md)，职责边界见
 [架构文档](docs/architecture.zh-CN.md)，应用、结果记账和重试顺序见

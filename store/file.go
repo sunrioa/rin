@@ -124,6 +124,12 @@ func writeEvent(file *os.File, event protocol.EventRecord) error {
 	if err != nil {
 		return err
 	}
+	if len(payload) > maxEventRecordBytes {
+		return fmt.Errorf(
+			"event record exceeds the %d-byte readable limit",
+			maxEventRecordBytes,
+		)
+	}
 	payload = append(payload, '\n')
 	if _, err := file.Write(payload); err != nil {
 		return err
@@ -165,7 +171,9 @@ func readEventFile(path string) ([]protocol.EventRecord, error) {
 		return nil, fmt.Errorf("%w: event log has an incomplete tail", rinruntime.ErrCorruptLog)
 	}
 	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 64*1024), maxEventRecordBytes)
+	// Scanner's token buffer includes the newline delimiter while the shared
+	// limit describes the JSON EventRecord bytes themselves.
+	scanner.Buffer(make([]byte, 64*1024), maxEventRecordBytes+1)
 	events := make([]protocol.EventRecord, 0)
 	for line := 1; scanner.Scan(); line++ {
 		decoder := json.NewDecoder(bytes.NewReader(scanner.Bytes()))

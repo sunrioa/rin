@@ -54,6 +54,21 @@ retaining the legacy `beliefs` field as the currently selected projection.
 Both are reconstructed entirely by event replay and require no vector
 database.
 
+Durable request identity is deliberately separate from those bounded cognition
+projections. Each managed Session retains an `identifier-history-v1` ledger
+whose request entries bind a mutation kind and canonical typed-request digest
+to its original result, while event entries tombstone every accepted Observe
+or Outcome Event ID. `SessionState.Receipts` remains a 1,024-entry hot
+projection for compatibility and diagnostics; evicting it never removes
+Identifier History.
+
+The request digest is SHA-256 over canonical JSON produced after strict typed
+decoding. Exact retries therefore ignore object member order and whitespace but
+must match every typed field and array order. A duplicate returns the original
+Mutation revision/head or typed Proposal/Arbitration with `duplicate=true`.
+Those coordinates identify the first operation rather than the current live
+head.
+
 ### Policy
 
 The policy interface returns only a `ProposalDraft`. The runtime does not
@@ -107,18 +122,21 @@ GET. If the session changes while an actor is thinking, the job ends as
 `stale` and no obsolete proposal is written. Cancellation propagates through
 context to the HTTP provider.
 
-Job metadata remains in process memory. A successful proposal is already in
-the event log. After a sidecar restart, a client may resubmit the same
-`request_id`; the engine idempotently returns the proposal it already
-generated.
+Job metadata remains in process memory and may expire after its retention TTL.
+A successful Proposal is already in the event log. After Job eviction or a
+sidecar restart, a client may resubmit the exact request; the Engine's durable
+Session identity ledger returns the original Proposal even though the
+process-local Job record is reconstructed. Job timestamps and intermediate
+status are not durable.
 
 ### Structured generation
 
 `generation.Manager` provides another bounded asynchronous queue for
 game-owned constrained prompts. It reuses the resilient provider but does not
-read session state or write directly to the event log. Requests are
-idempotent over the complete payload and briefly cached by semantic content
-after removing the request ID. Cancellation propagates to the provider.
+read Session State or write to the event log. Same-request deduplication lasts
+only while the process-local Job record is retained; semantic content after
+removing the request ID is cached briefly. After eviction or restart, an exact
+request may invoke the provider again. Cancellation propagates to the provider.
 
 Generation guarantees only transport, size, and a valid top-level JSON
 object. Each game must still validate its own `ScenePacket`, quest, dialogue,
@@ -167,6 +185,12 @@ produces a complete, verifiable snapshot without writing to the store.
 `rin inspect` reuses both paths for machine-readable diagnostics; opening a
 data directory still verifies the entire event hash chain.
 
+Replay State is revision-specific, but its Snapshot carries the complete
+local-lineage Identifier History, including tombstones created after the
+selected State revision. Otherwise, restoring an old Replay result would make
+later IDs reusable. Identifier result revisions can consequently exceed the
+replayed State revision.
+
 ### Mutation and state closure
 
 Every event is first applied to an isolated candidate state. The reducer then
@@ -178,6 +202,22 @@ both the event log and the in-memory session unchanged. Store write failures
 use the separate append-confirmation and reconciliation rules described by the
 outcome protocol.
 
+The same durability boundary applies to Identifier History. A successful
+append publishes State and its request/Event ID entries together. A failed or
+uncertain append cannot expose a tombstone without its event or expose an event
+without its tombstone; reconciliation derives both from the confirmed durable
+tail.
+
+When a Store error leaves append durability unknown, the Engine does not
+publish the candidate State or Identifier History. It retains an uncertainty
+barrier for the exact logical event: only the same mutation kind and canonical
+typed-request digest may attempt confirmation, while every other Session
+mutation fails closed behind it. Non-Proposal operations surface
+`mutation_outcome_unknown`; Proposal keeps `proposal_outcome_unknown` for wire
+compatibility. A successful exact retry reconciles the confirmed durable tail
+and publishes State plus Identifier History once. Create and fresh Restore use
+the same rule before registering the Session in memory.
+
 Policy calls receive isolated copies of the State, Actor, and request. Policy
 code may inspect or mutate those values locally, but it cannot mutate the live
 session outside an event. Runtime-owned collections also close their
@@ -186,6 +226,16 @@ IDs to the replacement Summary, non-archive eviction removes those references,
 and Belief/BeliefSet eviction is deterministic and paired.
 
 ### Store
+
+All Store operations for one Session must be linearizable,
+and `Load` must be read-after-write consistent with `Create` and `Append`.
+The Engine treats
+`ErrNotFound` immediately after a failed Create as proof that no first event
+was written, and an unchanged authoritative tail immediately after a failed
+Append as proof that the candidate event was not written. A custom Store that
+cannot make either observation authoritative must return an uncertainty error
+from `Load`, never stale data; eventually consistent implementations do not
+satisfy the runtime Store contract.
 
 File-store layout:
 
@@ -204,6 +254,18 @@ Snapshots are immutable files named by revision and hash, written through a
 temporary file in the same directory, `fsync`, and rename with `0600`
 permissions. This avoids relying on platform-specific overwrite-rename
 behavior.
+
+Startup also rebuilds permanent Identifier History from the complete local
+event chain. Legacy entries whose full request digest cannot be recovered, or
+whose ID was historically reused, become ambiguous tombstones: the old log
+remains readable, but a later request cannot safely reuse that ID.
+
+Snapshot `state_hash` covers bounded State. `identifier_history_hash`
+independently covers canonical `identifier_history`, including its
+`identifier-history-v1` version and `coverage_complete` marker. History retains
+original Proposal/Arbitration results, so it grows linearly with mutations and
+may re-expose text already evicted from cognition State. Snapshot files and
+bodies require the same confidentiality controls as the full event log.
 
 The file store is single-writer. Only one Rin process may use a data directory
 at a time. Multi-instance deployments should implement an externally
@@ -227,6 +289,13 @@ only scheduling time, never boundaries or the action allowlist.
 - A snapshot carries the content-pack binding and state hash. Rin validates a
   cloned State before hashing or saving it, so every successfully returned
   snapshot passes the same structural validation used by Restore.
+- A new Snapshot also carries `identifier_history` and
+  `identifier_history_hash`. The history is outside bounded State and retains
+  permanent request/Event ID tombstones plus original operation results.
+- A legacy Snapshot without history remains readable, but its coverage is
+  permanently incomplete: only IDs still discoverable from its bounded State
+  can be seeded. `coverage_complete=false` is sticky across all later Snapshot
+  and Restore merges.
 - With `outcome-reporting-v1`, Restore retains pending proposals so a saved,
   unhandled Proposal Attempt can resume, and so a game-save Outcome Outbox can
   report actions already applied before the save. Restored proposals never
@@ -242,11 +311,22 @@ only scheduling time, never boundaries or the action allowlist.
   that generation before the restored State is published. Imported historical
   Receipt revisions are set to zero; the new Restore Receipt records the local
   generation.
+- Restore unions the current and imported Identifier Histories. IDs from an
+  abandoned future branch remain tombstoned; incompatible verified mappings
+  reject Restore instead of being overwritten.
+- A duplicate result imported from another generation retains the original
+  operation revision/head. Those coordinates may not be replayable in the new
+  local chain and must not be treated as its current head.
 - A new data directory may import a snapshot; its local event chain then
   begins with a restore event.
 - When loading the same save repeatedly, callers should bind the restore
   request ID to both the saved snapshot hash and current sidecar head. This
   distinguishes a network retry from a real second rollback.
+- Identifier History grows with the lineage. Current HTTP request limits and
+  the SDK response limits remain transport bounds, so arbitrarily long
+  lineages are not yet guaranteed to round-trip through one JSON request. A
+  bounded archive/streaming transport is follow-up work; history must never be
+  silently truncated.
 
 ## Model integration rule
 

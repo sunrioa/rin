@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -69,6 +70,51 @@ func TestStrictJSONAndBodyLimit(t *testing.T) {
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusUnsupportedMediaType {
 		t.Fatalf("content type status: %d", response.Code)
+	}
+}
+
+func TestInvalidSnapshotMapsToBadRequest(t *testing.T) {
+	server := newServer(t, httpapi.Options{})
+	response := perform(t, server, "/v1/session/restore", protocol.RestoreRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       "session.invalid-snapshot",
+		RequestID:       "restore.invalid-snapshot",
+		Snapshot: protocol.Snapshot{
+			ProtocolVersion: protocol.Version,
+			State: protocol.SessionState{
+				SessionID: "session.invalid-snapshot",
+			},
+		},
+	})
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("invalid snapshot status: %d %s", response.Code, response.Body.String())
+	}
+	var envelope protocol.APIResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Error == nil || envelope.Error.Code != "invalid_snapshot" {
+		t.Fatalf("invalid snapshot error: %+v", envelope.Error)
+	}
+}
+
+func TestDefiniteCreateStorageFailureMapsToInternalServerError(t *testing.T) {
+	eventStore := &definiteCreateFailureStore{Store: store.NewMemory()}
+	engine, err := rinruntime.Open(eventStore, policy.Deterministic{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httpapi.New(engine, httpapi.Options{})
+	response := perform(t, server, "/v1/session/create", apiCreateRequest())
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("definite storage failure status: %d %s", response.Code, response.Body.String())
+	}
+	var envelope protocol.APIResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Error == nil || envelope.Error.Code != "store_create_failed" {
+		t.Fatalf("definite storage failure error: %+v", envelope.Error)
 	}
 }
 
@@ -483,6 +529,16 @@ type generationFixture struct{}
 
 func (generationFixture) Complete(context.Context, provider.CompletionRequest) (provider.CompletionResponse, error) {
 	return provider.CompletionResponse{Content: `{"answer":"ok"}`, Model: "fixture"}, nil
+}
+
+var errDefiniteCreateFailure = errors.New("definite create failure")
+
+type definiteCreateFailureStore struct {
+	rinruntime.Store
+}
+
+func (s *definiteCreateFailureStore) Create(string, protocol.EventRecord) error {
+	return errDefiniteCreateFailure
 }
 
 func newServer(t *testing.T, options httpapi.Options) http.Handler {

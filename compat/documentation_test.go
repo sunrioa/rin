@@ -77,7 +77,7 @@ func TestPublicDocsUseOutcomeReportingSemantics(t *testing.T) {
 			"outcome_event_id",
 			"arbitration-v1",
 			"BatchCommitRequest.tick",
-			"尚未处理的存档 Attempt",
+			"处理的存档 Attempt 能恢复",
 		},
 		"../docs/protocol-v1.md": {
 			"job.error.code",
@@ -178,7 +178,10 @@ func TestStateClosureDocumentationContract(t *testing.T) {
 			"Recall counts saturate at 1,000,000",
 			"Retained Proposal and Arbitration tick fields are not upper-bounded",
 			"Imported historical Receipt revisions become",
-			"provide a permanent Event ID index",
+			"This permanent ledger is reconstructed from",
+			"`coverage_complete=false`",
+			"`identifier_history_conflict`",
+			"`mutation_outcome_unknown`",
 		},
 		"../docs/protocol-v1.zh-CN.md": {
 			"Actor Goals | 32",
@@ -187,17 +190,28 @@ func TestStateClosureDocumentationContract(t *testing.T) {
 			"RecallCount 在 1,000,000 饱和",
 			"State 中保留的 Proposal 与 Arbitration tick 不受",
 			"导入的历史 Receipt revision 会在",
-			"尚未提供超出这些投影的永久 Event ID",
+			"Identifier History 仍会保留 Request 与 Event",
+			"`coverage_complete=false`",
+			"`identifier_history_conflict`",
+			"`mutation_outcome_unknown`",
 		},
 		"../docs/architecture.md": {
 			"reducer or candidate-validation failure",
 			"Policy calls receive isolated copies",
 			"Receipt revisions are set to zero",
+			"`identifier-history-v1`",
+			"`mutation_outcome_unknown`",
+			"Store operations for one Session must be linearizable",
+			"`Load` must be read-after-write consistent",
 		},
 		"../docs/architecture.zh-CN.md": {
 			"reducer 或候选校验失败",
 			"Policy 调用收到 State、Actor 和请求的隔离副本",
 			"历史 Receipt revision 设为 0",
+			"`identifier-history-v1`",
+			"`mutation_outcome_unknown`",
+			"Store 操作必须可线性化",
+			"`Load` 对 `Create` 与",
 		},
 	}
 	for path, fragments := range required {
@@ -222,9 +236,13 @@ func TestStateClosureDocumentationContract(t *testing.T) {
 		},
 		"../docs/protocol-v1.md": {
 			"persistent idempotency index described in the migration roadmap",
+			"does not provide a permanent Event ID index",
+			"does not scan the unbounded event log",
 		},
 		"../docs/protocol-v1.zh-CN.md": {
 			"迁移路线中的持久幂等索引",
+			"尚未提供超出这些投影的永久 Event ID",
+			"不会在该 ID 的所有有界投影均被淘汰后扫描无界事件日志",
 		},
 	}
 	for path, fragments := range prohibited {

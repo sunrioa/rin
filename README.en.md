@@ -115,9 +115,26 @@ additional persistence allowlist.
 | `POST` | `/v1/session/timeline` | Read the redacted event timeline |
 | `POST` | `/v1/session/replay` | Replay to a revision and return a snapshot |
 
-Every write request carries a caller-generated `request_id`. Repeating a
-request returns the same result without mutating state again. Reusing the same
-ID for another operation returns a conflict.
+Every durable Session mutation carries a caller-generated `request_id`.
+Within one Session lineage, Rin permanently binds that ID to the mutation kind,
+the canonical typed JSON payload, and its first durable result. An exact retry
+does not mutate state: it returns the first result's revision/head (or the
+original Proposal/Arbitration) with `duplicate=true`. Reusing the ID for a
+different operation or payload returns `409 request_id_conflict`. Observe,
+Commit, and every Batch item share a permanent, Session-scoped `event_id`
+namespace. Bounded State Receipts are only a hot projection of this history.
+
+If Rin cannot confirm whether a non-Proposal mutation reached durable storage,
+it returns `mutation_outcome_unknown`. Keep the original operation pending and
+retry its exact kind, payload, and IDs; changing the same request returns
+`request_id_conflict`, while other Session mutations remain blocked behind the
+uncertain tail. Proposal writes retain the compatible
+`proposal_outcome_unknown` code and the same recovery rule.
+
+Proposal and Generation Job records have separate, bounded in-process
+retention. In particular, a Generation request may run again after its Job is
+evicted or the sidecar restarts; the durable Session-mutation guarantee does
+not apply to Generation Jobs.
 
 See the [protocol reference](docs/protocol-v1.md) for complete fields and
 error semantics, the [architecture guide](docs/architecture.md) for

@@ -286,7 +286,7 @@ func TestCommitRecoversWhenPostWriteConfirmationInitiallyFails(t *testing.T) {
 
 	eventStore.failPostWriteAndConfirmation()
 	if _, err := engine.Commit(request); !errors.Is(err, errInjectedAppend) ||
-		rinruntime.ErrorCode(err) != "store_append_failed" {
+		rinruntime.ErrorCode(err) != "mutation_outcome_unknown" {
 		t.Fatalf("failed durability confirmation should be reported: %v", err)
 	}
 	afterFailure, err := engine.State(sessionRequest(sessionID))
@@ -304,7 +304,7 @@ func TestCommitRecoversWhenPostWriteConfirmationInitiallyFails(t *testing.T) {
 	altered.Outcome = "A different payload must not claim the persisted request."
 	eventStore.forceNextAppendConflict()
 	if _, err := engine.Commit(altered); err == nil ||
-		rinruntime.ErrorCode(err) != "store_append_failed" {
+		rinruntime.ErrorCode(err) != "request_id_conflict" {
 		t.Fatalf("altered same-ID retry must not reconcile the persisted event: %v", err)
 	}
 	afterAltered, err := engine.State(sessionRequest(sessionID))
@@ -326,8 +326,8 @@ func TestCommitRecoversWhenPostWriteConfirmationInitiallyFails(t *testing.T) {
 	if _, err := engine.Commit(request); err != nil {
 		t.Fatalf("client retry should reconcile the previously persisted logical event: %v", err)
 	}
-	if calls := eventStore.appendCallCount(); calls != 5 {
-		t.Fatalf("logical reconciliation used %d append calls, want 5", calls)
+	if calls := eventStore.appendCallCount(); calls != 4 {
+		t.Fatalf("logical reconciliation used %d append calls, want 4", calls)
 	}
 	assertAcceptedOutcomeOnce(t, engine, sessionID, proposal.ActorID, proposal.ID, request.EventID)
 	events, err = eventStore.Load(sessionID)
@@ -604,6 +604,22 @@ func TestCreateReconcilesPostWriteErrorWithoutRestart(t *testing.T) {
 	}
 }
 
+func TestDefiniteCreateFailureDoesNotLeavePendingIdentity(t *testing.T) {
+	eventStore := &definiteCreateFailureStore{Store: store.NewMemory(), fail: true}
+	engine := newEngine(t, eventStore, policy.Deterministic{})
+	request := createRequest("session.atomic-definite-create-failure")
+	if _, err := engine.CreateSession(request); !errors.Is(err, errInjectedAppend) ||
+		rinruntime.ErrorCode(err) != "store_create_failed" {
+		t.Fatalf("definite pre-write create failure = %v, want store_create_failed", err)
+	}
+	eventStore.fail = false
+	altered := request
+	altered.Seed++
+	if _, err := engine.CreateSession(altered); err != nil {
+		t.Fatalf("definite failure incorrectly retained a pending request identity: %v", err)
+	}
+}
+
 func TestCreateReconciliationNeverPublishesUnverifiedLoadedEvent(t *testing.T) {
 	for _, test := range staleHashEventMutations() {
 		t.Run(test.name, func(t *testing.T) {
@@ -637,7 +653,7 @@ func TestCreateRetryRecoversAfterConfirmationFailure(t *testing.T) {
 	request := createRequest("session.atomic-create-retry")
 
 	if _, err := engine.CreateSession(request); !errors.Is(err, errInjectedAppend) ||
-		rinruntime.ErrorCode(err) != "store_create_failed" {
+		rinruntime.ErrorCode(err) != "mutation_outcome_unknown" {
 		t.Fatalf("failed create confirmation should be reported: %v", err)
 	}
 	if _, err := engine.State(sessionRequest(request.SessionID)); rinruntime.ErrorCode(err) != "session_not_found" {
@@ -650,8 +666,8 @@ func TestCreateRetryRecoversAfterConfirmationFailure(t *testing.T) {
 	if result.Duplicate {
 		t.Fatalf("first registered result is not a client duplicate: %+v", result)
 	}
-	if calls := eventStore.createCallCount(); calls != 4 {
-		t.Fatalf("create recovery used %d calls, want failed write/confirm plus logical/exact retry", calls)
+	if calls := eventStore.createCallCount(); calls != 3 {
+		t.Fatalf("create recovery used %d calls, want failed write/confirm plus exact-event retry", calls)
 	}
 	events, err := eventStore.Load(request.SessionID)
 	if err != nil {
@@ -663,6 +679,31 @@ func TestCreateRetryRecoversAfterConfirmationFailure(t *testing.T) {
 	reopened := newEngine(t, eventStore, policy.Deterministic{})
 	if _, err := reopened.State(sessionRequest(request.SessionID)); err != nil {
 		t.Fatalf("recovered create did not replay after restart: %v", err)
+	}
+}
+
+func TestPendingCreateBlocksOtherMutationsWithOutcomeUnknown(t *testing.T) {
+	eventStore := newAmbiguousCreateStore(store.NewMemory())
+	eventStore.failAfterWrite(true)
+	engine := newEngine(t, eventStore, policy.Deterministic{})
+	request := createRequest("session.atomic-create-barrier")
+
+	if _, err := engine.CreateSession(request); rinruntime.ErrorCode(err) != "mutation_outcome_unknown" {
+		t.Fatalf("failed create confirmation = %v, want mutation_outcome_unknown", err)
+	}
+	if _, err := engine.Observe(observeRequest(
+		request.SessionID,
+		"observe.atomic-create-barrier",
+		"event.atomic-create-barrier",
+		1,
+	)); rinruntime.ErrorCode(err) != "mutation_outcome_unknown" || !errors.Is(err, rinruntime.ErrConflict) {
+		t.Fatalf("observation crossed pending create barrier: %v", err)
+	}
+	if _, _, err := engine.Propose(
+		context.Background(),
+		proposeRequest(request.SessionID, "propose.atomic-create-barrier", 0, nil),
+	); rinruntime.ErrorCode(err) != "mutation_outcome_unknown" || !errors.Is(err, rinruntime.ErrConflict) {
+		t.Fatalf("proposal crossed pending create barrier: %v", err)
 	}
 }
 
@@ -687,7 +728,7 @@ func TestFreshRestoreRetryRecoversAfterConfirmationFailure(t *testing.T) {
 		Snapshot:        snapshot,
 	}
 	if _, err := engine.Restore(request); !errors.Is(err, errInjectedAppend) ||
-		rinruntime.ErrorCode(err) != "store_create_failed" {
+		rinruntime.ErrorCode(err) != "mutation_outcome_unknown" {
 		t.Fatalf("failed fresh-restore confirmation should be reported: %v", err)
 	}
 	if _, err := engine.State(sessionRequest(sessionID)); rinruntime.ErrorCode(err) != "session_not_found" {
@@ -700,8 +741,8 @@ func TestFreshRestoreRetryRecoversAfterConfirmationFailure(t *testing.T) {
 	if result.Duplicate {
 		t.Fatalf("first registered restore result is not a client duplicate: %+v", result)
 	}
-	if calls := eventStore.createCallCount(); calls != 4 {
-		t.Fatalf("fresh-restore recovery used %d create calls, want 4", calls)
+	if calls := eventStore.createCallCount(); calls != 3 {
+		t.Fatalf("fresh-restore recovery used %d create calls, want 3", calls)
 	}
 	state, err := engine.State(sessionRequest(sessionID))
 	if err != nil {
@@ -815,6 +856,21 @@ type ambiguousCreateStore struct {
 	failStage            int
 	failConfirmationOnce bool
 	createCalls          int
+}
+
+type definiteCreateFailureStore struct {
+	rinruntime.Store
+	fail bool
+}
+
+func (s *definiteCreateFailureStore) Create(
+	sessionID string,
+	event protocol.EventRecord,
+) error {
+	if s.fail {
+		return errInjectedAppend
+	}
+	return s.Store.Create(sessionID, event)
 }
 
 type tamperedConfirmationStore struct {
