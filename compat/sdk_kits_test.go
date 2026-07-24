@@ -328,6 +328,42 @@ func TestCSharpJobStatusUsesRawJSONStrings(t *testing.T) {
 	}
 }
 
+func TestCSharpCIMatrixPreservesTheDefaultTarget(t *testing.T) {
+	for _, path := range []string{
+		"../sdk/csharp/Rin.Client/Rin.Client.csproj",
+		"../sdk/csharp/Rin.Client.Tests/Rin.Client.Tests.csproj",
+	} {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(payload)
+		for _, required := range []string{
+			`<RinTargetFramework Condition="'$(RinTargetFramework)' == ''">net6.0</RinTargetFramework>`,
+			`<TargetFramework>$(RinTargetFramework)</TargetFramework>`,
+		} {
+			if !strings.Contains(text, required) {
+				t.Errorf("%s is missing conditional target marker %q", path, required)
+			}
+		}
+	}
+
+	workflow, err := os.ReadFile("../.github/workflows/ci.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		`framework: "net6.0"`,
+		`framework: "net10.0"`,
+		`-p:RinTargetFramework=${{ matrix.framework }}`,
+		`sdk/csharp/Rin.Client.Tests/bin/Debug/${{ matrix.framework }}/Rin.Client.Tests.dll`,
+	} {
+		if !strings.Contains(string(workflow), required) {
+			t.Errorf("C# CI matrix is missing %q", required)
+		}
+	}
+}
+
 func TestExampleModsPreserveGameAuthority(t *testing.T) {
 	tests := []struct {
 		path      string

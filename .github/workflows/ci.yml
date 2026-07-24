@@ -118,7 +118,7 @@ jobs:
       - name: Build and test C# SDK
         run: |
           dotnet build sdk/csharp/Rin.Client.Tests/Rin.Client.Tests.csproj \
-            -p:TargetFramework=${{ matrix.framework }} \
+            -p:RinTargetFramework=${{ matrix.framework }} \
             --nologo
           dotnet exec \
             sdk/csharp/Rin.Client.Tests/bin/Debug/${{ matrix.framework }}/Rin.Client.Tests.dll
