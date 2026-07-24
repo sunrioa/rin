@@ -54,9 +54,21 @@ jobs:
           CGO_ENABLED: "0"
         run: go build -trimpath ./cmd/rin
       - name: Test bundled File Store and Sidecar lifecycle
+        shell: bash
         env:
           CGO_ENABLED: "0"
-        run: go test ./store ./cmd/rin
+        run: |
+          set +e
+          output="$(go test ./store ./cmd/rin 2>&1)"
+          status=$?
+          printf '%s\n' "$output"
+          if [ "$status" -ne 0 ]; then
+            escaped="${output//'%'/'%25'}"
+            escaped="${escaped//$'\r'/'%0D'}"
+            escaped="${escaped//$'\n'/'%0A'}"
+            printf '::error title=File Store and Sidecar lifecycle tests::%s\n' "$escaped"
+          fi
+          exit "$status"
 
   sdk-python:
     runs-on: ubuntu-latest
