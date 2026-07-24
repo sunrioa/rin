@@ -4,10 +4,11 @@
 
 ## Status
 
-This is the implementation decision for a future Session Transfer facility. It
-does not claim that Rin `0.6.0` already exposes these operations. Until the
-design is implemented, tested, and added to the contract, the existing 16 MiB
-inline Snapshot limit remains authoritative.
+This is the implementation decision for a future Session Transfer facility.
+Protocol frame types, structural validators, and checksum primitives now exist,
+but Rin does not yet expose export or import operations. Until the Store,
+Runtime, HTTP, contract, and SDK work is complete, the existing 16 MiB inline
+Snapshot limit remains authoritative.
 
 ## Problem
 
@@ -41,6 +42,30 @@ RecordedAt, Hash, or any other authoritative member.
 The complete frame repeats the terminal revision, head, and event count and
 carries an ordered stream SHA-256. Import publishes nothing until it reads and
 verifies the complete frame.
+
+#### Version 1 frame and hash profile
+
+`rin.session-transfer/v1` is a complete-lineage format: `start_revision` is
+zero, `start_head_hash` is empty, `event_count` is greater than zero, and
+`terminal_revision` equals `event_count`. It uses only lowercase hexadecimal
+SHA-256 (`hash_algorithm: "sha256"`). Revisions, counts, and lineage generation
+must remain exact JSON integers no greater than `9007199254740991`.
+
+Checksums use the compact UTF-8 JSON produced by the declared wire member order
+in the protocol structs, with no insignificant whitespace. `EventRecord.Data`
+retains its original compact JSON member order and value representation. The
+per-event checksum is SHA-256 over the compact `EventRecord` object. The stream
+checksum is SHA-256 over the compact manifest followed by LF, then each compact
+event frame followed by LF, in sequence order. It excludes the `complete`
+frame. Cross-language implementations must use the golden vectors in
+`protocol/transfer_test.go`; parsing into an unordered object and serializing it
+with implementation-default member order is not conformant.
+
+Validators reject non-genesis starts, unsafe integers, invalid timestamps or
+JSON, checksum mismatches, sequence gaps, broken `prev_hash` continuity, extra
+events, and a terminal boundary that differs from the manifest or final event.
+The authoritative `EventRecord.Hash` chain is separately verified during
+Runtime replay; transport checksums do not replace it.
 
 ### 2. Keep every frame bounded
 
@@ -142,7 +167,7 @@ the Snapshot endpoint media type.
 
 ## Implementation order
 
-1. Define protocol frames, validators, and hash rules.
+1. Define protocol frames, validators, and hash rules. **Implemented.**
 2. Define `TransferStore` and implement File Store staging/atomic publication.
 3. Implement the immutable Runtime export boundary and post-import genesis
    verification.

@@ -4,9 +4,9 @@
 
 ## 状态
 
-本文是下一版 Session Transfer 的实施决策，不表示 `0.6.0` 已经提供这些接口。
-当前版本仍只有 16 MiB inline Snapshot；在本设计完整实现、测试并进入契约前，
-调用方必须继续遵守现有限制。
+本文是下一版 Session Transfer 的实施决策。Protocol frame 类型、结构校验器和
+checksum primitive 已实现，但 Rin 还没有开放 export/import operation。在 Store、
+Runtime、HTTP、契约与 SDK 全部完成前，现有 16 MiB inline Snapshot 上限仍然有效。
 
 ## 问题
 
@@ -34,6 +34,27 @@ Data、RecordedAt、Hash 或其他权威字段。
 
 Complete frame 重复终止 revision、head 和 event count，并携带按 frame 顺序计算
 的 stream SHA-256。导入只有完整读取并验证 complete 后才可发布 Session。
+
+#### Version 1 frame 与 hash profile
+
+`rin.session-transfer/v1` 只支持完整 lineage：`start_revision` 必须为零、
+`start_head_hash` 必须为空、`event_count` 必须大于零，并且
+`terminal_revision` 必须等于 `event_count`。算法只允许小写十六进制 SHA-256
+（`hash_algorithm: "sha256"`）。Revision、count 和 lineage generation 必须是
+不超过 `9007199254740991` 的精确 JSON integer。
+
+Checksum 输入是 protocol struct 所声明 wire member 顺序生成的 compact UTF-8
+JSON，不含无意义空白。`EventRecord.Data` 保持原 compact JSON 的 member 顺序和
+value 表示。单 event checksum 是 compact `EventRecord` Object 的 SHA-256。
+Stream checksum 按顺序覆盖 compact manifest 加 LF，以及每个 compact event
+frame 加 LF；不包含 `complete` frame。跨语言实现必须通过
+`protocol/transfer_test.go` 中的 golden vector；把 JSON 解析为无序 Object 后用
+语言默认顺序重新序列化不符合契约。
+
+校验器会拒绝非 genesis 起点、不安全整数、非法时间或 JSON、checksum 不匹配、
+sequence gap、断裂的 `prev_hash`、多余 event，以及与 manifest 或最终 event
+不一致的终止边界。Runtime replay 还会单独验证权威 `EventRecord.Hash` chain；
+传输 checksum 不能替代它。
 
 ### 2. 每个 frame 保持有界
 
@@ -119,7 +140,7 @@ Snapshot endpoint 的媒体类型。
 
 ## 实施顺序
 
-1. 定义 protocol frame、校验器和 hash 规则；
+1. 定义 protocol frame、校验器和 hash 规则；**已实现。**
 2. 定义 `TransferStore`，实现 File Store staging/atomic publish；
 3. 实现 Runtime immutable export boundary 和 import 后 genesis verify；
 4. 增加 HTTP stream；
