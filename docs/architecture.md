@@ -180,16 +180,38 @@ scene tree.
 
 Timeline extracts only IDs and enum states from event payloads. It does not
 return the player's original words, story summaries, commit outcomes, or
-model content. Replay runs the same reducer to a selected revision and
-produces a complete, verifiable snapshot without writing to the store.
-`rin inspect` reuses both paths for machine-readable diagnostics; opening a
-data directory still verifies the entire event hash chain.
+model content. On the bundled file store, Timeline reads a bounded revision
+range and does not rerun the reducer over the complete log for every page.
+Replay uses the newest usable checkpoint at or before the selected revision,
+then runs the normal reducer over the remaining tail and produces a complete,
+verifiable Snapshot without writing an exported Snapshot to the store.
+Once the Session is loaded, Timeline and Replay capture their live-session
+boundary under the Session lock, then perform range I/O and replay after
+releasing that mutation lock. A first lazy load remains serialized.
+`rin inspect` reuses both paths for machine-readable diagnostics. With a
+healthy revision index it locates the requested trailing Timeline window
+directly, instead of paging forward from genesis merely to retain the last
+entries.
 
 Replay State is revision-specific, but its Snapshot carries the complete
 local-lineage Identifier History, including tombstones created after the
 selected State revision. Otherwise, restoring an old Replay result would make
 later IDs reusable. Identifier result revisions can consequently exceed the
 replayed State revision.
+
+Opening an Engine is intentionally lazy: it enumerates Session IDs but does
+not read every Session history. The first operation on a Session verifies and
+loads that Session through the checkpoint-and-tail recovery path.
+After successful recovery, Runtime best-effort asynchronously queues a
+checkpoint at the recovered head when no usable checkpoint was selected, or
+when `head revision / selected checkpoint revision >= 2`. The checkpoint may
+not be durable when the read returns. This derived cache write is not part of
+read success and its failure is ignored; the [Store](#store) section describes
+the bounded worker and concurrency contract.
+`Engine.VerifyAll()` is the explicit maintenance operation for a
+checkpoint-independent, genesis-to-head replay and hash-chain audit of every
+Session. Ordinary `rin inspect` reads only its requested Session and does not
+implicitly perform that data-directory-wide audit.
 
 ### Mutation and state closure
 
@@ -241,24 +263,85 @@ File-store layout:
 
 ```text
 rin-data/
+├── .rin.lock
 └── sessions/
     └── session.id/
         ├── events.jsonl
+        ├── events.idx
+        ├── checkpoint-<revision>-<hash>.json
         └── snapshot-<revision>-<hash>.json
 ```
 
 An event hash covers sequence, type, request ID, recorded time, previous event
-hash, and payload. Startup fully replays and verifies the chain. A broken
-link, rewritten record, or unknown event type prevents session loading.
-Snapshots are immutable files named by revision and hash, written through a
-temporary file in the same directory, `fsync`, and rename with `0600`
-permissions. This avoids relying on platform-specific overwrite-rename
-behavior.
+hash, and payload. `events.jsonl` is the authority and uses
+`retain_forever`: Rin does not automatically delete or compact events because
+Replay, permanent request/Event ID identity, and audit depend on the lineage.
+Operators must plan capacity, backup, and archival around that policy rather
+than deleting an active log behind Rin.
 
-Startup also rebuilds permanent Identifier History from the complete local
-event chain. Legacy entries whose full request digest cannot be recovered, or
-whose ID was historically reused, become ambiguous tombstones: the old log
-remains readable, but a later request cannot safely reuse that ID.
+`events.idx` is a derived revision/offset/hash index used for head and bounded
+range reads. A missing, stale, or malformed index is rebuilt atomically from
+`events.jsonl`; the rebuild performs one complete log scan. A healthy index is
+cached after first access, so later Timeline pages do not repeatedly scan or
+materialize the complete event log. Deleting the index is safe, but the next
+access pays the rebuild cost.
+
+The base `Store` API remains source-compatible. Optional `RangeStore` supplies
+`Head` and bounded `LoadRange`; optional `CheckpointStore` supplies
+`LoadCheckpoint` and `SaveCheckpoint`. Checkpoint acceleration requires the
+same Store to implement both interfaces, because Runtime uses `RangeStore` to
+validate each checkpoint's event-chain anchor. An internal checkpoint uses
+`CheckpointFormatVersion = "rin.checkpoint/v1"` and
+`ReducerProjectionVersion = "rin.reducer-projection/v1"`. It is a derived
+cache, not a public Snapshot, backup, or source of authority, and carries the
+Session/revision/head anchor, lineage epoch, complete State and Identifier
+History projection, and a checksum. Before use, Runtime validates that wrapper,
+the projection version and checksum, the enclosed Snapshot, and the matching
+event-chain anchor. A missing, corrupt, obsolete, or mismatched checkpoint is
+skipped in favor of an older candidate or genesis replay. The checksum detects
+accidental corruption; it is not authentication or provenance proof.
+Checkpoint write failure never reverses an already durable mutation or fails a
+successfully recovered read.
+
+Runtime queues a revision-1 checkpoint after Session creation (including a
+fresh Session created by Restore), then automatically queues checkpoints only
+at power-of-two revisions at or above 256. It does not checkpoint every
+multiple of 256 or every later Restore. Successful lazy recovery queues a
+repair when no usable checkpoint exists, or when
+`head revision / selected checkpoint revision >= 2`; a small valid tail does
+not cause an exact-head rewrite on every restart.
+
+Checkpoint construction and persistence are best-effort asynchronous work.
+While holding the Session mutation lock, Runtime captures the immutable
+published State reference and shallow-copies the two Identifier History maps;
+ledger entries are immutable after insertion. Full cloning, validation,
+hashing, and `SaveCheckpoint` I/O run outside that lock. Within one Engine,
+each managed Session has at most one worker and one latest pending capture, so
+crossing several thresholds while a save is active coalesces to the newest
+pending revision. Multiple Engines sharing a Store can each have such a
+worker. A mutation or successful lazy read does not wait for the derived
+checkpoint to finish, and the checkpoint might therefore not be visible
+immediately when the call returns.
+
+`SaveCheckpoint` may run concurrently with `Append`, `Load`, `Head`, or
+`LoadRange` for the same Session. A CheckpointStore must be concurrency-safe
+and isolate expensive derived-artifact work from synchronization needed by
+authoritative event operations. Runtime does not expose a Close/drain
+operation: a Store that blocks `SaveCheckpoint` forever can strand the one
+bounded worker for that managed Session in that Engine, though it must not
+change the durable mutation result. The file store keeps the two newest valid
+checkpoint files per Session. Checkpoints deliberately do not use the public
+16 MiB inline Snapshot ceiling, because they never cross the Snapshot JSON API
+boundary. They remain sensitive event-log-level state.
+
+Public Snapshot files are named by revision and State hash, but their contents
+are not immutable by path. The file store atomically replaces the same path to
+repair a damaged artifact or persist the same State revision/hash with newer
+Identifier History. Consumers must validate `identifier_history_hash` and must
+not treat the filename as the complete Snapshot identity. The file store keeps
+the two newest valid Snapshot files per Session. This retention applies only
+to those local files; it neither truncates Identifier History nor changes the
+16 MiB inline Snapshot/Replay/Restore contract.
 
 Snapshot `state_hash` covers bounded State. `identifier_history_hash`
 independently covers canonical `identifier_history`, including its
@@ -271,9 +354,48 @@ damage or an edit that did not update the checksum, but they are not signatures
 or provenance proof and cannot stop an editor who can recompute them. A
 Snapshot is trusted, opaque serialized state, not an untrusted import format.
 
-The file store is single-writer. Only one Rin process may use a data directory
-at a time. Multi-instance deployments should implement an externally
-coordinated store instead of sharing a JSONL directory.
+The file store obtains a non-blocking exclusive lease on `.rin.lock` before
+opening the data directory. A second process fails to open the same directory;
+the lease remains held until `(*store.File).Close`, which is idempotent and
+waits for in-flight Store calls. Embedded users must therefore always call
+`Close`; the `rin serve` and `rin inspect` commands do so automatically.
+The bundled `flock` implementation currently supports only `darwin` and
+`linux`. On every other GOOS, `store.OpenFile` returns
+`ErrDataDirectoryLockUnsupported` and fails closed instead of returning a
+usable File Store without the single-writer guarantee. Multi-instance
+deployments must implement an externally coordinated Store instead of sharing
+a JSONL directory.
+
+The bundled file store is supported only on a local filesystem where `flock`,
+same-directory atomic rename, file `fsync`, and directory `fsync` have reliable
+local semantics. NFS, SMB, FUSE mounts, and cloud-synchronized directories are
+unsupported even for one Rin process. Put an externally coordinated Store in
+front of remote or shared storage instead of pointing the JSONL store at it.
+
+File creation and append sync `events.jsonl`; the corresponding index write
+is synced separately. New Session directories are renamed into place and
+their parent directory is synced. Snapshot, checkpoint, and rebuilt-index
+publication uses a `0600` temporary file, file `fsync`, rename, and directory
+`fsync`; retention deletion is followed by another directory `fsync`. A crash
+after a durable event but before its index update leaves a stale derived index
+that is rebuilt from the log. These are local-filesystem crash-consistency
+measures, not a guarantee against storage hardware, kernel, filesystem,
+backup, or operator failures.
+
+Lazy loading changes where cost is paid; it does not make unbounded lineage
+free. Engine Open is proportional to Session-directory enumeration rather
+than every log body. A Session's first access must read its index and complete
+Identifier History; a missing or unusable index triggers an
+`O(total events)` log scan. With a usable checkpoint, state reconstruction
+then scales with the checkpoint body plus its event tail. Steady-state
+Timeline pagination scales with the requested range, while Replay scales with
+the selected checkpoint tail and with the complete Identifier History carried
+in its result. `Engine.VerifyAll()` intentionally remains
+`O(total event-log bytes)` for an independent full audit.
+
+Legacy entries whose full request digest cannot be recovered, or whose ID was
+historically reused, become ambiguous tombstones: the old log remains
+readable, but a later request cannot safely reuse that ID.
 
 ## NPC scheduling
 
@@ -336,7 +458,8 @@ only scheduling time, never boundaries or the action allowlist.
   returns `413 snapshot_too_large` when that ceiling is exceeded. The server's
   default request-body limit and every bundled client's default response limit
   are 32 MiB, leaving envelope, Restore, and EventRecord headroom. Such a
-  lineage requires the planned Step 5 streaming transport.
+  lineage cannot use the current JSON Snapshot, Replay, or Restore endpoints;
+  no streaming Snapshot transport is currently provided.
 
 ## Model integration rule
 

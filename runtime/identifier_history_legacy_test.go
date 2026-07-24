@@ -376,6 +376,17 @@ func TestLegacyOversizedRestoreEventRemainsReplayable(t *testing.T) {
 	if err := ValidateSnapshot(snapshot); ErrorCode(err) != "snapshot_too_large" {
 		t.Fatalf("legacy fixture is not above the new inline limit: %v", err)
 	}
+	checkpoint, err := BuildCheckpoint(
+		snapshot.State,
+		*snapshot.IdentifierHistory,
+		0,
+	)
+	if err != nil {
+		t.Fatalf("internal checkpoint incorrectly used the inline limit: %v", err)
+	}
+	if err := ValidateCheckpoint(checkpoint); err != nil {
+		t.Fatalf("oversized internal checkpoint did not validate: %v", err)
+	}
 
 	request := legacyRestoreRequest{
 		ProtocolVersion: protocol.Version,

@@ -83,8 +83,8 @@ same-`request_id` retry, and offline reconciliation rules.
   contain bounded Rin codes rather than provider bodies.
 - Bundled clients default to a 32 MiB response limit. Complete inline Snapshot
   compact JSON is capped at 16 MiB and is rejected with
-  `413 snapshot_too_large`, never truncated; larger lineages need the planned
-  Step 5 streaming transport.
+  `413 snapshot_too_large`, never truncated. No streaming Snapshot transport
+  is currently provided.
 - Restore callers source mandatory `expected_binding` from the running trusted
   content manifest, not from the imported Snapshot.
 - A Snapshot is trusted, opaque event-log-level state. Its SHA-256 canonical

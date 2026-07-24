@@ -26,6 +26,14 @@ const (
 	EventActivityUpdated = "actor.activity-updated"
 	EventArbitrated      = "world.arbitrated"
 	EventSessionRestored = "session.restored"
+
+	// CheckpointFormatVersion identifies the durable wrapper used only for
+	// runtime replay acceleration. It is intentionally distinct from the public
+	// Snapshot wire format.
+	CheckpointFormatVersion = "rin.checkpoint/v1"
+	// ReducerProjectionVersion must change whenever replaying the same event log
+	// can produce a different State or Identifier History projection.
+	ReducerProjectionVersion = "rin.reducer-projection/v1"
 )
 
 type Store interface {
@@ -53,6 +61,66 @@ type Store interface {
 	Load(sessionID string) ([]protocol.EventRecord, error)
 	ListSessions() ([]string, error)
 	SaveSnapshot(sessionID string, snapshot protocol.Snapshot) error
+}
+
+// EventAnchor identifies an immutable point in one Session event chain.
+type EventAnchor struct {
+	Revision uint64 `json:"revision"`
+	HeadHash string `json:"head_hash"`
+}
+
+// EventPage is a bounded, contiguous event range. HasMore is relative to the
+// throughRevision supplied to RangeStore.LoadRange.
+type EventPage struct {
+	Events  []protocol.EventRecord `json:"events"`
+	HasMore bool                   `json:"has_more"`
+}
+
+// RangeStore is an optional Store capability. LoadRange returns events in the
+// interval (afterRevision, throughRevision], capped by limit. Implementations
+// must return a contiguous, hash-verified prefix and must not return events
+// newer than throughRevision. The base Store interface remains unchanged so
+// existing third-party Stores retain source compatibility.
+type RangeStore interface {
+	Head(sessionID string) (EventAnchor, error)
+	LoadRange(
+		sessionID string,
+		afterRevision uint64,
+		throughRevision uint64,
+		limit int,
+	) (EventPage, error)
+}
+
+// Checkpoint is a derived replay cache, not an exported or imported Snapshot.
+// Its Snapshot may exceed the public inline transport ceiling. Checksum detects
+// accidental corruption; it is not authentication or provenance proof.
+type Checkpoint struct {
+	FormatVersion     string            `json:"format_version"`
+	ProjectionVersion string            `json:"projection_version"`
+	SessionID         string            `json:"session_id"`
+	Revision          uint64            `json:"revision"`
+	HeadHash          string            `json:"head_hash"`
+	LineageEpoch      uint64            `json:"lineage_epoch"`
+	Snapshot          protocol.Snapshot `json:"snapshot"`
+	Checksum          string            `json:"checksum"`
+}
+
+// CheckpointStore is an optional Store capability. LoadCheckpoint returns the
+// newest available checkpoint at or before atOrBeforeRevision. Returning
+// ErrNotFound means no eligible checkpoint is available. Implementations may
+// retain multiple generations so the Engine can fall back after corruption.
+//
+// Runtime may call SaveCheckpoint in a background worker concurrently with
+// Append, Load, Head, or LoadRange for the same Session. Implementations must
+// be concurrency-safe and must keep this derived-cache I/O from changing or
+// indefinitely locking authoritative event operations. Within one Engine,
+// Runtime bounds work to one worker and one latest pending capture per managed
+// Session. Multiple Engines sharing a Store can each have such a worker.
+// Runtime has no Close/drain contract for a Store implementation that blocks
+// SaveCheckpoint forever.
+type CheckpointStore interface {
+	LoadCheckpoint(sessionID string, atOrBeforeRevision uint64) (Checkpoint, error)
+	SaveCheckpoint(sessionID string, checkpoint Checkpoint) error
 }
 
 type PolicyContext struct {

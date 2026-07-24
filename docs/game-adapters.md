@@ -39,6 +39,16 @@ entry in one authoritative transaction, then report from that Outbox to Rin.
 On a network failure, retry only the same `request_id` and never apply the
 action again. See [action outcome reporting](outcome-reporting.md).
 
+The bundled sidecar opens Session histories lazily. `/health` proves process
+availability, not that every Session has passed a genesis-to-head audit; the
+first request for a Session may pay index/checkpoint recovery cost or report
+that Session's durable corruption. Keep the adapter's authoritative startup
+recovery gate closed until its Session read succeeds, returns HTTP `404` with
+the exact code `session_not_found`, or a fresh Restore succeeds and creates or
+recovers that Session. HTTP `500` `store_load_failed` and `replay_failed`
+responses are storage/recovery failures: never reinterpret either as a new
+playthrough or an offline action result.
+
 ## Ren'Py
 
 Copy these files into the game's `game/` directory:
@@ -103,8 +113,9 @@ as trusted, opaque state under the same protection as the event log. Its
 SHA-256 canonical checksums detect accidental corruption, not provenance or a
 party able to recompute them. Complete inline Snapshot compact JSON is capped
 at 16 MiB; the server request and bundled-client response defaults are 32 MiB.
-`413 snapshot_too_large` never truncates the save—a larger lineage waits for
-the planned Step 5 streaming transport.
+`413 snapshot_too_large` never truncates the save. No streaming Snapshot
+transport is currently provided, so a larger lineage cannot use these JSON
+methods.
 
 Godot owns navigation, animation, combat, inventory, and dialogue rendering. Helpers for activity, due actors, arbitration, batch commit, timeline, and replay are coroutines; call activity on simulation/region changes, not every frame. The adapter caps response bytes, disables redirects, and accepts plaintext HTTP only for an exact loopback host and valid port.
 

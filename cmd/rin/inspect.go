@@ -28,7 +28,7 @@ type inspectOutput struct {
 	Timeline         []protocol.TimelineEntry `json:"timeline,omitempty"`
 }
 
-func runInspect(arguments []string, output io.Writer) error {
+func runInspect(arguments []string, output io.Writer) (resultErr error) {
 	flags := flag.NewFlagSet("rin inspect", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	dataDirectory := flags.String("data", envOr("RIN_DATA_DIR", "./rin-data"), "event and snapshot directory")
@@ -51,6 +51,9 @@ func runInspect(arguments []string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
+	defer func() {
+		resultErr = errors.Join(resultErr, fileStore.Close())
+	}()
 	engine, err := rintime.Open(fileStore, policy.Deterministic{})
 	if err != nil {
 		return err
@@ -100,11 +103,14 @@ func inspectTimeline(engine *rintime.Engine, sessionID string, revision uint64, 
 	}
 	entries := make([]protocol.TimelineEntry, 0, limit)
 	after := uint64(0)
+	if revision > uint64(limit) {
+		after = revision - uint64(limit)
+	}
 	for {
 		pageStart := after
 		page, err := engine.Timeline(protocol.TimelineRequest{
 			ProtocolVersion: protocol.Version, SessionID: sessionID,
-			AfterRevision: after, Limit: 256,
+			AfterRevision: after, Limit: limit,
 		})
 		if err != nil {
 			return nil, err

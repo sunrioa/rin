@@ -17,12 +17,18 @@ requirements, and vulnerability-reporting process.
   32 MiB by default. Complete inline Snapshot compact JSON is separately
   capped at 16 MiB to leave envelope and durable-record headroom; it is
   rejected with `413 snapshot_too_large`, never truncated, when larger.
-  A larger lineage awaits the planned Step 5 streaming transport. Unknown
-  fields, multiple JSON values, and non-UTF-8 input are rejected.
+  No streaming Snapshot transport is currently provided. Unknown fields and
+  multiple JSON values are rejected. Text is validated after Go JSON decoding;
+  that decoder replaces invalid UTF-8 bytes inside JSON strings with `U+FFFD`,
+  so Rin does not promise rejection of every raw non-UTF-8 byte sequence.
 - Session IDs use safe identifiers only; HTTP requests cannot provide file
   paths.
-- Events and snapshots use `0600` permissions; immutable snapshot files are
-  written atomically.
+- Events, indexes, checkpoints, snapshots, and the lock file use `0600`
+  permissions. Snapshot, checkpoint, and rebuilt-index publication uses a
+  synced temporary file, rename, and directory sync.
+- Event logs use `retain_forever`; the file store keeps the two newest valid
+  checkpoints and two newest valid Snapshot files per Session. Backups and
+  deletion policies must treat every retained artifact as sensitive.
 - API keys, sidecar tokens, and provider configuration are not protocol state
   and are never persisted.
 - Provider URLs reject userinfo, query strings, fragments, and automatic HTTP
@@ -67,9 +73,25 @@ submitted as sidecar proposals. Threads, HTTP objects, and cancellation
 handles must not enter Ren'Py saves; only plain JSON results and validated
 snapshots may be persisted.
 
-Only one Rin process may write to a data directory. High-availability or
-multi-instance hosts must coordinate a single writer or implement another
-store.
+The bundled file store takes a non-blocking exclusive data-directory lock
+before reading or writing. A second process fails to open that directory, and
+embedded callers must call `(*store.File).Close()` to release the lease.
+The bundled `flock` implementation currently supports only `darwin` and
+`linux`. On every other GOOS, `store.OpenFile` returns
+`ErrDataDirectoryLockUnsupported` and fails closed instead of running without
+the lock. High-availability or multi-instance hosts must implement another,
+externally coordinated Store rather than share the JSONL directory.
+
+The bundled JSONL store is supported only on a local filesystem with reliable
+`flock`, same-directory atomic rename, file `fsync`, and directory `fsync`
+semantics. NFS, SMB, FUSE mounts, and cloud-synchronized directories are not
+supported. Remote or shared storage requires an externally coordinated Store.
+
+File and directory `fsync` calls narrow crash windows, and a stale derived
+index is rebuilt from the authoritative event log. They are not an absolute
+durability guarantee against storage hardware, kernel, filesystem, backup,
+or operator failure. Stop the Sidecar or use a coordinated snapshot before
+copying the data directory.
 
 ## Reporting
 

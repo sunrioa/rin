@@ -167,7 +167,7 @@ provenance or stop a party that can recompute them, so the Snapshot remains
 trusted opaque state protected like the event log. Complete inline Snapshot
 compact JSON is capped at 16 MiB, while server request bodies and bundled
 client responses default to 32 MiB. `413 snapshot_too_large` never truncates
-the saved lineage; it requires the planned Step 5 streaming transport.
+the saved lineage. No streaming Snapshot transport is currently provided.
 
 If the sidecar session cannot be restored and therefore truly has no matching
 Proposal, `observe` is a degraded reconciliation path for the authoritative

@@ -20,6 +20,16 @@ type eventHashInput struct {
 	Data       json.RawMessage `json:"data"`
 }
 
+type checkpointHashInput struct {
+	FormatVersion     string            `json:"format_version"`
+	ProjectionVersion string            `json:"projection_version"`
+	SessionID         string            `json:"session_id"`
+	Revision          uint64            `json:"revision"`
+	HeadHash          string            `json:"head_hash"`
+	LineageEpoch      uint64            `json:"lineage_epoch"`
+	Snapshot          protocol.Snapshot `json:"snapshot"`
+}
+
 func hashJSON(value any) (string, error) {
 	payload, err := json.Marshal(value)
 	if err != nil {
@@ -88,6 +98,20 @@ func verifyEvent(previous protocol.SessionState, event protocol.EventRecord) err
 	return nil
 }
 
+// VerifyEventRecord verifies one canonical EventRecord against an immutable
+// chain anchor. It is exported so optional ranged Store implementations do not
+// have to duplicate the event-hash serialization contract.
+func VerifyEventRecord(
+	previousRevision uint64,
+	previousHash string,
+	event protocol.EventRecord,
+) error {
+	return verifyEvent(protocol.SessionState{
+		Revision: previousRevision,
+		HeadHash: previousHash,
+	}, event)
+}
+
 func SnapshotOf(state protocol.SessionState) (protocol.Snapshot, error) {
 	return snapshotWithIdentifiers(state, identifiersFromState(state))
 }
@@ -95,6 +119,14 @@ func SnapshotOf(state protocol.SessionState) (protocol.Snapshot, error) {
 func snapshotWithIdentifiers(
 	state protocol.SessionState,
 	identifiers protocol.IdentifierHistory,
+) (protocol.Snapshot, error) {
+	return buildSnapshotWithIdentifiers(state, identifiers, true)
+}
+
+func buildSnapshotWithIdentifiers(
+	state protocol.SessionState,
+	identifiers protocol.IdentifierHistory,
+	enforceInlineLimit bool,
 ) (protocol.Snapshot, error) {
 	copyState, err := clone(state)
 	if err != nil {
@@ -128,10 +160,89 @@ func snapshotWithIdentifiers(
 		IdentifierHistory:     &copyIdentifiers,
 		IdentifierHistoryHash: identifierHash,
 	}
-	if size, err := checkInlineSnapshotSize(snapshot, MaxInlineSnapshotBytes); err != nil {
-		return protocol.Snapshot{}, snapshotTooLargeError(size, err)
+	if enforceInlineLimit {
+		if size, err := checkInlineSnapshotSize(snapshot, MaxInlineSnapshotBytes); err != nil {
+			return protocol.Snapshot{}, snapshotTooLargeError(size, err)
+		}
 	}
 	return snapshot, nil
+}
+
+// BuildCheckpoint creates a validated runtime replay cache without applying the
+// public inline Snapshot size ceiling.
+func BuildCheckpoint(
+	state protocol.SessionState,
+	identifiers protocol.IdentifierHistory,
+	lineageEpoch uint64,
+) (Checkpoint, error) {
+	snapshot, err := buildSnapshotWithIdentifiers(state, identifiers, false)
+	if err != nil {
+		return Checkpoint{}, err
+	}
+	checkpoint := Checkpoint{
+		FormatVersion:     CheckpointFormatVersion,
+		ProjectionVersion: ReducerProjectionVersion,
+		SessionID:         snapshot.State.SessionID,
+		Revision:          snapshot.State.Revision,
+		HeadHash:          snapshot.State.HeadHash,
+		LineageEpoch:      lineageEpoch,
+		Snapshot:          snapshot,
+	}
+	checkpoint.Checksum, err = checkpointChecksum(checkpoint)
+	if err != nil {
+		return Checkpoint{}, err
+	}
+	return checkpoint, nil
+}
+
+// ValidateCheckpoint validates the derived wrapper, complete Identifier
+// History, reducer compatibility, and wrapper checksum. It deliberately does
+// not enforce the public inline Snapshot size ceiling.
+func ValidateCheckpoint(checkpoint Checkpoint) error {
+	if checkpoint.FormatVersion != CheckpointFormatVersion {
+		return fmt.Errorf("checkpoint format %q is unsupported", checkpoint.FormatVersion)
+	}
+	if checkpoint.ProjectionVersion != ReducerProjectionVersion {
+		return fmt.Errorf("checkpoint projection %q is unsupported", checkpoint.ProjectionVersion)
+	}
+	if checkpoint.SessionID == "" ||
+		checkpoint.SessionID != checkpoint.Snapshot.State.SessionID {
+		return fmt.Errorf("checkpoint session id does not match snapshot")
+	}
+	if checkpoint.Revision == 0 ||
+		checkpoint.Revision != checkpoint.Snapshot.State.Revision {
+		return fmt.Errorf("checkpoint revision does not match snapshot")
+	}
+	if checkpoint.HeadHash == "" ||
+		checkpoint.HeadHash != checkpoint.Snapshot.State.HeadHash {
+		return fmt.Errorf("checkpoint head hash does not match snapshot")
+	}
+	if checkpoint.Snapshot.IdentifierHistory == nil {
+		return fmt.Errorf("checkpoint requires complete identifier history projection")
+	}
+	if err := validateSnapshotContents(checkpoint.Snapshot); err != nil {
+		return fmt.Errorf("checkpoint snapshot is invalid: %w", err)
+	}
+	expected, err := checkpointChecksum(checkpoint)
+	if err != nil {
+		return fmt.Errorf("checkpoint cannot be hashed: %w", err)
+	}
+	if checkpoint.Checksum == "" || checkpoint.Checksum != expected {
+		return fmt.Errorf("checkpoint checksum does not match")
+	}
+	return nil
+}
+
+func checkpointChecksum(checkpoint Checkpoint) (string, error) {
+	return hashJSON(checkpointHashInput{
+		FormatVersion:     checkpoint.FormatVersion,
+		ProjectionVersion: checkpoint.ProjectionVersion,
+		SessionID:         checkpoint.SessionID,
+		Revision:          checkpoint.Revision,
+		HeadHash:          checkpoint.HeadHash,
+		LineageEpoch:      checkpoint.LineageEpoch,
+		Snapshot:          checkpoint.Snapshot,
+	})
 }
 
 func ValidateSnapshot(snapshot protocol.Snapshot) error {

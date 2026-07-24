@@ -58,8 +58,8 @@ Restore 必须提供来自运行中游戏可信内容 manifest 的 `expected_bin
 完整 inline Snapshot 的 compact JSON 上限为 16 MiB。Rin 超限时返回
 `413 snapshot_too_large`，绝不截断内容。所有 SDK 默认响应上限为 32 MiB，
 与服务端默认 32 MiB 请求正文上限匹配，并为 envelope、Restore 元数据和持久
-EventRecord framing 预留空间。Lineage 超过 inline 上限后需要计划中的 Step 5
-streaming transport。
+EventRecord framing 预留空间。当前不提供流式 Snapshot 传输，lineage 超过
+inline 上限后不能使用这些 JSON 方法。
 
 SDK 有意采用源码优先方式，尚未发布到 PyPI、npm、NuGet 或 Maven Central。
 Vendor 时应固定本仓库 Revision。路由兼容性由

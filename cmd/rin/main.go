@@ -29,7 +29,7 @@ func main() {
 	}
 }
 
-func run(arguments []string) error {
+func run(arguments []string) (resultErr error) {
 	if len(arguments) > 0 && arguments[0] == "version" {
 		fmt.Println(version)
 		return nil
@@ -59,6 +59,9 @@ func run(arguments []string) error {
 	if err != nil {
 		return err
 	}
+	defer func() {
+		resultErr = errors.Join(resultErr, fileStore.Close())
+	}()
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	modelRuntime, err := buildModelRuntime(logger)
 	if err != nil {

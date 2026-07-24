@@ -148,21 +148,53 @@ Inline Snapshot compact JSON is limited to 16 MiB. Rin returns
 `413 snapshot_too_large` instead of truncating a Snapshot. The server's
 default request-body limit and every bundled client's default response limit
 are 32 MiB, leaving room for the API envelope, Restore metadata, and durable
-EventRecord framing. A lineage that outgrows the inline limit requires the
-planned Step 5 streaming transport.
+EventRecord framing. No streaming Snapshot transport is currently provided,
+so a lineage that outgrows the inline limit cannot be exported, replayed, or
+restored through these JSON endpoints.
 
 See the [protocol reference](docs/protocol-v1.md) for complete fields and
 error semantics, the [architecture guide](docs/architecture.md) for
 responsibility boundaries, and [action outcome reporting](docs/outcome-reporting.md)
 for application, recording, and retry order.
 
-Inspect a session offline. The command verifies the log and prints only a
-redacted timeline:
+Inspect one session offline. The command validates the requested recovery
+path and prints only a redacted timeline. A healthy revision index lets it
+locate the requested trailing window directly rather than paging from genesis:
 
 ```bash
 go run ./cmd/rin inspect -data ./rin-data -session playthrough-1
 go run ./cmd/rin inspect -data ./rin-data -session playthrough-1 -revision 42
 ```
+
+The bundled file store holds a non-blocking exclusive lock on the data
+directory, so stop the sidecar before running `rin inspect` or taking an
+uncoordinated filesystem backup. Embedded Go callers must call
+`(*store.File).Close()` to release that lock. Engine startup enumerates
+Sessions lazily; the first access loads one Session from its newest usable
+validated internal checkpoint, or from genesis when none is usable, then
+replays its event tail. When lazy recovery used no checkpoint, or when
+`head revision / selected checkpoint revision >= 2`, Runtime best-effort
+queues an asynchronous checkpoint at the recovered head. It may not be
+durable when the read returns, and a cache-write failure does not fail that
+read. Call `Engine.VerifyAll()` when maintenance requires a
+checkpoint-independent, genesis-to-head audit of every Session.
+
+The bundled `flock` implementation currently supports only `darwin` and
+`linux`. On every other GOOS, `store.OpenFile` returns
+`ErrDataDirectoryLockUnsupported` and fails closed without returning a usable
+File Store.
+
+Use the bundled file store only on a local filesystem with reliable `flock`,
+same-directory atomic rename, file `fsync`, and directory `fsync` semantics.
+NFS, SMB, FUSE mounts, and cloud-synchronized directories are unsupported;
+remote or shared storage requires an externally coordinated Store.
+
+Event logs use `retain_forever` because Replay, durable identifier history,
+and audit depend on them. The file store keeps the two newest valid internal
+checkpoints and the two newest valid public Snapshot files per Session.
+Capacity planning and backups must account for the unbounded event log and
+Identifier History; Rin does not provide automatic event-log archival or
+streaming Snapshot transport.
 
 ## Game-engine adapters
 

@@ -16,10 +16,16 @@ import (
 
 type managedSession struct {
 	mu                 sync.Mutex
+	id                 string
+	loaded             bool
 	state              protocol.SessionState
 	identifiers        protocol.IdentifierHistory
 	uncertainMutations map[string]uncertainMutationAppend
 	lineageEpoch       uint64
+
+	checkpointMu      sync.Mutex
+	checkpointRunning bool
+	checkpointPending *checkpointCapture
 }
 
 type uncertainMutationAppend struct {
@@ -27,10 +33,17 @@ type uncertainMutationAppend struct {
 	requestHash string
 }
 
+type sessionLifecycleGate struct {
+	mu   sync.Mutex
+	refs int
+}
+
 type Engine struct {
 	mu             sync.RWMutex
 	sessions       map[string]*managedSession
 	pendingCreates map[string]uncertainMutationAppend
+	lifecycleMu    sync.Mutex
+	lifecycleGates map[string]*sessionLifecycleGate
 	store          Store
 	policy         Policy
 	now            func() time.Time
@@ -43,6 +56,7 @@ func Open(store Store, policy Policy) (*Engine, error) {
 	engine := &Engine{
 		sessions:       make(map[string]*managedSession),
 		pendingCreates: make(map[string]uncertainMutationAppend),
+		lifecycleGates: make(map[string]*sessionLifecycleGate),
 		store:          store,
 		policy:         policy,
 		now:            time.Now,
@@ -52,22 +66,31 @@ func Open(store Store, policy Policy) (*Engine, error) {
 		return nil, fmt.Errorf("list sessions: %w", err)
 	}
 	for _, id := range ids {
-		events, err := store.Load(id)
-		if err != nil {
-			return nil, fmt.Errorf("load session %s: %w", id, err)
+		if _, exists := engine.sessions[id]; exists {
+			return nil, fmt.Errorf("list sessions: duplicate session id %q", id)
 		}
-		state, identifiers, err := replayEvents(events, 0)
-		if err != nil {
-			return nil, fmt.Errorf("replay session %s: %w", id, err)
-		}
-		if state.SessionID == "" || state.SessionID != id {
-			return nil, fmt.Errorf("replay session %s: %w", id, ErrCorruptLog)
-		}
-		engine.sessions[id] = &managedSession{
-			state: state, identifiers: identifiers, lineageEpoch: restoredEventCount(events),
-		}
+		engine.sessions[id] = &managedSession{id: id}
 	}
 	return engine, nil
+}
+
+// VerifyAll eagerly loads and verifies every known Session. Open itself is
+// intentionally lazy so one large or damaged Session does not bind startup
+// latency or availability for unrelated Sessions.
+func (e *Engine) VerifyAll() error {
+	e.mu.RLock()
+	ids := make([]string, 0, len(e.sessions))
+	for id := range e.sessions {
+		ids = append(ids, id)
+	}
+	e.mu.RUnlock()
+	sort.Strings(ids)
+	for _, id := range ids {
+		if err := e.verifySessionFromGenesis(id); err != nil {
+			return fmt.Errorf("verify session %s: %w", id, err)
+		}
+	}
+	return nil
 }
 
 func (e *Engine) CreateSession(request protocol.CreateSessionRequest) (protocol.MutationResult, error) {
@@ -78,9 +101,14 @@ func (e *Engine) CreateSession(request protocol.CreateSessionRequest) (protocol.
 	if err != nil {
 		return protocol.MutationResult{}, NewError("request_encode_failed", "could not identify create request", err)
 	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if uncertain, found := e.pendingCreates[request.SessionID]; found {
+	unlockLifecycle := e.lockSessionLifecycle(request.SessionID)
+	defer unlockLifecycle()
+
+	e.mu.RLock()
+	uncertain, uncertainFound := e.pendingCreates[request.SessionID]
+	existing, exists := e.sessions[request.SessionID]
+	e.mu.RUnlock()
+	if uncertainFound {
 		if uncertain.event.Type != EventSessionCreated ||
 			uncertain.event.RequestID != request.RequestID ||
 			uncertain.requestHash != requestHash {
@@ -93,12 +121,23 @@ func (e *Engine) CreateSession(request protocol.CreateSessionRequest) (protocol.
 		if confirmErr != nil {
 			return protocol.MutationResult{}, confirmErr
 		}
+		managed := &managedSession{
+			id: request.SessionID, loaded: true, state: state, identifiers: identifiers,
+		}
+		managed.mu.Lock()
+		e.queueCheckpointLocked(managed)
+		managed.mu.Unlock()
+		e.mu.Lock()
 		delete(e.pendingCreates, request.SessionID)
-		e.sessions[request.SessionID] = &managedSession{state: state, identifiers: identifiers}
+		e.sessions[request.SessionID] = managed
+		e.mu.Unlock()
 		identity := identifiers.Requests[request.RequestID]
 		return mutationResultFromIdentity(state.SessionID, identity, false), nil
 	}
-	if existing, found := e.sessions[request.SessionID]; found {
+	if exists {
+		if err := e.ensureLoaded(existing); err != nil {
+			return protocol.MutationResult{}, err
+		}
 		existing.mu.Lock()
 		defer existing.mu.Unlock()
 		identity, used, lookupErr := identifierRequest(
@@ -123,13 +162,23 @@ func (e *Engine) CreateSession(request protocol.CreateSessionRequest) (protocol.
 	state, identifiers, err := e.createAndConfirm(request.SessionID, event)
 	if err != nil {
 		if ErrorCode(err) == "mutation_outcome_unknown" {
+			e.mu.Lock()
 			e.pendingCreates[request.SessionID] = uncertainMutationAppend{
 				event: event, requestHash: requestHash,
 			}
+			e.mu.Unlock()
 		}
 		return protocol.MutationResult{}, err
 	}
-	e.sessions[request.SessionID] = &managedSession{state: state, identifiers: identifiers}
+	managed := &managedSession{
+		id: request.SessionID, loaded: true, state: state, identifiers: identifiers,
+	}
+	managed.mu.Lock()
+	e.queueCheckpointLocked(managed)
+	managed.mu.Unlock()
+	e.mu.Lock()
+	e.sessions[request.SessionID] = managed
+	e.mu.Unlock()
 	return mutationResultFromIdentity(state.SessionID, identifiers.Requests[request.RequestID], false), nil
 }
 
@@ -901,12 +950,16 @@ func (e *Engine) Restore(request protocol.RestoreRequest) (protocol.MutationResu
 	if _, collision := importedIdentifiers.Requests[request.RequestID]; collision {
 		return protocol.MutationResult{}, requestConflict(request.RequestID)
 	}
-	e.mu.Lock()
-	if uncertain, found := e.pendingCreates[request.SessionID]; found {
+	unlockLifecycle := e.lockSessionLifecycle(request.SessionID)
+	defer unlockLifecycle()
+	e.mu.RLock()
+	uncertain, uncertainFound := e.pendingCreates[request.SessionID]
+	session, exists := e.sessions[request.SessionID]
+	e.mu.RUnlock()
+	if uncertainFound {
 		if uncertain.event.Type != EventSessionRestored ||
 			uncertain.event.RequestID != request.RequestID ||
 			uncertain.requestHash != requestHash {
-			e.mu.Unlock()
 			if uncertain.event.RequestID == request.RequestID {
 				return protocol.MutationResult{}, requestConflict(request.RequestID)
 			}
@@ -914,13 +967,18 @@ func (e *Engine) Restore(request protocol.RestoreRequest) (protocol.MutationResu
 		}
 		state, identifiers, confirmErr := e.createAndConfirm(request.SessionID, uncertain.event)
 		if confirmErr != nil {
-			e.mu.Unlock()
 			return protocol.MutationResult{}, confirmErr
 		}
-		delete(e.pendingCreates, request.SessionID)
-		e.sessions[request.SessionID] = &managedSession{
+		managed := &managedSession{
+			id: request.SessionID, loaded: true,
 			state: state, identifiers: identifiers, lineageEpoch: 1,
 		}
+		managed.mu.Lock()
+		e.queueCheckpointLocked(managed)
+		managed.mu.Unlock()
+		e.mu.Lock()
+		delete(e.pendingCreates, request.SessionID)
+		e.sessions[request.SessionID] = managed
 		e.mu.Unlock()
 		return mutationResultFromIdentity(
 			state.SessionID,
@@ -928,10 +986,8 @@ func (e *Engine) Restore(request protocol.RestoreRequest) (protocol.MutationResu
 			false,
 		), nil
 	}
-	session, exists := e.sessions[request.SessionID]
 	if !exists {
 		if _, mergeErr := mergeIdentifierHistories(newIdentifierHistory(true), importedIdentifiers); mergeErr != nil {
-			e.mu.Unlock()
 			return protocol.MutationResult{}, NewError(
 				"identifier_history_conflict",
 				"snapshot identifier history conflicts with the target lineage",
@@ -950,22 +1006,28 @@ func (e *Engine) Restore(request protocol.RestoreRequest) (protocol.MutationResu
 			e.now(),
 		)
 		if err != nil {
-			e.mu.Unlock()
 			return protocol.MutationResult{}, eventEncodeError(err, "could not encode restore")
 		}
 		state, identifiers, err := e.createAndConfirm(request.SessionID, event)
 		if err != nil {
 			if ErrorCode(err) == "mutation_outcome_unknown" {
+				e.mu.Lock()
 				e.pendingCreates[request.SessionID] = uncertainMutationAppend{
 					event: event, requestHash: requestHash,
 				}
+				e.mu.Unlock()
 			}
-			e.mu.Unlock()
 			return protocol.MutationResult{}, err
 		}
-		e.sessions[request.SessionID] = &managedSession{
+		managed := &managedSession{
+			id: request.SessionID, loaded: true,
 			state: state, identifiers: identifiers, lineageEpoch: 1,
 		}
+		managed.mu.Lock()
+		e.queueCheckpointLocked(managed)
+		managed.mu.Unlock()
+		e.mu.Lock()
+		e.sessions[request.SessionID] = managed
 		e.mu.Unlock()
 		return mutationResultFromIdentity(
 			state.SessionID,
@@ -973,7 +1035,9 @@ func (e *Engine) Restore(request protocol.RestoreRequest) (protocol.MutationResu
 			false,
 		), nil
 	}
-	e.mu.Unlock()
+	if err := e.ensureLoaded(session); err != nil {
+		return protocol.MutationResult{}, err
+	}
 
 	session.mu.Lock()
 	defer session.mu.Unlock()
@@ -1170,7 +1234,37 @@ func (e *Engine) session(id string) (*managedSession, error) {
 	if !exists {
 		return nil, NewFieldError("session_not_found", "session does not exist", "session_id", ErrNotFound)
 	}
+	if err := e.ensureLoaded(session); err != nil {
+		return nil, err
+	}
 	return session, nil
+}
+
+// lockSessionLifecycle serializes Create and Restore lifecycle decisions for
+// one Session ID without making unrelated Session creation or recovery wait.
+// Reference counting keeps a gate reachable until its final waiter releases
+// it, so deleting an idle entry can never split one ID across two mutexes.
+func (e *Engine) lockSessionLifecycle(id string) func() {
+	e.lifecycleMu.Lock()
+	gate := e.lifecycleGates[id]
+	if gate == nil {
+		gate = &sessionLifecycleGate{}
+		e.lifecycleGates[id] = gate
+	}
+	gate.refs++
+	e.lifecycleMu.Unlock()
+
+	gate.mu.Lock()
+	return func() {
+		gate.mu.Unlock()
+
+		e.lifecycleMu.Lock()
+		gate.refs--
+		if gate.refs == 0 && e.lifecycleGates[id] == gate {
+			delete(e.lifecycleGates, id)
+		}
+		e.lifecycleMu.Unlock()
+	}
 }
 
 func (e *Engine) mutationSession(id string) (*managedSession, error) {
@@ -1179,6 +1273,9 @@ func (e *Engine) mutationSession(id string) (*managedSession, error) {
 	_, pending := e.pendingCreates[id]
 	e.mu.RUnlock()
 	if exists {
+		if err := e.ensureLoaded(session); err != nil {
+			return nil, err
+		}
 		return session, nil
 	}
 	if pending {
@@ -1243,12 +1340,7 @@ func (e *Engine) appendAndApply(session *managedSession, event protocol.EventRec
 	}
 	// JSON cloning intentionally drops empty `omitempty` maps. Reducers require
 	// these indexes to be writable even before their first entry is recorded.
-	if candidate.Proposals == nil {
-		candidate.Proposals = make(map[string]protocol.ActionProposal)
-	}
-	if candidate.Receipts == nil {
-		candidate.Receipts = make(map[string]protocol.RequestReceipt)
-	}
+	normalizeWritableState(&candidate)
 	state, err := applyEvent(candidate, event)
 	if err != nil {
 		return NewError("event_apply_failed", "event could not be applied", err)
@@ -1283,6 +1375,7 @@ func (e *Engine) appendAndApply(session *managedSession, event protocol.EventRec
 					session.state = reconciledState
 					applyIdentifierDelta(&session.identifiers, reconciledIdentifiers)
 					advanceLineageEpoch(session, tail)
+					e.maybeSaveCheckpoint(session, tail)
 					return nil
 				} else {
 					return e.rememberUncertainMutation(
@@ -1304,6 +1397,7 @@ func (e *Engine) appendAndApply(session *managedSession, event protocol.EventRec
 	session.state = state
 	applyIdentifierDelta(&session.identifiers, identifierDelta)
 	advanceLineageEpoch(session, event)
+	e.maybeSaveCheckpoint(session, event)
 	return nil
 }
 
@@ -1501,12 +1595,7 @@ func reconcileTail(
 	if err != nil {
 		return protocol.EventRecord{}, protocol.SessionState{}, identifierEventDelta{}, false, err
 	}
-	if reconciled.Proposals == nil {
-		reconciled.Proposals = make(map[string]protocol.ActionProposal)
-	}
-	if reconciled.Receipts == nil {
-		reconciled.Receipts = make(map[string]protocol.RequestReceipt)
-	}
+	normalizeWritableState(&reconciled)
 	reconciled, err = applyEvent(reconciled, tail)
 	if err != nil {
 		return protocol.EventRecord{}, protocol.SessionState{}, identifierEventDelta{}, false, err
@@ -1516,6 +1605,27 @@ func reconcileTail(
 		return protocol.EventRecord{}, protocol.SessionState{}, identifierEventDelta{}, false, err
 	}
 	return tail, reconciled, reconciledIdentifiers, true, nil
+}
+
+func normalizeWritableState(state *protocol.SessionState) {
+	if state.Actors == nil {
+		state.Actors = make(map[string]protocol.ActorState)
+	}
+	if state.Proposals == nil {
+		state.Proposals = make(map[string]protocol.ActionProposal)
+	}
+	if state.Receipts == nil {
+		state.Receipts = make(map[string]protocol.RequestReceipt)
+	}
+	for actorID, actor := range state.Actors {
+		if actor.Beliefs == nil {
+			actor.Beliefs = make(map[string]protocol.Fact)
+		}
+		if actor.BeliefSets == nil {
+			actor.BeliefSets = make(map[string]protocol.BeliefSet)
+		}
+		state.Actors[actorID] = actor
+	}
 }
 
 // EventRecordsExactlyEqual defines durable Store idempotency for an

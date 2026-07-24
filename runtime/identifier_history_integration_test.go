@@ -1254,6 +1254,10 @@ func TestIdentifierHistoryFileStoreRestart(t *testing.T) {
 	)); err != nil {
 		t.Fatal(err)
 	}
+	waitForFileCheckpointRevision(t, fileStore, sessionID, 1)
+	if err := fileStore.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	reopenedStore, err := store.OpenFile(directory)
 	if err != nil {
@@ -1279,6 +1283,33 @@ func TestIdentifierHistoryFileStoreRestart(t *testing.T) {
 	}
 	if snapshot.IdentifierHistory == nil || !snapshot.IdentifierHistory.CoverageComplete {
 		t.Fatalf("File replay did not rebuild complete history: %+v", snapshot.IdentifierHistory)
+	}
+	waitForFileCheckpointRevision(t, reopenedStore, sessionID, 3)
+	if err := reopenedStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func waitForFileCheckpointRevision(
+	t *testing.T,
+	fileStore *store.File,
+	sessionID string,
+	revision uint64,
+) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		checkpoint, err := fileStore.LoadCheckpoint(sessionID, revision)
+		if err == nil && checkpoint.Revision == revision {
+			return
+		}
+		if err != nil && !errors.Is(err, rinruntime.ErrNotFound) {
+			t.Fatal(err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("checkpoint revision %d was not published: %v", revision, err)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 

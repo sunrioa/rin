@@ -34,6 +34,14 @@ Turn。
 使用相同 `request_id` 重报，绝不能再次应用动作。详细规则见
 [动作结果记账](outcome-reporting.zh-CN.md)。
 
+随附 Sidecar 会 lazy 打开 Session 历史。`/health` 只能证明进程可用，不能证明
+每个 Session 都通过了 genesis-to-head 审计；某 Session 的第一次请求可能承担
+索引/checkpoint 恢复成本，或暴露该 Session 的持久损坏。适配器必须保持权威
+startup recovery gate 关闭，直到 Session read 成功、明确返回 HTTP `404`
+且精确错误码为 `session_not_found`，或 fresh Restore 成功创建或恢复该
+Session。HTTP `500` `store_load_failed` 与 `replay_failed` 是存储/恢复错误，
+绝不能解释成新周目或离线动作结果。
+
 ## Ren'Py
 
 将以下文件复制到游戏的 `game/` 目录：
@@ -123,8 +131,8 @@ target Session 已存在时还必须与该 Session 的 Binding 一致。Snapshot
 不透明的状态，必须按事件日志同等级别保护。SHA-256 canonical checksum 只能
 发现意外损坏，不能证明来源真实性，也不能阻止能重算 checksum 的一方。完整
 inline Snapshot compact JSON 上限为 16 MiB；服务端请求和随附客户端响应默认
-上限均为 32 MiB。`413 snapshot_too_large` 绝不截断存档；更长 lineage 需等待
-计划中的 Step 5 streaming transport。
+上限均为 32 MiB。`413 snapshot_too_large` 绝不截断存档。当前不提供流式
+Snapshot 传输，因此更长 lineage 不能使用这些 JSON 方法。
 
 Godot 负责导航、动画、战斗、背包和对白渲染。Activity、到期角色、仲裁、
 批量提交、时间线和回放 helper 都是 coroutine；只在模拟或区域变化时更新

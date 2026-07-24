@@ -67,8 +67,8 @@ Complete inline Snapshot compact JSON is capped at 16 MiB. Rin returns
 `413 snapshot_too_large` rather than truncating it. Every SDK defaults to a
 32 MiB response limit, matching the server's default 32 MiB request-body limit
 and leaving headroom for envelopes, Restore metadata, and durable EventRecord
-framing. A lineage that outgrows the inline ceiling needs the planned Step 5
-streaming transport.
+framing. No streaming Snapshot transport is currently provided, so a lineage
+that outgrows the inline ceiling cannot use these JSON methods.
 
 The SDKs are intentionally source-first and are not yet published to PyPI,
 npm, NuGet, or Maven Central. Pin this repository revision when vendoring one.

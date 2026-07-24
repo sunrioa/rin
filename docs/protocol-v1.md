@@ -14,8 +14,8 @@ Snapshot compact JSON has a separate 16 MiB ceiling, leaving transport headroom
 for the response envelope, Restore metadata, and durable EventRecord framing.
 Rin returns `413 snapshot_too_large` rather than truncating any Snapshot.
 Identifier History grows with a Session lineage, so a lineage that exceeds the
-inline ceiling cannot use the Snapshot or Replay JSON transport until the
-planned Step 5 streaming transport is available.
+inline ceiling cannot use the Snapshot or Replay JSON transport. No streaming
+Snapshot transport is currently provided.
 A successful response is:
 
 ```json
@@ -527,10 +527,11 @@ are the same JSON contract value.
 
 Request and Event IDs remain reserved by Identifier History after every bounded
 State projection has been evicted. This permanent ledger is reconstructed from
-the event log at startup and is carried by Snapshot and Replay independently
-from `SessionState`. Applications should still generate globally unique IDs:
-that avoids collisions when a legacy Snapshot cannot prove its complete
-pre-export history.
+the event log or a validated checkpoint plus its event tail when that Session
+is first recovered, and is carried by Snapshot and Replay independently from
+`SessionState`. Applications should still generate globally unique IDs: that
+avoids collisions when a legacy Snapshot cannot prove its complete pre-export
+history.
 
 ## Snapshot and restore
 
@@ -617,8 +618,8 @@ digest semantics. When a legacy event's Snapshot still fits the inline limit,
 a new-schema exact retry with the trusted matching `expected_binding`
 recognizes the old digest and returns the original result as a duplicate. An
 oversized legacy event can still be opened and replayed from disk, but
-cannot be retransmitted through the inline API until the planned Step 5
-streaming transport exists.
+cannot be retransmitted through the inline API; no streaming Snapshot
+transport is currently provided.
 
 A legacy v1 Snapshot without these two fields remains restorable, but Rin
 imports it with `coverage_complete=false`. It can seed only IDs still
@@ -675,10 +676,19 @@ summary/quote, commit outcome, prompt, or model body:
 {"protocol_version":"rin.protocol/v1","session_id":"playthrough-1","after_revision":0,"limit":50}
 ```
 
-Use `next_after_revision` for the next page. `limit` is 1 to 256.
+Use `next_after_revision` for the next page. `limit` is 1 to 256. Each request
+captures its own `current_revision`; mutations may advance the Session between
+pages. A client that needs one fixed audit window should keep the first
+response's `current_revision` as its upper bound and stop there. With the
+bundled file store, a healthy revision index makes each steady-state page a
+bounded range read rather than a complete event-log replay. A missing or
+invalid index incurs one full-log rebuild; a custom Store without range
+support may still use a full `Load` fallback.
 
-`POST /v1/session/replay` runs the normal reducer and hash-chain verification
-to rebuild a selected revision, then returns an in-memory snapshot:
+`POST /v1/session/replay` validates the newest usable internal checkpoint at
+or before the selected revision, then runs the normal reducer and hash-chain
+verification over its remaining event tail. With no usable checkpoint it
+falls back to genesis. It then returns an in-memory Snapshot:
 
 ```json
 {"protocol_version":"rin.protocol/v1","session_id":"playthrough-1","revision":42}
@@ -692,13 +702,27 @@ after the selected State revision. This deliberate asymmetry prevents
 restoring an old Replay Snapshot from making a later ID reusable. Identifier
 result revisions may therefore be greater than `snapshot.state.revision`.
 
+After a Session's first lazy load, Timeline and Replay capture the live head
+and required Identifier History under the mutation lock, then release that
+lock before range I/O and reducer work. The first operation on an unloaded
+Session must first complete its serialized recovery. Checkpoints only
+accelerate reconstruction: they are versioned, checksummed derived caches
+anchored to an event, not protocol Snapshots or event-log authority. An
+operator can use `Engine.VerifyAll()` to ignore checkpoints and audit every
+Session from genesis to head. After a successful lazy recovery, Runtime
+best-effort asynchronously queues a checkpoint at the recovered head when no
+usable checkpoint was selected, or when
+`head revision / selected checkpoint revision >= 2`. The checkpoint may not be
+durable when the successful Session read returns; a checkpoint build or write
+failure does not turn that read into an error.
+
 Identifier History and its retained Proposal/Arbitration results grow linearly
 with successful mutations. It can contain historical model-authored text which
 bounded cognition State has already evicted, so protect Snapshot files and
 bodies at the same sensitivity level as the event log. Once the complete
 compact Snapshot exceeds 16 MiB it cannot be returned or restored inline.
-Complete large-lineage transport requires the planned Step 5 streaming
-transport; Identifier History is never silently truncated.
+No streaming Snapshot transport is currently provided; Identifier History is
+never silently truncated.
 
 ## Common errors
 
@@ -709,6 +733,8 @@ transport; Identifier History is never silently truncated.
 | `401` | `unauthorized` | Missing or incorrect Bearer token |
 | `404` | `session_not_found` / `unknown_actor` | Entity does not exist |
 | `404` | `revision_not_found` | Replay revision does not exist |
+| `500` | `store_load_failed` | Durable Session storage could not be read; never treat this as `session_not_found` |
+| `500` | `replay_failed` | Durable Session recovery or replay validation failed; never create a replacement Session |
 | `409` | `request_id_conflict` | Request ID is ambiguous or was already bound to another kind or payload |
 | `409` | `event_exists` | Event ID is already reserved in this Session lineage |
 | `409` | `binding_mismatch` | Trusted `expected_binding`, imported Snapshot, or existing Session binding differs |

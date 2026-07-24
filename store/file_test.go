@@ -20,6 +20,7 @@ func TestFileStoreReplaysAndDetectsTamper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer fileStore.Close()
 	engine, err := rinruntime.Open(fileStore, policy.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +80,11 @@ func TestFileStoreReplaysAndDetectsTamper(t *testing.T) {
 	if err := os.WriteFile(logPath, []byte(corrupted), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := rinruntime.Open(fileStore, policy.Deterministic{}); err == nil {
+	tamperedEngine, err := rinruntime.Open(fileStore, policy.Deterministic{})
+	if err == nil {
+		err = tamperedEngine.VerifyAll()
+	}
+	if err == nil {
 		t.Fatal("tampered event log should fail replay")
 	}
 }
@@ -89,6 +94,7 @@ func TestFileStoreRejectsTraversal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer fileStore.Close()
 	if _, err := fileStore.Load("../outside"); err == nil {
 		t.Fatal("path traversal should be rejected")
 	}
@@ -99,6 +105,7 @@ func TestFileStoreAppendIsIdempotentAndChecksExpectedHead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer fileStore.Close()
 	engine, err := rinruntime.Open(fileStore, policy.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
@@ -174,6 +181,7 @@ func TestFileStoreLoadRejectsIncompleteTail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer fileStore.Close()
 	engine, err := rinruntime.Open(fileStore, policy.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
@@ -262,7 +270,11 @@ func TestMemoryStoreAppendIsIdempotentAndChecksExpectedHead(t *testing.T) {
 
 func TestSnapshotFileIsPrivate(t *testing.T) {
 	directory := t.TempDir()
-	fileStore, _ := store.OpenFile(directory)
+	fileStore, err := store.OpenFile(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fileStore.Close()
 	engine, _ := rinruntime.Open(fileStore, policy.Deterministic{})
 	request := fileCreateRequest()
 	_, _ = engine.CreateSession(request)

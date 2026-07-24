@@ -316,13 +316,20 @@ func (s *Server) respond(response http.ResponseWriter, data any, err error) {
 		s.write(response, http.StatusOK, protocol.APIResponse{OK: true, Data: data})
 		return
 	}
+	code := rinruntime.ErrorCode(err)
 	status := http.StatusInternalServerError
 	switch {
-	case rinruntime.ErrorCode(err) == "snapshot_too_large":
+	case code == "store_load_failed", code == "replay_failed":
+		// Durable recovery failures must never inherit a lower-level sentinel's
+		// client-facing status. In particular, ErrNotFound beneath
+		// store_load_failed describes a missing/corrupt durable resource, not a
+		// confirmed absent Session.
+		status = http.StatusInternalServerError
+	case code == "snapshot_too_large":
 		status = http.StatusRequestEntityTooLarge
 	case protocol.IsValidationError(err),
-		rinruntime.ErrorCode(err) == "invalid_request",
-		rinruntime.ErrorCode(err) == "invalid_snapshot":
+		code == "invalid_request",
+		code == "invalid_snapshot":
 		status = http.StatusBadRequest
 	case errors.Is(err, rinruntime.ErrNotFound):
 		status = http.StatusNotFound
@@ -341,7 +348,6 @@ func (s *Server) respond(response http.ResponseWriter, data any, err error) {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		status = http.StatusRequestTimeout
 	}
-	code := rinruntime.ErrorCode(err)
 	if code == "internal_error" {
 		s.logger.Error("request failed", "error", err)
 	}

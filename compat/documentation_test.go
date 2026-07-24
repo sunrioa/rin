@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	rinruntime "github.com/sunrioa/rin/runtime"
 )
 
 func TestBilingualDocumentationPairs(t *testing.T) {
@@ -250,7 +252,7 @@ func TestStateClosureDocumentationContract(t *testing.T) {
 			"16 MiB",
 			"32 MiB",
 			"`413 snapshot_too_large`",
-			"Step 5",
+			"currently provided",
 		} {
 			if !strings.Contains(string(payload), fragment) {
 				t.Errorf("%s is missing bilingual English Snapshot rule %q", path, fragment)
@@ -282,10 +284,52 @@ func TestStateClosureDocumentationContract(t *testing.T) {
 			"16 MiB",
 			"32 MiB",
 			"`413 snapshot_too_large`",
-			"Step 5",
+			"当前不提供",
 		} {
 			if !strings.Contains(string(payload), fragment) {
 				t.Errorf("%s is missing bilingual Chinese Snapshot rule %q", path, fragment)
+			}
+		}
+	}
+
+	obsoletePromiseDocs := []string{
+		"../README.en.md",
+		"../README.md",
+		"../SECURITY.en.md",
+		"../SECURITY.md",
+		"../docs/architecture.md",
+		"../docs/architecture.zh-CN.md",
+		"../docs/game-adapters.md",
+		"../docs/game-adapters.zh-CN.md",
+		"../docs/outcome-reporting.md",
+		"../docs/outcome-reporting.zh-CN.md",
+		"../docs/protocol-v1.md",
+		"../docs/protocol-v1.zh-CN.md",
+		"../docs/rpg-events.md",
+		"../docs/rpg-events.zh-CN.md",
+		"../docs/sdk-and-mods.md",
+		"../docs/sdk-and-mods.zh-CN.md",
+		"../sdk/README.md",
+		"../sdk/README.zh-CN.md",
+	}
+	futureStreamingPromises := []*regexp.Regexp{
+		regexp.MustCompile(`(?is)(planned|future|forthcoming|upcoming|roadmap|step\s*5|awaits?|will\s+(?:add|provide|implement|support)).{0,160}(streaming\s+snapshot|snapshot\s+streaming)`),
+		regexp.MustCompile(`(?is)(streaming\s+snapshot|snapshot\s+streaming).{0,160}(planned|future|forthcoming|upcoming|roadmap|step\s*5|will\s+(?:be\s+)?(?:added|provided|implemented|supported))`),
+		regexp.MustCompile(`(?s)(计划|未来|后续将|路线图|第\s*5\s*步|Step\s*5|等待.{0,20}提供|将(?:会)?(?:提供|实现|支持)).{0,100}(流式\s*Snapshot|Snapshot\s*流式)`),
+		regexp.MustCompile(`(?s)(流式\s*Snapshot|Snapshot\s*流式).{0,100}(计划|未来|路线图|Step\s*5|将(?:会)?(?:提供|实现|支持))`),
+	}
+	for _, path := range obsoletePromiseDocs {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, pattern := range futureStreamingPromises {
+			if match := pattern.Find(payload); match != nil {
+				t.Errorf(
+					"%s promises an unimplemented streaming Snapshot transport near %q",
+					path,
+					string(match),
+				)
 			}
 		}
 	}
@@ -331,7 +375,7 @@ func TestSnapshotTransportAndTrustDocumentationContract(t *testing.T) {
 			"16 MiB",
 			"32 MiB",
 			"`413 snapshot_too_large`",
-			"Step 5 streaming transport",
+			"No streaming Snapshot transport is currently provided",
 		},
 		"../README.md": {
 			"Snapshot hash 是 checksum",
@@ -340,7 +384,7 @@ func TestSnapshotTransportAndTrustDocumentationContract(t *testing.T) {
 			"16 MiB",
 			"32 MiB",
 			"`413 snapshot_too_large`",
-			"Step 5 streaming transport",
+			"当前不提供流式 Snapshot 传输",
 		},
 		"../docs/protocol-v1.md": {
 			`"expected_binding": {`,
@@ -360,7 +404,7 @@ func TestSnapshotTransportAndTrustDocumentationContract(t *testing.T) {
 			"Snapshot still fits the inline limit",
 			"cannot be retransmitted through the inline API",
 			"never silently truncated",
-			"Step 5 streaming transport",
+			"No streaming Snapshot transport is currently provided",
 		},
 		"../docs/protocol-v1.zh-CN.md": {
 			`"expected_binding": {`,
@@ -378,16 +422,16 @@ func TestSnapshotTransportAndTrustDocumentationContract(t *testing.T) {
 			"新 schema exact retry",
 			"正常重放",
 			"Snapshot 仍在 inline 上限内时",
-			"不能通过 inline API 重新传输",
+			"不能通过 inline API",
 			"绝不会被静默截断",
-			"Step 5 streaming transport",
+			"当前不提供流式 Snapshot 传输",
 		},
 		"../docs/architecture.md": {
 			"trusted, opaque serialized state",
 			"running game's trusted content",
 			"Complete compact inline Snapshot",
 			"never truncated",
-			"Step 5 streaming transport",
+			"no streaming Snapshot transport is currently provided",
 		},
 		"../docs/architecture.zh-CN.md": {
 			"Snapshot 是可信、",
@@ -395,7 +439,8 @@ func TestSnapshotTransportAndTrustDocumentationContract(t *testing.T) {
 			"运行中游戏可信内容",
 			"完整 inline Snapshot compact JSON",
 			"绝不会截断",
-			"Step 5 streaming transport",
+			"当前不提供",
+			"流式 Snapshot 传输",
 		},
 		"../sdk/README.md": {
 			"trusted, opaque state",
@@ -403,14 +448,14 @@ func TestSnapshotTransportAndTrustDocumentationContract(t *testing.T) {
 			"Every SDK defaults to a",
 			"32 MiB response limit",
 			"16 MiB",
-			"planned Step 5",
+			"No streaming Snapshot transport is currently provided",
 		},
 		"../sdk/README.zh-CN.md": {
 			"可信、",
 			"运行中游戏可信内容",
 			"所有 SDK 默认响应上限为 32 MiB",
 			"16 MiB",
-			"Step 5",
+			"当前不提供流式 Snapshot 传输",
 		},
 	}
 
@@ -454,6 +499,264 @@ func TestSnapshotTransportAndTrustDocumentationContract(t *testing.T) {
 		for _, fragment := range fragments {
 			if strings.Contains(string(payload), fragment) {
 				t.Errorf("%s retains obsolete Snapshot transport/trust wording %q", path, fragment)
+			}
+		}
+	}
+}
+
+func TestFileStoreOperationsDocumentationContract(t *testing.T) {
+	required := map[string][]string{
+		"../docs/architecture.md": {
+			"`.rin.lock`",
+			"`events.idx`",
+			rinruntime.CheckpointFormatVersion,
+			rinruntime.ReducerProjectionVersion,
+			"`RangeStore`",
+			"`Head`",
+			"`LoadRange`",
+			"`CheckpointStore`",
+			"`LoadCheckpoint`",
+			"`SaveCheckpoint`",
+			"same Store to implement both interfaces",
+			"`retain_forever`",
+			"two newest valid",
+			"checkpoint files per Session",
+			"two newest valid Snapshot",
+			"not immutable by path",
+			"same State revision/hash with newer",
+			"`identifier_history_hash`",
+			"`(*store.File).Close`",
+			"`Engine.VerifyAll()`",
+			"genesis-to-head",
+			"derived cache",
+			"projection version",
+			"directory `fsync`",
+			"`O(total event-log bytes)`",
+			"best-effort asynchronously queues a",
+			"`head revision / selected checkpoint revision >= 2`",
+			"not be durable when the read returns",
+			"trailing Timeline window",
+			"NFS",
+			"SMB",
+			"FUSE",
+			"cloud-synchronized",
+			"`darwin`",
+			"`linux`",
+			"`ErrDataDirectoryLockUnsupported`",
+			"every other GOOS",
+			"fails closed",
+		},
+		"../docs/architecture.zh-CN.md": {
+			"`.rin.lock`",
+			"`events.idx`",
+			rinruntime.CheckpointFormatVersion,
+			rinruntime.ReducerProjectionVersion,
+			"`RangeStore`",
+			"`Head`",
+			"`LoadRange`",
+			"`CheckpointStore`",
+			"`LoadCheckpoint`",
+			"`SaveCheckpoint`",
+			"同一个 Store 同时实现这两个接口",
+			"`retain_forever`",
+			"最近 2 个有效 checkpoint",
+			"最近 2 个有效 Snapshot",
+			"路径内容并非不可变",
+			"Identifier History 更新的 Snapshot",
+			"`identifier_history_hash`",
+			"`(*store.File).Close`",
+			"`Engine.VerifyAll()`",
+			"genesis 到 head",
+			"派生缓存",
+			"projection version",
+			"directory `fsync`",
+			"`O(total event-log bytes)`",
+			"异步排队一个恢复出的 head checkpoint",
+			"`head revision / 所选 checkpoint revision >= 2`",
+			"read 返回时它可能尚未持久化",
+			"Timeline 尾部窗口",
+			"NFS",
+			"SMB",
+			"FUSE",
+			"云同步目录",
+			"`darwin`",
+			"`linux`",
+			"`ErrDataDirectoryLockUnsupported`",
+			"其他所有 GOOS",
+			"fail closed",
+		},
+		"../README.en.md": {
+			"non-blocking exclusive lock",
+			"`(*store.File).Close()`",
+			"`Engine.VerifyAll()`",
+			"`retain_forever`",
+			"two newest valid internal",
+			"two newest valid public Snapshot",
+			"queues an asynchronous checkpoint",
+			"`head revision / selected checkpoint revision >= 2`",
+			"durable when the read returns",
+			"or from genesis when none is usable",
+			"trailing window directly",
+			"NFS",
+			"SMB",
+			"FUSE",
+			"cloud-synchronized",
+			"`darwin`",
+			"`linux`",
+			"`ErrDataDirectoryLockUnsupported`",
+			"every other GOOS",
+			"fails closed",
+		},
+		"../README.md": {
+			"non-blocking exclusive lock",
+			"`(*store.File).Close()`",
+			"`Engine.VerifyAll()`",
+			"`retain_forever`",
+			"最近 2 个有效内部 checkpoint",
+			"2 个有效公共 Snapshot",
+			"异步排队一个恢复出的 head checkpoint",
+			"`head revision / 所选 checkpoint revision >= 2`",
+			"read 返回时它可能尚未",
+			"若无可用",
+			"checkpoint 则从 genesis 开始",
+			"直接定位请求的尾部窗口",
+			"NFS",
+			"SMB",
+			"FUSE",
+			"云同步目录",
+			"`darwin`",
+			"`linux`",
+			"`ErrDataDirectoryLockUnsupported`",
+			"其他所有 GOOS",
+			"fail closed",
+		},
+		"../SECURITY.en.md": {
+			"non-blocking exclusive data-directory lock",
+			"`(*store.File).Close()`",
+			"`retain_forever`",
+			"validated after Go JSON decoding",
+			"does not promise rejection of every raw non-UTF-8",
+			"not an absolute",
+			"local filesystem",
+			"NFS",
+			"SMB",
+			"FUSE",
+			"cloud-synchronized",
+			"`darwin`",
+			"`linux`",
+			"`ErrDataDirectoryLockUnsupported`",
+			"every other GOOS",
+			"fails closed",
+		},
+		"../SECURITY.md": {
+			"non-blocking exclusive lock",
+			"`(*store.File).Close()`",
+			"`retain_forever`",
+			"文本在 Go JSON 解码后校验",
+			"不承诺拒绝每个",
+			"原始非 UTF-8 字节序列",
+			"不是针对",
+			"故障的绝对持久性",
+			"本地文件系统",
+			"NFS",
+			"SMB",
+			"FUSE",
+			"云同步目录",
+			"`darwin`",
+			"`linux`",
+			"`ErrDataDirectoryLockUnsupported`",
+			"其他所有 GOOS",
+			"fail closed",
+		},
+		"../docs/protocol-v1.md": {
+			"`current_revision`",
+			"full-log rebuild",
+			"derived caches",
+			"mutation lock",
+			"`Engine.VerifyAll()`",
+			"best-effort asynchronously queues a checkpoint",
+			"`head revision / selected checkpoint revision >= 2`",
+			"durable when the successful Session read returns",
+			"`500` | `store_load_failed`",
+			"`500` | `replay_failed`",
+		},
+		"../docs/protocol-v1.zh-CN.md": {
+			"`current_revision`",
+			"全日志",
+			"派生缓存",
+			"mutation lock",
+			"`Engine.VerifyAll()`",
+			"异步排队一个恢复出的 head checkpoint",
+			"`head revision / 所选 checkpoint revision >= 2`",
+			"Session read 返回时它可能尚未持久化",
+			"`500` | `store_load_failed`",
+			"`500` | `replay_failed`",
+		},
+		"../docs/game-adapters.md": {
+			"opens Session histories lazily",
+			"`/health` proves process",
+			"HTTP `404`",
+			"`session_not_found`",
+			"fresh Restore succeeds",
+			"HTTP `500` `store_load_failed` and `replay_failed`",
+			"never reinterpret",
+		},
+		"../docs/game-adapters.zh-CN.md": {
+			"lazy 打开 Session 历史",
+			"`/health` 只能证明进程可用",
+			"HTTP `404`",
+			"`session_not_found`",
+			"fresh Restore 成功",
+			"HTTP `500` `store_load_failed` 与 `replay_failed`",
+			"绝不能解释成新周目",
+		},
+	}
+	for path, fragments := range required {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, fragment := range fragments {
+			if !strings.Contains(string(payload), fragment) {
+				t.Errorf("%s is missing file-store operations rule %q", path, fragment)
+			}
+		}
+	}
+
+	prohibited := map[string][]string{
+		"../README.en.md": {
+			"The command verifies the log",
+			"from a validated internal checkpoint plus its event tail",
+		},
+		"../README.md": {
+			"会验证日志并只打印",
+			"从校验后的内部 checkpoint 与 event tail",
+		},
+		"../SECURITY.en.md": {
+			"non-UTF-8 input are rejected",
+		},
+		"../SECURITY.md": {
+			"非 UTF-8 内容被拒绝",
+		},
+		"../docs/architecture.md": {
+			"Startup fully replays and verifies the chain",
+			"opening a data directory still verifies the entire event hash chain",
+			"Public Snapshot files are immutable",
+		},
+		"../docs/architecture.zh-CN.md": {
+			"启动时完整重放并验证",
+			"打开数据目录时仍会验证全部事件 hash chain",
+			"按 revision 与 State hash 命名且不可变",
+		},
+	}
+	for path, fragments := range prohibited {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, fragment := range fragments {
+			if strings.Contains(string(payload), fragment) {
+				t.Errorf("%s retains obsolete eager-replay wording %q", path, fragment)
 			}
 		}
 	}
