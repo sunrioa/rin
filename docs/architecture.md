@@ -377,6 +377,16 @@ abort a failed or cancelled import. Stores without this optional capability
 must return transfer-unavailable at the Runtime boundary rather than simulate
 import through public `Create`/`Append`.
 
+Runtime export requires `RangeStore`: it captures revision, head, Binding, and
+lineage generation under the Session lock, then releases mutation serialization
+and reads only bounded pages through that immutable anchor. A concurrent
+mutation is not included. Runtime import checks the caller's trusted Binding,
+replays State and complete Identifier History incrementally while staging,
+checks the manifest boundary and lineage generation, publishes once, then
+performs a bounded genesis-to-head verification before registering the Session
+as live. Runtime never falls back to aggregate `Store.Load` for export or to
+public `Create`/`Append` for import.
+
 Runtime queues a revision-1 checkpoint after Session creation (including a
 fresh Session created by Restore), then automatically queues checkpoints only
 at power-of-two revisions at or above 256. It does not checkpoint every

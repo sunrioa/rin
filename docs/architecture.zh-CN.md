@@ -260,6 +260,15 @@ checkpoint 写入失败不会撤销已经持久的 mutation，也不会让成功
 必须在 Runtime 边界返回 transfer-unavailable，不能通过公共 `Create`/`Append`
 模拟 import。
 
+Runtime export 强制要求 `RangeStore`：它在 Session lock 下捕获 revision、head、
+Binding 与 lineage generation，随后释放 mutation serialization，并且只通过该
+immutable anchor 分页读取有界 range；并发 mutation 不会进入本次导出。Runtime
+import 会检查调用方可信 Binding，在 staging 期间增量重放 State 与完整
+Identifier History，核对 manifest boundary 和 lineage generation，只发布一次，
+然后执行有界的 genesis-to-head 验证，最后才把 Session 注册为 live。Runtime
+不会在 export 时回退到聚合 `Store.Load`，也不会在 import 时回退到公共
+`Create`/`Append`。
+
 Runtime 会在 Session 创建后（包括 Restore 新建 Session）排队 revision 1
 checkpoint，之后只在大于等于 256 的二次幂 revision 自动排队。它不会在每个
 256 倍数或每次后续 Restore 都写 checkpoint。成功 lazy recovery 时，仅在没有

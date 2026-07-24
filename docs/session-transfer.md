@@ -173,7 +173,7 @@ the Snapshot endpoint media type.
 2. Define `TransferStore` and implement File Store staging/atomic publication.
    **Implemented.**
 3. Implement the immutable Runtime export boundary and post-import genesis
-   verification.
+   verification. **Implemented.**
 4. Add the HTTP stream.
 5. Add TypeScript/C# SDK stream helpers.
 6. Add over-16-MiB end-to-end, cancellation, corruption, and crash tests.
