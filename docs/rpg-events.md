@@ -4,6 +4,9 @@
 
 These conventions let RPGs, simulations, tactics games, and open-area NPC systems use Rin without giving an agent world authority.
 
+They describe Rin `0.6.0` Preview. Wire fields and required members come from
+[`api/openapi.json`](../api/openapi.json).
+
 ## Identity and ticks
 
 - Keep `session_id` bound to one playthrough and one content/mod fingerprint.
@@ -78,6 +81,9 @@ semantics.
 5. Send resulting observations only to actors who perceived them.
 
 Rejected proposals are useful audit history. Commit with `accepted=false` when the action was still a valid character intention but the game denied it. Do not commit adapter-local `offline.*` proposals; report their actual outcome later through `observe`.
+
+`accepted` must be present explicitly in Commit and every Batch item; an
+omitted value is invalid rather than equivalent to `false`.
 
 On a Commit timeout or temporary failure, report the same Outbox entry again;
 never execute the action again. See

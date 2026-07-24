@@ -9,6 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from rin_sdk import (  # noqa: E402
     DEFAULT_MAX_RESPONSE_BYTES,
+    PROTOCOL_VERSION,
+    SDK_VERSION,
     RinAPIError,
     RinClient,
     RinConfigurationError,
@@ -39,16 +41,24 @@ class _Response:
 
 class _Opener:
     def __init__(self):
+        self.calls = 0
         self.path = ""
         self.method = ""
+        self.status = 0
         self.authorization = ""
+        self.user_agent = ""
+        self.payload = None
 
     def open(self, request, timeout):
         del timeout
+        self.calls += 1
         self.path = request.full_url.split("7374", 1)[-1]
         self.method = request.get_method()
         self.authorization = request.get_header("Authorization", "")
+        self.user_agent = request.get_header("User-agent", "")
+        self.payload = json.loads(request.data.decode("utf-8")) if request.data is not None else None
         status = 202 if self.path in ("/v1/jobs/propose", "/v1/generation/jobs") else 200
+        self.status = status
         return _Response(status, {"ok": True, "data": {"status": "ok", "job_id": "job.fixture"}})
 
 
@@ -110,34 +120,112 @@ class RinClientTests(unittest.TestCase):
     def test_routes_and_token(self):
         client = RinClient(token="fixture")
         client._opener = _Opener()
+        payload = {
+            "protocol_version": PROTOCOL_VERSION,
+            "request_id": "request.fixture",
+            "utf8": "雨",
+        }
         cases = (
-            (client.health, (), "GET", "/health"),
-            (client.create_session, ({},), "POST", "/v1/session/create"),
-            (client.observe, ({},), "POST", "/v1/session/observe"),
-            (client.propose, ({},), "POST", "/v1/agent/propose"),
-            (client.submit_proposal_job, ({},), "POST", "/v1/jobs/propose"),
-            (client.get_proposal_job, ("job.fixture",), "GET", "/v1/jobs/job.fixture"),
-            (client.cancel_proposal_job, ("job.fixture",), "DELETE", "/v1/jobs/job.fixture"),
-            (client.submit_generation_job, ({},), "POST", "/v1/generation/jobs"),
-            (client.get_generation_job, ("job.fixture",), "GET", "/v1/generation/jobs/job.fixture"),
-            (client.cancel_generation_job, ("job.fixture",), "DELETE", "/v1/generation/jobs/job.fixture"),
-            (client.commit, ({},), "POST", "/v1/action/commit"),
-            (client.commit_batch, ({},), "POST", "/v1/action/commit-batch"),
-            (client.set_actor_activity, ({},), "POST", "/v1/session/activity"),
-            (client.arbitrate, ({},), "POST", "/v1/world/arbitrate"),
-            (client.state, ({},), "POST", "/v1/session/get"),
-            (client.snapshot, ({},), "POST", "/v1/session/snapshot"),
-            (client.restore, ({},), "POST", "/v1/session/restore"),
-            (client.timeline, ({},), "POST", "/v1/session/timeline"),
-            (client.replay, ({},), "POST", "/v1/session/replay"),
-            (client.due_agents, ({},), "POST", "/v1/scheduler/due"),
+            ("health", client.health, (), "GET", "/health"),
+            ("create_session", client.create_session, (payload,), "POST", "/v1/session/create"),
+            ("observe", client.observe, (payload,), "POST", "/v1/session/observe"),
+            ("propose", client.propose, (payload,), "POST", "/v1/agent/propose"),
+            ("submit_proposal_job", client.submit_proposal_job, (payload,), "POST", "/v1/jobs/propose"),
+            ("get_proposal_job", client.get_proposal_job, ("job.fixture",), "GET", "/v1/jobs/job.fixture"),
+            ("cancel_proposal_job", client.cancel_proposal_job, ("job.fixture",), "DELETE", "/v1/jobs/job.fixture"),
+            ("submit_generation_job", client.submit_generation_job, (payload,), "POST", "/v1/generation/jobs"),
+            ("get_generation_job", client.get_generation_job, ("job.fixture",), "GET", "/v1/generation/jobs/job.fixture"),
+            ("cancel_generation_job", client.cancel_generation_job, ("job.fixture",), "DELETE", "/v1/generation/jobs/job.fixture"),
+            ("commit", client.commit, (payload,), "POST", "/v1/action/commit"),
+            ("commit_batch", client.commit_batch, (payload,), "POST", "/v1/action/commit-batch"),
+            ("set_actor_activity", client.set_actor_activity, (payload,), "POST", "/v1/session/activity"),
+            ("arbitrate", client.arbitrate, (payload,), "POST", "/v1/world/arbitrate"),
+            ("state", client.state, (payload,), "POST", "/v1/session/get"),
+            ("snapshot", client.snapshot, (payload,), "POST", "/v1/session/snapshot"),
+            ("restore", client.restore, (payload,), "POST", "/v1/session/restore"),
+            ("timeline", client.timeline, (payload,), "POST", "/v1/session/timeline"),
+            ("replay", client.replay, (payload,), "POST", "/v1/session/replay"),
+            ("due_agents", client.due_agents, (payload,), "POST", "/v1/scheduler/due"),
         )
-        for method, args, http_method, path in cases:
+        observed_routes = []
+        for operation_name, method, args, http_method, path in cases:
             with self.subTest(path=path):
-                method(*args)
+                result = method(*args)
                 self.assertEqual(client._opener.path, path)
                 self.assertEqual(client._opener.method, http_method)
                 self.assertEqual(client._opener.authorization, "Bearer fixture")
+                self.assertEqual(client._opener.user_agent, "rin-python/" + SDK_VERSION)
+                self.assertEqual(client._opener.payload, payload if http_method == "POST" else None)
+                self.assertEqual(result["status"], "ok")
+                observed_routes.append(
+                    (
+                        operation_name,
+                        client._opener.method,
+                        client._opener.path.replace("job.fixture", "{job_id}"),
+                        client._opener.status,
+                    )
+                )
+
+        manifest_path = Path(__file__).resolve().parents[2] / "conformance" / "routes.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        expected_routes = sorted(
+            (
+                operation["name"],
+                operation["method"],
+                operation["path"],
+                operation["status"],
+            )
+            for operation in manifest["operations"]
+        )
+        self.assertEqual(sorted(observed_routes), expected_routes)
+
+    def test_false_commit_flags_are_serialized(self):
+        client = RinClient()
+        client._opener = _Opener()
+        client.commit({"accepted": False})
+        self.assertIn("accepted", client._opener.payload)
+        self.assertIs(client._opener.payload["accepted"], False)
+        client.commit_batch({"items": [{"accepted": False}]})
+        item = client._opener.payload["items"][0]
+        self.assertIn("accepted", item)
+        self.assertIs(item["accepted"], False)
+
+    def test_invalid_json_numbers_cycles_and_depth_fail_before_transport(self):
+        client = RinClient()
+        client._opener = _Opener()
+        cycle = {}
+        cycle["self"] = cycle
+        deep = "leaf"
+        for _ in range(66):
+            deep = [deep]
+        invalid_payloads = (
+            {"nested": [{"unsafe": (1 << 53)}]},
+            {"nested": float("nan")},
+            {"nested": float("inf")},
+            {1: "non-string key"},
+            {"nested": "\ud800"},
+            cycle,
+            {"nested": deep},
+        )
+        for payload in invalid_payloads:
+            with self.subTest(payload_type=type(payload).__name__):
+                with self.assertRaises(RinProtocolError) as caught:
+                    client.commit(payload)
+                self.assertEqual(caught.exception.code, "invalid_request")
+        self.assertEqual(client._opener.calls, 0)
+
+    def test_nonfinite_response_number_is_rejected(self):
+        client = RinClient()
+
+        class NonfiniteOpener:
+            def open(self, request, timeout):
+                del request, timeout
+                return _Response(200, {"ok": True, "data": {"value": float("nan")}})
+
+        client._opener = NonfiniteOpener()
+        with self.assertRaises(RinProtocolError) as caught:
+            client.health()
+        self.assertEqual(caught.exception.code, "invalid_response")
 
     def test_job_id_is_ascii_and_path_safe(self):
         client = RinClient()
@@ -258,7 +346,7 @@ class RinClientTests(unittest.TestCase):
             _proposal(session_id="session.other"),
             _proposal(request_id="request.other"),
             _proposal(tick=1.5),
-            _proposal(tick=1 << 63),
+            _proposal(tick=1 << 53),
         ):
             with self.subTest(proposal=malformed):
                 client.get_proposal_job = lambda _job_id, value=malformed: _proposal_job(

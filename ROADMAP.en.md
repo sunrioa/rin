@@ -2,65 +2,81 @@
 
 [简体中文](ROADMAP.md) | [English](ROADMAP.en.md)
 
-The roadmap tracks reusable runtime capabilities; individual game integration
-progress is not part of the public release definition.
+**Current status:** Rin `0.6.0` is Preview, pre-1.0 software. The numbered
+sections below are delivered implementation milestones, not evidence that a
+public tag exists for every number. The verified `v0.6.0` tag is created only
+after the [release checklist](docs/release-guide.md) passes.
 
-## v0.1.0 - Runtime foundation
+The roadmap tracks reusable runtime capabilities. It does not make an
+individual game's integration part of the public runtime definition, and an
+unchecked item is not a supported feature.
 
-- [x] Go standard-library HTTP sidecar
-- [x] Multi-actor sessions, observations, memories, beliefs, and goals
+## Milestone 0.1 - Runtime foundation
+
+- [x] Go standard-library HTTP Sidecar
+- [x] Multi-actor Sessions, observations, memories, beliefs, and goals
 - [x] Character boundaries and candidate-action allowlists
-- [x] Propose/commit separation of world authority
+- [x] Proposal/Commit separation of world authority
 - [x] Tick scheduling and urgent proposals
-- [x] Idempotent request IDs, revisions, and stale proposals
-- [x] Hash-chained JSONL, atomic snapshots, and restore
-- [x] Deterministic offline policy
-- [x] macOS, Windows, and Linux CI with zero-CGO builds
+- [x] Request IDs, revisions, stale Proposal protection, and deterministic policy
+- [x] Hash-chained JSONL, Snapshot, Restore, and deterministic Replay
+- [x] macOS, Windows, and Linux build jobs
 
-## v0.2.0 - Optional model policy
+## Milestone 0.2 - Optional model policy
 
-- [x] Standard-library OpenAI-compatible HTTP provider
-- [x] Provider timeout, cancellation, retry budget, and circuit breaker
-- [x] Strict structured drafts and prompt-injection data isolation
-- [x] Asynchronous prefetch job API; the game thread never waits for a model
-- [x] Immutable proposal cache keyed by head hash
-- [x] Provider contract fixtures with no real API keys
+- [x] Standard-library OpenAI-compatible HTTP Provider
+- [x] Attempt/total timeout, cooperative cancellation, bounded retry, and circuit breaker
+- [x] Strict structured Drafts and prompt/game-data isolation
+- [x] Asynchronous Proposal Jobs and immutable head-keyed Draft cache
+- [x] Provider fixtures without real API keys
 
-## v0.3.0 - Game adapters
+## Milestone 0.3 - Game adapters
 
-- [x] Ren'Py Python client and offline fallback
-- [x] Godot GDScript example
-- [x] Unity C# example
+- [x] Ren'Py Python client and authored offline fallback
+- [x] Godot 4 and Unity examples with engine-thread authority
 - [x] RPG region, visibility, and quest event conventions
-- [x] Executable end-to-end protocol compatibility vectors
+- [x] Executable protocol compatibility fixtures
 
-## v0.4.0 - Structured generation integration
+## Milestone 0.4 - Structured generation
 
-- [x] Generic asynchronous structured Generation Job API
-- [x] Request idempotency, semantic cache, cancellation, output-size limit,
-  and JSON-object validation
-- [x] Ren'Py Generation client and an end-to-end reference integration
-- [x] Move game provider credentials into the independent sidecar
-- [x] Compose observation, proposal, commit, snapshot, and story generation
+- [x] Generic asynchronous structured Generation Jobs
+- [x] Bounded request identity, semantic cache, cancellation, output size, and JSON Object validation
+- [x] Ren'Py Generation client and reference composition flow
+- [x] Provider credentials remain inside the independent Sidecar
+- [x] Generation remains outside Session world authority and Canon
 
-## v0.5.0 - Living worlds
+## Milestone 0.5 - Living-world foundations
 
-- [x] Layered memory summaries and explainable forgetting
-- [x] Actor-private knowledge, rumor provenance, and conflicting facts
-- [x] Autonomous subgoals and Game Master arbitration
-- [x] Multi-agent batching and regional dormancy
-- [x] Human-readable debug timeline and decision replay tools
+- [x] Feature-gated layered memory summaries and explainable forgetting
+- [x] Actor-private knowledge, sourced conflicting claims, and bounded belief selection
+- [x] Game-supplied candidate goals, actor activity, and regional dormancy
+- [x] Deterministic advisory arbitration and atomic multi-actor outcome reporting
+- [x] Redacted Timeline, revision Replay, and `rin inspect`
 
-## v0.6.0 - Integration kits
+## Milestone 0.6 - Preview integration and hardening
 
-- [x] Dependency-free Python 3.9+ and JavaScript/TypeScript SDKs
-- [x] .NET 6, Java 17 with injectable JSON codec, and Lua 5.1 SDKs
-- [x] Unified 20-route contract, transport-security constraints, and
-  cross-language CI
-- [x] Fabric, BepInEx 6, and Luanti NPC example mods
-- [ ] Complete manual installation and interaction tests in real
-  Fabric/BepInEx/Luanti game versions
-- [x] Release the repository, SDKs, and example mods under the MIT License
+- [x] Source-first Python 3.9+, JavaScript/Node 18+, .NET 6+, Java 17+, and Lua 5.1+ clients
+- [x] Unified 20-route OpenAPI 3.1 wire schema and generated SDK route inventory
+- [x] Fabric, BepInEx 6, and loopback-only Luanti example mods
+- [x] Game-authoritative `outcome-reporting-v1`, Proposal Attempt, and Outcome Outbox semantics
+- [x] Permanent request/Event ID history and fail-closed uncertain-append reconciliation
+- [x] Trusted Restore Binding, Snapshot size limits, and explicit checksum trust boundary
+- [x] Lazy Session recovery, range reads, derived checkpoints, and full-history maintenance audit
+- [x] Player-text reconstruction and fair bounded memory-summary projection
+- [x] Bilingual Changelog, compatibility matrix, migration guide, and release checklist
+- [ ] Complete manual installation and interaction tests in real Fabric, BepInEx, and Luanti game versions
 
-Every phase keeps one principle: a model may propose intent and expression;
+## Preview release gates
+
+Before publishing a Preview tag:
+
+- [ ] Required Go, adapter, SDK, contract-generation, and cross-platform build checks pass on the release commit
+- [ ] OpenAPI, generated route inventory, protocol prose, and both language sets have no drift
+- [ ] A fresh clone can check out, test, and build the proposed tag
+
+These gates describe work to verify for a release commit; this document does
+not claim a registry package, automated binary pipeline, streaming Snapshot
+transport, cryptographic signing, or post-1.0 stability.
+
+Every milestone keeps one principle: a model may propose intent and expression;
 the game engine decides what actually happens.

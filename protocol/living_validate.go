@@ -11,8 +11,8 @@ func ValidateSetActorActivity(request SetActorActivityRequest) error {
 			return err
 		}
 	}
-	if request.Tick < 0 {
-		return &ValidationError{Field: "tick", Message: "must not be negative"}
+	if err := validateJSONSafeTick("tick", request.Tick); err != nil {
+		return err
 	}
 	if len(request.Updates) == 0 || len(request.Updates) > 128 {
 		return &ValidationError{Field: "updates", Message: "must contain 1-128 actor updates"}
@@ -51,8 +51,8 @@ func ValidateArbitrate(request ArbitrateRequest) error {
 			return err
 		}
 	}
-	if request.Tick < 0 {
-		return &ValidationError{Field: "tick", Message: "must not be negative"}
+	if err := validateJSONSafeTick("tick", request.Tick); err != nil {
+		return err
 	}
 	if len(request.ProposalIDs) == 0 || len(request.ProposalIDs) > 64 {
 		return &ValidationError{Field: "proposal_ids", Message: "must contain 1-64 proposal ids"}
@@ -72,8 +72,8 @@ func ValidateBatchCommit(request BatchCommitRequest) error {
 			return err
 		}
 	}
-	if request.Tick < 0 {
-		return &ValidationError{Field: "tick", Message: "must not be negative"}
+	if err := validateJSONSafeTick("tick", request.Tick); err != nil {
+		return err
 	}
 	if len(request.Items) == 0 || len(request.Items) > 64 {
 		return &ValidationError{Field: "items", Message: "must contain 1-64 commit items"}

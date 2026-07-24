@@ -2,12 +2,21 @@
 
 [English](protocol-v1.md) | [简体中文](protocol-v1.zh-CN.md)
 
-本文定义 Rin 与游戏自有适配器之间稳定的 HTTP 与状态契约。
+本文定义 Rin 与游戏自有适配器之间的事务、持久与恢复语义。Rin `0.6.0` 是
+Preview、pre-1.0 软件；仅有 v1 标识并不表示后续每个 pre-1.0 minor 版本都兼容。
+
+[`api/openapi.json`](../api/openapi.json) 是 Path、Method、HTTP Status、必填字段
+与 JSON Shape 的唯一 Wire Schema 来源。若本文在这些事实之一上与 Schema 冲突，
+以 OpenAPI 为准，并把文字差异视为文档 Bug。另见
+[兼容矩阵](compatibility.zh-CN.md)与
+[v0.6 迁移指南](migration-v0.6.zh-CN.md)。
 
 ## Envelope 封装
 
-请求使用 `Content-Type: application/json`，默认最大请求体为 32 MiB；各类数组
-和字段仍有更小的结构上限。所有随附客户端的默认最大响应正文同样是 32 MiB。
+请求使用 `Content-Type: application/json`。Rin 会在 JSON 解码前校验原始请求
+正文；非法 UTF-8 字节或未配对 JSON Unicode Surrogate 返回
+`400 invalid_json`。默认最大请求体为 32 MiB；各类数组和字段仍有更小的结构上限。
+所有随附客户端的默认最大响应正文同样是 32 MiB。
 Inline Snapshot 的 compact JSON 另有 16 MiB 上限，为响应 envelope、Restore
 元数据和持久 EventRecord framing 预留传输空间。Rin 会返回
 `413 snapshot_too_large`，绝不会截断 Snapshot。Identifier History 会随
@@ -31,11 +40,20 @@ JSON 传输。当前不提供流式 Snapshot 传输。成功响应：
 }
 ```
 
+HTTP 层失败以非 2xx 状态返回该 Envelope。Proposal 与 Generation Job 还有第二层
+错误：查询或取消 Job 可以返回 HTTP `200`，但 `data` 中的终态 Job 自带
+`error`。调用方必须分别检查 Transport/API 成功和 Job Status。
+
 除无请求体的 Job 查询与取消接口外，每个 JSON 请求体都必须包含：
 
 ```json
 {"protocol_version":"rin.protocol/v1"}
 ```
+
+每个公共 JSON 整数都必须能在 `-9007199254740991` 至 `9007199254740991` 内精确
+表示。Revision、普通 Tick 等无符号或非负字段使用 `0` 至
+`9007199254740991`；字段自己的更小限制仍然有效。不安全的值会被拒绝，不会舍入。
+应发送 JSON Number，不发送字符串整数或 JavaScript `BigInt`。
 
 ID 长度为 1–96，只允许字母、数字、`.`、`_`、`-`，从源头阻止路径穿越并保持 Windows 文件名兼容。
 
@@ -331,7 +349,14 @@ GET    /v1/generation/jobs/{job_id}
 DELETE /v1/generation/jobs/{job_id}
 ```
 
-状态为 `queued`、`running`、`succeeded`、`failed` 或 `canceled`。成功结果包含 JSON Object 原文以及模型名、finish reason、token usage、`cache_hit` 等有界元数据。Rin 会再次解析输出，数组、纯文本、空内容、非法 UTF-8、NUL 和超出大小限制的内容均失败。
+状态为 `queued`、`running`、`succeeded`、`failed` 或 `canceled`。成功结果包含
+JSON Object 原文以及模型名、finish reason、token usage、`cache_hit` 等有界
+元数据。Rin 会再次解析输出；数组、纯文本、空内容、NUL 与解码后超出大小限制的
+Content 均失败。游戏侧 HTTP API 会在解码前拒绝非法原始 UTF-8。Provider
+成功 JSON Response 同样会在解码前严格检查；非法 UTF-8 和未配对 Unicode
+Surrogate 都会失败。非 2xx Provider Body 只用于有界错误分类，不会成为
+Generation Content 或 Session State。必须把每个成功解码的 Object 当作不可信
+输入，并验证领域 Schema 与 Canon。
 
 只有对应进程内记录仍被保留时，同一 `request_id` 与相同 payload 才返回同一
 Job；相同语义但不同 ID 可以命中短期缓存。Generation Job 不写入事件日志；
@@ -345,7 +370,9 @@ Job 被淘汰或 Sidecar 重启后，相同请求可能再次调用 Provider 并
 
 Commit 是游戏应用或拒绝 Proposal 后的权威结果记账，不是执行许可。游戏必须
 在自己的权威线程重新验证并处理动作，再发送 Commit。`accepted=true` 表示
-动作已经实际生效；`accepted=false` 表示该动作效果没有发生。
+动作已经实际生效；`accepted=false` 表示该动作效果没有发生。`accepted` 必填，
+即使为 false 也必须显式发送；省略或 `null` 返回 `400 invalid_request`。每个
+Batch Commit Item 也遵循同一规则。
 
 ```json
 {
@@ -536,6 +563,14 @@ Session。
 按事件日志同等级别保护。`expected_binding` 的权威来源始终是可信的运行时
 manifest。
 
+这里的“不透明”是 Client Storage 规则，不是 Server Round-trip 保证。Client
+若可能把 Snapshot 转交给更高版本 Runtime，必须保存并回传原始 JSON，不能经由
+会丢字段的 Typed Model 解码后重编码。0.6 Runtime 只会在 `state_hash` 仍与其
+理解的 State 投影匹配时，接受 `Snapshot` 和 `SessionState` 内符合 OpenAPI
+增量规则的成员。这些成员计入完整 16 MiB 上限，但验证后会被忽略；Runtime
+之后只输出自身已知投影。若未来 Producer 把未知 State 成员纳入 `state_hash`，
+0.6 会以 `400 invalid_snapshot` Fail Closed。
+
 History 版本为 `identifier-history-v1`；其中 Request entry 保存 canonical
 request digest 与原始结果坐标或 typed Proposal/Arbitration 结果，Event entry
 保存每个已接受的 Event ID。`coverage_complete=true` 表示生成方知道完整的
@@ -644,7 +679,8 @@ Snapshot 文件和正文必须按事件日志同等敏感级别保护。完整 c
 
 | HTTP | 错误码 | 含义 |
 | --- | --- | --- |
-| `400` | `invalid_json` / `invalid_request` | JSON 或字段契约错误 |
+| `400` | `invalid_json` | JSON 格式错误、多个 JSON 值、原始 UTF-8 非法或 Unicode Surrogate 未配对 |
+| `400` | `invalid_request` | 字段契约错误，包括不安全整数或缺失/null `accepted` |
 | `400` | `invalid_snapshot` | State 或 Identifier History 非法，或其 hash 不匹配 |
 | `401` | `unauthorized` | Bearer Token 缺失或错误 |
 | `404` | `session_not_found` / `unknown_actor` | 实体不存在 |
@@ -668,4 +704,5 @@ Snapshot 文件和正文必须按事件日志同等敏感级别保护。完整 c
 | `503` | `jobs_unavailable` / `jobs_closed` | Proposal Job 服务未启用或正在关闭 |
 | `503` | `generation_unavailable` / `generation_closed` | 生成服务未启用或正在关闭 |
 
-服务从不把事件 payload、Token、内部路径或模型响应原文放入错误消息。
+服务从不把事件 payload、Token、内部路径或模型响应原文放入错误消息。这些 HTTP
+错误与成功 HTTP Response 中终态 Job 的有界 `data.error` 是不同层次。

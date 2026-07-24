@@ -1,3 +1,4 @@
+export const SDK_VERSION: "0.6.0";
 export const PROTOCOL_VERSION: "rin.protocol/v1";
 export const DEFAULT_BASE_URL: string;
 export const DEFAULT_MAX_RESPONSE_BYTES: number;

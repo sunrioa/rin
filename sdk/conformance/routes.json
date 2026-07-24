@@ -1,26 +1,128 @@
 {
   "schema_version": 1,
+  "release_version": "0.6.0",
+  "release_status": "preview",
   "protocol_version": "rin.protocol/v1",
   "operations": [
-    {"name": "health", "method": "GET", "path": "/health", "status": 200},
-    {"name": "create_session", "method": "POST", "path": "/v1/session/create", "status": 200},
-    {"name": "observe", "method": "POST", "path": "/v1/session/observe", "status": 200},
-    {"name": "propose", "method": "POST", "path": "/v1/agent/propose", "status": 200},
-    {"name": "submit_proposal_job", "method": "POST", "path": "/v1/jobs/propose", "status": 202},
-    {"name": "get_proposal_job", "method": "GET", "path": "/v1/jobs/{job_id}", "status": 200},
-    {"name": "cancel_proposal_job", "method": "DELETE", "path": "/v1/jobs/{job_id}", "status": 200},
-    {"name": "submit_generation_job", "method": "POST", "path": "/v1/generation/jobs", "status": 202},
-    {"name": "get_generation_job", "method": "GET", "path": "/v1/generation/jobs/{job_id}", "status": 200},
-    {"name": "cancel_generation_job", "method": "DELETE", "path": "/v1/generation/jobs/{job_id}", "status": 200},
-    {"name": "commit", "method": "POST", "path": "/v1/action/commit", "status": 200},
-    {"name": "commit_batch", "method": "POST", "path": "/v1/action/commit-batch", "status": 200},
-    {"name": "set_actor_activity", "method": "POST", "path": "/v1/session/activity", "status": 200},
-    {"name": "arbitrate", "method": "POST", "path": "/v1/world/arbitrate", "status": 200},
-    {"name": "state", "method": "POST", "path": "/v1/session/get", "status": 200},
-    {"name": "snapshot", "method": "POST", "path": "/v1/session/snapshot", "status": 200},
-    {"name": "restore", "method": "POST", "path": "/v1/session/restore", "status": 200},
-    {"name": "timeline", "method": "POST", "path": "/v1/session/timeline", "status": 200},
-    {"name": "replay", "method": "POST", "path": "/v1/session/replay", "status": 200},
-    {"name": "due_agents", "method": "POST", "path": "/v1/scheduler/due", "status": 200}
+    {
+      "name": "health",
+      "method": "GET",
+      "path": "/health",
+      "status": 200
+    },
+    {
+      "name": "create_session",
+      "method": "POST",
+      "path": "/v1/session/create",
+      "status": 200
+    },
+    {
+      "name": "observe",
+      "method": "POST",
+      "path": "/v1/session/observe",
+      "status": 200
+    },
+    {
+      "name": "propose",
+      "method": "POST",
+      "path": "/v1/agent/propose",
+      "status": 200
+    },
+    {
+      "name": "submit_proposal_job",
+      "method": "POST",
+      "path": "/v1/jobs/propose",
+      "status": 202
+    },
+    {
+      "name": "get_proposal_job",
+      "method": "GET",
+      "path": "/v1/jobs/{job_id}",
+      "status": 200
+    },
+    {
+      "name": "cancel_proposal_job",
+      "method": "DELETE",
+      "path": "/v1/jobs/{job_id}",
+      "status": 200
+    },
+    {
+      "name": "submit_generation_job",
+      "method": "POST",
+      "path": "/v1/generation/jobs",
+      "status": 202
+    },
+    {
+      "name": "get_generation_job",
+      "method": "GET",
+      "path": "/v1/generation/jobs/{job_id}",
+      "status": 200
+    },
+    {
+      "name": "cancel_generation_job",
+      "method": "DELETE",
+      "path": "/v1/generation/jobs/{job_id}",
+      "status": 200
+    },
+    {
+      "name": "commit",
+      "method": "POST",
+      "path": "/v1/action/commit",
+      "status": 200
+    },
+    {
+      "name": "commit_batch",
+      "method": "POST",
+      "path": "/v1/action/commit-batch",
+      "status": 200
+    },
+    {
+      "name": "set_actor_activity",
+      "method": "POST",
+      "path": "/v1/session/activity",
+      "status": 200
+    },
+    {
+      "name": "arbitrate",
+      "method": "POST",
+      "path": "/v1/world/arbitrate",
+      "status": 200
+    },
+    {
+      "name": "state",
+      "method": "POST",
+      "path": "/v1/session/get",
+      "status": 200
+    },
+    {
+      "name": "snapshot",
+      "method": "POST",
+      "path": "/v1/session/snapshot",
+      "status": 200
+    },
+    {
+      "name": "restore",
+      "method": "POST",
+      "path": "/v1/session/restore",
+      "status": 200
+    },
+    {
+      "name": "timeline",
+      "method": "POST",
+      "path": "/v1/session/timeline",
+      "status": 200
+    },
+    {
+      "name": "replay",
+      "method": "POST",
+      "path": "/v1/session/replay",
+      "status": 200
+    },
+    {
+      "name": "due_agents",
+      "method": "POST",
+      "path": "/v1/scheduler/due",
+      "status": 200
+    }
   ]
 }

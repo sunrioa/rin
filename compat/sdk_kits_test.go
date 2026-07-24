@@ -3,14 +3,17 @@ package compat_test
 import (
 	"encoding/json"
 	"os"
-	"regexp"
 	"strings"
 	"testing"
-	"unicode"
+
+	"github.com/sunrioa/rin/httpapi"
+	"github.com/sunrioa/rin/protocol"
 )
 
 type sdkRouteManifest struct {
 	SchemaVersion   int        `json:"schema_version"`
+	ReleaseVersion  string     `json:"release_version"`
+	ReleaseStatus   string     `json:"release_status"`
 	ProtocolVersion string     `json:"protocol_version"`
 	Operations      []sdkRoute `json:"operations"`
 }
@@ -22,13 +25,29 @@ type sdkRoute struct {
 	Status int    `json:"status"`
 }
 
-func TestSDKsCoverTheProtocolRouteManifest(t *testing.T) {
+func TestGeneratedSDKRouteManifestMatchesRuntimeRouteTable(t *testing.T) {
 	manifest := loadSDKRouteManifest(t)
-	if manifest.SchemaVersion != 1 || manifest.ProtocolVersion != "rin.protocol/v1" {
+	if manifest.SchemaVersion != 1 ||
+		manifest.ReleaseVersion != protocol.ContractReleaseVersion ||
+		manifest.ReleaseStatus != protocol.ContractReleaseStatus ||
+		manifest.ProtocolVersion != protocol.Version {
 		t.Fatalf("unexpected SDK manifest header: %+v", manifest)
 	}
-	if len(manifest.Operations) != 20 {
-		t.Fatalf("route manifest has %d operations, want 20", len(manifest.Operations))
+	runtimeRoutes := httpapi.ContractRoutes()
+	if len(manifest.Operations) != len(runtimeRoutes) {
+		t.Fatalf(
+			"SDK manifest has %d operations, runtime has %d",
+			len(manifest.Operations),
+			len(runtimeRoutes),
+		)
+	}
+	runtimeByKey := make(map[string]httpapi.ContractRoute, len(runtimeRoutes))
+	for _, route := range runtimeRoutes {
+		key := route.Method + " " + route.Path
+		if _, duplicate := runtimeByKey[key]; duplicate {
+			t.Fatalf("runtime route table contains duplicate %s", key)
+		}
+		runtimeByKey[key] = route
 	}
 	seen := make(map[string]bool, len(manifest.Operations))
 	for _, operation := range manifest.Operations {
@@ -37,60 +56,69 @@ func TestSDKsCoverTheProtocolRouteManifest(t *testing.T) {
 			t.Fatalf("duplicate or unnamed operation %q", key)
 		}
 		seen[key] = true
-		if operation.Status != 200 && operation.Status != 202 {
-			t.Fatalf("operation %s has unexpected status %d", operation.Name, operation.Status)
+		runtimeRoute, exists := runtimeByKey[key]
+		if !exists {
+			t.Errorf("SDK route manifest contains unregistered route %s", key)
+			continue
 		}
-	}
-
-	sdks := []struct {
-		name       string
-		path       string
-		methodName func(string) string
-	}{
-		{name: "python", path: "../sdk/python/src/rin_sdk/client.py", methodName: func(value string) string { return "def " + value + "(" }},
-		{name: "javascript", path: "../sdk/javascript/src/index.js", methodName: func(value string) string { return lowerCamel(value) + "(" }},
-		{name: "csharp", path: "../sdk/csharp/Rin.Client/RinClient.cs", methodName: func(value string) string { return upperCamel(value) + "Async(" }},
-		{name: "java", path: "../sdk/java/src/main/java/io/github/sunrioa/rin/RinClient.java", methodName: func(value string) string { return lowerCamel(value) + "(" }},
-		{name: "lua", path: "../sdk/lua/rin.lua", methodName: func(value string) string { return "Client:" + value + "(" }},
-	}
-	for _, sdk := range sdks {
-		t.Run(sdk.name, func(t *testing.T) {
-			payload, err := os.ReadFile(sdk.path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			text := string(payload)
-			for _, operation := range manifest.Operations {
-				if !strings.Contains(text, sdk.methodName(operation.Name)) {
-					t.Errorf("%s is missing operation %s", sdk.path, operation.Name)
-				}
-				pathPrefix := strings.TrimSuffix(operation.Path, "{job_id}")
-				if !strings.Contains(text, pathPrefix) {
-					t.Errorf("%s is missing route %s", sdk.path, operation.Path)
-				}
-			}
-		})
+		if runtimeRoute.OperationID != operation.Name ||
+			runtimeRoute.SuccessStatus != operation.Status {
+			t.Errorf(
+				"route %s projection mismatch: manifest=%+v runtime=%+v",
+				key,
+				operation,
+				runtimeRoute,
+			)
+		}
 	}
 }
 
-func TestSDKRouteManifestMatchesHTTPServer(t *testing.T) {
-	manifest := loadSDKRouteManifest(t)
-	payload, err := os.ReadFile("../httpapi/server.go")
-	if err != nil {
-		t.Fatal(err)
+func TestReleaseDocumentationMatchesGeneratedIdentity(t *testing.T) {
+	version := protocol.ContractReleaseVersion
+	status := protocol.ContractReleaseStatus
+	if status == "" {
+		t.Fatal("generated release status is empty")
 	}
-	matches := regexp.MustCompile(`mux\.HandleFunc\("([A-Z]+) ([^"]+)"`).FindAllStringSubmatch(string(payload), -1)
-	registered := make(map[string]bool, len(matches))
-	for _, match := range matches {
-		registered[match[1]+" "+match[2]] = true
+	statusLabel := strings.ToUpper(status[:1]) + status[1:]
+	files := []string{
+		"../README.en.md",
+		"../README.md",
+		"../CHANGELOG.md",
+		"../CHANGELOG.zh-CN.md",
+		"../ROADMAP.en.md",
+		"../ROADMAP.md",
+		"../SECURITY.en.md",
+		"../SECURITY.md",
+		"../docs/compatibility.md",
+		"../docs/compatibility.zh-CN.md",
+		"../docs/protocol-v1.md",
+		"../docs/protocol-v1.zh-CN.md",
+		"../docs/release-guide.md",
+		"../docs/release-guide.zh-CN.md",
 	}
-	if len(registered) != len(manifest.Operations) {
-		t.Fatalf("HTTP server has %d routes, SDK manifest has %d", len(registered), len(manifest.Operations))
+	for _, path := range files {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(payload)
+		if !strings.Contains(text, "`"+version+"`") ||
+			!strings.Contains(text, statusLabel) {
+			t.Errorf(
+				"%s does not identify generated release %s as %s",
+				path,
+				version,
+				statusLabel,
+			)
+		}
 	}
-	for _, operation := range manifest.Operations {
-		key := operation.Method + " " + operation.Path
-		if !registered[key] {
-			t.Errorf("SDK route manifest contains unregistered route %s", key)
+	for _, path := range []string{"../docs/release-guide.md", "../docs/release-guide.zh-CN.md"} {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(payload), "`v"+version+"`") {
+			t.Errorf("%s does not identify generated release tag v%s", path, version)
 		}
 	}
 }
@@ -184,7 +212,7 @@ func TestSDKJobWaitersValidateReturnedIdentity(t *testing.T) {
 				"_validate_job_identity",
 				"response_job_id != expected_job_id",
 				`proposal.get("session_id") != job["session_id"]`,
-				"_is_nonnegative_int64",
+				"_is_nonnegative_json_safe_integer",
 				"_MAX_GENERATION_CONTENT_BYTES",
 			},
 		},
@@ -204,7 +232,7 @@ func TestSDKJobWaitersValidateReturnedIdentity(t *testing.T) {
 				"ValidateJobIdentity",
 				"responseJobId != expectedJobId",
 				"proposalSessionId != jobSessionId",
-				"TryNonnegativeInt64Property",
+				"TryNonnegativeJsonSafeIntegerProperty",
 				"MaxGenerationContentBytes",
 			},
 		},
@@ -214,7 +242,7 @@ func TestSDKJobWaitersValidateReturnedIdentity(t *testing.T) {
 				"validateJobIdentity",
 				"!id.equals(expectedJobId)",
 				`Objects.equals(proposal.get("session_id"), job.get("session_id"))`,
-				"isNonnegativeSignedInt64",
+				"isNonnegativeJsonSafeInteger",
 				"MAX_GENERATION_CONTENT_BYTES",
 			},
 		},
@@ -224,7 +252,7 @@ func TestSDKJobWaitersValidateReturnedIdentity(t *testing.T) {
 				"resolve_job(job, result_kind, expected_job_id)",
 				"job.job_id ~= expected_job_id",
 				"proposal.session_id ~= job.session_id",
-				"is_nonnegative_signed_int64",
+				"is_nonnegative_json_safe_integer",
 				"max_generation_content_bytes",
 			},
 		},
@@ -375,32 +403,6 @@ func TestExampleModsPreserveGameAuthority(t *testing.T) {
 	if string(sdk) != string(vendored) {
 		t.Fatal("Luanti vendored rin.lua differs from sdk/lua/rin.lua")
 	}
-}
-
-func lowerCamel(value string) string {
-	result := upperCamel(value)
-	if result == "" {
-		return result
-	}
-	return strings.ToLower(result[:1]) + result[1:]
-}
-
-func upperCamel(value string) string {
-	var result []rune
-	upper := true
-	for _, character := range value {
-		if character == '_' || character == '-' {
-			upper = true
-			continue
-		}
-		if upper {
-			result = append(result, unicode.ToUpper(character))
-			upper = false
-		} else {
-			result = append(result, character)
-		}
-	}
-	return string(result)
 }
 
 func loadSDKRouteManifest(t *testing.T) sdkRouteManifest {

@@ -16,7 +16,7 @@ public sealed class Plugin : BaseUnityPlugin
 {
     public const string PluginGuid = "io.github.sunrioa.rin.npc-example";
     public const string PluginName = "Rin NPC Example";
-    public const string PluginVersion = "0.1.0";
+    public const string PluginVersion = "0.6.0";
 
     private const string ActorId = "npc.rin.companion";
     private const int MaxProposalPostsPerEntry = 2;

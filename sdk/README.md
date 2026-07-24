@@ -84,7 +84,10 @@ that outgrows the inline ceiling cannot use these JSON methods.
 
 The SDKs are intentionally source-first and are not yet published to PyPI,
 npm, NuGet, or Maven Central. Pin this repository revision when vendoring one.
-Route compatibility is defined by [`conformance/routes.json`](conformance/routes.json).
+Route compatibility is defined by
+[`api/openapi.json`](../api/openapi.json);
+[`conformance/routes.json`](conformance/routes.json) is its generated coverage
+inventory.
 
 Game-specific examples live under [`examples/mods`](../examples/mods). They
 show where host events enter Rin and where the game validates and applies a

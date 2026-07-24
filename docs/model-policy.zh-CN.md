@@ -4,6 +4,9 @@
 
 模型接入是可选且有界的；没有供应商时，本地验证与确定性策略仍然可用。
 
+本文描述 Rin `0.6.0` Preview。Provider Response 是独立于游戏侧 HTTP Request
+契约的另一条不可信边界。
+
 ## 启用
 
 Rin 默认使用 `deterministic`，不会产生任何模型网络请求。在线模式需要显式配置：
@@ -129,3 +132,9 @@ Boundary、Memory、Belief、Trait、Intent 和近期上下文文本可以影响
 隐藏状态，玩家 UI 不得直接展示。
 
 结构化 Generation API 复用相同 Provider 与熔断预算，但它不使用确定性 Policy 回退。调用方必须自己准备离线文本，并在接受结果前执行领域 Schema 与 Canon 校验。
+
+Sidecar 会在 JSON 解码前严格拒绝游戏侧 HTTP Request 与成功 Provider JSON
+Response 中的非法 UTF-8 和未配对 Unicode Surrogate。Rin 随后检查解码后的
+Generation Content 是否为空、包含 NUL、字节超限以及是否为一个顶层 JSON
+Object。非 2xx Provider Body 只用于有界错误分类，不会成为 Content 或 Session
+State。

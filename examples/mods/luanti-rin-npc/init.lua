@@ -41,7 +41,7 @@ local function fetch(request, callback)
         return
     end
     local extra_headers = {}
-    local user_agent = "rin-luanti-example/0.1"
+    local user_agent = "rin-luanti-example/0.6.0"
     for key, value in pairs(request.headers) do
         if key:lower() == "user-agent" then
             user_agent = value
@@ -152,7 +152,7 @@ local function create_session_request(entry)
         binding = {
             game_id = "luanti",
             content_id = "rin-npc-example",
-            content_version = "0.1.0",
+            content_version = "0.6.0",
             content_hash = "sha256:" .. string.rep("0", 64),
         },
         seed = entry.seed,

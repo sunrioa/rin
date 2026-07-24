@@ -335,11 +335,11 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 		session.mu.Unlock()
 		return protocol.ActionProposal{}, false, NewError("actor_not_due", "actor is not scheduled to think yet", ErrNotDue)
 	}
-	if session.state.Revision == ^uint64(0) {
+	if session.state.Revision >= uint64(protocol.MaxJSONSafeInteger) {
 		session.mu.Unlock()
 		return protocol.ActionProposal{}, false, NewFieldError(
 			"revision_overflow",
-			"session revision is exhausted",
+			"session revision has reached the protocol JSON integer ceiling",
 			"revision",
 			ErrConflict,
 		)
@@ -562,7 +562,7 @@ func (e *Engine) Commit(request protocol.CommitRequest) (protocol.MutationResult
 		return protocol.MutationResult{}, NewFieldError("event_exists", "event id was already observed or reported", "event_id", ErrConflict)
 	}
 	actor := session.state.Actors[proposal.ActorID]
-	if request.Accepted && request.Tick > maxInt64-actor.ThinkEveryTicks {
+	if request.Accepted && request.Tick > protocol.MaxJSONSafeInteger-actor.ThinkEveryTicks {
 		return protocol.MutationResult{}, NewFieldError("tick_overflow", "commit tick cannot be scheduled safely", "tick", ErrConflict)
 	}
 	if request.Accepted && proposal.ProposedGoal != nil {
@@ -701,7 +701,7 @@ func (e *Engine) CommitBatch(request protocol.BatchCommitRequest) (protocol.Muta
 		}
 		eventIDs[item.EventID] = struct{}{}
 		actor := session.state.Actors[proposal.ActorID]
-		if item.Accepted && request.Tick > maxInt64-actor.ThinkEveryTicks {
+		if item.Accepted && request.Tick > protocol.MaxJSONSafeInteger-actor.ThinkEveryTicks {
 			return protocol.MutationResult{}, NewFieldError("tick_overflow", "batch commit tick cannot be scheduled safely", "tick", ErrConflict)
 		}
 		if item.Accepted && proposal.ProposedGoal != nil {
@@ -1741,10 +1741,10 @@ func validateFactVisibility(state protocol.SessionState, facts []protocol.Fact, 
 
 func worldRevisionAdvanceError(state protocol.SessionState) error {
 	if protocol.HasFeature(state.Features, protocol.FeatureArbitration) &&
-		state.WorldRevision == ^uint64(0) {
+		state.WorldRevision >= uint64(protocol.MaxJSONSafeInteger) {
 		return NewFieldError(
 			"world_revision_overflow",
-			"world revision is exhausted",
+			"world revision has reached the protocol JSON integer ceiling",
 			"world_revision",
 			ErrConflict,
 		)

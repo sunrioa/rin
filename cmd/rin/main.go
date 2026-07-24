@@ -16,11 +16,12 @@ import (
 	"github.com/sunrioa/rin/generation"
 	"github.com/sunrioa/rin/httpapi"
 	"github.com/sunrioa/rin/jobs"
+	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
 )
 
-var version = "dev"
+var version = "0.6.0"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -116,7 +117,7 @@ func run(arguments []string) (resultErr error) {
 		}
 		return err
 	}
-	logFields := []any{"address", listener.Addr().String(), "protocol", "rin.protocol/v1", "auth", token != "", "policy", modelRuntime.Mode, "structured_generation", generationManager != nil}
+	logFields := []any{"address", listener.Addr().String(), "protocol", protocol.Version, "auth", token != "", "policy", modelRuntime.Mode, "structured_generation", generationManager != nil}
 	if modelRuntime.Mode == "model-with-fallback" {
 		logFields = append(logFields, "model_config", describeModelConfig())
 	}

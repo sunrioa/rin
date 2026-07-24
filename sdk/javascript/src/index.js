@@ -1,3 +1,4 @@
+export const SDK_VERSION = "0.6.0";
 export const PROTOCOL_VERSION = "rin.protocol/v1";
 export const DEFAULT_BASE_URL = "http://127.0.0.1:7374";
 export const DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
@@ -127,17 +128,26 @@ export class RinClient {
     if (typeof path !== "string" || !path.startsWith("/") || path.includes("//") || path.includes("..")) {
       throw new RinConfigurationError("invalid_path", "Rin request path is invalid");
     }
-    const headers = { Accept: "application/json", "User-Agent": "rin-javascript/0.5" };
+    const headers = { Accept: "application/json", "User-Agent": `rin-javascript/${SDK_VERSION}` };
     let body;
     if (payload !== undefined) {
       if (!isObject(payload)) {
         throw new RinProtocolError("invalid_request", "Rin payload must be an object");
       }
+      validateRequestJSON(payload);
       try {
         body = JSON.stringify(payload);
       } catch (cause) {
         throw new RinProtocolError("invalid_request", "Rin payload is not JSON serializable", { cause });
       }
+      if (typeof body !== "string") {
+        throw new RinProtocolError("invalid_request", "Rin payload is not JSON serializable");
+      }
+      const serialized = JSON.parse(body);
+      if (!isObject(serialized)) {
+        throw new RinProtocolError("invalid_request", "Rin payload must serialize to an object");
+      }
+      validateRequestJSON(serialized);
       headers["Content-Type"] = "application/json";
     }
     if (this.token) headers.Authorization = `Bearer ${this.token}`;
@@ -297,6 +307,83 @@ function apiError(envelope, status) {
 
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function validateRequestJSON(value) {
+  const active = new WeakSet();
+  const visit = (current, depth) => {
+    if (depth > 64) {
+      throw new RinProtocolError("invalid_request", "Rin payload exceeds the JSON nesting limit");
+    }
+    if (current === null || typeof current === "boolean") return;
+    if (typeof current === "string") {
+      if (hasUnpairedSurrogate(current)) {
+        throw new RinProtocolError("invalid_request", "Rin payload contains invalid Unicode");
+      }
+      return;
+    }
+    if (typeof current === "number") {
+      if (!Number.isFinite(current)) {
+        throw new RinProtocolError("invalid_request", "Rin payload contains a non-finite JSON number");
+      }
+      if (Number.isInteger(current) && !Number.isSafeInteger(current)) {
+        throw new RinProtocolError("invalid_request", "Rin payload contains an unsafe JSON integer");
+      }
+      return;
+    }
+    if (typeof current !== "object") {
+      throw new RinProtocolError("invalid_request", "Rin payload contains a non-JSON value");
+    }
+    const array = Array.isArray(current);
+    const prototype = Object.getPrototypeOf(current);
+    if ((!array && prototype !== Object.prototype && prototype !== null) ||
+        typeof current.toJSON === "function" ||
+        Object.getOwnPropertySymbols(current).length !== 0) {
+      throw new RinProtocolError("invalid_request", "Rin payload contains a non-JSON value");
+    }
+    if (active.has(current)) {
+      throw new RinProtocolError("invalid_request", "Rin payload contains a JSON cycle");
+    }
+    active.add(current);
+    try {
+      if (array) {
+        const keys = Object.keys(current);
+        if (keys.length !== current.length) {
+          throw new RinProtocolError("invalid_request", "Rin payload contains a sparse or extended JSON array");
+        }
+        for (let index = 0; index < current.length; index += 1) {
+          if (!Object.hasOwn(current, index)) {
+            throw new RinProtocolError("invalid_request", "Rin payload contains a sparse or extended JSON array");
+          }
+          visit(current[index], depth + 1);
+        }
+      } else {
+        for (const [key, child] of Object.entries(current)) {
+          if (hasUnpairedSurrogate(key)) {
+            throw new RinProtocolError("invalid_request", "Rin payload contains invalid Unicode");
+          }
+          visit(child, depth + 1);
+        }
+      }
+    } finally {
+      active.delete(current);
+    }
+  };
+  visit(value, 0);
+}
+
+function hasUnpairedSurrogate(value) {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (index + 1 >= value.length || next < 0xdc00 || next > 0xdfff) return true;
+      index += 1;
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function resolveJob(job, resultKind = "", expectedJobId = "") {

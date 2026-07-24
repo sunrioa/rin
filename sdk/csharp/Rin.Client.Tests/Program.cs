@@ -1,44 +1,153 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using Rin.Client;
 
 Require(
     new RinClientOptions().MaxResponseBytes == 32 * 1024 * 1024,
     "default response limit does not match the inline transport budget");
+Require(RinClient.ClientVersion == "0.6.0", "client version projection is stale");
 
 var handler = new RecordingHandler();
 using var client = new RinClient(new RinClientOptions { Token = "fixture" }, handler);
-var payload = new Dictionary<string, object?>();
-var cases = new (Func<Task> Call, HttpMethod Method, string Path)[]
+var payload = new Dictionary<string, object?>
 {
-    (async () => await client.HealthAsync(), HttpMethod.Get, "/health"),
-    (async () => await client.CreateSessionAsync(payload), HttpMethod.Post, "/v1/session/create"),
-    (async () => await client.ObserveAsync(payload), HttpMethod.Post, "/v1/session/observe"),
-    (async () => await client.ProposeAsync(payload), HttpMethod.Post, "/v1/agent/propose"),
-    (async () => await client.SubmitProposalJobAsync(payload), HttpMethod.Post, "/v1/jobs/propose"),
-    (async () => await client.GetProposalJobAsync("job.fixture"), HttpMethod.Get, "/v1/jobs/job.fixture"),
-    (async () => await client.CancelProposalJobAsync("job.fixture"), HttpMethod.Delete, "/v1/jobs/job.fixture"),
-    (async () => await client.SubmitGenerationJobAsync(payload), HttpMethod.Post, "/v1/generation/jobs"),
-    (async () => await client.GetGenerationJobAsync("job.fixture"), HttpMethod.Get, "/v1/generation/jobs/job.fixture"),
-    (async () => await client.CancelGenerationJobAsync("job.fixture"), HttpMethod.Delete, "/v1/generation/jobs/job.fixture"),
-    (async () => await client.CommitAsync(payload), HttpMethod.Post, "/v1/action/commit"),
-    (async () => await client.CommitBatchAsync(payload), HttpMethod.Post, "/v1/action/commit-batch"),
-    (async () => await client.SetActorActivityAsync(payload), HttpMethod.Post, "/v1/session/activity"),
-    (async () => await client.ArbitrateAsync(payload), HttpMethod.Post, "/v1/world/arbitrate"),
-    (async () => await client.StateAsync(payload), HttpMethod.Post, "/v1/session/get"),
-    (async () => await client.SnapshotAsync(payload), HttpMethod.Post, "/v1/session/snapshot"),
-    (async () => await client.RestoreAsync(payload), HttpMethod.Post, "/v1/session/restore"),
-    (async () => await client.TimelineAsync(payload), HttpMethod.Post, "/v1/session/timeline"),
-    (async () => await client.ReplayAsync(payload), HttpMethod.Post, "/v1/session/replay"),
-    (async () => await client.DueAgentsAsync(payload), HttpMethod.Post, "/v1/scheduler/due"),
+    ["protocol_version"] = RinClient.ProtocolVersion,
+    ["request_id"] = "request.fixture",
+    ["utf8"] = "雨",
+};
+var cases = new (string Name, Func<Task<JsonElement>> Call, HttpMethod Method, string Path)[]
+{
+    ("health", () => client.HealthAsync(), HttpMethod.Get, "/health"),
+    ("create_session", () => client.CreateSessionAsync(payload), HttpMethod.Post, "/v1/session/create"),
+    ("observe", () => client.ObserveAsync(payload), HttpMethod.Post, "/v1/session/observe"),
+    ("propose", () => client.ProposeAsync(payload), HttpMethod.Post, "/v1/agent/propose"),
+    ("submit_proposal_job", () => client.SubmitProposalJobAsync(payload), HttpMethod.Post, "/v1/jobs/propose"),
+    ("get_proposal_job", () => client.GetProposalJobAsync("job.fixture"), HttpMethod.Get, "/v1/jobs/job.fixture"),
+    ("cancel_proposal_job", () => client.CancelProposalJobAsync("job.fixture"), HttpMethod.Delete, "/v1/jobs/job.fixture"),
+    ("submit_generation_job", () => client.SubmitGenerationJobAsync(payload), HttpMethod.Post, "/v1/generation/jobs"),
+    ("get_generation_job", () => client.GetGenerationJobAsync("job.fixture"), HttpMethod.Get, "/v1/generation/jobs/job.fixture"),
+    ("cancel_generation_job", () => client.CancelGenerationJobAsync("job.fixture"), HttpMethod.Delete, "/v1/generation/jobs/job.fixture"),
+    ("commit", () => client.CommitAsync(payload), HttpMethod.Post, "/v1/action/commit"),
+    ("commit_batch", () => client.CommitBatchAsync(payload), HttpMethod.Post, "/v1/action/commit-batch"),
+    ("set_actor_activity", () => client.SetActorActivityAsync(payload), HttpMethod.Post, "/v1/session/activity"),
+    ("arbitrate", () => client.ArbitrateAsync(payload), HttpMethod.Post, "/v1/world/arbitrate"),
+    ("state", () => client.StateAsync(payload), HttpMethod.Post, "/v1/session/get"),
+    ("snapshot", () => client.SnapshotAsync(payload), HttpMethod.Post, "/v1/session/snapshot"),
+    ("restore", () => client.RestoreAsync(payload), HttpMethod.Post, "/v1/session/restore"),
+    ("timeline", () => client.TimelineAsync(payload), HttpMethod.Post, "/v1/session/timeline"),
+    ("replay", () => client.ReplayAsync(payload), HttpMethod.Post, "/v1/session/replay"),
+    ("due_agents", () => client.DueAgentsAsync(payload), HttpMethod.Post, "/v1/scheduler/due"),
 };
 
+var observedRoutes = new List<string>();
 foreach (var test in cases)
 {
-    await test.Call();
+    var result = await test.Call();
     Require(handler.Method == test.Method, "wrong method for " + test.Path);
     Require(handler.Path == test.Path, "wrong path for " + test.Path);
     Require(handler.Authorization == "Bearer fixture", "missing bearer token");
+    Require(handler.UserAgent == "rin-csharp/" + RinClient.ClientVersion, "wrong user agent");
+    Require(result.GetProperty("status").GetString() == "ok", "response envelope was not decoded");
+    if (test.Method == HttpMethod.Post)
+    {
+        using var sent = JsonDocument.Parse(handler.Body);
+        Require(
+            sent.RootElement.GetProperty("protocol_version").GetString() == RinClient.ProtocolVersion,
+            "request protocol_version was not serialized");
+        Require(
+            sent.RootElement.GetProperty("request_id").GetString() == "request.fixture",
+            "request_id was not serialized");
+        Require(sent.RootElement.GetProperty("utf8").GetString() == "雨", "UTF-8 request text changed");
+    }
+    else
+    {
+        Require(handler.Body == string.Empty, "bodyless route sent a request body");
+    }
+    observedRoutes.Add(RouteKey(
+        test.Name,
+        handler.Method?.Method ?? string.Empty,
+        handler.Path.Replace("job.fixture", "{job_id}"),
+        (int)handler.Status));
+}
+var expectedRoutes = ContractRouteKeys();
+observedRoutes.Sort(StringComparer.Ordinal);
+Require(
+    observedRoutes.SequenceEqual(expectedRoutes, StringComparer.Ordinal),
+    "actual SDK request method/path/status set differs from sdk/conformance/routes.json");
+
+await client.CommitAsync(new Dictionary<string, object?> { ["accepted"] = false });
+using (var sent = JsonDocument.Parse(handler.Body))
+{
+    Require(
+        sent.RootElement.TryGetProperty("accepted", out var accepted) &&
+        accepted.ValueKind == JsonValueKind.False,
+        "commit accepted=false was omitted or changed");
+}
+await client.CommitBatchAsync(new Dictionary<string, object?>
+{
+    ["items"] = new object?[] { new Dictionary<string, object?> { ["accepted"] = false } },
+});
+using (var sent = JsonDocument.Parse(handler.Body))
+{
+    var item = sent.RootElement.GetProperty("items").EnumerateArray().Single();
+    Require(
+        item.TryGetProperty("accepted", out var accepted) &&
+        accepted.ValueKind == JsonValueKind.False,
+        "batch accepted=false was omitted or changed");
+}
+
+var cyclicPayload = new Dictionary<string, object?>();
+cyclicPayload["self"] = cyclicPayload;
+object deepPayload = "leaf";
+for (var depth = 0; depth < 66; depth++) deepPayload = new object?[] { deepPayload };
+var invalidPayloads = new object[]
+{
+    new Dictionary<string, object?>
+    {
+        ["nested"] = new object?[] { new Dictionary<string, object?> { ["unsafe"] = 9_007_199_254_740_992L } },
+    },
+    new Dictionary<string, object?> { ["nested"] = double.NaN },
+    new Dictionary<string, object?> { ["nested"] = double.PositiveInfinity },
+    cyclicPayload,
+    new Dictionary<string, object?> { ["nested"] = deepPayload },
+};
+var requestsBeforeInvalidPayloads = handler.RequestCount;
+foreach (var invalidPayload in invalidPayloads)
+{
+    try
+    {
+        await client.CommitAsync(invalidPayload);
+        throw new InvalidOperationException("invalid JSON payload was accepted");
+    }
+    catch (RinProtocolException exception)
+    {
+        Require(exception.Code == "invalid_request", "invalid JSON payload returned the wrong error");
+    }
+}
+Require(
+    handler.RequestCount == requestsBeforeInvalidPayloads,
+    "invalid JSON payload reached the transport");
+
+var apiErrorHandler = new RecordingHandler
+{
+    ForcedStatus = HttpStatusCode.BadRequest,
+    ResponseBodyFactory = _ =>
+        "{\"ok\":false,\"error\":{\"code\":\"invalid_request\",\"message\":\"safe\",\"field\":\"actor_id\"}}",
+};
+using (var apiErrorClient = new RinClient(new RinClientOptions(), apiErrorHandler))
+{
+    try
+    {
+        await apiErrorClient.HealthAsync();
+        throw new InvalidOperationException("API error envelope was accepted");
+    }
+    catch (RinApiException exception)
+    {
+        Require(exception.Status == 400, "API error status changed");
+        Require(exception.Code == "invalid_request", "API error code changed");
+        Require(exception.Field == "actor_id", "API error field changed");
+    }
 }
 
 RequireThrows<RinConfigurationException>(() => new RinClient(new RinClientOptions
@@ -332,7 +441,7 @@ var malformedDelete = new RecordingHandler
     ResponseBodyFactory = request => request.Method == HttpMethod.Delete
         ? ProposalJobBody(
             "succeeded",
-            ",\"proposal\":{\"id\":\"proposal.race\",\"session_id\":\"session.fixture\",\"request_id\":\"request.fixture\",\"actor_id\":\"actor.fixture\",\"tick\":1.5}")
+            ",\"proposal\":{\"id\":\"proposal.race\",\"session_id\":\"session.fixture\",\"request_id\":\"request.fixture\",\"actor_id\":\"actor.fixture\",\"tick\":9007199254740992}")
         : ProposalJobBody("running"),
 };
 using var malformedDeleteClient = new RinClient(new RinClientOptions(), malformedDelete);
@@ -368,6 +477,43 @@ static void RequireThrows<TException>(Action action, string message) where TExce
     }
 }
 
+static string RouteKey(string name, string method, string path, int status) =>
+    name + " " + method + " " + path + " " + status;
+
+static string[] ContractRouteKeys()
+{
+    using var document = JsonDocument.Parse(File.ReadAllText(ContractManifestPath()));
+    return document.RootElement.GetProperty("operations")
+        .EnumerateArray()
+        .Select(operation => RouteKey(
+            operation.GetProperty("name").GetString() ?? string.Empty,
+            operation.GetProperty("method").GetString() ?? string.Empty,
+            operation.GetProperty("path").GetString() ?? string.Empty,
+            operation.GetProperty("status").GetInt32()))
+        .OrderBy(route => route, StringComparer.Ordinal)
+        .ToArray();
+}
+
+static string ContractManifestPath()
+{
+    foreach (var start in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
+    {
+        for (DirectoryInfo? directory = new(start); directory is not null; directory = directory.Parent)
+        {
+            foreach (var relative in new[]
+            {
+                Path.Combine("sdk", "conformance", "routes.json"),
+                Path.Combine("conformance", "routes.json"),
+            })
+            {
+                var candidate = Path.Combine(directory.FullName, relative);
+                if (File.Exists(candidate)) return candidate;
+            }
+        }
+    }
+    throw new FileNotFoundException("cannot locate sdk/conformance/routes.json");
+}
+
 static string ProposalJobBody(
     string status,
     string suffix = "",
@@ -390,31 +536,44 @@ static string GenerationJobBody(
 
 sealed class RecordingHandler : HttpMessageHandler
 {
+    public int RequestCount { get; private set; }
     public HttpMethod? Method { get; private set; }
     public string Path { get; private set; } = string.Empty;
     public string Authorization { get; private set; } = string.Empty;
+    public string UserAgent { get; private set; } = string.Empty;
+    public string Body { get; private set; } = string.Empty;
+    public HttpStatusCode Status { get; private set; }
     public long? DeclaredLength { get; init; }
+    public HttpStatusCode? ForcedStatus { get; init; }
     public Func<HttpContent>? ContentFactory { get; init; }
     public Func<HttpRequestMessage, string>? ResponseBodyFactory { get; init; }
 
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    protected override async Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        RequestCount++;
         Method = request.Method;
         Path = request.RequestUri?.AbsolutePath ?? string.Empty;
         Authorization = request.Headers.TryGetValues("Authorization", out var values)
             ? values.Single()
             : string.Empty;
-        var status = Path is "/v1/jobs/propose" or "/v1/generation/jobs"
+        UserAgent = request.Headers.UserAgent.ToString();
+        Body = request.Content is null
+            ? string.Empty
+            : await request.Content.ReadAsStringAsync(cancellationToken);
+        var status = ForcedStatus ?? (Path is "/v1/jobs/propose" or "/v1/generation/jobs"
             ? HttpStatusCode.Accepted
-            : HttpStatusCode.OK;
+            : HttpStatusCode.OK);
+        Status = status;
         var responseBodyFactory = ResponseBodyFactory;
         var content = responseBodyFactory is not null
             ? new ByteArrayContent(Encoding.UTF8.GetBytes(responseBodyFactory(request)))
             : ContentFactory?.Invoke() ??
               new ByteArrayContent(Encoding.UTF8.GetBytes("{\"ok\":true,\"data\":{\"status\":\"ok\"}}"));
         if (DeclaredLength.HasValue) content.Headers.ContentLength = DeclaredLength.Value;
-        return Task.FromResult(new HttpResponseMessage(status) { Content = content });
+        return new HttpResponseMessage(status) { Content = content };
     }
 }
 

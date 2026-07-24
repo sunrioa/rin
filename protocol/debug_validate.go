@@ -4,6 +4,9 @@ func ValidateTimeline(request TimelineRequest) error {
 	if err := validateVersion(request.ProtocolVersion); err != nil {
 		return err
 	}
+	if err := validateJSONSafeUnsigned("after_revision", request.AfterRevision); err != nil {
+		return err
+	}
 	if err := validateID("session_id", request.SessionID); err != nil {
 		return err
 	}
@@ -15,6 +18,9 @@ func ValidateTimeline(request TimelineRequest) error {
 
 func ValidateReplay(request ReplayRequest) error {
 	if err := validateVersion(request.ProtocolVersion); err != nil {
+		return err
+	}
+	if err := validateJSONSafeUnsigned("revision", request.Revision); err != nil {
 		return err
 	}
 	if err := validateID("session_id", request.SessionID); err != nil {

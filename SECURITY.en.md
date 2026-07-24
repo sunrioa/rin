@@ -5,6 +5,10 @@
 This document defines Rin's supported security boundary, deployment
 requirements, and vulnerability-reporting process.
 
+Rin `0.6.0` is Preview, pre-1.0 software. Preview status does not relax the
+fail-closed rules in this document, but it does mean future compatibility must
+be evaluated through the Changelog and migration guides.
+
 ## Defaults
 
 - The service listens only on `127.0.0.1` by default.
@@ -18,9 +22,13 @@ requirements, and vulnerability-reporting process.
   capped at 16 MiB to leave envelope and durable-record headroom; it is
   rejected with `413 snapshot_too_large`, never truncated, when larger.
   No streaming Snapshot transport is currently provided. Unknown fields and
-  multiple JSON values are rejected. Text is validated after Go JSON decoding;
-  that decoder replaces invalid UTF-8 bytes inside JSON strings with `U+FFFD`,
-  so Rin does not promise rejection of every raw non-UTF-8 byte sequence.
+  multiple JSON values are rejected. The HTTP API validates the raw request
+  body before JSON decoding and returns `400 invalid_json` for invalid UTF-8
+  bytes or unpaired JSON Unicode surrogates.
+- Every public HTTP JSON integer must be exactly representable between
+  `-9007199254740991` and `9007199254740991`; schema-specific non-negative and
+  narrower bounds still apply. Unsafe integers are rejected rather than
+  rounded across language boundaries.
 - Session IDs use safe identifiers only; HTTP requests cannot provide file
   paths.
 - Events, indexes, checkpoints, snapshots, and the lock file use `0600`
@@ -49,6 +57,12 @@ or unsynchronized modification; they are not signatures or provenance proof,
 and an editor can recompute them. Restore therefore requires
 `expected_binding` from the running game's trusted content manifest instead
 of trusting the imported Snapshot to declare which content is active.
+
+Event-chain hashes have the same adversarial limitation. They are unkeyed
+SHA-256 consistency links, not signatures or MACs. A party able to replace a
+complete event log can recompute the chain and its indexes, checkpoints, and
+Snapshots. Rin detects an inconsistent history; it does not authenticate a
+history against an external immutable anchor.
 
 Online mode sends only the current actor's bounded traits, boundaries, active
 goals, relevant memories, beliefs, recent actions, and candidate actions.
@@ -84,6 +98,17 @@ validates only the top-level JSON object and character/byte limits. The caller
 must validate its own field schema, referenced IDs, permissions, and canon,
 and must never directly execute generated output.
 
+The built-in Provider does not put prompts, credentials, or raw Provider HTTP
+bodies into errors, logs, or durable Session state. A successful decoded and
+validated Generation result is intentionally retained in the bounded
+process-local Job record and semantic cache, then returned to the caller. That
+content is untrusted and may be sensitive; a game that persists it must apply
+its own allowlist and retention policy. Before decoding a successful Provider
+JSON response, Rin strictly rejects invalid UTF-8 and unpaired Unicode
+surrogates. A non-2xx Provider body is used only for bounded error
+classification; it is not treated as content, written to Session state, or
+given a content-validity guarantee.
+
 Games must keep high-authority operations such as quests, items, combat,
 currency, intimacy consent, and critical plot transitions in their own rule
 layer.
@@ -93,6 +118,12 @@ fallback. They are explicitly marked `committable=false` and cannot be
 submitted as sidecar proposals. Threads, HTTP objects, and cancellation
 handles must not enter Ren'Py saves; only plain JSON results and validated
 snapshots may be persisted.
+
+Provider failure inside a confirmed live Sidecar Proposal operation may use the
+deterministic Policy. An ambiguous Sidecar submit, poll, timeout, or cancel is
+not offline proof: an online Proposal may exist. Persist and resume the exact
+Proposal Attempt/Job identity, block new turns, and do not execute fallback
+content until absence is confirmed.
 
 The bundled file store takes a non-blocking exclusive data-directory lock
 before reading or writing. A second process fails to open that directory, and

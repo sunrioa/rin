@@ -5,14 +5,23 @@ DOTNET ?= dotnet
 JAVAC ?= javac
 JAVA ?= java
 LUA ?= lua
-VERSION ?= dev
+VERSION ?= 0.6.0
 
-.PHONY: fmt test test-go test-adapters test-sdks test-sdk-python test-sdk-javascript test-sdk-csharp test-sdk-java test-sdk-lua race vet build
+.PHONY: fmt test verify contract-check contract-write test-go test-adapters test-sdks test-sdk-python test-sdk-javascript test-sdk-csharp test-sdk-java test-sdk-lua race vet build
 
 fmt:
 	$(GO) fmt ./...
 
 test: test-go test-adapters
+
+verify: contract-check vet race test-adapters test-sdks
+
+contract-check:
+	$(PYTHON) tools/generate_contract.py --check
+	$(PYTHON) -m unittest tools.test_generate_contract
+
+contract-write:
+	$(PYTHON) tools/generate_contract.py --write
 
 test-go:
 	$(GO) test ./...

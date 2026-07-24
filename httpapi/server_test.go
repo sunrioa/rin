@@ -74,6 +74,32 @@ func TestStrictJSONAndBodyLimit(t *testing.T) {
 	}
 }
 
+func TestStrictJSONRejectsRawInvalidUTF8BeforeDecoding(t *testing.T) {
+	server := newServer(t, httpapi.Options{})
+	payload := []byte(`{"protocol_version":"rin.protocol/v1","session_id":"`)
+	payload = append(payload, 0xff)
+	payload = append(payload, []byte(`"}`)...)
+	request := httptest.NewRequest(http.MethodPost, "/v1/session/get", bytes.NewReader(payload))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	server.ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("invalid UTF-8 status: %d %s", response.Code, response.Body.String())
+	}
+	var envelope protocol.APIResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Error == nil || envelope.Error.Code != "invalid_json" {
+		t.Fatalf("invalid UTF-8 response: %+v", envelope)
+	}
+	if strings.Contains(response.Body.String(), "\ufffd") {
+		t.Fatalf("invalid UTF-8 was replacement-decoded: %s", response.Body.String())
+	}
+}
+
 func TestProposalWireResponseSeparatesPlayerTextFromPrivateAuditMetadata(t *testing.T) {
 	const canary = "PRIVATE_HTTP_BOUNDARY_CANARY_6C2D"
 	server := newServer(t, httpapi.Options{})
@@ -131,6 +157,7 @@ func TestInvalidSnapshotMapsToBadRequest(t *testing.T) {
 				Binding: protocol.Binding{
 					GameID: "game.http", ContentID: "base", ContentVersion: "1", ContentHash: "hash",
 				},
+				Actors: map[string]protocol.ActorState{},
 			},
 		},
 	})
@@ -163,6 +190,7 @@ func TestOversizedInlineSnapshotMapsToPayloadTooLarge(t *testing.T) {
 				ProtocolVersion: protocol.Version,
 				SessionID:       "session.oversized-snapshot",
 				Binding:         binding,
+				Actors:          map[string]protocol.ActorState{},
 			},
 		},
 	})

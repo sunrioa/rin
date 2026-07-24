@@ -38,6 +38,12 @@ func validateID(field, value string) error {
 	return nil
 }
 
+// ValidateIdentifier applies the public protocol identifier grammar to a wire
+// value such as an HTTP path parameter.
+func ValidateIdentifier(field, value string) error {
+	return validateID(field, value)
+}
+
 func validateText(field, value string, maximum int, required bool) error {
 	if required && strings.TrimSpace(value) == "" {
 		return &ValidationError{Field: field, Message: "is required"}
@@ -206,6 +212,9 @@ func ValidateCreateSession(request CreateSessionRequest) error {
 	if err := validateVersion(request.ProtocolVersion); err != nil {
 		return err
 	}
+	if err := validateJSONSafeSigned("seed", request.Seed); err != nil {
+		return err
+	}
 	if err := validateID("request_id", request.RequestID); err != nil {
 		return err
 	}
@@ -302,8 +311,8 @@ func ValidateObserve(request ObserveRequest) error {
 			return err
 		}
 	}
-	if request.Tick < 0 {
-		return &ValidationError{Field: "tick", Message: "must not be negative"}
+	if err := validateJSONSafeTick("tick", request.Tick); err != nil {
+		return err
 	}
 	if len(request.ObserverIDs) == 0 || len(request.ObserverIDs) > 128 {
 		return &ValidationError{Field: "observer_ids", Message: "must contain 1-128 actors"}
@@ -370,8 +379,8 @@ func ValidatePropose(request ProposeRequest) error {
 			return err
 		}
 	}
-	if request.Tick < 0 {
-		return &ValidationError{Field: "tick", Message: "must not be negative"}
+	if err := validateJSONSafeTick("tick", request.Tick); err != nil {
+		return err
 	}
 	if err := validateText("intent", request.Intent, 500, true); err != nil {
 		return err
@@ -427,8 +436,8 @@ func ValidateCommit(request CommitRequest) error {
 			return err
 		}
 	}
-	if request.Tick < 0 {
-		return &ValidationError{Field: "tick", Message: "must not be negative"}
+	if err := validateJSONSafeTick("tick", request.Tick); err != nil {
+		return err
 	}
 	if err := validateText("outcome", request.Outcome, 1000, request.Accepted); err != nil {
 		return err
@@ -473,8 +482,8 @@ func ValidateDueAgents(request DueAgentsRequest) error {
 	if err := validateID("session_id", request.SessionID); err != nil {
 		return err
 	}
-	if request.Tick < 0 {
-		return &ValidationError{Field: "tick", Message: "must not be negative"}
+	if err := validateJSONSafeTick("tick", request.Tick); err != nil {
+		return err
 	}
 	if request.Limit < 1 || request.Limit > 128 {
 		return &ValidationError{Field: "limit", Message: "must be between 1 and 128"}

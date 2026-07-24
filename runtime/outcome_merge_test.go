@@ -3,7 +3,6 @@ package runtime_test
 import (
 	"context"
 	"errors"
-	"math"
 	"reflect"
 	"testing"
 
@@ -763,7 +762,10 @@ func TestCommitRejectsNextThinkTickOverflow(t *testing.T) {
 	if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
 	}
-	proposal, _, err := engine.Propose(context.Background(), proposeRequest(sessionID, "propose.max-tick", math.MaxInt64, nil))
+	proposal, _, err := engine.Propose(
+		context.Background(),
+		proposeRequest(sessionID, "propose.max-tick", protocol.MaxJSONSafeInteger, nil),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -773,7 +775,7 @@ func TestCommitRejectsNextThinkTickOverflow(t *testing.T) {
 		RequestID:       "commit.max-tick",
 		ProposalID:      proposal.ID,
 		EventID:         "event.max-tick",
-		Tick:            math.MaxInt64,
+		Tick:            protocol.MaxJSONSafeInteger,
 		Accepted:        true,
 		Outcome:         "This must not overflow scheduling state.",
 	}); !errors.Is(err, rinruntime.ErrConflict) || rinruntime.ErrorCode(err) != "tick_overflow" {
@@ -795,7 +797,7 @@ func TestBatchCommitRejectsNextThinkTickOverflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := targetedProposalRequest(create.SessionID, "propose.batch-max-tick", "npc.mira")
-	request.Tick = math.MaxInt64
+	request.Tick = protocol.MaxJSONSafeInteger
 	proposal, _, err := engine.Propose(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
@@ -804,7 +806,7 @@ func TestBatchCommitRejectsNextThinkTickOverflow(t *testing.T) {
 		ProtocolVersion: protocol.Version,
 		SessionID:       create.SessionID,
 		RequestID:       "commit.batch-max-tick",
-		Tick:            math.MaxInt64,
+		Tick:            protocol.MaxJSONSafeInteger,
 		Items: []protocol.CommitItem{{
 			ProposalID: proposal.ID,
 			EventID:    "event.batch-max-tick",

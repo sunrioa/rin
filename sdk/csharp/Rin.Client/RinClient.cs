@@ -9,10 +9,13 @@ namespace Rin.Client;
 
 public sealed class RinClient : IDisposable
 {
+    public const string ClientVersion = "0.6.0";
     public const string ProtocolVersion = "rin.protocol/v1";
     public const string DefaultBaseUrl = "http://127.0.0.1:7374";
 
     private const int MaxGenerationContentBytes = 4 * 1024 * 1024;
+    private const decimal MaxJsonSafeInteger = 9_007_199_254_740_991m;
+    private const int MaxJsonDepth = 64;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -52,7 +55,7 @@ public sealed class RinClient : IDisposable
             Timeout = Timeout.InfiniteTimeSpan,
         };
         httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("rin-csharp/0.5");
+        httpClient.DefaultRequestHeaders.UserAgent.ParseAdd($"rin-csharp/{ClientVersion}");
     }
 
     public Task<JsonElement> HealthAsync(CancellationToken cancellationToken = default) =>
@@ -271,7 +274,7 @@ public sealed class RinClient : IDisposable
                     !TryIdentifierProperty(proposal, "request_id", out var proposalRequestId) ||
                     proposalSessionId != jobSessionId ||
                     proposalRequestId != jobRequestId ||
-                    !TryNonnegativeInt64Property(proposal, "tick"))
+                    !TryNonnegativeJsonSafeIntegerProperty(proposal, "tick"))
                 {
                     throw new RinProtocolException(
                         "invalid_job",
@@ -379,17 +382,69 @@ public sealed class RinClient : IDisposable
     private static bool IsAsciiLetterOrDigit(char value) =>
         value is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9';
 
-    private static bool TryNonnegativeInt64Property(JsonElement element, string name)
+    private static bool TryNonnegativeJsonSafeIntegerProperty(JsonElement element, string name)
     {
         if (!element.TryGetProperty(name, out var property) ||
             property.ValueKind != JsonValueKind.Number ||
             !property.TryGetInt64(out var value) ||
-            value < 0)
+            value < 0 ||
+            value > (long)MaxJsonSafeInteger)
         {
             return false;
         }
         var token = property.GetRawText();
         return token.Length > 0 && token.All(character => character is >= '0' and <= '9');
+    }
+
+    private static void ValidateRequestJson(JsonElement value, int depth)
+    {
+        if (depth > MaxJsonDepth)
+        {
+            throw new RinProtocolException("invalid_request", "Rin payload exceeds the JSON nesting limit");
+        }
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.Object:
+                foreach (var property in value.EnumerateObject())
+                {
+                    ValidateRequestJson(property.Value, depth + 1);
+                }
+                return;
+            case JsonValueKind.Array:
+                foreach (var item in value.EnumerateArray())
+                {
+                    ValidateRequestJson(item, depth + 1);
+                }
+                return;
+            case JsonValueKind.Number:
+                if (value.TryGetDecimal(out var decimalValue))
+                {
+                    if (decimal.Truncate(decimalValue) == decimalValue &&
+                        (decimalValue < -MaxJsonSafeInteger || decimalValue > MaxJsonSafeInteger))
+                    {
+                        throw new RinProtocolException("invalid_request", "Rin payload contains an unsafe JSON integer");
+                    }
+                    return;
+                }
+                if (!value.TryGetDouble(out var doubleValue) ||
+                    !double.IsFinite(doubleValue))
+                {
+                    throw new RinProtocolException("invalid_request", "Rin payload contains a non-finite JSON number");
+                }
+                if (Math.Truncate(doubleValue) == doubleValue &&
+                    (doubleValue < -(double)MaxJsonSafeInteger || doubleValue > (double)MaxJsonSafeInteger))
+                {
+                    throw new RinProtocolException("invalid_request", "Rin payload contains an unsafe JSON integer");
+                }
+                return;
+            case JsonValueKind.String:
+            case JsonValueKind.True:
+            case JsonValueKind.False:
+            case JsonValueKind.Null:
+                return;
+            default:
+                throw new RinProtocolException("invalid_request", "Rin payload contains a non-JSON value");
+        }
     }
 
     private enum JobResultKind
@@ -423,8 +478,14 @@ public sealed class RinClient : IDisposable
             try
             {
                 encoded = JsonSerializer.SerializeToUtf8Bytes(payload, payload.GetType(), JsonOptions);
+                using var document = JsonDocument.Parse(encoded);
+                if (document.RootElement.ValueKind != JsonValueKind.Object)
+                {
+                    throw new RinProtocolException("invalid_request", "Rin payload must be an object");
+                }
+                ValidateRequestJson(document.RootElement, 0);
             }
-            catch (Exception exception) when (exception is JsonException or NotSupportedException)
+            catch (Exception exception) when (exception is JsonException or NotSupportedException or ArgumentException)
             {
                 throw new RinProtocolException("invalid_request", "Rin payload is not JSON serializable", exception);
             }

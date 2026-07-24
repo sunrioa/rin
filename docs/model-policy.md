@@ -5,6 +5,9 @@
 Model access is optional and bounded; local validation and the deterministic
 policy remain available without a provider.
 
+This document describes Rin `0.6.0` Preview. Provider responses are a separate
+untrusted boundary from the game-facing HTTP request contract.
+
 ## Enable
 
 Rin uses `deterministic` by default and makes no model network requests.
@@ -160,3 +163,9 @@ UI must not display them directly.
 The structured Generation API reuses the same provider and breaker budget,
 but it has no deterministic-policy fallback. The caller must provide offline
 text and validate domain schema and canon before accepting a result.
+
+Before JSON decoding, the Sidecar strictly rejects invalid UTF-8 and unpaired
+Unicode surrogates in both game-facing requests and successful Provider JSON
+responses. Rin then validates decoded Generation content for emptiness, NUL,
+byte size, and one top-level JSON object. Non-2xx Provider bodies are used only
+for bounded error classification; they do not become content or Session state.

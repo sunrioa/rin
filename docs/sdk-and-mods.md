@@ -6,6 +6,9 @@ Thin integration kits connect game-owned adapters to Rin without moving world
 authority into the sidecar or a model. They remove repetitive HTTP, timeout,
 envelope, and job-polling code.
 
+This document describes Rin `0.6.0` Preview. The authoritative wire schema is
+[`api/openapi.json`](../api/openapi.json).
+
 ## Support matrix
 
 | Language | Minimum runtime | Delivery model | JSON boundary | Typical host |
@@ -16,8 +19,10 @@ envelope, and job-polling code.
 | Java | 17 | `CompletableFuture` | injected `JsonCodec` | Fabric, JVM servers |
 | Lua | 5.1 | callback | injected codec and transport | Luanti, embedded Lua engines |
 
-Every implementation covers the 20 routes in
-[`sdk/conformance/routes.json`](../sdk/conformance/routes.json). Python and
+Every implementation exposes the 20-route inventory generated into
+[`sdk/conformance/routes.json`](../sdk/conformance/routes.json) from OpenAPI.
+That inventory checks coverage; it is not a second wire contract or behavior
+proof. Python and
 JavaScript have no runtime dependencies. C# uses only framework APIs. Java
 reuses the host's JSON library through a two-method codec. Lua injects all
 host-specific services because Lua engines expose incompatible HTTP and JSON
@@ -35,9 +40,10 @@ examples/mods/
   luanti-rin-npc/    complete server mod with vendored Lua SDK
 ```
 
-The SDKs are source-first and are not published to language registries yet.
-Vendor a tagged Rin revision or reference the source project directly. Do not
-copy a single client file without its README and conformance version.
+The SDKs are source-first and are not published to language registries. Vendor
+the complete client directory from one exact Rin repository revision or
+verified release tag. Do not copy a single client file without its README and
+generated conformance inventory.
 
 ## Integration lifecycle
 
@@ -54,7 +60,8 @@ Commit and replay behavior.
    transaction.
 7. Call `commit` from the Outbox, including a rejection when needed. Retry a
    failed report without applying the action again.
-8. Keep an authored or deterministic fallback when Rin is unavailable.
+8. Keep an authored or deterministic fallback for the confirmed no-online-
+   Proposal case.
 
 Treat an ambiguous Proposal submit, poll, timeout, or cancellation as
 outcome-unknown and fail closed. Retry the same identity; do not execute the
@@ -64,6 +71,10 @@ then persist the Job ID immediately after `202`. Resume that record before any
 new turn or fallback. Clear it only in the same authoritative transaction that
 stores the game result, applied marker, and Outcome Outbox entry.
 
+Provider failure inside a confirmed Sidecar Proposal operation can use Rin's
+deterministic Policy. Sidecar submit/poll/cancel uncertainty is different and
+must not be converted into a fallback action.
+
 Never call online proposal or generation endpoints from a render/update loop.
 One player interaction may start one job; ordinary frames should only poll a
 local future, coroutine, timer, or main-thread queue.
@@ -71,6 +82,16 @@ local future, coroutine, timer, or main-thread queue.
 Commit records an outcome rather than authorizing execution. See
 [action outcome reporting](outcome-reporting.md) for Outbox, late-outcome,
 same-`request_id` retry, and offline reconciliation rules.
+
+All public JSON integers must remain in the exact interoperable range
+`-9007199254740991` through `9007199254740991`. Commit and each Batch item must
+serialize `accepted` explicitly, including `false`. SDKs must encode UTF-8
+request bodies, reject unsafe integers and non-JSON local values before
+transport, and tolerate additive response members. The OpenAPI-backed server
+remains the request-schema authority and rejects unknown members in closed
+request objects; callers must not treat the SDKs' generic map/object boundary
+as complete local schema validation. SDKs must also distinguish a non-2xx Rin
+error envelope from an HTTP-200 terminal Job carrying `data.error`.
 
 ## Credentials and transport
 
@@ -119,12 +140,22 @@ requires `secure.http_mods = rin_npc_example`.
 ```bash
 make test
 make test-sdks
+python3 tools/generate_contract.py --check
 ```
 
-The main Go compatibility suite checks route coverage, security markers,
-engine-thread handoff, local action allowlists, and exact synchronization of
-the vendored Luanti client. CI then executes Python, JavaScript, Java, C#, and
-both Lua 5.1 and 5.4; the other jobs use each SDK's minimum supported runtime.
+CI executes Go formatting, vet, race tests, and zero-CGO builds on Linux,
+macOS, and Windows. It runs the Python SDK and Ren'Py adapter on Python 3.9
+and the current Python 3 release, JavaScript on Node 18 and 24, Java on 17 and
+25, C# against .NET 6 and 10, and Lua on 5.1 and 5.4. The contract generator
+check prevents drift from OpenAPI to generated route/version projections.
+
+The SDK tests invoke real client methods against local fake transports or HTTP
+test servers and assert method/path selection, a nonempty UTF-8 JSON body,
+Bearer/User-Agent headers, success-envelope data, and API status/code/field
+mapping. They are not end-to-end tests against a live Sidecar. The generated
+route manifest is compared with `httpapi.ContractRoutes()` for route drift;
+remaining Go source-marker checks are static regression lints only. The
+presence of a marker or method name does not prove runtime transport behavior.
 
 ## Primary references
 

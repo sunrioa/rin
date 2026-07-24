@@ -13,6 +13,13 @@ library and is independent of any specific game, engine, or model provider.
 Documentation index: [English](docs/README.md) |
 [简体中文](docs/README.zh-CN.md)
 
+**Release status:** `0.6.0` Preview (pre-1.0). The project documents migration
+behavior but does not promise compatibility across every future minor release.
+Pin an exact repository revision or verified release tag. See the
+[changelog](CHANGELOG.md), [compatibility matrix](docs/compatibility.md),
+[v0.6 migration guide](docs/migration-v0.6.md), and
+[release guide](docs/release-guide.md).
+
 ## Core capabilities
 
 Rin separates character reasoning from game-world facts:
@@ -116,6 +123,20 @@ additional persistence allowlist.
 | `POST` | `/v1/session/timeline` | Read the redacted event timeline |
 | `POST` | `/v1/session/replay` | Replay to a revision and return a snapshot |
 
+This table is an overview. [`api/openapi.json`](api/openapi.json) is the single
+wire-schema source for paths, methods, status codes, required fields, and JSON
+shapes. The [protocol reference](docs/protocol-v1.md) defines transaction,
+retry, and persistence semantics. Requests reject unknown fields, while clients
+must tolerate additive response fields.
+
+Every public JSON integer must be exactly representable from
+`-9007199254740991` through `9007199254740991`; fields such as ticks and
+revisions have narrower non-negative rules. Commit and every Batch Commit item
+must explicitly include `accepted`, including `accepted=false`; omission or
+`null` is invalid. Non-2xx failures use the Rin error envelope. A Job lookup can
+instead return HTTP `200` with a terminal `data.error`, so HTTP success alone
+does not mean the asynchronous operation succeeded.
+
 Every durable Session mutation carries a caller-generated `request_id`.
 Within one Session lineage, Rin permanently binds that ID to the mutation kind,
 the canonical typed JSON payload, and its first durable result. An exact retry
@@ -132,6 +153,12 @@ retry its exact kind, payload, and IDs; changing the same request returns
 uncertain tail. Proposal writes retain the compatible
 `proposal_outcome_unknown` code and the same recovery rule.
 
+Provider failure inside a live Rin Proposal operation can select the
+deterministic Policy. Loss of the Sidecar submit, poll, timeout, or cancellation
+result is different: an online Proposal may already exist. Preserve and resume
+the exact Proposal Attempt/Job identity, block a new turn, and do not apply an
+offline fallback until absence of an online Proposal is confirmed.
+
 Proposal and Generation Job records have separate, bounded in-process
 retention. In particular, a Generation request may run again after its Job is
 evicted or the sidecar restarts; the durable Session-mutation guarantee does
@@ -143,6 +170,11 @@ opaque state and protect it at the same level as the event log. Restore
 requires `expected_binding` from the running game's trusted content manifest;
 it must match `snapshot.state.binding` and, when the target Session already
 exists, that Session's binding.
+
+Event hashes are also unkeyed SHA-256 values. They validate chain consistency,
+not authenticity: a party able to replace a complete history can rebuild the
+chain and its derived indexes, checkpoints, and Snapshots. Protect the data
+directory and backups with external access controls.
 
 Inline Snapshot compact JSON is limited to 16 MiB. Rin returns
 `413 snapshot_too_large` instead of truncating a Snapshot. The server's
@@ -234,6 +266,7 @@ budget, bounded retries, a circuit breaker, and a bounded cache. See
 
 ```text
 cmd/rin/       Sidecar command-line program
+api/           Authoritative OpenAPI 3.1 wire schema and embedded contract
 httpapi/       Strict JSON, authentication, and request-size limits
 policy/        Deterministic offline policy with no network dependency
 provider/      OpenAI-compatible client, retries, and circuit breaker
@@ -245,6 +278,7 @@ compat/        Executable game-protocol compatibility vectors
 protocol/      Cross-language v1 data contract
 runtime/       Event state machine, proposal validation, snapshots, scheduling
 store/         JSONL file store and in-memory store
+tools/         Deterministic contract projection generator
 examples/      Go, Godot, Unity, and Fabric/BepInEx/Luanti mod examples
 ```
 
@@ -254,10 +288,13 @@ Rin does not own rendering, navigation, physics, combat, inventory, quest
 rules, or arbitrary script execution, and it never treats model output as
 world fact. The project does not add provider SDKs, a vector database, an ORM,
 WebSockets, dynamic plugin execution, or arbitrary file access. Online models
-remain optional; if either the provider or sidecar is unavailable, a game can
-continue with the deterministic policy or its own offline content.
+remain optional. Provider failure can use Rin's deterministic Policy, and a
+game can use authored offline content when it knows no online Proposal was
+created. Sidecar outcome uncertainty is not proof of absence and must remain
+fail closed until the exact Attempt is reconciled.
 
-Future work is tracked in [ROADMAP.en.md](ROADMAP.en.md).
+Delivered milestones and remaining Preview work are tracked in
+[ROADMAP.en.md](ROADMAP.en.md).
 
 ## License
 

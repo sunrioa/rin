@@ -4,6 +4,9 @@
 
 Rin 是管理智能体状态与决策的引擎中立控制层，不是模拟或修改游戏世界的权威。
 
+本文描述 Rin `0.6.0` Preview。HTTP Wire Shape 以
+[`api/openapi.json`](../api/openapi.json) 为准；本文解释组件和 Trust Boundary。
+
 ## 权威边界
 
 ```mermaid
@@ -13,7 +16,7 @@ flowchart LR
     V -->|candidate action only| G
     G -->|Applied/rejected outcome report| R
     R --> E["Hash-chained event log"]
-    R --> S["Verified snapshot"]
+    R --> S["Checksummed snapshot"]
     R -->|"bounded prompt packet"| P["Optional model provider"]
     P -->|"structured draft"| V
 ```
@@ -100,7 +103,7 @@ Policy 与不合规 Provider 同样是最终权威。
 
 ### 供应商韧性
 
-OpenAI-compatible 客户端由标准库实现。每次调用具有 attempt timeout 和 total timeout，只重试网络、429、408 和 5xx 等暂时错误；连续失败会打开 circuit breaker，开放期直接进入离线回退。响应正文、Prompt 和 Key 不写入错误、日志或状态。
+OpenAI-compatible 客户端由标准库实现。每次调用具有 attempt timeout 和 total timeout，只重试网络、429、408 和 5xx 等暂时错误；连续失败会打开 circuit breaker，开放期直接进入离线回退。原始 Provider HTTP 正文、Prompt 和 Key 不写入错误、日志或持久 Session State。经验证的结构化 Generation Result 会保留在有界进程内 Job Record 与 Semantic Cache 中，直到返回调用方；它仍是不可信的调用方 Content。
 
 Attempt 与 total deadline 依赖 `provider.Client` 的协作取消硬契约：实现必须观察
 `ctx.Done()` 并及时返回。Go 无法强制抢占一个永久阻塞的第三方 Client。
@@ -218,6 +221,10 @@ rin-data/
 `events.jsonl` 是权威数据，采用 `retain_forever`：Rin 不会自动删除或压缩事件，
 因为 Replay、永久 Request/Event ID 身份与审计都依赖完整 lineage。运维方必须
 按该策略规划容量、备份与归档，不能在 Rin 背后删除正在使用的日志。
+
+事件链使用无密钥 SHA-256，可发现断裂或未同步编辑的 History，但不是签名、MAC
+或来源证明。能替换完整 Log 的一方可以重算全部 Event Hash 与派生 Artifact。
+因此，对抗性防篡改依赖外部访问控制；需要时还要使用独立保护的外部 Anchor。
 
 `events.idx` 是 revision/offset/hash 派生索引，用于读取 head 与有界 range。
 索引缺失、陈旧或格式错误时，会从 `events.jsonl` 原子重建；重建会完整扫描

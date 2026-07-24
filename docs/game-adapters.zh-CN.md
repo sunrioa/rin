@@ -2,7 +2,9 @@
 
 [English](game-adapters.md) | [简体中文](game-adapters.zh-CN.md)
 
-适配器把引擎生命周期事件转换为稳定的 Rin 协议，同时保持相同的权威边界：
+适配器把引擎生命周期事件转换为 Rin `0.6.0` Preview 协议，同时保持相同的
+权威边界；Path 与 JSON Shape 来自
+[`api/openapi.json`](../api/openapi.json)：
 
 1. 游戏只发送角色确实观察到的事件。
 2. 游戏提供一组当前合法且数量有限的动作。
@@ -21,6 +23,10 @@
 提交、轮询或取消响应超时/丢失时，结果属于 outcome-unknown，而不是 offline；
 应以相同 request/job 身份恢复，确认不存在在线 Proposal 前不得选择 fallback。
 
+这与已确认存活的 Sidecar Operation 内部 Provider 失败不同：Rin 可以让同一个
+Proposal Operation 使用 Deterministic Policy 完成。Sidecar 投递结果未决可能
+隐藏已经持久化的在线 Proposal，绝不能转换成第二个本地 Action。
+
 首次提交前应持久化 Proposal Attempt，其中包含字节等价的完整 Propose
 Request、游戏 Operation/Sequence 身份，并在 `202` 返回后立即补上 Job ID。
 后续交互必须恢复这条 Attempt，不能创建新 Request。只有在同一个权威事务中
@@ -33,6 +39,11 @@ Turn。
 或拒绝动作并写入本地 Outcome Outbox，再从 Outbox 向 Rin 回报。网络失败时只
 使用相同 `request_id` 重报，绝不能再次应用动作。详细规则见
 [动作结果记账](outcome-reporting.zh-CN.md)。
+
+适配器必须把每个公共 JSON 整数保持在 `-9007199254740991` 至
+`9007199254740991`，并在 Commit 和每个 Batch Item 中显式序列化 `accepted`，
+包括 `false`。原始请求正文使用 UTF-8。非 2xx Error Envelope 与 HTTP-200 终态
+Job 的 `data.error` 是不同错误层，二者都必须处理。
 
 随附 Sidecar 会 lazy 打开 Session 历史。`/health` 只能证明进程可用，不能证明
 每个 Session 都通过了 genesis-to-head 审计；某 Session 的第一次请求可能承担

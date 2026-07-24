@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/sunrioa/rin/internal/jsonwire"
 	"github.com/sunrioa/rin/protocol"
 	"github.com/sunrioa/rin/provider"
 	rinruntime "github.com/sunrioa/rin/runtime"
@@ -219,7 +220,7 @@ func (m *Manager) Cancel(jobID string) (protocol.GenerationJob, error) {
 	now := m.now()
 	state.public.Status = "canceled"
 	state.public.FinishedAt = now.UTC().Format(time.RFC3339Nano)
-	state.public.Error = &protocol.ErrorDetail{Code: "job_canceled", Message: "generation job was canceled"}
+	state.public.Error = protocol.NewErrorDetail("job_canceled", "generation job was canceled", "")
 	state.completedAt = now
 	return cloneJob(state.public), nil
 }
@@ -235,7 +236,7 @@ func (m *Manager) Close(ctx context.Context) error {
 				state.cancel()
 				state.public.Status = "canceled"
 				state.public.FinishedAt = now.UTC().Format(time.RFC3339Nano)
-				state.public.Error = &protocol.ErrorDetail{Code: "generation_closed", Message: "generation job manager stopped"}
+				state.public.Error = protocol.NewErrorDetail("generation_closed", "generation job manager stopped", "")
 				state.completedAt = now
 			}
 		}
@@ -328,6 +329,9 @@ func (m *Manager) validateResult(response provider.CompletionResponse) (protocol
 	if len([]byte(content)) > m.config.MaxOutputBytes {
 		return protocol.GenerationResult{}, rinruntime.NewError("generation_too_large", "provider generation exceeded the output limit", ErrOutputLimit)
 	}
+	if !jsonwire.Valid([]byte(content)) {
+		return protocol.GenerationResult{}, rinruntime.NewError("invalid_generation_json", "provider generation was not strict UTF-8 JSON", nil)
+	}
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(content), &object); err != nil || object == nil {
 		return protocol.GenerationResult{}, rinruntime.NewError("invalid_generation_json", "provider generation was not one JSON object", err)
@@ -336,9 +340,9 @@ func (m *Manager) validateResult(response provider.CompletionResponse) (protocol
 		Content:      content,
 		Model:        safeMetadata(response.Model, 160),
 		FinishReason: safeMetadata(response.FinishReason, 96),
-		PromptTokens: nonNegative(response.Usage.PromptTokens),
-		OutputTokens: nonNegative(response.Usage.CompletionTokens),
-		TotalTokens:  nonNegative(response.Usage.TotalTokens),
+		PromptTokens: boundedTokenCount(response.Usage.PromptTokens),
+		OutputTokens: boundedTokenCount(response.Usage.CompletionTokens),
+		TotalTokens:  boundedTokenCount(response.Usage.TotalTokens),
 	}, nil
 }
 
@@ -429,7 +433,7 @@ func jobError(err error) *protocol.ErrorDetail {
 	if errors.Is(err, context.Canceled) {
 		code = "job_canceled"
 	}
-	return &protocol.ErrorDetail{Code: code, Message: err.Error(), Field: rinruntime.ErrorField(err)}
+	return protocol.NewErrorDetail(code, err.Error(), rinruntime.ErrorField(err))
 }
 
 func terminal(status string) bool {
@@ -466,9 +470,13 @@ func safeMetadata(value string, maximum int) string {
 	return value
 }
 
-func nonNegative(value int) int {
+func boundedTokenCount(value int) int {
 	if value < 0 {
 		return 0
+	}
+	maximum := int64(protocol.MaxJSONSafeInteger)
+	if int64(value) > maximum {
+		return int(maximum)
 	}
 	return value
 }

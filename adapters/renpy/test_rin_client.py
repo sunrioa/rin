@@ -34,14 +34,18 @@ class _Response:
 
 class _Opener:
     def __init__(self):
+        self.calls = 0
         self.polls = 0
         self.generation_polls = 0
         self.authorization = ""
+        self.user_agent = ""
         self.last_payload = None
         self.last_path = ""
 
     def open(self, request, timeout):
+        self.calls += 1
         self.authorization = request.get_header("Authorization", "")
+        self.user_agent = request.get_header("User-agent", "")
         path = request.full_url.split("//", 1)[-1]
         path = path[path.find("/"):] if "/" in path else "/"
         self.last_path = path
@@ -200,6 +204,13 @@ class _AdvancingClock:
 
 
 class RinClientTests(unittest.TestCase):
+    def test_contract_versions_and_user_agent(self):
+        self.assertEqual(rin_client.SDK_VERSION, "0.6.0")
+        client = _client_with_opener()
+        result = client.health()
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(client._opener.user_agent, "rin-renpy/" + rin_client.SDK_VERSION)
+
     def test_living_world_routes(self):
         client = _client_with_opener()
         cases = (
@@ -213,6 +224,52 @@ class RinClientTests(unittest.TestCase):
             with self.subTest(path=expected_path):
                 method({"protocol_version": rin_client.PROTOCOL_VERSION})
                 self.assertEqual(client._opener.last_path, expected_path)
+
+    def test_false_commit_flags_are_serialized(self):
+        client = _client_with_opener()
+        client.commit({"accepted": False})
+        self.assertIn("accepted", client._opener.last_payload)
+        self.assertIs(client._opener.last_payload["accepted"], False)
+        client.commit_batch({"items": [{"accepted": False}]})
+        item = client._opener.last_payload["items"][0]
+        self.assertIn("accepted", item)
+        self.assertIs(item["accepted"], False)
+
+    def test_invalid_json_numbers_cycles_and_depth_fail_before_transport(self):
+        client = _client_with_opener()
+        cycle = {}
+        cycle["self"] = cycle
+        deep = "leaf"
+        for _ in range(66):
+            deep = [deep]
+        invalid_payloads = (
+            {"nested": [{"unsafe": (1 << 53)}]},
+            {"nested": float("nan")},
+            {"nested": float("inf")},
+            {1: "non-string key"},
+            {"nested": "\ud800"},
+            cycle,
+            {"nested": deep},
+        )
+        for payload in invalid_payloads:
+            with self.subTest(payload_type=type(payload).__name__):
+                with self.assertRaises(rin_client.RinProtocolError) as caught:
+                    client.commit(payload)
+                self.assertEqual(caught.exception.code, "invalid_request")
+        self.assertEqual(client._opener.calls, 0)
+
+    def test_nonfinite_response_number_is_rejected(self):
+        client = rin_client.RinClient()
+
+        class NonfiniteOpener:
+            def open(self, request, timeout):
+                del request, timeout
+                return _Response(200, {"ok": True, "data": {"value": float("nan")}})
+
+        client._opener = NonfiniteOpener()
+        with self.assertRaises(rin_client.RinProtocolError) as caught:
+            client.health()
+        self.assertEqual(caught.exception.code, "invalid_response")
 
     def test_async_proposal_flow_and_token(self):
         client = _client_with_opener("fixture-token")
@@ -586,7 +643,7 @@ class RinClientTests(unittest.TestCase):
             ("wrong_actor", {"actor_id": "npc.crossed"}),
             ("bool_tick", {"tick": True}),
             ("float_tick", {"tick": 2.0}),
-            ("oversized_tick", {"tick": rin_client.MAX_INT64 + 1}),
+            ("oversized_tick", {"tick": rin_client.MAX_JSON_SAFE_INTEGER + 1}),
             ("negative_tick", {"tick": -1}),
             ("missing_action", {"action": {}}),
             ("non_candidate_action", {

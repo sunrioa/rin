@@ -3,8 +3,6 @@ package protocol
 
 import "encoding/json"
 
-const Version = "rin.protocol/v1"
-
 type Binding struct {
 	GameID         string `json:"game_id"`
 	ContentID      string `json:"content_id"`

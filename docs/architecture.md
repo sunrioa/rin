@@ -5,6 +5,10 @@
 Rin is an engine-neutral control plane for agent state and decisions, not the
 authority that simulates or mutates the game world.
 
+This describes Rin `0.6.0` Preview. HTTP wire shapes are authoritative in
+[`api/openapi.json`](../api/openapi.json); this document explains component and
+trust boundaries.
+
 ## Authority boundary
 
 ```mermaid
@@ -14,7 +18,7 @@ flowchart LR
     V -->|candidate action only| G
     G -->|Applied/rejected outcome report| R
     R --> E["Hash-chained event log"]
-    R --> S["Verified snapshot"]
+    R --> S["Checksummed snapshot"]
     R -->|"bounded prompt packet"| P["Optional model provider"]
     P -->|"structured draft"| V
 ```
@@ -148,10 +152,13 @@ The OpenAI-compatible client uses only the standard library. Each call has an
 attempt timeout and total timeout. Only temporary failures such as network
 errors, 429, 408, and 5xx responses are retried. Repeated failures open a
 circuit breaker; while open, calls immediately enter offline fallback.
-Response bodies, prompts, and keys are never written to errors, logs, or
-state. Attempt and total deadlines rely on the `provider.Client` cooperative
-cancellation contract: an implementation must observe `ctx.Done()` and return
-promptly. Go cannot forcibly preempt a third-party client that blocks forever.
+Raw Provider HTTP bodies, prompts, and keys are never written to errors, logs,
+or durable Session state. A validated structured Generation result is retained
+in its bounded process-local Job record and semantic cache until returned; it
+remains untrusted caller-facing content. Attempt and total deadlines rely on
+the `provider.Client` cooperative cancellation contract: an implementation
+must observe `ctx.Done()` and return promptly. Go cannot forcibly preempt a
+third-party client that blocks forever.
 
 Model drafts use a bounded in-memory cache keyed by session head hash, actor,
 and semantic request. Concurrent calls with the same key collapse into one
@@ -322,6 +329,12 @@ hash, and payload. `events.jsonl` is the authority and uses
 Replay, permanent request/Event ID identity, and audit depend on the lineage.
 Operators must plan capacity, backup, and archival around that policy rather
 than deleting an active log behind Rin.
+
+The chain uses unkeyed SHA-256. It detects a broken or inconsistently edited
+history, but it is not a signature, MAC, or provenance proof. A party able to
+replace the complete log can recompute every event hash and derived artifact.
+Adversarial tamper resistance therefore requires external access controls and,
+if needed, an independently protected anchor.
 
 `events.idx` is a derived revision/offset/hash index used for head and bounded
 range reads. A missing, stale, or malformed index is rebuilt atomically from

@@ -388,7 +388,8 @@ func TestRestoreRebasesPendingProposalGenerationRoundTrip(t *testing.T) {
 
 func TestWorldRevisionOverflowAndRestoreSaturation(t *testing.T) {
 	state := invariantSessionState(t, protocol.FeatureOutcomeReporting, protocol.FeatureArbitration)
-	state.WorldRevision = ^uint64(0)
+	maxWorldRevision := uint64(protocol.MaxJSONSafeInteger)
+	state.WorldRevision = maxWorldRevision
 	pending := invariantProposal(state, "proposal.pending.world-max", "pending", nil)
 	state.Proposals[pending.ID] = pending
 	snapshot, err := SnapshotOf(state)
@@ -424,11 +425,11 @@ func TestWorldRevisionOverflowAndRestoreSaturation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("max world snapshot must remain restorable: %v", err)
 	}
-	if restored.WorldRevision != ^uint64(0) {
+	if restored.WorldRevision != maxWorldRevision {
 		t.Fatalf("restored world revision = %d, want saturation at max", restored.WorldRevision)
 	}
 	restoredPending, exists := restored.Proposals[pending.ID]
-	if !exists || restoredPending.BasedOnWorldRevision != ^uint64(0) {
+	if !exists || restoredPending.BasedOnWorldRevision != maxWorldRevision {
 		t.Fatalf("pending proposal was not retained at the saturated world generation: %+v", restoredPending)
 	}
 	roundTrip, err := SnapshotOf(restored)

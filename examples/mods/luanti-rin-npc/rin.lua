@@ -1,4 +1,5 @@
 local rin = {
+    VERSION = "0.6.0",
     PROTOCOL_VERSION = "rin.protocol/v1",
     DEFAULT_BASE_URL = "http://127.0.0.1:7374",
     DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024,
@@ -16,6 +17,49 @@ local terminal_job_states = {
 
 local max_generation_content_bytes = 4 * 1024 * 1024
 local max_safe_float_integer = 9007199254740991
+local max_json_depth = 64
+
+local function valid_utf8(value)
+    local index = 1
+    while index <= #value do
+        local first = value:byte(index)
+        if first <= 0x7f then
+            index = index + 1
+        elseif first >= 0xc2 and first <= 0xdf then
+            local second = value:byte(index + 1)
+            if not second or second < 0x80 or second > 0xbf then return false end
+            index = index + 2
+        elseif first >= 0xe0 and first <= 0xef then
+            local second, third = value:byte(index + 1, index + 2)
+            if not second or not third or third < 0x80 or third > 0xbf then return false end
+            if first == 0xe0 then
+                if second < 0xa0 or second > 0xbf then return false end
+            elseif first == 0xed then
+                if second < 0x80 or second > 0x9f then return false end
+            elseif second < 0x80 or second > 0xbf then
+                return false
+            end
+            index = index + 3
+        elseif first >= 0xf0 and first <= 0xf4 then
+            local second, third, fourth = value:byte(index + 1, index + 3)
+            if not second or not third or not fourth or
+                third < 0x80 or third > 0xbf or fourth < 0x80 or fourth > 0xbf then
+                return false
+            end
+            if first == 0xf0 then
+                if second < 0x90 or second > 0xbf then return false end
+            elseif first == 0xf4 then
+                if second < 0x80 or second > 0x8f then return false end
+            elseif second < 0x80 or second > 0xbf then
+                return false
+            end
+            index = index + 4
+        else
+            return false
+        end
+    end
+    return true
+end
 
 local function safe_text(value, maximum, fallback)
     local text = tostring(value or ""):gsub("%z", " "):gsub("%s+", " ")
@@ -33,6 +77,69 @@ local function failure(code, message, status, field)
     }
 end
 
+local function validate_request_json(value, depth, active)
+    if depth > max_json_depth then
+        return false, "Rin payload exceeds the JSON nesting limit"
+    end
+    local value_type = type(value)
+    if value == nil or value_type == "boolean" then
+        return true
+    end
+    if value_type == "string" then
+        if not valid_utf8(value) then return false, "Rin payload contains invalid UTF-8" end
+        return true
+    end
+    if value_type == "number" then
+        if value ~= value or value == math.huge or value == -math.huge then
+            return false, "Rin payload contains a non-finite JSON number"
+        end
+        if value == math.floor(value) and
+            (value < -max_safe_float_integer or value > max_safe_float_integer) then
+            return false, "Rin payload contains an unsafe JSON integer"
+        end
+        return true
+    end
+    if value_type ~= "table" then
+        return false, "Rin payload contains a non-JSON value"
+    end
+    if active[value] then return false, "Rin payload contains a JSON cycle" end
+    local string_keys = 0
+    local array_keys = 0
+    local maximum_array_index = 0
+    for key in pairs(value) do
+        if type(key) == "string" then
+            if not valid_utf8(key) then
+                return false, "Rin payload table contains an invalid UTF-8 key"
+            end
+            string_keys = string_keys + 1
+        elseif type(key) == "number" and key >= 1 and key == math.floor(key) then
+            array_keys = array_keys + 1
+            if key > maximum_array_index then maximum_array_index = key end
+        else
+            return false, "Rin payload table contains a non-JSON key"
+        end
+    end
+    if string_keys > 0 and array_keys > 0 then
+        return false, "Rin payload table mixes object and array keys"
+    end
+    if depth == 0 and array_keys > 0 then
+        return false, "Rin payload must be a JSON object"
+    end
+    if array_keys > 0 and maximum_array_index ~= array_keys then
+        return false, "Rin payload table contains a sparse JSON array"
+    end
+    active[value] = true
+    for _, child in pairs(value) do
+        local valid, message = validate_request_json(child, depth + 1, active)
+        if not valid then
+            active[value] = nil
+            return false, message
+        end
+    end
+    active[value] = nil
+    return true
+end
+
 local function is_protocol_identifier(value)
     if type(value) ~= "string" or #value < 1 or #value > 96 then return false end
     for index = 1, #value do
@@ -46,9 +153,8 @@ local function is_protocol_identifier(value)
     return true
 end
 
-local function is_nonnegative_signed_int64(value)
+local function is_nonnegative_json_safe_integer(value)
     if type(value) ~= "number" or value ~= value or value < 0 then return false end
-    if type(math.type) == "function" and math.type(value) == "integer" then return true end
     return value <= max_safe_float_integer and value == math.floor(value)
 end
 
@@ -78,7 +184,7 @@ local function resolve_job(job, result_kind, expected_job_id)
                 not is_protocol_identifier(proposal.actor_id) or
                 proposal.session_id ~= job.session_id or
                 proposal.request_id ~= job.request_id or
-                not is_nonnegative_signed_int64(proposal.tick) then
+                not is_nonnegative_json_safe_integer(proposal.tick) then
                 return nil, failure(
                     "invalid_job",
                     "Successful proposal job contained invalid identity fields"
@@ -236,9 +342,18 @@ function Client:_request(method, path, payload, expected_status, callback)
             callback(nil, failure("invalid_request", "Rin payload must be an object"))
             return
         end
+        local valid, validation_error = validate_request_json(payload, 0, {})
+        if not valid then
+            callback(nil, failure("invalid_request", validation_error))
+            return
+        end
         local encoded, value = pcall(self.json_encode, payload)
         if not encoded or type(value) ~= "string" then
             callback(nil, failure("invalid_request", "Rin payload is not JSON serializable"))
+            return
+        end
+        if not valid_utf8(value) then
+            callback(nil, failure("invalid_request", "Rin JSON codec returned invalid UTF-8"))
             return
         end
         body = value
@@ -246,7 +361,7 @@ function Client:_request(method, path, payload, expected_status, callback)
 
     local headers = {
         ["Accept"] = "application/json",
-        ["User-Agent"] = "rin-lua/0.5",
+        ["User-Agent"] = "rin-lua/" .. rin.VERSION,
     }
     if body then headers["Content-Type"] = "application/json; charset=utf-8" end
     if self.token ~= "" then headers["Authorization"] = "Bearer " .. self.token end
@@ -282,6 +397,10 @@ function Client:_request(method, path, payload, expected_status, callback)
         local raw = response.body
         if type(raw) ~= "string" then
             finish(nil, failure("invalid_response", "Rin response body must be a string", status))
+            return
+        end
+        if not valid_utf8(raw) then
+            finish(nil, failure("invalid_response", "Rin returned invalid UTF-8", status))
             return
         end
         local declared_text = header_value(response.headers, "content-length")

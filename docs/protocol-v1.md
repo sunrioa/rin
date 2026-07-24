@@ -2,13 +2,24 @@
 
 [English](protocol-v1.md) | [简体中文](protocol-v1.zh-CN.md)
 
-This reference defines the stable HTTP and state contract between Rin and a
-game-owned adapter.
+This reference defines transaction, persistence, and recovery semantics between
+Rin and a game-owned adapter. Rin `0.6.0` is Preview, pre-1.0 software; the v1
+identifier does not by itself promise compatibility across every future
+pre-1.0 minor release.
+
+[`api/openapi.json`](../api/openapi.json) is the single wire-schema source for
+paths, methods, HTTP status codes, required fields, and JSON shapes. If this
+narrative disagrees with that schema on one of those facts, OpenAPI wins and
+the prose is a documentation bug. See the
+[compatibility matrix](compatibility.md) and
+[v0.6 migration guide](migration-v0.6.md).
 
 ## Envelope
 
-Requests use `Content-Type: application/json`. The default maximum request body
-is 32 MiB; individual fields and arrays have smaller structural limits.
+Requests use `Content-Type: application/json`. Rin validates the raw request
+body before JSON decoding; invalid UTF-8 bytes or unpaired JSON Unicode
+surrogates return `400 invalid_json`. The default maximum request body is
+32 MiB; individual fields and arrays have smaller structural limits.
 Every bundled client also defaults to a 32 MiB maximum response body. Inline
 Snapshot compact JSON has a separate 16 MiB ceiling, leaving transport headroom
 for the response envelope, Restore metadata, and durable EventRecord framing.
@@ -35,12 +46,24 @@ An error response is:
 }
 ```
 
+HTTP-layer failures use this envelope with a non-2xx status. Proposal and
+Generation Job operations have a second error layer: querying or canceling a
+Job can return HTTP `200` while the terminal Job in `data` contains its own
+`error`. Callers must check both transport/API success and Job status.
+
 Except for bodyless job query and cancellation endpoints, every JSON request
 body must contain:
 
 ```json
 {"protocol_version":"rin.protocol/v1"}
 ```
+
+Every public JSON integer must be exactly representable from
+`-9007199254740991` through `9007199254740991`. Fields defined as unsigned or
+non-negative, including revisions and ordinary ticks, use `0` through
+`9007199254740991`; field-specific smaller limits still apply. Unsafe values
+are rejected rather than rounded. Send JSON numbers, not quoted integers or
+JavaScript `BigInt`.
 
 IDs are 1 to 96 characters and may contain only letters, digits, `.`, `_`,
 and `-`. This prevents path traversal at the source and remains compatible
@@ -389,8 +412,13 @@ DELETE /v1/generation/jobs/{job_id}
 Status is `queued`, `running`, `succeeded`, `failed`, or `canceled`. A
 successful result contains the raw JSON object plus bounded metadata such as
 model name, finish reason, token usage, and `cache_hit`. Rin parses output
-again; arrays, plain text, empty content, invalid UTF-8, NUL, and oversized
-content fail.
+again; arrays, plain text, empty content, NUL, and oversized decoded content
+fail. The game-facing HTTP API rejects invalid raw UTF-8 before decoding.
+Successful Provider JSON is also strictly checked before decoding; invalid
+UTF-8 and unpaired Unicode surrogates fail. A non-2xx Provider body is used only
+for bounded error classification and does not become Generation content or
+Session state. Treat every successful decoded object as untrusted and validate
+its domain schema and canon.
 
 The same `request_id` and payload return the same Job only while that
 process-local record remains retained. Semantically identical requests with
@@ -409,7 +437,9 @@ Commit records the authoritative outcome after the game applies or rejects a
 Proposal; it is not permission to execute. The game must revalidate and handle
 the action on its owning thread before sending Commit. `accepted=true` means
 the action actually took effect. `accepted=false` means that proposed effect
-did not occur.
+did not occur. The `accepted` member is required and must be explicit even when
+false; omission or `null` is `400 invalid_request`. The same requirement
+applies to every Batch Commit item.
 
 ```json
 {
@@ -629,6 +659,16 @@ untrusted source or edit it, and protect its file and body at the same level as
 the event log. The trusted runtime manifest remains the source of
 `expected_binding`.
 
+That opacity is a client-storage rule, not a server round-trip guarantee.
+Clients that may relay a Snapshot to a newer Runtime must preserve and resend
+the original JSON instead of decoding and re-encoding it through a lossy typed
+model. A 0.6 Runtime accepts OpenAPI-additive members inside `Snapshot` and
+`SessionState` only when `state_hash` still matches the State projection it
+understands. It counts those members toward the complete 16 MiB limit, ignores
+them after validation, and later emits only its known projection. If a future
+producer includes an unknown State member in `state_hash`, 0.6 fails closed
+with `400 invalid_snapshot`.
+
 The history uses version `identifier-history-v1`. Its request entries retain
 canonical request digests and original result coordinates or typed
 Proposal/Arbitration results; its event entries retain every accepted Event
@@ -765,7 +805,8 @@ never silently truncated.
 
 | HTTP | Code | Meaning |
 | --- | --- | --- |
-| `400` | `invalid_json` / `invalid_request` | JSON or field-contract error |
+| `400` | `invalid_json` | Malformed JSON, multiple JSON values, invalid raw UTF-8, or an unpaired Unicode surrogate |
+| `400` | `invalid_request` | Field-contract error, including an unsafe integer or missing/null `accepted` |
 | `400` | `invalid_snapshot` | State or Identifier History is malformed or its hash does not match |
 | `401` | `unauthorized` | Missing or incorrect Bearer token |
 | `404` | `session_not_found` / `unknown_actor` | Entity does not exist |
@@ -790,4 +831,5 @@ never silently truncated.
 | `503` | `generation_unavailable` / `generation_closed` | Generation is disabled or closing |
 
 The service never places event payloads, tokens, internal paths, or raw model
-responses in error messages.
+responses in error messages. These HTTP errors are distinct from a terminal
+Job's bounded `data.error` inside a successful HTTP response.

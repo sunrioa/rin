@@ -449,7 +449,7 @@ public final class RinNpcMod implements ModInitializer {
                 "binding", mapOf(
                         "game_id", "minecraft-fabric",
                         "content_id", "rin-npc-example",
-                        "content_version", "0.1.0",
+                        "content_version", "0.6.0",
                         "content_hash", "sha256:" + "0".repeat(64)),
                 "seed", seed,
                 "features", List.of("outcome-reporting-v1"),

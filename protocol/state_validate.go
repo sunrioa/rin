@@ -10,6 +10,9 @@ var hashPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 // ValidateSessionState checks the structural invariants required for a safe
 // snapshot restore. It does not verify StateHash; runtime.ValidateSnapshot does.
 func ValidateSessionState(state SessionState) error {
+	if err := validateSessionStateJSONIntegers(state); err != nil {
+		return err
+	}
 	if err := validateVersion(state.ProtocolVersion); err != nil {
 		return err
 	}

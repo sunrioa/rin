@@ -17,8 +17,6 @@ const (
 	maxProposals     = 64
 	maxReceipts      = 1024
 	maxArbitrations  = 32
-	maxInt64         = int64(1<<63 - 1)
-	minInt64         = int64(-1 << 63)
 )
 
 type createdPayload struct {
@@ -326,7 +324,7 @@ func applyCommitItem(state *protocol.SessionState, item protocol.CommitItem, tic
 	if len(actor.RecentActions) > maxRecentActions {
 		actor.RecentActions = append([]protocol.ActionProposal(nil), actor.RecentActions[len(actor.RecentActions)-maxRecentActions:]...)
 	}
-	if outcomeReporting && tick > maxInt64-actor.ThinkEveryTicks {
+	if outcomeReporting && tick > protocol.MaxJSONSafeInteger-actor.ThinkEveryTicks {
 		return fmt.Errorf("%w: commit tick overflows next think tick", ErrCorruptLog)
 	}
 	nextThinkTick := tick + actor.ThinkEveryTicks
@@ -549,7 +547,7 @@ func advanceWorldRevision(state *protocol.SessionState) error {
 	if !protocol.HasFeature(state.Features, protocol.FeatureArbitration) {
 		return nil
 	}
-	if state.WorldRevision == ^uint64(0) {
+	if state.WorldRevision >= uint64(protocol.MaxJSONSafeInteger) {
 		return fmt.Errorf("%w: world revision overflow", ErrCorruptLog)
 	}
 	state.WorldRevision++
@@ -560,10 +558,10 @@ func advanceRestoredWorldRevision(state *protocol.SessionState) {
 	if !protocol.HasFeature(state.Features, protocol.FeatureArbitration) {
 		return
 	}
-	// A successfully exported Snapshot must remain restorable even at the
-	// uint64 ceiling. The new event-chain generation still invalidates stale
+	// A successfully exported Snapshot remains restorable at the public JSON
+	// integer ceiling. The new event-chain generation still invalidates stale
 	// proposal bases; only the imported world counter saturates here.
-	if state.WorldRevision < ^uint64(0) {
+	if state.WorldRevision < uint64(protocol.MaxJSONSafeInteger) {
 		state.WorldRevision++
 	}
 }
@@ -747,8 +745,9 @@ func applyGoalProgress(actor *protocol.ActorState, goalID string, delta int, sta
 			accumulator = int64(goal.Progress)
 		}
 		change := int64(delta)
-		if (change > 0 && accumulator > maxInt64-change) ||
-			(change < 0 && accumulator < minInt64-change) {
+		maximum := int64(protocol.MaxJSONSafeInteger)
+		if (change > 0 && accumulator > maximum-change) ||
+			(change < 0 && accumulator < -maximum-change) {
 			return fmt.Errorf("%w: goal progress accumulator overflow", ErrCorruptLog)
 		}
 		accumulator += change

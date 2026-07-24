@@ -50,6 +50,9 @@ type EventIdentity struct {
 func ValidateIdentifierHistory(history IdentifierHistory, sessionID string) error {
 	const base = "identifier_history"
 
+	if err := validateIdentifierHistoryJSONIntegers(history); err != nil {
+		return err
+	}
 	if err := validateID(base+".session_id", sessionID); err != nil {
 		return err
 	}

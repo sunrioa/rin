@@ -230,7 +230,7 @@ func TestRevisionOverflowDoesNotWrapOrAppend(t *testing.T) {
 	engine, eventStore := invariantEngine(t, sessionID, nil, nil, invariantPolicy{})
 	session := engine.sessions[sessionID]
 	session.mu.Lock()
-	session.state.Revision = ^uint64(0)
+	session.state.Revision = uint64(protocol.MaxJSONSafeInteger)
 	overflowState := session.state
 	session.mu.Unlock()
 
@@ -247,7 +247,7 @@ func TestRevisionOverflowDoesNotWrapOrAppend(t *testing.T) {
 		t.Fatalf("newEvent should reject an exhausted revision, got %v", err)
 	}
 	if err := verifyEvent(overflowState, protocol.EventRecord{}); !errors.Is(err, ErrCorruptLog) {
-		t.Fatalf("verifyEvent should reject a successor after MaxUint64, got %v", err)
+		t.Fatalf("verifyEvent should reject a successor after the JSON integer ceiling, got %v", err)
 	}
 }
 
@@ -261,7 +261,7 @@ func TestRevisionOverflowSkipsProposalPolicy(t *testing.T) {
 	engine, eventStore := invariantEngine(t, sessionID, nil, nil, selectedPolicy)
 	session := engine.sessions[sessionID]
 	session.mu.Lock()
-	session.state.Revision = ^uint64(0)
+	session.state.Revision = uint64(protocol.MaxJSONSafeInteger)
 	session.mu.Unlock()
 
 	if _, _, err := engine.Propose(
@@ -290,7 +290,7 @@ func TestWorldRevisionOverflowIsExplicitBeforeAppend(t *testing.T) {
 		t.Helper()
 		session := engine.sessions[sessionID]
 		session.mu.Lock()
-		session.state.WorldRevision = ^uint64(0)
+		session.state.WorldRevision = uint64(protocol.MaxJSONSafeInteger)
 		session.mu.Unlock()
 		before := mustEngineState(t, engine, sessionID)
 		beforeAppends, _ := eventStore.counts()

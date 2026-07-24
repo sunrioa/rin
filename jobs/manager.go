@@ -208,7 +208,7 @@ func (m *Manager) Cancel(jobID string) (protocol.ProposalJob, error) {
 		now := m.now()
 		state.public.Status = "canceled"
 		state.public.FinishedAt = now.UTC().Format(time.RFC3339Nano)
-		state.public.Error = &protocol.ErrorDetail{Code: "job_canceled", Message: "proposal job was canceled"}
+		state.public.Error = protocol.NewErrorDetail("job_canceled", "proposal job was canceled", "")
 		state.completedAt = now
 		close(state.done)
 		result := cloneJob(state.public)
@@ -241,7 +241,7 @@ func (m *Manager) Close(ctx context.Context) error {
 				state.cancel()
 				state.public.Status = "canceled"
 				state.public.FinishedAt = now.UTC().Format(time.RFC3339Nano)
-				state.public.Error = &protocol.ErrorDetail{Code: "jobs_closed", Message: "proposal job manager stopped"}
+				state.public.Error = protocol.NewErrorDetail("jobs_closed", "proposal job manager stopped", "")
 				state.completedAt = now
 				close(state.done)
 			} else if state.public.Status == "running" {
@@ -364,7 +364,7 @@ func jobError(err error) *protocol.ErrorDetail {
 	if code != "proposal_outcome_unknown" && errors.Is(err, context.Canceled) {
 		code = "job_canceled"
 	}
-	return &protocol.ErrorDetail{Code: code, Message: err.Error(), Field: rinruntime.ErrorField(err)}
+	return protocol.NewErrorDetail(code, err.Error(), rinruntime.ErrorField(err))
 }
 
 func proposalOutcomeUnknown(job protocol.ProposalJob) bool {

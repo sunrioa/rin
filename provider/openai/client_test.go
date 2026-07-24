@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sunrioa/rin/protocol"
 	"github.com/sunrioa/rin/provider"
 )
 
@@ -31,7 +32,7 @@ func TestCompleteSendsSchemaAndDecodesFixture(t *testing.T) {
 		if request.Header.Get("Authorization") != "Bearer fixture-secret" {
 			t.Fatalf("missing authorization header")
 		}
-		if request.Header.Get("User-Agent") != "rin/0.4" {
+		if request.Header.Get("User-Agent") != "rin/"+protocol.ContractReleaseVersion {
 			t.Fatalf("unexpected user agent: %s", request.Header.Get("User-Agent"))
 		}
 		var body map[string]any
@@ -85,6 +86,73 @@ func TestHTTPErrorIsRetryableWithoutLeakingBodyOrKey(t *testing.T) {
 		if strings.Contains(err.Error(), forbidden) {
 			t.Fatalf("error leaked %q: %v", forbidden, err)
 		}
+	}
+}
+
+func TestCompleteRejectsMalformedUnicodeWireJSON(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  int
+		payload []byte
+	}{
+		{
+			name:    "invalid raw UTF-8 success",
+			status:  http.StatusOK,
+			payload: []byte{'"', 0xff, '"'},
+		},
+		{
+			name:    "unpaired surrogate success",
+			status:  http.StatusOK,
+			payload: []byte(`{"choices":[{"message":{"content":"\ud800"}}]}`),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client, err := New(Config{
+				BaseURL: "https://models.example/v1",
+				Model:   "fixture",
+				HTTPClient: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+					return response(test.status, test.payload, nil), nil
+				})},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.Complete(context.Background(), provider.CompletionRequest{})
+			var providerError *provider.Error
+			if !errors.As(err, &providerError) {
+				t.Fatalf("expected provider error, got %v", err)
+			}
+			if providerError.Kind != "response_decode" ||
+				!providerError.Retryable ||
+				!providerError.ProviderReached {
+				t.Fatalf("unexpected malformed-wire error: %+v", providerError)
+			}
+		})
+	}
+}
+
+func TestMalformedHTTPErrorBodyPreservesStatusClassification(t *testing.T) {
+	client, err := New(Config{
+		BaseURL: "https://models.example/v1",
+		Model:   "fixture",
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return response(http.StatusBadRequest, []byte{'"', 0xff, '"'}, nil), nil
+		})},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Complete(context.Background(), provider.CompletionRequest{})
+	var providerError *provider.Error
+	if !errors.As(err, &providerError) {
+		t.Fatalf("expected provider error, got %v", err)
+	}
+	if providerError.Kind != "http" ||
+		providerError.StatusCode != http.StatusBadRequest ||
+		providerError.Retryable ||
+		!providerError.ProviderReached {
+		t.Fatalf("malformed 400 body changed HTTP classification: %+v", providerError)
 	}
 }
 

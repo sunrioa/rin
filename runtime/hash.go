@@ -40,10 +40,10 @@ func hashJSON(value any) (string, error) {
 }
 
 func newEvent(state protocol.SessionState, eventType, requestID string, payload any, now time.Time) (protocol.EventRecord, error) {
-	if state.Revision == ^uint64(0) {
+	if state.Revision >= uint64(protocol.MaxJSONSafeInteger) {
 		return protocol.EventRecord{}, NewFieldError(
 			"revision_overflow",
-			"session revision is exhausted",
+			"session revision has reached the protocol JSON integer ceiling",
 			"revision",
 			ErrConflict,
 		)
@@ -79,7 +79,7 @@ func eventHash(event protocol.EventRecord) (string, error) {
 }
 
 func verifyEvent(previous protocol.SessionState, event protocol.EventRecord) error {
-	if previous.Revision == ^uint64(0) {
+	if previous.Revision >= uint64(protocol.MaxJSONSafeInteger) {
 		return fmt.Errorf("%w: revision %d cannot be followed by another event", ErrCorruptLog, previous.Revision)
 	}
 	if event.Sequence != previous.Revision+1 {

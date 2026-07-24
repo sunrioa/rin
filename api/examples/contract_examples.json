@@ -1,0 +1,196 @@
+{
+  "CreateSessionRequest": {
+    "protocol_version": "rin.protocol/v1",
+    "request_id": "request.create.example",
+    "session_id": "session.example",
+    "binding": {
+      "game_id": "game.example",
+      "content_id": "base",
+      "content_version": "1.0.0",
+      "content_hash": "example-content-hash"
+    },
+    "seed": 0,
+    "features": [
+      "outcome-reporting-v1"
+    ],
+    "actors": [
+      {
+        "id": "actor.mira",
+        "kind": "npc",
+        "display_name": "Mira",
+        "boundaries": [
+          {
+            "id": "boundary.private",
+            "description": "Do not disclose private records.",
+            "trigger_tags": null,
+            "response": "refuse"
+          }
+        ],
+        "goals": [
+          {
+            "id": "goal.help",
+            "description": "Help the player safely.",
+            "priority": 3,
+            "progress": 0,
+            "target_progress": 10,
+            "status": "active"
+          }
+        ],
+        "think_every_ticks": 5,
+        "enabled": false
+      }
+    ]
+  },
+  "ObserveRequest": {
+    "protocol_version": "rin.protocol/v1",
+    "session_id": "session.example",
+    "request_id": "request.observe.example",
+    "event_id": "event.arrival",
+    "tick": 0,
+    "observer_ids": [
+      "actor.mira"
+    ],
+    "source": "game",
+    "kind": "arrival",
+    "summary": "The player entered the archive.",
+    "importance": 2,
+    "facts": [
+      {
+        "subject_id": "player.one",
+        "predicate": "location",
+        "object": "archive",
+        "confidence": 0
+      }
+    ]
+  },
+  "ProposeRequest": {
+    "protocol_version": "rin.protocol/v1",
+    "session_id": "session.example",
+    "request_id": "request.propose.example",
+    "actor_id": "actor.mira",
+    "tick": 0,
+    "intent": "Respond to the player's arrival.",
+    "candidate_actions": [
+      {
+        "id": "action.greet",
+        "kind": "dialogue",
+        "description": "Greet the player."
+      }
+    ],
+    "urgent": false
+  },
+  "CommitRequest": {
+    "protocol_version": "rin.protocol/v1",
+    "session_id": "session.example",
+    "request_id": "request.commit.example",
+    "proposal_id": "proposal.example",
+    "event_id": "event.commit.example",
+    "tick": 0,
+    "accepted": false
+  },
+  "BatchCommitRequest": {
+    "protocol_version": "rin.protocol/v1",
+    "session_id": "session.example",
+    "request_id": "request.batch.example",
+    "tick": 0,
+    "items": [
+      {
+        "proposal_id": "proposal.one",
+        "event_id": "event.commit.one",
+        "accepted": true,
+        "outcome": "The greeting was shown."
+      },
+      {
+        "proposal_id": "proposal.two",
+        "event_id": "event.commit.two",
+        "accepted": false
+      }
+    ]
+  },
+  "SessionRequest": {
+    "protocol_version": "rin.protocol/v1",
+    "session_id": "session.example"
+  },
+  "RestoreRequest": {
+    "protocol_version": "rin.protocol/v1",
+    "session_id": "session.example",
+    "request_id": "request.restore.example",
+    "expected_binding": {
+      "game_id": "game.example",
+      "content_id": "base",
+      "content_version": "1.0.0",
+      "content_hash": "example-content-hash"
+    },
+    "snapshot": {
+      "protocol_version": "rin.protocol/v1",
+      "state_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+      "state": {
+        "protocol_version": "rin.protocol/v1",
+        "session_id": "session.example",
+        "binding": {
+          "game_id": "game.example",
+          "content_id": "base",
+          "content_version": "1.0.0",
+          "content_hash": "example-content-hash"
+        },
+        "seed": 0,
+        "tick": 0,
+        "revision": 1,
+        "head_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "actors": {
+          "actor.mira": {
+            "id": "actor.mira",
+            "kind": "npc",
+            "display_name": "Mira",
+            "think_every_ticks": 5,
+            "enabled": false,
+            "next_think_tick": 0
+          }
+        },
+        "receipts": {
+          "request.create.example": {
+            "kind": "session.created",
+            "entity_id": "session.example",
+            "revision": 1
+          }
+        }
+      }
+    }
+  },
+  "GenerationRequest": {
+    "protocol_version": "rin.protocol/v1",
+    "request_id": "request.generate.example",
+    "kind": "scene",
+    "context_hash": "2222222222222222222222222222222222222222222222222222222222222222",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Describe the archive entrance."
+      }
+    ],
+    "temperature": 0,
+    "max_tokens": 256,
+    "response_format": "json_object"
+  },
+  "ErrorResponse": {
+    "ok": false,
+    "error": {
+      "code": "invalid_request",
+      "message": "accepted is required",
+      "field": "accepted"
+    }
+  },
+  "ProposalJob": {
+    "protocol_version": "rin.protocol/v1",
+    "job_id": "job.proposal.example",
+    "session_id": "session.example",
+    "request_id": "request.propose.example",
+    "status": "failed",
+    "submitted_at": "2026-07-24T08:00:00Z",
+    "finished_at": "2026-07-24T08:00:01Z",
+    "error": {
+      "code": "provider_error",
+      "message": "The proposal provider was unavailable."
+    }
+  }
+}

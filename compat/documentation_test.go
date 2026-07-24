@@ -7,20 +7,25 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 )
 
 func TestBilingualDocumentationPairs(t *testing.T) {
 	pairs := [][2]string{
+		{"../CHANGELOG.md", "../CHANGELOG.zh-CN.md"},
 		{"../README.en.md", "../README.md"},
 		{"../ROADMAP.en.md", "../ROADMAP.md"},
 		{"../SECURITY.en.md", "../SECURITY.md"},
 		{"../docs/README.md", "../docs/README.zh-CN.md"},
 		{"../docs/architecture.md", "../docs/architecture.zh-CN.md"},
+		{"../docs/compatibility.md", "../docs/compatibility.zh-CN.md"},
 		{"../docs/game-adapters.md", "../docs/game-adapters.zh-CN.md"},
+		{"../docs/migration-v0.6.md", "../docs/migration-v0.6.zh-CN.md"},
 		{"../docs/model-policy.md", "../docs/model-policy.zh-CN.md"},
 		{"../docs/outcome-reporting.md", "../docs/outcome-reporting.zh-CN.md"},
 		{"../docs/protocol-v1.md", "../docs/protocol-v1.zh-CN.md"},
+		{"../docs/release-guide.md", "../docs/release-guide.zh-CN.md"},
 		{"../docs/rpg-events.md", "../docs/rpg-events.zh-CN.md"},
 		{"../docs/sdk-and-mods.md", "../docs/sdk-and-mods.zh-CN.md"},
 		{"../sdk/README.md", "../sdk/README.zh-CN.md"},
@@ -45,6 +50,42 @@ func TestBilingualDocumentationPairs(t *testing.T) {
 			if !strings.Contains(text, "[English]") || !strings.Contains(text, "[简体中文]") {
 				t.Errorf("%s is missing the bilingual navigation", path)
 			}
+		}
+	}
+}
+
+func TestReleaseDocumentationIdentity(t *testing.T) {
+	paths := []string{
+		"../CHANGELOG.md",
+		"../CHANGELOG.zh-CN.md",
+		"../README.en.md",
+		"../README.md",
+		"../ROADMAP.en.md",
+		"../ROADMAP.md",
+		"../SECURITY.en.md",
+		"../SECURITY.md",
+		"../docs/README.md",
+		"../docs/README.zh-CN.md",
+		"../docs/compatibility.md",
+		"../docs/compatibility.zh-CN.md",
+		"../docs/migration-v0.6.md",
+		"../docs/migration-v0.6.zh-CN.md",
+		"../docs/protocol-v1.md",
+		"../docs/protocol-v1.zh-CN.md",
+		"../docs/release-guide.md",
+		"../docs/release-guide.zh-CN.md",
+	}
+	for _, path := range paths {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(payload)
+		if !strings.Contains(text, protocol.ContractReleaseVersion) {
+			t.Errorf("%s is missing generated release version %q", path, protocol.ContractReleaseVersion)
+		}
+		if !strings.Contains(strings.ToLower(text), protocol.ContractReleaseStatus) {
+			t.Errorf("%s is missing generated release status %q", path, protocol.ContractReleaseStatus)
 		}
 	}
 }
@@ -634,8 +675,13 @@ func TestFileStoreOperationsDocumentationContract(t *testing.T) {
 			"non-blocking exclusive data-directory lock",
 			"`(*store.File).Close()`",
 			"`retain_forever`",
-			"validated after Go JSON decoding",
-			"does not promise rejection of every raw non-UTF-8",
+			"before JSON decoding",
+			"invalid UTF-8",
+			"unpaired JSON Unicode surrogates",
+			"Before decoding a successful Provider",
+			"JSON response, Rin strictly rejects",
+			"A non-2xx Provider body is used only for bounded error",
+			"it is not treated as content",
 			"not an absolute",
 			"local filesystem",
 			"NFS",
@@ -652,9 +698,12 @@ func TestFileStoreOperationsDocumentationContract(t *testing.T) {
 			"non-blocking exclusive lock",
 			"`(*store.File).Close()`",
 			"`retain_forever`",
-			"文本在 Go JSON 解码后校验",
-			"不承诺拒绝每个",
-			"原始非 UTF-8 字节序列",
+			"JSON 解码前校验原始",
+			"非法 UTF-8",
+			"未配对 JSON Unicode Surrogate",
+			"Provider JSON\n成功响应会在解码前严格拒绝",
+			"非 2xx\nProvider Body 只用于有界错误分类",
+			"不会被当成 Content",
 			"不是针对",
 			"故障的绝对持久性",
 			"本地文件系统",
@@ -733,10 +782,12 @@ func TestFileStoreOperationsDocumentationContract(t *testing.T) {
 			"从校验后的内部 checkpoint 与 event tail",
 		},
 		"../SECURITY.en.md": {
-			"non-UTF-8 input are rejected",
+			"validated after Go JSON decoding",
+			"does not promise rejection of every raw non-UTF-8",
 		},
 		"../SECURITY.md": {
-			"非 UTF-8 内容被拒绝",
+			"文本在 Go JSON 解码后校验",
+			"不承诺拒绝每个",
 		},
 		"../docs/architecture.md": {
 			"Startup fully replays and verifies the chain",

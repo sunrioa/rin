@@ -1,0 +1,3418 @@
+{
+  "openapi": "3.1.0",
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "info": {
+    "title": "Rin HTTP API",
+    "version": "0.6.0",
+    "description": "Authoritative preview wire contract for Rin Protocol v1. Bearer authentication is required only when the server is configured with a token; health is always unauthenticated."
+  },
+  "x-rin-protocol-version": "rin.protocol/v1",
+  "x-rin-release-status": "preview",
+  "x-rin-luanti-release": 6,
+  "x-rin-example-fixtures": "examples/contract_examples.json",
+  "servers": [
+    {
+      "url": "http://127.0.0.1:7374"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "health",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Service health and compatibility identity.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/session/create": {
+      "post": {
+        "operationId": "create_session",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/CreateSession"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/MutationResult"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/session/observe": {
+      "post": {
+        "operationId": "observe",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/Observe"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/MutationResult"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/agent/propose": {
+      "post": {
+        "operationId": "propose",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/Propose"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ProposalResult"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "408": {
+            "$ref": "#/components/responses/RequestTimeout"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/jobs/propose": {
+      "post": {
+        "operationId": "submit_proposal_job",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/Propose"
+        },
+        "responses": {
+          "202": {
+            "$ref": "#/components/responses/ProposalJobSubmission"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/JobId"
+        }
+      ],
+      "get": {
+        "operationId": "get_proposal_job",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ProposalJob"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "cancel_proposal_job",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ProposalJob"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/generation/jobs": {
+      "post": {
+        "operationId": "submit_generation_job",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/Generation"
+        },
+        "responses": {
+          "202": {
+            "$ref": "#/components/responses/GenerationJobSubmission"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/generation/jobs/{job_id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/JobId"
+        }
+      ],
+      "get": {
+        "operationId": "get_generation_job",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/GenerationJob"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "cancel_generation_job",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/GenerationJob"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/action/commit": {
+      "post": {
+        "operationId": "commit",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/Commit"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/MutationResult"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/action/commit-batch": {
+      "post": {
+        "operationId": "commit_batch",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/BatchCommit"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/MutationResult"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/session/activity": {
+      "post": {
+        "operationId": "set_actor_activity",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/SetActorActivity"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/MutationResult"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/world/arbitrate": {
+      "post": {
+        "operationId": "arbitrate",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/Arbitrate"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ArbitrationResult"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/session/get": {
+      "post": {
+        "operationId": "state",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/Session"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SessionState"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/session/snapshot": {
+      "post": {
+        "operationId": "snapshot",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/Session"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Snapshot"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/session/restore": {
+      "post": {
+        "operationId": "restore",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/Restore"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/MutationResult"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/session/timeline": {
+      "post": {
+        "operationId": "timeline",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/Timeline"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Timeline"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/session/replay": {
+      "post": {
+        "operationId": "replay",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/Replay"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Snapshot"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/scheduler/due": {
+      "post": {
+        "operationId": "due_agents",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/DueAgents"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/DueAgents"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Used when the Rin server is configured with an authentication token."
+      }
+    },
+    "parameters": {
+      "JobId": {
+        "name": "job_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        }
+      }
+    },
+    "requestBodies": {
+      "CreateSession": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/CreateSessionRequest"
+            }
+          }
+        }
+      },
+      "Observe": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ObserveRequest"
+            }
+          }
+        }
+      },
+      "Propose": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProposeRequest"
+            }
+          }
+        }
+      },
+      "Generation": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/GenerationRequest"
+            }
+          }
+        }
+      },
+      "Commit": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/CommitRequest"
+            }
+          }
+        }
+      },
+      "BatchCommit": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/BatchCommitRequest"
+            }
+          }
+        }
+      },
+      "SetActorActivity": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SetActorActivityRequest"
+            }
+          }
+        }
+      },
+      "Arbitrate": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ArbitrateRequest"
+            }
+          }
+        }
+      },
+      "Session": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SessionRequest"
+            }
+          }
+        }
+      },
+      "Restore": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RestoreRequest"
+            }
+          }
+        }
+      },
+      "Timeline": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/TimelineRequest"
+            }
+          }
+        }
+      },
+      "Replay": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ReplayRequest"
+            }
+          }
+        }
+      },
+      "DueAgents": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/DueAgentsRequest"
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "MutationResult": {
+        "description": "Mutation result.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/MutationResultResponse"
+            }
+          }
+        }
+      },
+      "ProposalResult": {
+        "description": "Game-authorized proposal.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProposalResultResponse"
+            }
+          }
+        }
+      },
+      "ProposalJobSubmission": {
+        "description": "Proposal job accepted.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProposalJobSubmissionResponse"
+            }
+          }
+        }
+      },
+      "ProposalJob": {
+        "description": "Proposal job state.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProposalJobResponse"
+            }
+          }
+        }
+      },
+      "GenerationJobSubmission": {
+        "description": "Generation job accepted.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/GenerationJobSubmissionResponse"
+            }
+          }
+        }
+      },
+      "GenerationJob": {
+        "description": "Generation job state.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/GenerationJobResponse"
+            }
+          }
+        }
+      },
+      "ArbitrationResult": {
+        "description": "Arbitration result.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ArbitrationResultResponse"
+            }
+          }
+        }
+      },
+      "SessionState": {
+        "description": "Current session state.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SessionStateResponse"
+            }
+          }
+        }
+      },
+      "Snapshot": {
+        "description": "Portable session snapshot.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SnapshotResponse"
+            }
+          }
+        }
+      },
+      "Timeline": {
+        "description": "Redacted timeline page.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/TimelineResponseEnvelope"
+            }
+          }
+        }
+      },
+      "DueAgents": {
+        "description": "Due actor page.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/DueAgentsResponseEnvelope"
+            }
+          }
+        }
+      },
+      "BadRequest": {
+        "$ref": "#/components/responses/ErrorResponse"
+      },
+      "Unauthorized": {
+        "$ref": "#/components/responses/ErrorResponse"
+      },
+      "NotFound": {
+        "$ref": "#/components/responses/ErrorResponse"
+      },
+      "RequestTimeout": {
+        "$ref": "#/components/responses/ErrorResponse"
+      },
+      "Conflict": {
+        "$ref": "#/components/responses/ErrorResponse"
+      },
+      "RequestTooLarge": {
+        "$ref": "#/components/responses/ErrorResponse"
+      },
+      "UnsupportedMediaType": {
+        "$ref": "#/components/responses/ErrorResponse"
+      },
+      "UnprocessableEntity": {
+        "$ref": "#/components/responses/ErrorResponse"
+      },
+      "TooManyRequests": {
+        "$ref": "#/components/responses/ErrorResponse"
+      },
+      "InternalError": {
+        "$ref": "#/components/responses/ErrorResponse"
+      },
+      "ServiceUnavailable": {
+        "$ref": "#/components/responses/ErrorResponse"
+      },
+      "ErrorResponse": {
+        "description": "Bounded protocol error.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "ProtocolVersion": {
+        "type": "string",
+        "const": "rin.protocol/v1"
+      },
+      "Identifier": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$",
+        "minLength": 1,
+        "maxLength": 96
+      },
+      "JSONSafeSignedInteger": {
+        "type": "integer",
+        "minimum": -9007199254740991,
+        "maximum": 9007199254740991
+      },
+      "JSONSafeUnsignedInteger": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "SHA256": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "StringMap": {
+        "type": "object",
+        "maxProperties": 32,
+        "propertyNames": {
+          "$ref": "#/components/schemas/Identifier"
+        },
+        "additionalProperties": {
+          "type": "string",
+          "maxLength": 500
+        }
+      },
+      "IdentifierArray": {
+        "type": "array",
+        "uniqueItems": true,
+        "items": {
+          "$ref": "#/components/schemas/Identifier"
+        }
+      },
+      "Binding": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "game_id",
+          "content_id",
+          "content_version",
+          "content_hash"
+        ],
+        "properties": {
+          "game_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "content_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "content_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "content_hash": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      },
+      "BoundaryInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "description",
+          "response"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "trigger_tags": {
+            "oneOf": [
+              {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/IdentifierArray"
+                  },
+                  {
+                    "maxItems": 16
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "response": {
+            "type": "string",
+            "enum": [
+              "refuse",
+              "redirect",
+              "wait"
+            ]
+          }
+        }
+      },
+      "GoalSeedInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "description",
+          "priority",
+          "target_progress",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "motivation": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "preferred_actions": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/IdentifierArray"
+              },
+              {
+                "maxItems": 16
+              }
+            ]
+          },
+          "progress": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "target_progress": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "completed",
+              "released"
+            ]
+          }
+        }
+      },
+      "GoalCandidateInput": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/GoalSeedInput"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "progress": {
+                "const": 0
+              },
+              "status": {
+                "const": "active"
+              }
+            }
+          }
+        ]
+      },
+      "ActorSeedInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "display_name",
+          "think_every_ticks"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "traits": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/IdentifierArray"
+              },
+              {
+                "maxItems": 24
+              }
+            ]
+          },
+          "boundaries": {
+            "type": "array",
+            "maxItems": 24,
+            "items": {
+              "$ref": "#/components/schemas/BoundaryInput"
+            }
+          },
+          "goals": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/GoalSeedInput"
+            }
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/StringMap"
+          },
+          "think_every_ticks": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "FactInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "subject_id",
+          "predicate",
+          "object"
+        ],
+        "properties": {
+          "subject_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "predicate": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "visibility": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/IdentifierArray"
+              },
+              {
+                "maxItems": 32
+              }
+            ]
+          },
+          "confidence": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "source_event_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "observed_tick": {
+            "const": 0
+          }
+        }
+      },
+      "ActionSpecInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "description"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "target_ids": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/IdentifierArray"
+              },
+              {
+                "maxItems": 32
+              }
+            ]
+          },
+          "parameters": {
+            "$ref": "#/components/schemas/StringMap"
+          }
+        }
+      },
+      "CreateSessionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "protocol_version",
+          "request_id",
+          "session_id",
+          "binding",
+          "actors"
+        ],
+        "properties": {
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "binding": {
+            "$ref": "#/components/schemas/Binding"
+          },
+          "seed": {
+            "$ref": "#/components/schemas/JSONSafeSignedInteger"
+          },
+          "features": {
+            "type": "array",
+            "uniqueItems": true,
+            "maxItems": 6,
+            "items": {
+              "type": "string",
+              "enum": [
+                "memory-archive-v1",
+                "belief-conflicts-v1",
+                "goal-candidates-v1",
+                "actor-activity-v1",
+                "arbitration-v1",
+                "outcome-reporting-v1"
+              ]
+            }
+          },
+          "actors": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 128,
+            "items": {
+              "$ref": "#/components/schemas/ActorSeedInput"
+            }
+          }
+        }
+      },
+      "ObserveRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "protocol_version",
+          "session_id",
+          "request_id",
+          "event_id",
+          "observer_ids",
+          "source",
+          "kind",
+          "summary",
+          "importance"
+        ],
+        "properties": {
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "event_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "observer_ids": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/IdentifierArray"
+              },
+              {
+                "minItems": 1,
+                "maxItems": 128
+              }
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "quote": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "tags": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/IdentifierArray"
+              },
+              {
+                "maxItems": 32
+              }
+            ]
+          },
+          "importance": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "facts": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/components/schemas/FactInput"
+            }
+          }
+        }
+      },
+      "ProposeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "protocol_version",
+          "session_id",
+          "request_id",
+          "actor_id",
+          "intent",
+          "candidate_actions"
+        ],
+        "properties": {
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "tags": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/IdentifierArray"
+              },
+              {
+                "maxItems": 32
+              }
+            ]
+          },
+          "candidate_actions": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/ActionSpecInput"
+            }
+          },
+          "candidate_goals": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "$ref": "#/components/schemas/GoalCandidateInput"
+            }
+          },
+          "urgent": {
+            "type": "boolean"
+          }
+        }
+      },
+      "GoalUpdateInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "goal_id"
+        ],
+        "properties": {
+          "goal_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "progress_delta": {
+            "type": "integer",
+            "minimum": -1000,
+            "maximum": 1000
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "completed",
+              "released"
+            ]
+          }
+        }
+      },
+      "CommitRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "protocol_version",
+          "session_id",
+          "request_id",
+          "proposal_id",
+          "event_id",
+          "accepted"
+        ],
+        "properties": {
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "proposal_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "event_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "accepted": {
+            "type": "boolean"
+          },
+          "outcome": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "tags": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/IdentifierArray"
+              },
+              {
+                "maxItems": 32
+              }
+            ]
+          },
+          "facts": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/components/schemas/FactInput"
+            }
+          },
+          "goal_updates": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/GoalUpdateInput"
+            }
+          }
+        }
+      },
+      "CommitItemInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "proposal_id",
+          "event_id",
+          "accepted"
+        ],
+        "properties": {
+          "proposal_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "event_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "accepted": {
+            "type": "boolean"
+          },
+          "outcome": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "tags": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/IdentifierArray"
+              },
+              {
+                "maxItems": 32
+              }
+            ]
+          },
+          "facts": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/components/schemas/FactInput"
+            }
+          },
+          "goal_updates": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/GoalUpdateInput"
+            }
+          }
+        }
+      },
+      "BatchCommitRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "protocol_version",
+          "session_id",
+          "request_id",
+          "items"
+        ],
+        "properties": {
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/components/schemas/CommitItemInput"
+            }
+          }
+        }
+      },
+      "ActorActivityUpdateInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "actor_id",
+          "state"
+        ],
+        "properties": {
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "region_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "awake",
+              "dormant"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 300
+          }
+        }
+      },
+      "SetActorActivityRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "protocol_version",
+          "session_id",
+          "request_id",
+          "updates"
+        ],
+        "properties": {
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "updates": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 128,
+            "items": {
+              "$ref": "#/components/schemas/ActorActivityUpdateInput"
+            }
+          }
+        }
+      },
+      "ArbitrateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "protocol_version",
+          "session_id",
+          "request_id",
+          "proposal_ids"
+        ],
+        "properties": {
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "proposal_ids": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/IdentifierArray"
+              },
+              {
+                "minItems": 1,
+                "maxItems": 64
+              }
+            ]
+          },
+          "exclusive_target_ids": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/IdentifierArray"
+              },
+              {
+                "maxItems": 64
+              }
+            ]
+          }
+        }
+      },
+      "SessionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "protocol_version",
+          "session_id"
+        ],
+        "properties": {
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      },
+      "RestoreRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "protocol_version",
+          "session_id",
+          "request_id",
+          "expected_binding",
+          "snapshot"
+        ],
+        "properties": {
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "expected_binding": {
+            "$ref": "#/components/schemas/Binding"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/Snapshot"
+          }
+        }
+      },
+      "TimelineRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "protocol_version",
+          "session_id",
+          "limit"
+        ],
+        "properties": {
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "after_revision": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 256
+          }
+        }
+      },
+      "ReplayRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "protocol_version",
+          "session_id",
+          "revision"
+        ],
+        "properties": {
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "revision": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          }
+        }
+      },
+      "DueAgentsRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "protocol_version",
+          "session_id",
+          "limit"
+        ],
+        "properties": {
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 128
+          },
+          "region_ids": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/IdentifierArray"
+              },
+              {
+                "maxItems": 32
+              }
+            ]
+          }
+        }
+      },
+      "GenerationMessageInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "role",
+          "content"
+        ],
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "system",
+              "user",
+              "assistant"
+            ]
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32768
+          }
+        }
+      },
+      "GenerationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "protocol_version",
+          "request_id",
+          "kind",
+          "context_hash",
+          "messages",
+          "max_tokens",
+          "response_format"
+        ],
+        "properties": {
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "director",
+              "story",
+              "scene",
+              "decision",
+              "ending",
+              "free-response",
+              "storylet-selection"
+            ]
+          },
+          "context_hash": {
+            "$ref": "#/components/schemas/SHA256"
+          },
+          "messages": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "items": {
+              "$ref": "#/components/schemas/GenerationMessageInput"
+            }
+          },
+          "temperature": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 2
+          },
+          "max_tokens": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8192
+          },
+          "response_format": {
+            "const": "json_object"
+          }
+        }
+      },
+      "BindingState": {
+        "type": "object",
+        "required": [
+          "game_id",
+          "content_id",
+          "content_version",
+          "content_hash"
+        ],
+        "properties": {
+          "game_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "content_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "content_version": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "content_hash": {
+            "type": "string",
+            "maxLength": 128
+          }
+        }
+      },
+      "BoundaryState": {
+        "type": "object",
+        "required": [
+          "id",
+          "description",
+          "trigger_tags",
+          "response"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "trigger_tags": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/IdentifierArray"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "response": {
+            "type": "string",
+            "enum": [
+              "refuse",
+              "redirect",
+              "wait"
+            ]
+          }
+        }
+      },
+      "ActionSpecState": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "description"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "target_ids": {
+            "$ref": "#/components/schemas/IdentifierArray"
+          },
+          "parameters": {
+            "$ref": "#/components/schemas/StringMap"
+          }
+        }
+      },
+      "GoalState": {
+        "type": "object",
+        "required": [
+          "id",
+          "description",
+          "priority",
+          "progress",
+          "target_progress",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "motivation": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "preferred_actions": {
+            "$ref": "#/components/schemas/IdentifierArray"
+          },
+          "progress": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "target_progress": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "completed",
+              "released"
+            ]
+          },
+          "updated_tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "progress_accumulator": {
+            "$ref": "#/components/schemas/JSONSafeSignedInteger"
+          },
+          "status_explicit": {
+            "type": "boolean"
+          },
+          "status_updated_tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "status_source_event_id": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      },
+      "FactState": {
+        "type": "object",
+        "required": [
+          "subject_id",
+          "predicate",
+          "object",
+          "confidence"
+        ],
+        "properties": {
+          "subject_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "predicate": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "object": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "visibility": {
+            "$ref": "#/components/schemas/IdentifierArray"
+          },
+          "confidence": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "source_event_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "observed_tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          }
+        }
+      },
+      "MemoryState": {
+        "type": "object",
+        "required": [
+          "id",
+          "event_id",
+          "tick",
+          "summary",
+          "importance",
+          "created_revision",
+          "recall_count",
+          "last_recalled_tick"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "event_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "quote": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "tags": {
+            "$ref": "#/components/schemas/IdentifierArray"
+          },
+          "importance": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "created_revision": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "recall_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "last_recalled_tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          }
+        }
+      },
+      "MemorySummaryState": {
+        "type": "object",
+        "required": [
+          "id",
+          "level",
+          "summary",
+          "start_tick",
+          "end_tick",
+          "importance",
+          "reason",
+          "created_revision",
+          "recall_count",
+          "last_recalled_tick"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "level": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "tags": {
+            "$ref": "#/components/schemas/IdentifierArray"
+          },
+          "source_memory_ids": {
+            "$ref": "#/components/schemas/IdentifierArray"
+          },
+          "source_event_ids": {
+            "$ref": "#/components/schemas/IdentifierArray"
+          },
+          "start_tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "end_tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "importance": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "created_revision": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "recall_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "last_recalled_tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          }
+        }
+      },
+      "BeliefClaimState": {
+        "type": "object",
+        "required": [
+          "fact",
+          "observed_revision"
+        ],
+        "properties": {
+          "fact": {
+            "$ref": "#/components/schemas/FactState"
+          },
+          "observed_revision": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          }
+        }
+      },
+      "BeliefSetState": {
+        "type": "object",
+        "required": [
+          "subject_id",
+          "predicate",
+          "claims",
+          "selected_source_event_id",
+          "conflicted"
+        ],
+        "properties": {
+          "subject_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "predicate": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "claims": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BeliefClaimState"
+            }
+          },
+          "selected_source_event_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "conflicted": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ActorActivityState": {
+        "type": "object",
+        "required": [
+          "state",
+          "updated_tick",
+          "updated_revision"
+        ],
+        "properties": {
+          "region_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "awake",
+              "dormant"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "updated_tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "updated_revision": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          }
+        }
+      },
+      "ActionProposalState": {
+        "type": "object",
+        "required": [
+          "id",
+          "session_id",
+          "request_id",
+          "actor_id",
+          "tick",
+          "based_on_revision",
+          "based_on_head_hash",
+          "created_revision",
+          "action",
+          "stance",
+          "summary",
+          "rationale",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "based_on_revision": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "based_on_head_hash": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SHA256"
+              },
+              {
+                "const": ""
+              }
+            ]
+          },
+          "based_on_world_revision": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "created_revision": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "action": {
+            "$ref": "#/components/schemas/ActionSpecState"
+          },
+          "stance": {
+            "type": "string",
+            "enum": [
+              "engage",
+              "refuse",
+              "redirect",
+              "wait"
+            ]
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "rationale": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "policy_source": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "recalled_memory_ids": {
+            "$ref": "#/components/schemas/IdentifierArray"
+          },
+          "goal_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "boundary_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "proposed_goal": {
+            "$ref": "#/components/schemas/GoalState"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "accepted",
+              "rejected"
+            ]
+          },
+          "outcome_event_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "outcome_tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          }
+        }
+      },
+      "ActorState": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "display_name",
+          "think_every_ticks",
+          "enabled",
+          "next_think_tick"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "display_name": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "traits": {
+            "$ref": "#/components/schemas/IdentifierArray"
+          },
+          "boundaries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BoundaryState"
+            }
+          },
+          "goals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GoalState"
+            }
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/StringMap"
+          },
+          "think_every_ticks": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "memories": {
+            "type": "array",
+            "maxItems": 128,
+            "items": {
+              "$ref": "#/components/schemas/MemoryState"
+            }
+          },
+          "memory_summaries": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/MemorySummaryState"
+            }
+          },
+          "beliefs": {
+            "type": "object",
+            "maxProperties": 256,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FactState"
+            }
+          },
+          "belief_sets": {
+            "type": "object",
+            "maxProperties": 256,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/BeliefSetState"
+            }
+          },
+          "recent_actions": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/ActionProposalState"
+            }
+          },
+          "next_think_tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "activity": {
+            "$ref": "#/components/schemas/ActorActivityState"
+          }
+        }
+      },
+      "RequestReceiptState": {
+        "type": "object",
+        "required": [
+          "kind",
+          "revision"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "entity_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "revision": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "request_hash": {
+            "$ref": "#/components/schemas/SHA256"
+          }
+        }
+      },
+      "ArbitrationDecisionState": {
+        "type": "object",
+        "required": [
+          "proposal_id",
+          "actor_id",
+          "status",
+          "reason"
+        ],
+        "properties": {
+          "proposal_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "selected",
+              "deferred"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "conflicting_proposal_ids": {
+            "$ref": "#/components/schemas/IdentifierArray"
+          }
+        }
+      },
+      "ArbitrationRecordState": {
+        "type": "object",
+        "required": [
+          "id",
+          "request_id",
+          "tick",
+          "based_on_world_revision",
+          "created_revision",
+          "decisions"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "based_on_world_revision": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "created_revision": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "decisions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArbitrationDecisionState"
+            }
+          }
+        }
+      },
+      "SessionState": {
+        "type": "object",
+        "required": [
+          "protocol_version",
+          "session_id",
+          "binding",
+          "seed",
+          "tick",
+          "revision",
+          "head_hash",
+          "actors"
+        ],
+        "properties": {
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "binding": {
+            "$ref": "#/components/schemas/BindingState"
+          },
+          "seed": {
+            "$ref": "#/components/schemas/JSONSafeSignedInteger"
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "revision": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "world_revision": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "head_hash": {
+            "$ref": "#/components/schemas/SHA256"
+          },
+          "actors": {
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 128,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ActorState"
+            }
+          },
+          "proposals": {
+            "type": "object",
+            "maxProperties": 64,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ActionProposalState"
+            }
+          },
+          "arbitrations": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/ArbitrationRecordState"
+            }
+          },
+          "receipts": {
+            "type": "object",
+            "maxProperties": 1024,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RequestReceiptState"
+            }
+          }
+        }
+      },
+      "RequestIdentityState": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "request_hash": {
+            "$ref": "#/components/schemas/SHA256"
+          },
+          "result_revision": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "result_head_hash": {
+            "$ref": "#/components/schemas/SHA256"
+          },
+          "proposal": {
+            "$ref": "#/components/schemas/ActionProposalState"
+          },
+          "arbitration": {
+            "$ref": "#/components/schemas/ArbitrationRecordState"
+          },
+          "ambiguous": {
+            "type": "boolean"
+          }
+        }
+      },
+      "EventIdentityState": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "revision": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "ambiguous": {
+            "type": "boolean"
+          }
+        }
+      },
+      "IdentifierHistoryState": {
+        "type": "object",
+        "required": [
+          "version",
+          "coverage_complete"
+        ],
+        "properties": {
+          "version": {
+            "const": "identifier-history-v1"
+          },
+          "coverage_complete": {
+            "type": "boolean"
+          },
+          "requests": {
+            "type": "object",
+            "propertyNames": {
+              "$ref": "#/components/schemas/Identifier"
+            },
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RequestIdentityState"
+            }
+          },
+          "events": {
+            "type": "object",
+            "propertyNames": {
+              "$ref": "#/components/schemas/Identifier"
+            },
+            "additionalProperties": {
+              "$ref": "#/components/schemas/EventIdentityState"
+            }
+          }
+        }
+      },
+      "Snapshot": {
+        "type": "object",
+        "required": [
+          "protocol_version",
+          "state_hash",
+          "state"
+        ],
+        "properties": {
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "state_hash": {
+            "$ref": "#/components/schemas/SHA256"
+          },
+          "state": {
+            "$ref": "#/components/schemas/SessionState"
+          },
+          "identifier_history": {
+            "$ref": "#/components/schemas/IdentifierHistoryState"
+          },
+          "identifier_history_hash": {
+            "$ref": "#/components/schemas/SHA256"
+          }
+        }
+      },
+      "MutationResult": {
+        "type": "object",
+        "required": [
+          "session_id",
+          "revision",
+          "head_hash",
+          "duplicate"
+        ],
+        "properties": {
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "revision": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "head_hash": {
+            "$ref": "#/components/schemas/SHA256"
+          },
+          "duplicate": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ProposalResult": {
+        "type": "object",
+        "required": [
+          "proposal",
+          "duplicate"
+        ],
+        "properties": {
+          "proposal": {
+            "$ref": "#/components/schemas/ActionProposalState"
+          },
+          "duplicate": {
+            "type": "boolean"
+          }
+        }
+      },
+      "JobStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "succeeded",
+          "failed",
+          "stale",
+          "canceled"
+        ]
+      },
+      "ProposalJobSubmission": {
+        "type": "object",
+        "required": [
+          "protocol_version",
+          "job_id",
+          "status",
+          "duplicate"
+        ],
+        "properties": {
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "job_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobStatus"
+          },
+          "duplicate": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ProposalJob": {
+        "type": "object",
+        "required": [
+          "protocol_version",
+          "job_id",
+          "session_id",
+          "request_id",
+          "status",
+          "submitted_at"
+        ],
+        "properties": {
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "job_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobStatus"
+          },
+          "submitted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finished_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "proposal": {
+            "$ref": "#/components/schemas/ActionProposalState"
+          },
+          "duplicate": {
+            "type": "boolean"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        }
+      },
+      "GenerationResult": {
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 4194304
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "finish_reason": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "prompt_tokens": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "output_tokens": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "total_tokens": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "cache_hit": {
+            "type": "boolean"
+          }
+        }
+      },
+      "GenerationJobSubmission": {
+        "type": "object",
+        "required": [
+          "protocol_version",
+          "job_id",
+          "status",
+          "duplicate"
+        ],
+        "properties": {
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "job_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobStatus"
+          },
+          "duplicate": {
+            "type": "boolean"
+          }
+        }
+      },
+      "GenerationJob": {
+        "type": "object",
+        "required": [
+          "protocol_version",
+          "job_id",
+          "request_id",
+          "kind",
+          "context_hash",
+          "status",
+          "submitted_at"
+        ],
+        "properties": {
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "job_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "context_hash": {
+            "$ref": "#/components/schemas/SHA256"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobStatus"
+          },
+          "submitted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finished_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "result": {
+            "$ref": "#/components/schemas/GenerationResult"
+          },
+          "duplicate": {
+            "type": "boolean"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        }
+      },
+      "ArbitrationResult": {
+        "type": "object",
+        "required": [
+          "record",
+          "duplicate"
+        ],
+        "properties": {
+          "record": {
+            "$ref": "#/components/schemas/ArbitrationRecordState"
+          },
+          "duplicate": {
+            "type": "boolean"
+          }
+        }
+      },
+      "DueAgent": {
+        "type": "object",
+        "required": [
+          "actor_id",
+          "next_think_tick"
+        ],
+        "properties": {
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "next_think_tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "region_id": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      },
+      "DueAgentsResponse": {
+        "type": "object",
+        "required": [
+          "session_id",
+          "tick",
+          "agents"
+        ],
+        "properties": {
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "agents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DueAgent"
+            }
+          }
+        }
+      },
+      "TimelineEntry": {
+        "type": "object",
+        "required": [
+          "sequence",
+          "type",
+          "request_id",
+          "recorded_at",
+          "hash"
+        ],
+        "properties": {
+          "sequence": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "type": {
+            "type": "string"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "hash": {
+            "$ref": "#/components/schemas/SHA256"
+          },
+          "prev_hash": {
+            "$ref": "#/components/schemas/SHA256"
+          },
+          "entity_ids": {
+            "$ref": "#/components/schemas/IdentifierArray"
+          },
+          "actor_ids": {
+            "$ref": "#/components/schemas/IdentifierArray"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "TimelineResponse": {
+        "type": "object",
+        "required": [
+          "session_id",
+          "current_revision",
+          "entries",
+          "next_after_revision",
+          "has_more"
+        ],
+        "properties": {
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "current_revision": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TimelineEntry"
+            }
+          },
+          "next_after_revision": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "has_more": {
+            "type": "boolean"
+          }
+        }
+      },
+      "HealthData": {
+        "type": "object",
+        "required": [
+          "status",
+          "protocol_version",
+          "release_version",
+          "release_status",
+          "policy_mode",
+          "async_jobs",
+          "structured_generation",
+          "features"
+        ],
+        "properties": {
+          "status": {
+            "const": "ok"
+          },
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "release_version": {
+            "const": "0.6.0"
+          },
+          "release_status": {
+            "const": "preview"
+          },
+          "policy_mode": {
+            "type": "string"
+          },
+          "async_jobs": {
+            "type": "boolean"
+          },
+          "structured_generation": {
+            "type": "boolean"
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ErrorDetail": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "maxLength": 96,
+            "pattern": "^[a-z][a-z0-9_]{0,95}$"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "field": {
+            "type": "string",
+            "maxLength": 160
+          }
+        }
+      },
+      "SuccessEnvelope": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data"
+        ],
+        "properties": {
+          "ok": {
+            "const": true
+          },
+          "data": {}
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": [
+          "ok",
+          "error"
+        ],
+        "properties": {
+          "ok": {
+            "const": false
+          },
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        }
+      },
+      "HealthResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessEnvelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/HealthData"
+              }
+            }
+          }
+        ]
+      },
+      "MutationResultResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessEnvelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/MutationResult"
+              }
+            }
+          }
+        ]
+      },
+      "ProposalResultResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessEnvelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/ProposalResult"
+              }
+            }
+          }
+        ]
+      },
+      "ProposalJobSubmissionResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessEnvelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/ProposalJobSubmission"
+              }
+            }
+          }
+        ]
+      },
+      "ProposalJobResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessEnvelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/ProposalJob"
+              }
+            }
+          }
+        ]
+      },
+      "GenerationJobSubmissionResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessEnvelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/GenerationJobSubmission"
+              }
+            }
+          }
+        ]
+      },
+      "GenerationJobResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessEnvelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/GenerationJob"
+              }
+            }
+          }
+        ]
+      },
+      "ArbitrationResultResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessEnvelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/ArbitrationResult"
+              }
+            }
+          }
+        ]
+      },
+      "SessionStateResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessEnvelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/SessionState"
+              }
+            }
+          }
+        ]
+      },
+      "SnapshotResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessEnvelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/Snapshot"
+              }
+            }
+          }
+        ]
+      },
+      "TimelineResponseEnvelope": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessEnvelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/TimelineResponse"
+              }
+            }
+          }
+        ]
+      },
+      "DueAgentsResponseEnvelope": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessEnvelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/DueAgentsResponse"
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "security": [
+    {},
+    {
+      "bearerAuth": []
+    }
+  ]
+}

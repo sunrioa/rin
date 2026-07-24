@@ -2,8 +2,9 @@
 
 [English](game-adapters.md) | [简体中文](game-adapters.zh-CN.md)
 
-Adapters translate engine lifecycle events into the stable Rin protocol while
-keeping the same authority split:
+Adapters translate engine lifecycle events into the Rin `0.6.0` Preview
+protocol while keeping the same authority split. Path and JSON shape details
+come from [`api/openapi.json`](../api/openapi.json):
 
 1. The game sends only events an actor actually observed.
 2. The game advertises a bounded list of actions that are currently legal.
@@ -24,6 +25,11 @@ Timeout or a lost submit/poll/cancel response is outcome-unknown, not offline:
 retry the same request/job identity and do not choose a fallback until the
 absence of an online Proposal is confirmed.
 
+This is distinct from Provider failure inside a confirmed live Sidecar
+operation: Rin may complete that same Proposal operation with its deterministic
+Policy. Sidecar delivery uncertainty can hide a durable online Proposal and
+must not be converted into a second local action.
+
 Persist a Proposal Attempt before the first submit. It contains the complete
 byte-equivalent Propose request, its game operation/sequence identity, and the
 Job ID as soon as `202` supplies one. A later interaction must resume that
@@ -38,6 +44,12 @@ The game should apply or reject the action and write a local Outcome Outbox
 entry in one authoritative transaction, then report from that Outbox to Rin.
 On a network failure, retry only the same `request_id` and never apply the
 action again. See [action outcome reporting](outcome-reporting.md).
+
+Adapters must keep every public JSON integer within
+`-9007199254740991` through `9007199254740991` and must explicitly serialize
+`accepted` in Commit and every Batch item, including `false`. Encode raw request
+bodies as UTF-8. A non-2xx error envelope and an HTTP-200 terminal Job with
+`data.error` are different failure layers and both require handling.
 
 The bundled sidecar opens Session histories lazily. `/health` proves process
 availability, not that every Session has passed a genesis-to-head audit; the

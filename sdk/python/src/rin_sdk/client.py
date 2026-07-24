@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import math
 import re
 import time
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple
@@ -12,11 +13,13 @@ from urllib.parse import quote, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
+SDK_VERSION = "0.6.0"
 PROTOCOL_VERSION = "rin.protocol/v1"
 DEFAULT_BASE_URL = "http://127.0.0.1:7374"
 DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 _MAX_GENERATION_CONTENT_BYTES = 4 * 1024 * 1024
-_MAX_SIGNED_INT64 = (1 << 63) - 1
+_MAX_JSON_SAFE_INTEGER = 9_007_199_254_740_991
+_MAX_JSON_DEPTH = 64
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
 _TERMINAL_JOB_STATES = frozenset(("succeeded", "failed", "stale", "canceled"))
 
@@ -204,7 +207,7 @@ class RinClient:
                     or not _is_protocol_id(proposal.get("actor_id"))
                     or proposal.get("session_id") != job["session_id"]
                     or proposal.get("request_id") != job["request_id"]
-                    or not _is_nonnegative_int64(proposal.get("tick"))
+                    or not _is_nonnegative_json_safe_integer(proposal.get("tick"))
                 ):
                     raise RinProtocolError("invalid_job", "Successful proposal job contained invalid identity fields")
             if result_kind == "generation":
@@ -236,13 +239,14 @@ class RinClient:
         if not path.startswith("/") or "//" in path or ".." in path:
             raise RinConfigurationError("invalid_path", "Rin request path is invalid")
         body = None
-        headers = {"Accept": "application/json", "User-Agent": "rin-python/0.5"}
+        headers = {"Accept": "application/json", "User-Agent": "rin-python/" + SDK_VERSION}
         if payload is not None:
             if not isinstance(payload, dict):
                 raise RinProtocolError("invalid_request", "Rin payload must be an object")
+            _validate_request_json(payload)
             try:
                 body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-            except (TypeError, ValueError) as exc:
+            except (TypeError, ValueError, UnicodeEncodeError) as exc:
                 raise RinProtocolError("invalid_request", "Rin payload is not JSON serializable") from exc
             headers["Content-Type"] = "application/json"
         if self.token:
@@ -296,12 +300,58 @@ class RinClient:
 
 def _parse_envelope(raw: bytes) -> Dict[str, Any]:
     try:
-        value = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        value = json.loads(
+            raw.decode("utf-8"),
+            parse_constant=_reject_json_constant,
+        )
+    except (UnicodeDecodeError, ValueError) as exc:
         raise RinProtocolError("invalid_response", "Rin returned invalid JSON") from exc
     if not isinstance(value, dict):
         raise RinProtocolError("invalid_response", "Rin response must be an object")
     return value
+
+
+def _validate_request_json(value: Any) -> None:
+    def visit(current: Any, depth: int, active: set[int]) -> None:
+        if depth > _MAX_JSON_DEPTH:
+            raise RinProtocolError("invalid_request", "Rin payload exceeds the JSON nesting limit")
+        if current is None or isinstance(current, (str, bool)):
+            return
+        if isinstance(current, int):
+            if not -_MAX_JSON_SAFE_INTEGER <= current <= _MAX_JSON_SAFE_INTEGER:
+                raise RinProtocolError("invalid_request", "Rin payload contains an unsafe JSON integer")
+            return
+        if isinstance(current, float):
+            if not math.isfinite(current):
+                raise RinProtocolError("invalid_request", "Rin payload contains a non-finite JSON number")
+            if current.is_integer() and not -_MAX_JSON_SAFE_INTEGER <= current <= _MAX_JSON_SAFE_INTEGER:
+                raise RinProtocolError("invalid_request", "Rin payload contains an unsafe JSON integer")
+            return
+        if isinstance(current, (dict, list, tuple)):
+            identity = id(current)
+            if identity in active:
+                raise RinProtocolError("invalid_request", "Rin payload contains a JSON cycle")
+            active.add(identity)
+            try:
+                if isinstance(current, dict):
+                    if any(not isinstance(key, str) for key in current):
+                        raise RinProtocolError(
+                            "invalid_request",
+                            "Rin payload contains a non-string JSON object key",
+                        )
+                    children = current.values()
+                else:
+                    children = current
+                for child in children:
+                    visit(child, depth + 1, active)
+            finally:
+                active.remove(identity)
+
+    visit(value, 0, set())
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError("Non-finite JSON number is not permitted: " + value)
 
 
 def _api_error(envelope: Dict[str, Any], status: int) -> RinAPIError:
@@ -383,8 +433,12 @@ def _is_protocol_id(value: Any) -> bool:
     return isinstance(value, str) and _IDENTIFIER.fullmatch(value) is not None
 
 
-def _is_nonnegative_int64(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= _MAX_SIGNED_INT64
+def _is_nonnegative_json_safe_integer(value: Any) -> bool:
+    return (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and 0 <= value <= _MAX_JSON_SAFE_INTEGER
+    )
 
 
 def _is_bounded_generation_content(value: Any) -> bool:

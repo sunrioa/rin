@@ -1,6 +1,7 @@
 package io.github.sunrioa.rin;
 
 import java.io.ByteArrayOutputStream;
+import java.lang.reflect.Array;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.net.URI;
@@ -15,6 +16,7 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,13 +30,16 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 public final class RinClient {
+    public static final String VERSION = "0.6.0";
     public static final String PROTOCOL_VERSION = "rin.protocol/v1";
     public static final String DEFAULT_BASE_URL = "http://127.0.0.1:7374";
     public static final int DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 
     private static final int MAX_GENERATION_CONTENT_BYTES = 4 * 1024 * 1024;
     private static final long MAX_SAFE_DOUBLE_INTEGER = 9_007_199_254_740_991L;
-    private static final int MAX_SAFE_FLOAT_INTEGER = 16_777_215;
+    private static final double FIRST_UNSAFE_DOUBLE_INTEGER = 9_007_199_254_740_992d;
+    private static final float MAX_SAFE_FLOAT_INTEGER = 16_777_215f;
+    private static final int MAX_JSON_DEPTH = 64;
 
     private final String baseUrl;
     private final String token;
@@ -313,7 +318,7 @@ public final class RinClient {
                 isProtocolIdentifier(proposal.get("actor_id")) &&
                 Objects.equals(proposal.get("session_id"), job.get("session_id")) &&
                 Objects.equals(proposal.get("request_id"), job.get("request_id")) &&
-                isNonnegativeSignedInt64(proposal.get("tick"));
+                isNonnegativeJsonSafeInteger(proposal.get("tick"));
     }
 
     private static boolean isProtocolIdentifier(Object value) {
@@ -335,18 +340,20 @@ public final class RinClient {
                 value >= '0' && value <= '9';
     }
 
-    private static boolean isNonnegativeSignedInt64(Object value) {
+    private static boolean isNonnegativeJsonSafeInteger(Object value) {
         if (value instanceof Byte || value instanceof Short || value instanceof Integer || value instanceof Long) {
-            return ((Number) value).longValue() >= 0;
+            long number = ((Number) value).longValue();
+            return number >= 0 && number <= MAX_SAFE_DOUBLE_INTEGER;
         }
         if (value instanceof BigInteger integer) {
-            return integer.signum() >= 0 && integer.bitLength() <= 63;
+            return integer.signum() >= 0 &&
+                    integer.compareTo(BigInteger.valueOf(MAX_SAFE_DOUBLE_INTEGER)) <= 0;
         }
         if (value instanceof BigDecimal decimal) {
             try {
-                return decimal.scale() <= 0 &&
-                        decimal.toBigIntegerExact().signum() >= 0 &&
-                        decimal.toBigIntegerExact().bitLength() <= 63;
+                BigInteger integer = decimal.toBigIntegerExact();
+                return integer.signum() >= 0 &&
+                        integer.compareTo(BigInteger.valueOf(MAX_SAFE_DOUBLE_INTEGER)) <= 0;
             } catch (ArithmeticException ignored) {
                 return false;
             }
@@ -354,7 +361,7 @@ public final class RinClient {
         if (value instanceof Double number) {
             return Double.isFinite(number) &&
                     number >= 0 &&
-                    number <= MAX_SAFE_DOUBLE_INTEGER &&
+                    number < FIRST_UNSAFE_DOUBLE_INTEGER &&
                     number == Math.rint(number);
         }
         if (value instanceof Float number) {
@@ -369,7 +376,112 @@ public final class RinClient {
     private static boolean validGenerationContent(String content) {
         return !content.isBlank() &&
                 content.indexOf('\0') < 0 &&
+                !hasUnpairedSurrogate(content) &&
                 content.getBytes(StandardCharsets.UTF_8).length <= MAX_GENERATION_CONTENT_BYTES;
+    }
+
+    private static void validateRequestJson(Object value) {
+        validateRequestJson(value, 0, new IdentityHashMap<>());
+    }
+
+    private static void validateRequestJson(
+            Object value,
+            int depth,
+            IdentityHashMap<Object, Boolean> active) {
+        if (depth > MAX_JSON_DEPTH) {
+            throw new RinProtocolException("invalid_request", "Rin payload exceeds the JSON nesting limit");
+        }
+        if (value == null || value instanceof Boolean) return;
+        if (value instanceof String text) {
+            if (hasUnpairedSurrogate(text)) {
+                throw new RinProtocolException("invalid_request", "Rin payload contains invalid Unicode");
+            }
+            return;
+        }
+        if (value instanceof Number number) {
+            validateRequestNumber(number);
+            return;
+        }
+
+        boolean container = value instanceof Map<?, ?> ||
+                value instanceof List<?> ||
+                value.getClass().isArray();
+        if (!container) {
+            throw new RinProtocolException("invalid_request", "Rin payload contains a non-JSON value");
+        }
+        if (active.put(value, Boolean.TRUE) != null) {
+            throw new RinProtocolException("invalid_request", "Rin payload contains a JSON cycle");
+        }
+        try {
+            if (value instanceof Map<?, ?> map) {
+                for (Map.Entry<?, ?> entry : map.entrySet()) {
+                    if (!(entry.getKey() instanceof String key)) {
+                        throw new RinProtocolException(
+                                "invalid_request",
+                                "Rin payload contains a non-string JSON object key");
+                    }
+                    if (hasUnpairedSurrogate(key)) {
+                        throw new RinProtocolException("invalid_request", "Rin payload contains invalid Unicode");
+                    }
+                    validateRequestJson(entry.getValue(), depth + 1, active);
+                }
+            } else if (value instanceof List<?> list) {
+                for (Object child : list) validateRequestJson(child, depth + 1, active);
+            } else {
+                int length = Array.getLength(value);
+                for (int index = 0; index < length; index++) {
+                    validateRequestJson(Array.get(value, index), depth + 1, active);
+                }
+            }
+        } finally {
+            active.remove(value);
+        }
+    }
+
+    private static void validateRequestNumber(Number value) {
+        if (value instanceof Byte || value instanceof Short || value instanceof Integer || value instanceof Long) {
+            long number = value.longValue();
+            if (number < -MAX_SAFE_DOUBLE_INTEGER || number > MAX_SAFE_DOUBLE_INTEGER) {
+                throw new RinProtocolException("invalid_request", "Rin payload contains an unsafe JSON integer");
+            }
+            return;
+        }
+        if (value instanceof BigInteger integer) {
+            BigInteger maximum = BigInteger.valueOf(MAX_SAFE_DOUBLE_INTEGER);
+            if (integer.compareTo(maximum.negate()) < 0 || integer.compareTo(maximum) > 0) {
+                throw new RinProtocolException("invalid_request", "Rin payload contains an unsafe JSON integer");
+            }
+            return;
+        }
+        BigDecimal decimal;
+        if (value instanceof BigDecimal exact) {
+            decimal = exact;
+        } else if (value instanceof Double number) {
+            if (!Double.isFinite(number)) {
+                throw new RinProtocolException("invalid_request", "Rin payload contains a non-finite JSON number");
+            }
+            decimal = BigDecimal.valueOf(number);
+        } else if (value instanceof Float number) {
+            if (!Float.isFinite(number)) {
+                throw new RinProtocolException("invalid_request", "Rin payload contains a non-finite JSON number");
+            }
+            decimal = new BigDecimal(Float.toString(number));
+        } else {
+            try {
+                decimal = new BigDecimal(value.toString());
+            } catch (NumberFormatException exception) {
+                throw new RinProtocolException(
+                        "invalid_request",
+                        "Rin payload contains a non-finite JSON number",
+                        exception);
+            }
+        }
+        if (decimal.stripTrailingZeros().scale() <= 0) {
+            BigDecimal maximum = BigDecimal.valueOf(MAX_SAFE_DOUBLE_INTEGER);
+            if (decimal.compareTo(maximum.negate()) < 0 || decimal.compareTo(maximum) > 0) {
+                throw new RinProtocolException("invalid_request", "Rin payload contains an unsafe JSON integer");
+            }
+        }
     }
 
     private CompletableFuture<Map<String, Object>> post(String path, Map<String, ?> payload, int expectedStatus) {
@@ -389,9 +501,10 @@ public final class RinClient {
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + path))
                 .timeout(timeout)
                 .header("Accept", "application/json")
-                .header("User-Agent", "rin-java/0.5");
+                .header("User-Agent", "rin-java/" + VERSION);
         if (payload != null) {
             final String encoded;
+            validateRequestJson(payload);
             try {
                 encoded = codec.encode(payload);
             } catch (Exception exception) {
@@ -399,6 +512,9 @@ public final class RinClient {
             }
             if (encoded == null) {
                 throw new RinProtocolException("invalid_request", "JSON codec returned a null request");
+            }
+            if (hasUnpairedSurrogate(encoded)) {
+                throw new RinProtocolException("invalid_request", "JSON codec returned invalid Unicode");
             }
             body = HttpRequest.BodyPublishers.ofString(encoded, StandardCharsets.UTF_8);
             builder.header("Content-Type", "application/json; charset=utf-8");
@@ -562,6 +678,22 @@ public final class RinClient {
         } catch (NumberFormatException ignored) {
             return false;
         }
+    }
+
+    private static boolean hasUnpairedSurrogate(String value) {
+        for (int index = 0; index < value.length(); index++) {
+            char current = value.charAt(index);
+            if (Character.isHighSurrogate(current)) {
+                if (index + 1 >= value.length() ||
+                        !Character.isLowSurrogate(value.charAt(index + 1))) {
+                    return true;
+                }
+                index++;
+            } else if (Character.isLowSurrogate(current)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String validateToken(String value) {

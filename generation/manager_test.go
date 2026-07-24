@@ -3,10 +3,12 @@ package generation_test
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sunrioa/rin/generation"
 	"github.com/sunrioa/rin/protocol"
@@ -101,6 +103,7 @@ func TestGenerationRejectsInvalidProviderOutput(t *testing.T) {
 		code    string
 	}{
 		{name: "not object", content: `[]`, limit: 1024, code: "invalid_generation_json"},
+		{name: "unpaired surrogate", content: `{"text":"\ud800"}`, limit: 1024, code: "invalid_generation_json"},
 		{name: "too large", content: `{"value":"` + strings.Repeat("x", 1100) + `"}`, limit: 1024, code: "generation_too_large"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -116,6 +119,60 @@ func TestGenerationRejectsInvalidProviderOutput(t *testing.T) {
 				t.Fatalf("unexpected failed job: %+v", job)
 			}
 		})
+	}
+}
+
+func TestGenerationJobErrorUsesContractBounds(t *testing.T) {
+	client := &fixtureClient{err: rinruntime.NewFieldError(
+		strings.Repeat("a", protocol.ErrorCodeMaxLength+20),
+		strings.Repeat("界", protocol.ErrorMessageMaxLength+20),
+		strings.Repeat("f", protocol.ErrorFieldMaxLength+20),
+		nil,
+	)}
+	manager := newManager(t, client, generation.Config{Workers: 1, QueueSize: 2, MaxJobs: 4})
+	defer closeManager(t, manager)
+	submission, err := manager.Submit(generationRequest("request.error-bounds"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	job := waitJob(t, manager, submission.JobID)
+	if job.Status != "failed" || job.Error == nil {
+		t.Fatalf("generation did not expose its bounded error: %+v", job)
+	}
+	if utf8.RuneCountInString(job.Error.Code) != protocol.ErrorCodeMaxLength ||
+		utf8.RuneCountInString(job.Error.Message) != protocol.ErrorMessageMaxLength ||
+		utf8.RuneCountInString(job.Error.Field) != protocol.ErrorFieldMaxLength {
+		t.Fatalf("generation job error exceeded the wire contract: %+v", job.Error)
+	}
+}
+
+func TestGenerationTokenUsageIsBoundedForJSONClients(t *testing.T) {
+	if strconv.IntSize < 64 {
+		t.Skip("native int cannot exceed the JSON-safe ceiling on this architecture")
+	}
+	maximum := int64(protocol.MaxJSONSafeInteger)
+	client := &fixtureClient{response: provider.CompletionResponse{
+		Content: `{"narration":"bounded"}`,
+		Usage: provider.Usage{
+			PromptTokens:     int(maximum + 1),
+			CompletionTokens: -1,
+			TotalTokens:      int(maximum + 2),
+		},
+	}}
+	manager := newManager(t, client, generation.Config{Workers: 1, QueueSize: 2, MaxJobs: 4})
+	defer closeManager(t, manager)
+	submission, err := manager.Submit(generationRequest("request.usage-bounds"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	job := waitJob(t, manager, submission.JobID)
+	if job.Result == nil {
+		t.Fatalf("generation failed: %+v", job)
+	}
+	if job.Result.PromptTokens != int(maximum) ||
+		job.Result.OutputTokens != 0 ||
+		job.Result.TotalTokens != int(maximum) {
+		t.Fatalf("usage was not bounded for the JSON wire: %+v", job.Result)
 	}
 }
 

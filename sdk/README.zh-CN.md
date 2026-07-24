@@ -71,7 +71,8 @@ inline 上限后不能使用这些 JSON 方法。
 
 SDK 有意采用源码优先方式，尚未发布到 PyPI、npm、NuGet 或 Maven Central。
 Vendor 时应固定本仓库 Revision。路由兼容性由
-[`conformance/routes.json`](conformance/routes.json) 定义。
+[`api/openapi.json`](../api/openapi.json) 定义；
+[`conformance/routes.json`](conformance/routes.json) 是它生成的覆盖清单。
 
 游戏专用示例位于 [`examples/mods`](../examples/mods)。它们展示宿主事件
 如何进入 Rin，以及游戏在何处验证并应用 Proposal。它们是接入模板，不是

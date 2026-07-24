@@ -4,7 +4,15 @@ import (
 	"io"
 	"log/slog"
 	"testing"
+
+	"github.com/sunrioa/rin/protocol"
 )
+
+func TestVersionProjection(t *testing.T) {
+	if version != protocol.ContractReleaseVersion {
+		t.Fatalf("CLI version = %q, contract version = %q", version, protocol.ContractReleaseVersion)
+	}
+}
 
 func TestValidateListenAddress(t *testing.T) {
 	tests := []struct {

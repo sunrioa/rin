@@ -9,6 +9,9 @@ without that feature keep the historical commit-as-fresh-head checks and
 clamped, arrival-ordered reducer behavior so existing event logs replay
 unchanged.
 
+Rin `0.6.0` is Preview. Required fields and wire shapes are authoritative in
+[`api/openapi.json`](../api/openapi.json).
+
 ## One world authority
 
 The game engine is the sole authority for world facts. A Rin Proposal is a
@@ -46,6 +49,12 @@ describe outcome-recording capability, not authorization or execution by Rin.
 - `tick` is the game tick when the action happened or was rejected. It cannot
   predate the Proposal tick, but it may be older than the current Session tick
   when the report arrives.
+
+`accepted` is required in a Commit and in every Batch Commit item. A rejection
+must serialize explicit `false`; omission or `null` is not a rejection and
+returns `400 invalid_request`. Every integer in the public JSON request must
+also be within the exact interoperable range `-9007199254740991` through
+`9007199254740991`, with the field's narrower rules applied afterward.
 
 Before application, the game must re-read Session state and check its own
 authoritative preconditions. With `arbitration-v1`, require

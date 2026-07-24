@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sunrioa/rin/internal/jsonwire"
+	"github.com/sunrioa/rin/protocol"
 	"github.com/sunrioa/rin/provider"
 )
 
@@ -131,7 +133,7 @@ func (c *Client) Complete(ctx context.Context, request provider.CompletionReques
 	}
 	httpRequest.Header.Set("Content-Type", "application/json")
 	httpRequest.Header.Set("Accept", "application/json")
-	httpRequest.Header.Set("User-Agent", "rin/0.4")
+	httpRequest.Header.Set("User-Agent", "rin/"+protocol.ContractReleaseVersion)
 	if c.apiKey != "" {
 		httpRequest.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
@@ -158,6 +160,14 @@ func (c *Client) Complete(ctx context.Context, request provider.CompletionReques
 	}
 	if httpResponse.StatusCode < 200 || httpResponse.StatusCode >= 300 {
 		return provider.CompletionResponse{}, responseError(httpResponse, responsePayload)
+	}
+	if !jsonwire.Valid(responsePayload) {
+		return provider.CompletionResponse{}, &provider.Error{
+			Kind:            "response_decode",
+			Retryable:       true,
+			ProviderReached: true,
+			Cause:           errors.New("provider response is not strict UTF-8 JSON"),
+		}
 	}
 	var decoded responseBody
 	if err := json.Unmarshal(responsePayload, &decoded); err != nil {
