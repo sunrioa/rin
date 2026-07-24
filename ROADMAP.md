@@ -76,4 +76,14 @@
 自动 Binary Pipeline、Streaming Snapshot Transport、密码学签名或 post-1.0
 稳定性。
 
+## 下一阶段优先修复
+
+- [ ] 按[可扩展 Session Transfer 设计](docs/session-transfer.zh-CN.md)实现有界内存、
+  可验证、原子发布的完整 lineage 导出与导入，解除 Identifier History 增长后
+  Snapshot、Replay 与 Restore 全部不可用的生命周期硬上限。
+- [ ] 在完成超过 16 MiB 的端到端、取消、损坏和崩溃恢复测试前，不把该能力标记为
+  已支持，也不以单纯提高请求正文上限代替流式传输。
+- [ ] 实现 Windows 数据目录独占锁与真实 Sidecar 持久化/重启/锁竞争测试；
+  Windows 支持是项目约束，交叉编译成功不能代替运行时支持。
+
 每个里程碑都保持同一原则：模型可以提出意图和表达，游戏引擎决定现实发生什么。

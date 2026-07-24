@@ -78,5 +78,19 @@ These gates describe work to verify for a release commit; this document does
 not claim a registry package, automated binary pipeline, streaming Snapshot
 transport, cryptographic signing, or post-1.0 stability.
 
+## Next remediation priorities
+
+- [ ] Implement bounded-memory, verifiable, atomically published complete
+  lineage export/import according to the
+  [Scalable Session Transfer design](docs/session-transfer.md), removing the
+  lifetime cliff where Identifier History growth makes Snapshot, Replay, and
+  Restore unavailable.
+- [ ] Do not mark transfer supported before over-16-MiB end-to-end,
+  cancellation, corruption, and crash-recovery tests pass. Raising the request
+  body limit alone is not a substitute for streaming transfer.
+- [ ] Implement a Windows data-directory exclusive lock plus real Sidecar
+  persistence, restart, and lock-contention tests. Windows support is a project
+  constraint; cross-compilation alone is not runtime support.
+
 Every milestone keeps one principle: a model may propose intent and expression;
 the game engine decides what actually happens.
