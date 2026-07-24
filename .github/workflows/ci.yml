@@ -116,12 +116,12 @@ jobs:
         with:
           dotnet-version: ${{ matrix.dotnet }}
       - name: Build and test C# SDK
-        run: >-
-          dotnet run
-          --project sdk/csharp/Rin.Client.Tests/Rin.Client.Tests.csproj
-          --framework ${{ matrix.framework }}
-          -p:TargetFramework=${{ matrix.framework }}
-          --nologo
+        run: |
+          dotnet build sdk/csharp/Rin.Client.Tests/Rin.Client.Tests.csproj \
+            -p:TargetFramework=${{ matrix.framework }} \
+            --nologo
+          dotnet exec \
+            sdk/csharp/Rin.Client.Tests/bin/Debug/${{ matrix.framework }}/Rin.Client.Tests.dll
 
   sdk-lua:
     runs-on: ubuntu-latest
