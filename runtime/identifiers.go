@@ -35,6 +35,7 @@ func cloneIdentifierHistory(history protocol.IdentifierHistory) (protocol.Identi
 		return protocol.IdentifierHistory{}, err
 	}
 	normalizeIdentifierHistory(&copyHistory)
+	canonicalizeIdentifierProposalPresentation(&copyHistory)
 	return copyHistory, nil
 }
 
@@ -202,6 +203,7 @@ func requestIdentityFromEvent(event protocol.EventRecord) (protocol.RequestIdent
 		}
 		hash = payload.RequestHash
 		proposal := payload.Proposal
+		canonicalizeProposalPresentation(&proposal)
 		identity.Proposal = &proposal
 	case EventCommitted:
 		var payload committedPayload
@@ -562,7 +564,12 @@ func identifiersForSnapshot(snapshot protocol.Snapshot) (protocol.IdentifierHist
 	if err := protocol.ValidateIdentifierHistory(history, snapshot.State.SessionID); err != nil {
 		return protocol.IdentifierHistory{}, err
 	}
-	if err := validateIdentifiersCoverState(history, snapshot.State); err != nil {
+	state, err := clone(snapshot.State)
+	if err != nil {
+		return protocol.IdentifierHistory{}, err
+	}
+	canonicalizeStateProposalPresentation(&state)
+	if err := validateIdentifiersCoverState(history, state); err != nil {
 		return protocol.IdentifierHistory{}, err
 	}
 	return history, nil

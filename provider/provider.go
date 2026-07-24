@@ -41,7 +41,11 @@ type CompletionResponse struct {
 }
 
 type Client interface {
-	Complete(context.Context, CompletionRequest) (CompletionResponse, error)
+	// Complete must stop its work and return promptly after ctx.Done is
+	// closed. Resilient attempt and total timeouts rely on this cooperative
+	// cancellation contract; Go cannot safely preempt an arbitrary blocking
+	// implementation.
+	Complete(ctx context.Context, request CompletionRequest) (CompletionResponse, error)
 }
 
 type Error struct {
@@ -50,7 +54,11 @@ type Error struct {
 	StatusCode int
 	Retryable  bool
 	RetryAfter time.Duration
-	Cause      error
+	// ProviderReached is true only after receiving a provider/protocol
+	// response. Local validation, encoding, and request-construction errors
+	// must leave it false so they remain neutral to the availability breaker.
+	ProviderReached bool
+	Cause           error
 }
 
 func (e *Error) Error() string {

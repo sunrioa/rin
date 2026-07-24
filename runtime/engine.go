@@ -6,10 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/sunrioa/rin/protocol"
 )
@@ -387,10 +385,11 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 	if err := ctx.Err(); err != nil {
 		return protocol.ActionProposal{}, false, NewError("proposal_canceled", "proposal request was canceled", err)
 	}
-	selected, proposedGoal, err := validateDraft(requestSnapshot, validationActor, draft)
+	selected, proposedGoal, boundaryID, err := validateDraft(requestSnapshot, validationActor, draft)
 	if err != nil {
 		return protocol.ActionProposal{}, false, err
 	}
+	summary, rationale := playerFacingProposalText(selected, draft.Stance)
 
 	session.mu.Lock()
 	defer session.mu.Unlock()
@@ -454,11 +453,12 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 		CreatedRevision:      session.state.Revision + 1,
 		Action:               selected,
 		Stance:               draft.Stance,
-		Summary:              draft.Summary,
-		Rationale:            draft.Rationale,
+		Summary:              summary,
+		Rationale:            rationale,
 		PolicySource:         policySource(draft.PolicySource),
 		RecalledMemoryIDs:    append([]string(nil), draft.RecalledMemoryIDs...),
 		GoalID:               draft.GoalID,
+		BoundaryID:           boundaryID,
 		ProposedGoal:         proposedGoal,
 		Status:               "pending",
 	}
@@ -894,7 +894,12 @@ func (e *Engine) State(request protocol.SessionRequest) (protocol.SessionState, 
 	}
 	session.mu.Lock()
 	defer session.mu.Unlock()
-	return clone(session.state)
+	state, err := clone(session.state)
+	if err != nil {
+		return protocol.SessionState{}, err
+	}
+	canonicalizeStateProposalPresentation(&state)
+	return state, nil
 }
 
 func (e *Engine) Snapshot(request protocol.SessionRequest) (protocol.Snapshot, error) {
@@ -1833,7 +1838,7 @@ func eventEncodeError(err error, message string) error {
 	return NewError("event_encode_failed", message, err)
 }
 
-func validateDraft(request protocol.ProposeRequest, actor protocol.ActorState, draft ProposalDraft) (protocol.ActionSpec, *protocol.Goal, error) {
+func validateDraft(request protocol.ProposeRequest, actor protocol.ActorState, draft ProposalDraft) (protocol.ActionSpec, *protocol.Goal, string, error) {
 	var selected protocol.ActionSpec
 	found := false
 	for _, action := range request.CandidateActions {
@@ -1844,22 +1849,16 @@ func validateDraft(request protocol.ProposeRequest, actor protocol.ActorState, d
 		}
 	}
 	if !found {
-		return protocol.ActionSpec{}, nil, NewFieldError("invalid_policy_output", "policy selected an action outside the candidate list", "action_id", ErrConflict)
+		return protocol.ActionSpec{}, nil, "", NewFieldError("invalid_policy_output", "policy selected an action outside the candidate list", "action_id", ErrConflict)
 	}
 	if draft.Stance != "engage" && draft.Stance != "partial" && draft.Stance != "redirect" && draft.Stance != "refuse" && draft.Stance != "wait" {
-		return protocol.ActionSpec{}, nil, NewFieldError("invalid_policy_output", "policy returned an unsupported stance", "stance", ErrConflict)
-	}
-	if err := validatePolicyText("summary", draft.Summary, 500, true); err != nil {
-		return protocol.ActionSpec{}, nil, err
-	}
-	if err := validatePolicyText("rationale", draft.Rationale, 500, true); err != nil {
-		return protocol.ActionSpec{}, nil, err
+		return protocol.ActionSpec{}, nil, "", NewFieldError("invalid_policy_output", "policy returned an unsupported stance", "stance", ErrConflict)
 	}
 	if draft.PolicySource != "" && !validPolicySource(draft.PolicySource) {
-		return protocol.ActionSpec{}, nil, NewFieldError("invalid_policy_output", "policy source is invalid", "policy_source", ErrConflict)
+		return protocol.ActionSpec{}, nil, "", NewFieldError("invalid_policy_output", "policy source is invalid", "policy_source", ErrConflict)
 	}
 	if len(draft.RecalledMemoryIDs) > 8 {
-		return protocol.ActionSpec{}, nil, NewFieldError("invalid_policy_output", "policy recalled too many memories", "recalled_memory_ids", ErrConflict)
+		return protocol.ActionSpec{}, nil, "", NewFieldError("invalid_policy_output", "policy recalled too many memories", "recalled_memory_ids", ErrConflict)
 	}
 	memoryIDs := make(map[string]struct{}, len(actor.Memories)+len(actor.MemorySummaries))
 	for _, memory := range actor.Memories {
@@ -1871,10 +1870,10 @@ func validateDraft(request protocol.ProposeRequest, actor protocol.ActorState, d
 	seen := make(map[string]struct{}, len(draft.RecalledMemoryIDs))
 	for _, id := range draft.RecalledMemoryIDs {
 		if _, exists := memoryIDs[id]; !exists {
-			return protocol.ActionSpec{}, nil, NewFieldError("invalid_policy_output", "policy referenced an unknown memory", "recalled_memory_ids", ErrConflict)
+			return protocol.ActionSpec{}, nil, "", NewFieldError("invalid_policy_output", "policy referenced an unknown memory", "recalled_memory_ids", ErrConflict)
 		}
 		if _, exists := seen[id]; exists {
-			return protocol.ActionSpec{}, nil, NewFieldError("invalid_policy_output", "policy repeated a memory id", "recalled_memory_ids", ErrConflict)
+			return protocol.ActionSpec{}, nil, "", NewFieldError("invalid_policy_output", "policy repeated a memory id", "recalled_memory_ids", ErrConflict)
 		}
 		seen[id] = struct{}{}
 	}
@@ -1888,10 +1887,41 @@ func validateDraft(request protocol.ProposeRequest, actor protocol.ActorState, d
 			}
 		}
 		if proposedGoal == nil {
-			return protocol.ActionSpec{}, nil, NewFieldError("invalid_policy_output", "policy referenced an unknown goal", "goal_id", ErrConflict)
+			return protocol.ActionSpec{}, nil, "", NewFieldError("invalid_policy_output", "policy referenced an unknown goal", "goal_id", ErrConflict)
 		}
 	}
-	return selected, proposedGoal, nil
+	boundary, boundaryTriggered := triggeredActorBoundary(actor.Boundaries, request.Tags)
+	if !boundaryTriggered {
+		if draft.BoundaryID != "" {
+			return protocol.ActionSpec{}, nil, "", NewFieldError("invalid_policy_output", "policy referenced a boundary that was not triggered", "boundary_id", ErrConflict)
+		}
+		return selected, proposedGoal, "", nil
+	}
+	if selected.ID != boundary.Response && selected.Kind != boundary.Response {
+		return protocol.ActionSpec{}, nil, "", NewFieldError("invalid_policy_output", "policy selected an action that does not satisfy the triggered boundary", "action_id", ErrConflict)
+	}
+	if draft.Stance != boundary.Response {
+		return protocol.ActionSpec{}, nil, "", NewFieldError("invalid_policy_output", "policy stance does not match the triggered boundary response", "stance", ErrConflict)
+	}
+	if draft.BoundaryID != "" && draft.BoundaryID != boundary.ID {
+		return protocol.ActionSpec{}, nil, "", NewFieldError("invalid_policy_output", "policy referenced the wrong triggered boundary", "boundary_id", ErrConflict)
+	}
+	return selected, proposedGoal, boundary.ID, nil
+}
+
+func triggeredActorBoundary(boundaries []protocol.Boundary, tags []string) (protocol.Boundary, bool) {
+	tagSet := make(map[string]struct{}, len(tags))
+	for _, tag := range tags {
+		tagSet[tag] = struct{}{}
+	}
+	for _, boundary := range boundaries {
+		for _, trigger := range boundary.TriggerTags {
+			if _, exists := tagSet[trigger]; exists {
+				return boundary, true
+			}
+		}
+	}
+	return protocol.Boundary{}, false
 }
 
 func policySource(value string) string {
@@ -1911,14 +1941,4 @@ func validPolicySource(value string) bool {
 		}
 	}
 	return true
-}
-
-func validatePolicyText(field, value string, maximum int, required bool) error {
-	if required && strings.TrimSpace(value) == "" {
-		return NewFieldError("invalid_policy_output", "policy text is required", field, ErrConflict)
-	}
-	if !utf8.ValidString(value) || strings.ContainsRune(value, 0) || utf8.RuneCountInString(value) > maximum {
-		return NewFieldError("invalid_policy_output", "policy text is invalid or too long", field, ErrConflict)
-	}
-	return nil
 }

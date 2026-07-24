@@ -33,7 +33,7 @@ const (
 	CheckpointFormatVersion = "rin.checkpoint/v1"
 	// ReducerProjectionVersion must change whenever replaying the same event log
 	// can produce a different State or Identifier History projection.
-	ReducerProjectionVersion = "rin.reducer-projection/v1"
+	ReducerProjectionVersion = "rin.reducer-projection/v2"
 )
 
 type Store interface {
@@ -130,13 +130,17 @@ type PolicyContext struct {
 }
 
 type ProposalDraft struct {
-	ActionID          string
-	Stance            string
+	ActionID string
+	Stance   string
+	// Summary and Rationale are retained for source compatibility with custom
+	// policies, but the engine never publishes them. Player-facing text is
+	// rebuilt from the selected game-authored action and fixed templates.
 	Summary           string
 	Rationale         string
 	PolicySource      string
 	RecalledMemoryIDs []string
 	GoalID            string
+	BoundaryID        string
 }
 
 // Policy proposes an allowed game action. Implementations may be deterministic,

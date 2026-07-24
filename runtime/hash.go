@@ -132,6 +132,7 @@ func buildSnapshotWithIdentifiers(
 	if err != nil {
 		return protocol.Snapshot{}, err
 	}
+	canonicalizeStateProposalPresentation(&copyState)
 	if err := protocol.ValidateSessionState(copyState); err != nil {
 		return protocol.Snapshot{}, fmt.Errorf("validate snapshot state: %w", err)
 	}

@@ -74,6 +74,47 @@ func TestStrictJSONAndBodyLimit(t *testing.T) {
 	}
 }
 
+func TestProposalWireResponseSeparatesPlayerTextFromPrivateAuditMetadata(t *testing.T) {
+	const canary = "PRIVATE_HTTP_BOUNDARY_CANARY_6C2D"
+	server := newServer(t, httpapi.Options{})
+	create := apiCreateRequest()
+	create.Actors[0].Boundaries[0].Description = canary
+	if response := perform(t, server, "/v1/session/create", create); response.Code != http.StatusOK {
+		t.Fatalf("create: %d %s", response.Code, response.Body.String())
+	}
+	response := perform(t, server, "/v1/agent/propose", protocol.ProposeRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       create.SessionID,
+		RequestID:       "propose.http.private-boundary",
+		ActorID:         create.Actors[0].ID,
+		Intent:          "Choose a response.",
+		Tags:            []string{"private"},
+		CandidateActions: []protocol.ActionSpec{{
+			ID: "refuse", Kind: "refuse", Description: "decline the request",
+		}},
+	})
+	if response.Code != http.StatusOK {
+		t.Fatalf("propose: %d %s", response.Code, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), canary) {
+		t.Fatalf("wire response exposed private boundary text: %s", response.Body.String())
+	}
+	var envelope struct {
+		OK   bool                    `json:"ok"`
+		Data protocol.ProposalResult `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	proposal := envelope.Data.Proposal
+	if !envelope.OK ||
+		proposal.Summary != "Proposes: decline the request" ||
+		proposal.Rationale != "Selects a game-authorized refusal." ||
+		proposal.BoundaryID != "boundary.private" {
+		t.Fatalf("unexpected player/audit wire fields: %+v", proposal)
+	}
+}
+
 func TestInvalidSnapshotMapsToBadRequest(t *testing.T) {
 	server := newServer(t, httpapi.Options{})
 	response := perform(t, server, "/v1/session/restore", protocol.RestoreRequest{

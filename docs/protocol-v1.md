@@ -250,18 +250,39 @@ keep the legacy monotonic-tick and arrival-order behavior and do not populate
 }
 ```
 
+Every candidate `ActionSpec.description` is a game authorization boundary: the
+game must supply text that is safe to show to the player if that action is
+selected. Do not place private goal, boundary, memory, belief, or prompt text
+in an action description.
+
 The returned proposal includes:
 
 - `based_on_revision` and `based_on_head_hash`: state used to generate it;
 - `action`: copied from the game's candidate actions; the policy cannot grant
-  new authority;
-- `recalled_memory_ids` and `goal_id`: auditable evidence;
-- `rationale`: one character-facing sentence for UI, not hidden model
-  reasoning;
+  new authority. Only its `description` is display-authorized by this
+  contract; ID, kind, targets, and parameters remain integration data unless
+  the game separately authorizes them;
+- `summary`: rebuilt by Rin from the selected game-authored action
+  description;
+- `rationale`: a fixed stance-based UI sentence, never model reasoning or
+  private actor text;
+- `recalled_memory_ids`, `goal_id`, `boundary_id`, `policy_source`, and the
+  full `proposed_goal`: private structured audit/integration data. Do not
+  render these fields directly in a player UI; even the presence of
+  `boundary_id` or a proposed goal can reveal hidden state;
 - `status: pending`: Rin has not received the game's outcome; it is not an
   action waiting for Rin to activate it;
-- `policy_source`: `model`, `model-cache`, `boundary-guard`,
-  `deterministic-fallback`, or an offline source.
+
+`boundary_id` is an optional additive v1 response field derived by the
+runtime when request tags trigger an actor boundary. Tolerant SDK decoders
+must preserve or ignore unknown additive fields. It is not supplied by the
+model and is not a presentation string.
+
+For events or Snapshots created before the presentation gate, State, Replay,
+Snapshot export, and exact retry return the reconstructed player fields. The
+raw append-only event or embedded Restore Snapshot is not rewritten. An exact
+retry therefore preserves the original action, audit IDs, revision, and head,
+but its legacy `summary`/`rationale` may be upgraded.
 
 Policy execution does not hold the session lock. If a new observation arrives
 first, the call returns `state_changed`; retry with a new `request_id`.
@@ -524,6 +545,22 @@ Retained Proposal and Arbitration tick fields are not upper-bounded by
 `state.tick` and may describe work ahead of it; live Propose and Arbitrate
 requests still reject tick regression. `nil` and an empty Fact visibility list
 are the same JSON contract value.
+
+`MemorySummary.summary` is a deterministic, lossy projection capped at 1,000
+Unicode code points. Each merge reserves an oldest text anchor, weights
+remaining text budget by importance with a recency tie-break, and reserves a
+newest anchor. Importance improves the bounded retention opportunity; it does
+not guarantee permanent verbatim survival. Each source-ID list is capped at
+64, retains its oldest and newest known entries, and samples the intervening
+tick range. It is representative evidence, not an exhaustive source ledger.
+The direct oldest-four merge lineage and Summary-ID derivation remain stable
+so `recalled_memory_ids` persisted in older Proposal events still replay.
+
+Removing detail from Memory or Summary State is cognition compaction, not
+deletion of authority or privacy erasure. `events.jsonl`, Identifier History,
+backups, checkpoints, and retained Snapshots can still contain the underlying
+text or identifiers. Use the deployment's separately governed deletion and
+backup process for an actual erasure request.
 
 Request and Event IDs remain reserved by Identifier History after every bounded
 State projection has been evicted. This permanent ledger is reconstructed from

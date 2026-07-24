@@ -148,7 +148,8 @@
           },
           "expect_action_id": "respond.refuse",
           "expect_stance": "refuse",
-          "expect_policy_source": "deterministic"
+          "expect_policy_source": "deterministic",
+          "expect_boundary_id": "boundary.private-letter"
         },
         {
           "operation": "commit",

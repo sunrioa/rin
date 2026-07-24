@@ -51,18 +51,13 @@ func (p Deterministic) Propose(ctx context.Context, input rinruntime.PolicyConte
 	}
 
 	stance := selected.Kind
-	if stance != "refuse" && stance != "redirect" && stance != "wait" && stance != "partial" {
-		stance = "engage"
-	}
-	rationale := "Selected from the actions currently allowed by the game."
 	if triggered {
-		rationale = fmt.Sprintf("Protects the actor boundary: %s", boundary.Description)
-	} else if goal != nil && len(memories) > 0 {
-		rationale = fmt.Sprintf("Continues the goal %q while recalling a relevant event.", goal.Description)
-	} else if goal != nil {
-		rationale = fmt.Sprintf("Continues the active goal: %s", goal.Description)
-	} else if len(memories) > 0 {
-		rationale = "Uses a relevant prior event instead of treating this moment in isolation."
+		// Boundary.Response is the authoritative refusal/redirection/wait
+		// stance even when the matching game action uses that value as its ID
+		// and has a domain-specific Kind.
+		stance = boundary.Response
+	} else if stance != "refuse" && stance != "redirect" && stance != "wait" && stance != "partial" {
+		stance = "engage"
 	}
 	memoryIDs := make([]string, 0, len(memories))
 	for _, memory := range memories {
@@ -71,13 +66,14 @@ func (p Deterministic) Propose(ctx context.Context, input rinruntime.PolicyConte
 	draft := rinruntime.ProposalDraft{
 		ActionID:          selected.ID,
 		Stance:            stance,
-		Summary:           fmt.Sprintf("%s proposes: %s", input.Actor.DisplayName, selected.Description),
-		Rationale:         rationale,
 		PolicySource:      "deterministic",
 		RecalledMemoryIDs: memoryIDs,
 	}
 	if goal != nil {
 		draft.GoalID = goal.ID
+	}
+	if triggered {
+		draft.BoundaryID = boundary.ID
 	}
 	return draft, nil
 }

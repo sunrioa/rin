@@ -66,6 +66,18 @@ func TestSessionStateProposalGenerationInvariants(t *testing.T) {
 	requireInvalidState(t, fresh)
 }
 
+func TestSessionStateProposalBoundaryAuditReferenceMustExist(t *testing.T) {
+	state := invariantTestState()
+	proposal := invariantTestProposal(state, "proposal.boundary", "pending")
+	proposal.BoundaryID = "boundary.test"
+	state.Proposals[proposal.ID] = proposal
+	requireValidState(t, state)
+
+	proposal.BoundaryID = "boundary.unknown"
+	state.Proposals[proposal.ID] = proposal
+	requireInvalidState(t, state)
+}
+
 func TestSessionStateRecalledIDsOnlyReferenceLiveMemoryEntities(t *testing.T) {
 	state := invariantTestState(FeatureMemoryArchive)
 	actor := state.Actors["npc.test"]

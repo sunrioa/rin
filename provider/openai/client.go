@@ -146,20 +146,29 @@ func (c *Client) Complete(ctx context.Context, request provider.CompletionReques
 	limited := io.LimitReader(httpResponse.Body, c.maxResponseBytes+1)
 	responsePayload, err := io.ReadAll(limited)
 	if err != nil {
-		return provider.CompletionResponse{}, &provider.Error{Kind: "response_read", Retryable: true, Cause: err}
+		if ctx.Err() != nil {
+			return provider.CompletionResponse{}, ctx.Err()
+		}
+		return provider.CompletionResponse{}, &provider.Error{
+			Kind: "response_read", Retryable: true, ProviderReached: true, Cause: err,
+		}
 	}
 	if int64(len(responsePayload)) > c.maxResponseBytes {
-		return provider.CompletionResponse{}, &provider.Error{Kind: "response_too_large", Retryable: true}
+		return provider.CompletionResponse{}, &provider.Error{Kind: "response_too_large", ProviderReached: true}
 	}
 	if httpResponse.StatusCode < 200 || httpResponse.StatusCode >= 300 {
 		return provider.CompletionResponse{}, responseError(httpResponse, responsePayload)
 	}
 	var decoded responseBody
 	if err := json.Unmarshal(responsePayload, &decoded); err != nil {
-		return provider.CompletionResponse{}, &provider.Error{Kind: "response_decode", Retryable: true, Cause: err}
+		return provider.CompletionResponse{}, &provider.Error{
+			Kind: "response_decode", Retryable: true, ProviderReached: true, Cause: err,
+		}
 	}
 	if len(decoded.Choices) == 0 || strings.TrimSpace(decoded.Choices[0].Message.Content) == "" {
-		return provider.CompletionResponse{}, &provider.Error{Kind: "empty_completion", Retryable: true}
+		return provider.CompletionResponse{}, &provider.Error{
+			Kind: "empty_completion", Retryable: true, ProviderReached: true,
+		}
 	}
 	return provider.CompletionResponse{
 		Content:      decoded.Choices[0].Message.Content,
@@ -181,11 +190,12 @@ func responseError(response *http.Response, payload []byte) error {
 	}
 	retryable := response.StatusCode == http.StatusTooManyRequests || response.StatusCode == http.StatusRequestTimeout || response.StatusCode >= 500
 	return &provider.Error{
-		Kind:       "http",
-		Code:       code,
-		StatusCode: response.StatusCode,
-		Retryable:  retryable,
-		RetryAfter: parseRetryAfter(response.Header.Get("Retry-After"), time.Now()),
+		Kind:            "http",
+		Code:            code,
+		StatusCode:      response.StatusCode,
+		Retryable:       retryable,
+		RetryAfter:      parseRetryAfter(response.Header.Get("Retry-After"), time.Now()),
+		ProviderReached: true,
 	}
 }
 

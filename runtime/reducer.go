@@ -223,6 +223,7 @@ func applyProposed(state *protocol.SessionState, event protocol.EventRecord) err
 	if _, exists := state.Actors[proposal.ActorID]; !exists {
 		return fmt.Errorf("%w: proposal actor is unknown", ErrCorruptLog)
 	}
+	canonicalizeProposalPresentation(&proposal)
 	state.Proposals[proposal.ID] = proposal
 	trimProposals(state)
 	state.Receipts[proposal.RequestID] = protocol.RequestReceipt{
@@ -442,6 +443,7 @@ func applyRestored(current protocol.SessionState, event protocol.EventRecord) (p
 	if err != nil {
 		return protocol.SessionState{}, err
 	}
+	canonicalizeStateProposalPresentation(&restored)
 	if current.SessionID != "" && (restored.SessionID != current.SessionID || restored.Binding != current.Binding) {
 		return protocol.SessionState{}, fmt.Errorf("%w: restore binding mismatch", ErrCorruptLog)
 	}

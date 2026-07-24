@@ -46,13 +46,27 @@ Observations and settled Outcomes, allowing several actors to propose in
 parallel during one turn. Once the game has handled an Outcome, Rin records it
 even when the report arrives after state has advanced.
 
-Detailed memory keeps a fixed window. `memory-archive-v1` compresses the
-oldest batch into a deterministic summary with source IDs, tick range, and
-reason, then continues hierarchical merging when summaries reach their cap.
-`belief-conflicts-v1` keeps up to eight sourced claims per actor while
-retaining the legacy `beliefs` field as the currently selected projection.
-Both are reconstructed entirely by event replay and require no vector
-database.
+Detailed memory keeps a fixed window. `memory-archive-v1` deterministically
+selects a low-salience batch from the older half, then records a bounded,
+lossy Summary with a tick range and representative source IDs. Hierarchical
+text reserves an oldest head anchor, gives additional budget to important and
+more recent fragments, and reserves the newest tail; source sampling retains
+the oldest and newest known IDs and distributes the remaining slots over the
+represented tick range. High importance increases retention budget but is not
+a promise that text survives every future merge.
+
+When the 32-Summary cap is crossed, Runtime continues to merge the oldest four
+direct Summary lineages. That membership and Summary-ID derivation stay
+stable because an older `proposal.created` event may persist one of those IDs
+in `recalled_memory_ids`. `belief-conflicts-v1` keeps up to eight sourced
+claims per actor while retaining the legacy `beliefs` field as the currently
+selected projection. Both features are reconstructed entirely by event replay
+and require no vector database.
+
+Memory compaction is cognitive forgetting only: it does not delete or redact
+the authoritative event log, erase permanent Identifier History, or provide a
+privacy-erasure mechanism. Replay, checkpoints, backups, and retained
+Snapshots can still contain text no longer present in bounded cognition State.
 
 Durable request identity is deliberately separate from those bounded cognition
 projections. Each managed Session retains an `identifier-history-v1` ledger
@@ -73,7 +87,32 @@ head.
 
 The policy interface returns only a `ProposalDraft`. The runtime does not
 trust its implementation: actions must come from the allowlist, memory and
-goal IDs must exist, and text length and stance must be valid.
+goal IDs must exist, stance must be valid, and a triggered actor boundary must
+select its game-authored response. `ProposalDraft.Summary` and
+`ProposalDraft.Rationale` remain only for Go source compatibility and are
+never published.
+
+The runtime is the single player-text information-flow gate. It always
+rebuilds `ActionProposal.summary` from the selected game-authored
+`ActionSpec.description` and `ActionProposal.rationale` from a fixed
+stance template. Goal, boundary, memory, belief, prompt, and provider text are
+not inputs to that function. This is a construction rule, not a secret-string
+blacklist. `goal_id`, `boundary_id`, `recalled_memory_ids`, and
+`policy_source`, plus the full `proposed_goal`, retain private structured
+audit/integration data and must not be rendered directly in a player UI.
+Except for its explicitly display-authorized `description`, an action's ID,
+kind, targets, and parameters are also integration data unless the game
+separately authorizes them for display.
+
+Reducer projection `rin.reducer-projection/v2` applies the same reconstruction
+to legacy `proposal.created` events, imported Snapshots, retained recent
+actions, checkpoints, and durable exact-retry results. This changes only the
+derived presentation projection: authoritative event bytes, event hashes,
+request/result coordinates, actions, and audit IDs remain unchanged. An exact
+retry of a pre-v2 Proposal can therefore return upgraded `summary` and
+`rationale` while preserving its original revision and head. Raw event and
+Restore payloads may still contain the old private strings and are not erased
+by upgrading.
 
 The built-in `policy.Deterministic` is the offline baseline:
 
@@ -94,7 +133,10 @@ game data are separate messages. Player input, story text, and content-pack
 fields all live under `untrusted_game_data`; a separate `contract` lists the
 only legal action, memory, and goal IDs. Even when a provider does not support
 strict JSON Schema, the result still receives local unknown-field, type,
-length, and ID-allowlist validation.
+and ID-allowlist validation. The output schema has no `summary` or `rationale`
+property; returning either is an unknown-field failure. The prompt explicitly
+forbids copying private decision text, and the runtime player-text gate remains
+authoritative even for custom policies or non-conforming providers.
 
 Character boundaries are handled locally before calling a provider. A
 triggered boundary uses `boundary-guard` directly instead of relying on the
@@ -107,7 +149,9 @@ attempt timeout and total timeout. Only temporary failures such as network
 errors, 429, 408, and 5xx responses are retried. Repeated failures open a
 circuit breaker; while open, calls immediately enter offline fallback.
 Response bodies, prompts, and keys are never written to errors, logs, or
-state.
+state. Attempt and total deadlines rely on the `provider.Client` cooperative
+cancellation contract: an implementation must observe `ctx.Done()` and return
+promptly. Go cannot forcibly preempt a third-party client that blocks forever.
 
 Model drafts use a bounded in-memory cache keyed by session head hash, actor,
 and semantic request. Concurrent calls with the same key collapse into one
@@ -292,8 +336,13 @@ The base `Store` API remains source-compatible. Optional `RangeStore` supplies
 same Store to implement both interfaces, because Runtime uses `RangeStore` to
 validate each checkpoint's event-chain anchor. An internal checkpoint uses
 `CheckpointFormatVersion = "rin.checkpoint/v1"` and
-`ReducerProjectionVersion = "rin.reducer-projection/v1"`. It is a derived
-cache, not a public Snapshot, backup, or source of authority, and carries the
+`ReducerProjectionVersion = "rin.reducer-projection/v2"`. Projection v2
+introduces fair bounded-memory text/source sampling and canonical,
+game-authored Proposal presentation. Summary lineage IDs remain compatible
+with v1 so persisted recalled references still replay. A v1 checkpoint is
+obsolete and falls back to an older compatible candidate or genesis; the
+authoritative event log is unchanged. A checkpoint is a derived cache, not a
+public Snapshot, backup, or source of authority, and carries the
 Session/revision/head anchor, lineage epoch, complete State and Identifier
 History projection, and a checksum. Before use, Runtime validates that wrapper,
 the projection version and checksum, the enclosed Snapshot, and the matching

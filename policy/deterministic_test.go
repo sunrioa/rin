@@ -3,6 +3,7 @@ package policy_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/sunrioa/rin/policy"
@@ -29,18 +30,67 @@ func TestDeterministicPolicyUsesGoalAndMemory(t *testing.T) {
 }
 
 func TestDeterministicPolicyProtectsBoundary(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		action protocol.ActionSpec
+	}{
+		{
+			name: "response matches action id",
+			action: protocol.ActionSpec{
+				ID: "refuse", Kind: "dialogue", Description: "decline safely",
+			},
+		},
+		{
+			name: "response matches action kind",
+			action: protocol.ActionSpec{
+				ID: "decline", Kind: "refuse", Description: "decline safely",
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input := policyInput()
+			input.Request.Tags = []string{"private"}
+			input.Request.CandidateActions = []protocol.ActionSpec{test.action}
+			draft, err := (policy.Deterministic{}).Propose(context.Background(), input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if draft.ActionID != test.action.ID ||
+				draft.Stance != "refuse" ||
+				draft.BoundaryID != "boundary.private" {
+				t.Fatalf("unexpected boundary draft: %+v", draft)
+			}
+		})
+	}
+
 	input := policyInput()
+	input.Request.Tags = []string{"private"}
+	input.Request.CandidateActions = input.Request.CandidateActions[:1]
+	if _, err := (policy.Deterministic{}).Propose(context.Background(), input); !errors.Is(err, rinruntime.ErrNoSafeAction) {
+		t.Fatalf("expected no safe action, got %v", err)
+	}
+}
+
+func TestDeterministicPlayerTextDoesNotExposePrivateDecisionContext(t *testing.T) {
+	const canary = "PRIVATE_DECISION_CANARY_31B9"
+	input := policyInput()
+	input.Actor.DisplayName = canary
+	input.Actor.Boundaries[0].Description = canary
+	input.Actor.Goals[0].Description = canary
+	input.Actor.Memories[0].Summary = canary
+	input.Actor.Memories[1].Summary = canary
+	input.Actor.Memories[1].Quote = canary
 	input.Request.Tags = []string{"private"}
 	draft, err := (policy.Deterministic{}).Propose(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if draft.ActionID != "refuse" || draft.Stance != "refuse" {
-		t.Fatalf("unexpected boundary draft: %+v", draft)
+	if draft.Summary != "" || draft.Rationale != "" ||
+		strings.Contains(draft.Summary, canary) || strings.Contains(draft.Rationale, canary) {
+		t.Fatalf("private context reached player-facing text: %+v", draft)
 	}
-	input.Request.CandidateActions = input.Request.CandidateActions[:1]
-	if _, err := (policy.Deterministic{}).Propose(context.Background(), input); !errors.Is(err, rinruntime.ErrNoSafeAction) {
-		t.Fatalf("expected no safe action, got %v", err)
+	if draft.BoundaryID != "boundary.private" || len(draft.RecalledMemoryIDs) == 0 {
+		t.Fatalf("structured private audit evidence was lost: %+v", draft)
 	}
 }
 

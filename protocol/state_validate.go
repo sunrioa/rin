@@ -773,6 +773,18 @@ func validateProposal(field string, state SessionState, actor ActorState, propos
 	} else if proposal.ProposedGoal != nil {
 		return &ValidationError{Field: field + ".proposed_goal", Message: "requires goal_id"}
 	}
+	if proposal.BoundaryID != "" {
+		if err := validateID(field+".boundary_id", proposal.BoundaryID); err != nil {
+			return err
+		}
+		found := false
+		for _, boundary := range actor.Boundaries {
+			found = found || boundary.ID == proposal.BoundaryID
+		}
+		if !found {
+			return &ValidationError{Field: field + ".boundary_id", Message: "references an unknown actor boundary"}
+		}
+	}
 	if proposal.Status != "pending" && proposal.Status != "accepted" && proposal.Status != "rejected" {
 		return &ValidationError{Field: field + ".status", Message: "must be pending, accepted, or rejected"}
 	}

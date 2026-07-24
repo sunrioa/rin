@@ -63,6 +63,13 @@ func TestModelPolicyUsesIsolatedDataPacket(t *testing.T) {
 	if _, exists := packet["untrusted_game_data"]; !exists || request.Schema == nil || !request.Schema.Strict {
 		t.Fatalf("missing packet boundary or schema: %+v", request)
 	}
+	schema := string(request.Schema.Schema)
+	if strings.Contains(schema, `"summary"`) || strings.Contains(schema, `"rationale"`) {
+		t.Fatalf("model schema must not accept player-facing text: %s", schema)
+	}
+	if !strings.Contains(request.Messages[0].Content, "Never quote, paraphrase, encode, or otherwise copy") {
+		t.Fatal("system prompt does not explicitly protect private decision text")
+	}
 }
 
 func TestModelPolicyReceivesOnlyActorConflictSets(t *testing.T) {
@@ -130,8 +137,45 @@ func TestBoundaryGuardSkipsModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if client.callCount() != 0 || draft.ActionID != "refuse" || draft.PolicySource != "boundary-guard" {
+	if client.callCount() != 0 || draft.ActionID != "refuse" || draft.PolicySource != "boundary-guard" ||
+		draft.BoundaryID != "boundary.private" {
 		t.Fatalf("boundary guard failed: calls=%d draft=%+v", client.callCount(), draft)
+	}
+}
+
+func TestModelPolicyFailsClosedOnPlayerTextFields(t *testing.T) {
+	const canary = "PRIVATE_MEMORY_CANARY_7F3A"
+	client := &completionClient{response: strings.TrimSuffix(validModelJSON(), "}") +
+		`,"summary":"` + canary + `","rationale":"` + canary + `"}`}
+	_, err := (policy.Model{Client: client}).Propose(context.Background(), modelInput())
+	if err == nil {
+		t.Fatal("model output containing player-facing text fields should fail closed")
+	}
+	if strings.Contains(err.Error(), canary) {
+		t.Fatalf("validation error echoed private model output: %v", err)
+	}
+}
+
+func TestModelDraftCarriesNoPlayerTextAndKeepsStructuredAuditIDs(t *testing.T) {
+	const canary = "PRIVATE_CONTEXT_CANARY_94C1"
+	input := modelInput()
+	input.Actor.DisplayName = canary
+	input.Actor.Boundaries[0].Description = canary
+	input.Actor.Goals[0].Description = canary
+	input.Actor.Memories[0].Summary = canary
+	input.Actor.Memories[0].Quote = canary
+	client := &completionClient{response: validModelJSON()}
+	draft, err := (policy.Model{Client: client}).Propose(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if draft.Summary != "" || draft.Rationale != "" {
+		t.Fatalf("private context reached player-facing draft text: %+v", draft)
+	}
+	if draft.GoalID != "goal.connect" ||
+		len(draft.RecalledMemoryIDs) != 1 ||
+		draft.RecalledMemoryIDs[0] != "memory.relevant" {
+		t.Fatalf("structured audit evidence was lost: %+v", draft)
 	}
 }
 
@@ -149,7 +193,7 @@ func TestFailoverUsesDeterministicPolicy(t *testing.T) {
 }
 
 func validModelJSON() string {
-	return `{"action_id":"talk","stance":"engage","summary":"Mira asks a careful question.","rationale":"She recalls that waiting built trust.","recalled_memory_ids":["memory.relevant"],"goal_id":"goal.connect"}`
+	return `{"action_id":"talk","stance":"engage","recalled_memory_ids":["memory.relevant"],"goal_id":"goal.connect"}`
 }
 
 func modelInput() rinruntime.PolicyContext {

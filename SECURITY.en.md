@@ -57,6 +57,27 @@ API keys do not enter the model packet. All game text is placed under
 explicitly marked `untrusted_game_data`, and model output still requires local
 allowlist validation.
 
+The model output schema does not accept `summary` or `rationale`, and
+compatibility text in every Policy Draft is discarded. The runtime rebuilds
+player fields only from the game-authorized `ActionSpec.description` and a
+fixed stance template; private Goal, Boundary, Memory, Belief, prompt, and
+provider text are not inputs to that function. `policy_source`,
+`recalled_memory_ids`, `goal_id`, `boundary_id`, and the full `proposed_goal`
+are private audit/integration metadata and must not be displayed directly to
+players. Only the game-authorized action Description is presentation copy;
+action IDs, kinds, targets, and parameters are integration data by default.
+This boundary uses input isolation and construction, not a secret-string
+blacklist; the game must make every candidate action description safe for
+display.
+
+After upgrade, `rin.reducer-projection/v2` reconstructs legacy Proposal
+presentation in API projections such as State, Replay, Snapshot export, and
+exact retry, but it does not rewrite the authoritative event chain. Old
+`proposal.created` records or old Snapshots embedded in Restore events may
+still retain their original Summary/Rationale on disk, in backups, and in
+external Stores. Upgrading is not privacy erasure; continue to protect that
+raw data as a sensitive event log.
+
 Structured Generation sends caller-provided messages to the model but does
 not automatically attach sessions, event logs, paths, or credentials. Rin
 validates only the top-level JSON object and character/byte limits. The caller

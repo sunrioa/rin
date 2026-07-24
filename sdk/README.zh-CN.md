@@ -27,10 +27,18 @@
   同一 Request ID 下改变任一字段都会返回 `request_id_conflict`；
 - 完全相同的 duplicate 会返回首次持久 revision/head（或原始
   Proposal/Arbitration）并设置 `duplicate=true`；需要当前 head 时应读取
-  Session State；
+  Session State。对于 `rin.reducer-projection/v2` 之前的 Proposal，Rin 保留
+  这些坐标和结构字段，但会通过玩家文本门禁升级 `summary`/`rationale`；
 - `event_exists` 是其他请求造成的冲突，不是 duplicate 确认；
 - Proposal 保持 Pending，直到游戏应用或拒绝后用 Commit 回报结果；Commit
   是结果记账，不是执行授权。
+- 应把 Proposal 的 `summary` 与 `rationale` 用作玩家文案：Rin 由游戏编写的
+  动作描述和固定 stance 模板生成它们。`policy_source`、
+  `recalled_memory_ids`、`goal_id`、可选增量字段 `boundary_id` 与完整
+  `proposed_goal` 是私有审计/集成元数据，绝不能直接展示给玩家。Action 的 ID、
+  Kind、Target 与 Parameter 也是集成数据，除非游戏另行授权；
+- 所有随附 SDK 都采用宽容 Object 解码。动态客户端会自然保留 `boundary_id`；
+  Unity typed 示例已显式声明，旧 typed 客户端可以安全忽略这个 v1 增量响应字段。
 
 收到 `mutation_outcome_unknown` 后，应保留非 Proposal Operation，并且只用
 其完全相同的 typed payload 与 ID 重试；该 mutation 可能已经持久化，其他

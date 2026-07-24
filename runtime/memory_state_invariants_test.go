@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -112,6 +113,10 @@ func TestReducerMaintainsBoundsAcross1361Observations(t *testing.T) {
 		protocol.FeatureArbitration,
 	)
 	for index := 0; index < 1361; index++ {
+		summaryText := fmt.Sprintf("Observation %04d END-CANARY-%04d", index, index)
+		if index == 0 {
+			summaryText = "OLDEST-ANCHOR " + summaryText
+		}
 		request := protocol.ObserveRequest{
 			ProtocolVersion: protocol.Version,
 			SessionID:       state.SessionID,
@@ -121,7 +126,7 @@ func TestReducerMaintainsBoundsAcross1361Observations(t *testing.T) {
 			ObserverIDs:     []string{"npc.mira"},
 			Source:          "game",
 			Kind:            "world",
-			Summary:         "A deterministic long-run observation.",
+			Summary:         summaryText,
 			Importance:      2,
 			Facts: []protocol.Fact{{
 				SubjectID:  fmt.Sprintf("subject.%04d", index),
@@ -148,6 +153,28 @@ func TestReducerMaintainsBoundsAcross1361Observations(t *testing.T) {
 			t.Fatalf("summary %s level = %d", summary.ID, summary.Level)
 		}
 	}
+	latestSummary := actor.MemorySummaries[0]
+	oldestAnchorRetained := false
+	for _, summary := range actor.MemorySummaries {
+		if strings.Contains(summary.Summary, "OLDEST-ANCHOR") {
+			oldestAnchorRetained = true
+		}
+		if summary.EndTick > latestSummary.EndTick {
+			latestSummary = summary
+		}
+	}
+	if !oldestAnchorRetained {
+		t.Fatal("hierarchical compaction lost the oldest bounded text anchor")
+	}
+	latestCanary := fmt.Sprintf("END-CANARY-%04d", latestSummary.EndTick-1)
+	if !strings.Contains(latestSummary.Summary, latestCanary) {
+		t.Fatalf(
+			"summary ending at tick %d lost recent canary %q: %q",
+			latestSummary.EndTick,
+			latestCanary,
+			latestSummary.Summary,
+		)
+	}
 	if len(actor.Beliefs) != maxBeliefs || len(actor.BeliefSets) != maxBeliefs {
 		t.Fatalf("belief bounds = %d/%d, want %d/%d", len(actor.Beliefs), len(actor.BeliefSets), maxBeliefs, maxBeliefs)
 	}
@@ -165,6 +192,13 @@ func TestReducerMaintainsBoundsAcross1361Observations(t *testing.T) {
 	}
 	if err := protocol.ValidateSessionState(state); err != nil {
 		t.Fatalf("long-run state is invalid: %v", err)
+	}
+	snapshot, err := SnapshotOf(state)
+	if err != nil {
+		t.Fatalf("long-run state did not close into a snapshot: %v", err)
+	}
+	if err := ValidateSnapshot(snapshot); err != nil {
+		t.Fatalf("long-run snapshot is invalid: %v", err)
 	}
 }
 

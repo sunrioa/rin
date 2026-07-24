@@ -1323,9 +1323,11 @@ public sealed class RinClient : MonoBehaviour
     public string stance;
     public string summary;
     public string rationale;
+    // Audit/integration-only fields through proposed_goal; never render them directly.
     public string policy_source;
     public string[] recalled_memory_ids;
     public string goal_id;
+    public string boundary_id;
     public Goal proposed_goal;
     public string status;
     public string outcome_event_id;

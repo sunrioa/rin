@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -730,6 +731,139 @@ func TestPolicyCannotEscapeCandidateWhitelist(t *testing.T) {
 	_, _, err := engine.Propose(context.Background(), proposeRequest("session.whitelist", "propose.bad", 0, nil))
 	if rinruntime.ErrorCode(err) != "invalid_policy_output" {
 		t.Fatalf("expected invalid policy output, got %v", err)
+	}
+}
+
+type privateTextPolicy struct {
+	actionID   string
+	stance     string
+	summary    string
+	rationale  string
+	boundaryID string
+	withAudit  bool
+}
+
+func (p privateTextPolicy) Propose(_ context.Context, input rinruntime.PolicyContext) (rinruntime.ProposalDraft, error) {
+	draft := rinruntime.ProposalDraft{
+		ActionID: p.actionID, Stance: p.stance, Summary: p.summary, Rationale: p.rationale,
+		PolicySource: "private-text-test", BoundaryID: p.boundaryID,
+	}
+	if p.withAudit {
+		if len(input.Actor.Memories) > 0 {
+			draft.RecalledMemoryIDs = []string{input.Actor.Memories[0].ID}
+		}
+		if len(input.Actor.Goals) > 0 {
+			draft.GoalID = input.Actor.Goals[0].ID
+		}
+	}
+	return draft, nil
+}
+
+func TestRuntimeRewritesPrivatePolicyTextAndPreservesStructuredAuditEvidence(t *testing.T) {
+	privateCanaries := []string{
+		"PRIVATE_POLICY_CANARY_33A1",
+		"PRIVATE_ACTOR_CANARY_33A2",
+		"PRIVATE_GOAL_CANARY_33A3",
+		"PRIVATE_MEMORY_CANARY_33A4",
+	}
+	engine := newEngine(t, store.NewMemory(), privateTextPolicy{
+		actionID: "talk", stance: "engage",
+		summary: privateCanaries[0], rationale: strings.Join(privateCanaries, " "),
+		withAudit: true,
+	})
+	const sessionID = "session.proposal-visibility"
+	create := createRequest(sessionID)
+	create.Actors[0].DisplayName = privateCanaries[1]
+	create.Actors[0].Goals[0].Description = privateCanaries[2]
+	if _, err := engine.CreateSession(create); err != nil {
+		t.Fatal(err)
+	}
+	observation := observeRequest(sessionID, "observe.proposal-visibility", "event.proposal-visibility", 0)
+	observation.Summary = privateCanaries[3]
+	observation.Quote = privateCanaries[3]
+	if _, err := engine.Observe(observation); err != nil {
+		t.Fatal(err)
+	}
+	proposal, _, err := engine.Propose(
+		context.Background(),
+		proposeRequest(sessionID, "propose.proposal-visibility", 0, nil),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, canary := range privateCanaries {
+		if strings.Contains(proposal.Summary, canary) || strings.Contains(proposal.Rationale, canary) {
+			t.Fatalf("private canary %q reached player-facing proposal: %+v", canary, proposal)
+		}
+	}
+	if proposal.Summary != "Proposes: ask one honest question" ||
+		proposal.Rationale != "Selected from the actions currently allowed by the game." {
+		t.Fatalf("runtime did not author player text from the allowed action: %+v", proposal)
+	}
+	if proposal.GoalID != "goal.connect" || len(proposal.RecalledMemoryIDs) != 1 {
+		t.Fatalf("structured audit evidence was not preserved: %+v", proposal)
+	}
+}
+
+func TestPlayerTextDoesNotRevealWhetherPrivateBoundaryTriggered(t *testing.T) {
+	const canary = "PRIVATE_BOUNDARY_CANARY_518D"
+	engine := newEngine(t, store.NewMemory(), privateTextPolicy{
+		actionID: "refuse", stance: "refuse", summary: canary, rationale: canary,
+	})
+	proposals := make([]protocol.ActionProposal, 0, 2)
+	for index, tags := range [][]string{nil, []string{"private"}} {
+		sessionID := fmt.Sprintf("session.boundary-noninterference.%d", index)
+		create := createRequest(sessionID)
+		create.Actors[0].Boundaries[0].Description = canary
+		if _, err := engine.CreateSession(create); err != nil {
+			t.Fatal(err)
+		}
+		request := proposeRequest(sessionID, fmt.Sprintf("propose.boundary-noninterference.%d", index), 0, tags)
+		request.CandidateActions[1].Description = "decline the request"
+		proposal, _, err := engine.Propose(context.Background(), request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		proposals = append(proposals, proposal)
+	}
+	if proposals[0].Summary != proposals[1].Summary || proposals[0].Rationale != proposals[1].Rationale {
+		t.Fatalf("player text reveals boundary state: untriggered=%+v triggered=%+v", proposals[0], proposals[1])
+	}
+	if proposals[0].BoundaryID != "" || proposals[1].BoundaryID != "boundary.privacy" {
+		t.Fatalf("boundary audit association is incorrect: untriggered=%+v triggered=%+v", proposals[0], proposals[1])
+	}
+	if strings.Contains(proposals[1].Summary, canary) || strings.Contains(proposals[1].Rationale, canary) {
+		t.Fatalf("private boundary text reached player fields: %+v", proposals[1])
+	}
+}
+
+func TestRuntimeRejectsUnsafeCustomPolicyWhenBoundaryTriggers(t *testing.T) {
+	tests := []struct {
+		name   string
+		action string
+		stance string
+	}{
+		{name: "unsafe action", action: "talk", stance: "engage"},
+		{name: "mismatched stance", action: "refuse", stance: "engage"},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			engine := newEngine(t, store.NewMemory(), privateTextPolicy{
+				actionID: testCase.action, stance: testCase.stance,
+				summary: "ignored", rationale: "ignored",
+			})
+			sessionID := "session.custom-policy-boundary." + strings.ReplaceAll(testCase.name, " ", "-")
+			if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
+				t.Fatal(err)
+			}
+			_, _, err := engine.Propose(
+				context.Background(),
+				proposeRequest(sessionID, "propose.custom-policy-boundary", 0, []string{"private"}),
+			)
+			if rinruntime.ErrorCode(err) != "invalid_policy_output" {
+				t.Fatalf("unsafe custom policy should fail at the runtime boundary gate: %v", err)
+			}
+		})
 	}
 }
 

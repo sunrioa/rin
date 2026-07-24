@@ -83,8 +83,9 @@ type Memory struct {
 }
 
 // MemorySummary retains bounded, explainable context after detailed episodic
-// memories are compacted. Source lists are intentionally bounded; the event
-// log remains the complete audit record.
+// memories are compacted. Source lists are representative samples that retain
+// the oldest and newest known source; the event log remains the complete audit
+// record.
 type MemorySummary struct {
 	ID               string   `json:"id"`
 	Level            int      `json:"level"`
@@ -141,6 +142,7 @@ type ActionProposal struct {
 	PolicySource         string     `json:"policy_source,omitempty"`
 	RecalledMemoryIDs    []string   `json:"recalled_memory_ids,omitempty"`
 	GoalID               string     `json:"goal_id,omitempty"`
+	BoundaryID           string     `json:"boundary_id,omitempty"`
 	ProposedGoal         *Goal      `json:"proposed_goal,omitempty"`
 	Status               string     `json:"status"`
 	// OutcomeEventID and OutcomeTick are populated when the authoritative game

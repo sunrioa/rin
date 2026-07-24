@@ -349,6 +349,11 @@ func validateHistoryProposal(
 			return err
 		}
 	}
+	if proposal.BoundaryID != "" {
+		if err := validateID(field+".boundary_id", proposal.BoundaryID); err != nil {
+			return err
+		}
+	}
 	if proposal.ProposedGoal != nil {
 		if err := validateGoal(field+".proposed_goal", *proposal.ProposedGoal); err != nil {
 			return err

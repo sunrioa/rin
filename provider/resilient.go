@@ -27,7 +27,13 @@ type Resilient struct {
 	consecutiveFailures int
 	openUntil           time.Time
 	halfOpen            bool
+	circuitGeneration   uint64
 	now                 func() time.Time
+}
+
+type circuitPermit struct {
+	generation uint64
+	halfOpen   bool
 }
 
 func NewResilient(client Client, config ResilienceConfig) (*Resilient, error) {
@@ -68,7 +74,15 @@ func NewResilient(client Client, config ResilienceConfig) (*Resilient, error) {
 }
 
 func (r *Resilient) Complete(ctx context.Context, request CompletionRequest) (CompletionResponse, error) {
-	if err := r.beforeCall(); err != nil {
+	if err := ctx.Err(); err != nil {
+		return CompletionResponse{}, err
+	}
+	permit, err := r.beforeCall()
+	if err != nil {
+		return CompletionResponse{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		r.releaseHalfOpen(permit)
 		return CompletionResponse{}, err
 	}
 	callContext, cancelCall := context.WithTimeout(ctx, r.config.TotalTimeout)
@@ -76,20 +90,43 @@ func (r *Resilient) Complete(ctx context.Context, request CompletionRequest) (Co
 
 	var lastError error
 	for attempt := 0; attempt < r.config.MaxAttempts; attempt++ {
+		if callerError := ctx.Err(); callerError != nil {
+			r.releaseHalfOpen(permit)
+			return CompletionResponse{}, callerError
+		}
+		if callContext.Err() != nil {
+			r.recordFailure(permit)
+			return CompletionResponse{}, context.DeadlineExceeded
+		}
 		attemptContext, cancelAttempt := context.WithTimeout(callContext, r.config.AttemptTimeout)
 		response, err := r.client.Complete(attemptContext, request)
+		attemptContextError := attemptContext.Err()
 		cancelAttempt()
-		if err == nil {
-			r.recordSuccess()
+
+		if callerError := ctx.Err(); callerError != nil {
+			r.releaseHalfOpen(permit)
+			return CompletionResponse{}, callerError
+		}
+		if callContext.Err() != nil {
+			r.recordFailure(permit)
+			return CompletionResponse{}, context.DeadlineExceeded
+		}
+		if attemptContextError != nil {
+			// The caller and total budget are still live, so this is the
+			// per-attempt deadline. A client result returned after that
+			// deadline, including a success, is not an in-budget result.
+			err = context.DeadlineExceeded
+		} else if err == nil {
+			r.recordSuccess(permit)
 			return response, nil
 		}
 		lastError = err
-		if ctx.Err() != nil {
-			r.releaseHalfOpen()
-			return CompletionResponse{}, ctx.Err()
-		}
-		if !retryable(err, callContext) {
-			r.recordSuccess()
+		if !retryable(err) {
+			if confirmsProviderAvailability(err) {
+				r.recordSuccess(permit)
+			} else {
+				r.recordNeutral(permit)
+			}
 			return CompletionResponse{}, err
 		}
 		if attempt+1 >= r.config.MaxAttempts {
@@ -103,22 +140,28 @@ func (r *Resilient) Complete(ctx context.Context, request CompletionRequest) (Co
 			delay = r.config.MaxBackoff
 		}
 		if err := sleepContext(callContext, delay); err != nil {
-			lastError = err
-			break
+			if callerError := ctx.Err(); callerError != nil {
+				r.releaseHalfOpen(permit)
+				return CompletionResponse{}, callerError
+			}
+			r.recordFailure(permit)
+			return CompletionResponse{}, context.DeadlineExceeded
 		}
 	}
-	r.recordFailure()
-	if callContext.Err() != nil && ctx.Err() == nil {
-		return CompletionResponse{}, context.DeadlineExceeded
-	}
+	r.recordFailure(permit)
 	return CompletionResponse{}, lastError
 }
 
-func retryable(err error, callContext context.Context) bool {
+func retryable(err error) bool {
 	if IsRetryable(err) {
 		return true
 	}
-	return errors.Is(err, context.DeadlineExceeded) && callContext.Err() == nil
+	return errors.Is(err, context.DeadlineExceeded)
+}
+
+func confirmsProviderAvailability(err error) bool {
+	var providerError *Error
+	return errors.As(err, &providerError) && providerError.ProviderReached
 }
 
 func sleepContext(ctx context.Context, delay time.Duration) error {
@@ -132,42 +175,76 @@ func sleepContext(ctx context.Context, delay time.Duration) error {
 	}
 }
 
-func (r *Resilient) beforeCall() error {
+func (r *Resilient) beforeCall() (circuitPermit, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	now := r.now()
 	if !r.openUntil.IsZero() && now.Before(r.openUntil) {
-		return ErrCircuitOpen
+		return circuitPermit{}, ErrCircuitOpen
 	}
 	if !r.openUntil.IsZero() {
 		if r.halfOpen {
-			return ErrCircuitOpen
+			return circuitPermit{}, ErrCircuitOpen
 		}
 		r.halfOpen = true
+		return circuitPermit{generation: r.circuitGeneration, halfOpen: true}, nil
 	}
-	return nil
+	return circuitPermit{generation: r.circuitGeneration}, nil
 }
 
-func (r *Resilient) recordSuccess() {
+func (r *Resilient) recordSuccess(permit circuitPermit) {
 	r.mu.Lock()
+	defer r.mu.Unlock()
+	if permit.generation != r.circuitGeneration {
+		return
+	}
+	if permit.halfOpen {
+		if !r.halfOpen {
+			return
+		}
+		r.circuitGeneration++
+	} else if !r.openUntil.IsZero() || r.halfOpen {
+		return
+	}
 	r.consecutiveFailures = 0
 	r.openUntil = time.Time{}
 	r.halfOpen = false
-	r.mu.Unlock()
 }
 
-func (r *Resilient) recordFailure() {
+func (r *Resilient) recordFailure(permit circuitPermit) {
 	r.mu.Lock()
+	defer r.mu.Unlock()
+	if permit.generation != r.circuitGeneration {
+		return
+	}
+	if permit.halfOpen {
+		if !r.halfOpen {
+			return
+		}
+		r.consecutiveFailures++
+		r.halfOpen = false
+		r.openUntil = r.now().Add(r.config.OpenDuration)
+		r.circuitGeneration++
+		return
+	}
+	if !r.openUntil.IsZero() || r.halfOpen {
+		return
+	}
 	r.consecutiveFailures++
-	r.halfOpen = false
 	if r.consecutiveFailures >= r.config.FailureThreshold {
 		r.openUntil = r.now().Add(r.config.OpenDuration)
+		r.circuitGeneration++
+	}
+}
+
+func (r *Resilient) releaseHalfOpen(permit circuitPermit) {
+	r.mu.Lock()
+	if permit.halfOpen && permit.generation == r.circuitGeneration {
+		r.halfOpen = false
 	}
 	r.mu.Unlock()
 }
 
-func (r *Resilient) releaseHalfOpen() {
-	r.mu.Lock()
-	r.halfOpen = false
-	r.mu.Unlock()
+func (r *Resilient) recordNeutral(permit circuitPermit) {
+	r.releaseHalfOpen(permit)
 }

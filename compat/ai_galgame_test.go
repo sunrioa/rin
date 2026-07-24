@@ -49,6 +49,7 @@ type vectorStep struct {
 	ExpectActionID              string              `json:"expect_action_id,omitempty"`
 	ExpectStance                string              `json:"expect_stance,omitempty"`
 	ExpectPolicySource          string              `json:"expect_policy_source,omitempty"`
+	ExpectBoundaryID            string              `json:"expect_boundary_id,omitempty"`
 	ExpectErrorCode             string              `json:"expect_error_code,omitempty"`
 	ExpectDueActorIDs           []string            `json:"expect_due_actor_ids,omitempty"`
 	ExpectActorMemoryCounts     map[string]int      `json:"expect_actor_memory_counts,omitempty"`
@@ -133,6 +134,9 @@ func runVectorCase(t *testing.T, source vectorSource, testCase vectorCase) {
 			lastProposalID = proposal.ID
 			if proposal.Action.ID != step.ExpectActionID || proposal.Stance != step.ExpectStance || proposal.PolicySource != step.ExpectPolicySource {
 				t.Fatalf("unexpected proposal: %+v", proposal)
+			}
+			if proposal.BoundaryID != step.ExpectBoundaryID {
+				t.Fatalf("proposal boundary_id=%q want=%q", proposal.BoundaryID, step.ExpectBoundaryID)
 			}
 		case "commit":
 			if step.Commit == nil {

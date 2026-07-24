@@ -183,6 +183,7 @@ func (e *Engine) loadRangedThroughMode(
 			if err != nil {
 				return e.loadRangedThroughMode(sessionID, through, ranged, false)
 			}
+			canonicalizeStateProposalPresentation(&state)
 			identifiers, err = cloneIdentifierHistory(*checkpoint.Snapshot.IdentifierHistory)
 			if err != nil {
 				return e.loadRangedThroughMode(sessionID, through, ranged, false)

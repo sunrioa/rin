@@ -30,11 +30,23 @@ All clients follow these rules:
   returns `request_id_conflict`;
 - an exact duplicate returns the first durable revision/head (or original
   Proposal/Arbitration) with `duplicate=true`. Read Session State when the
-  current head is required;
+  current head is required. For a pre-`rin.reducer-projection/v2` Proposal,
+  Rin preserves those coordinates and structured fields but upgrades
+  `summary`/`rationale` through the player-text gate;
 - `event_exists` is a conflict from another request, not a duplicate
   acknowledgement;
 - proposals remain pending until the game applies or rejects them and reports
   the result with Commit; Commit records an outcome and is not authorization.
+- use proposal `summary` and `rationale` as the player-facing copy: Rin
+  derives them from the game-authored action description and a fixed stance
+  template. Treat `policy_source`, `recalled_memory_ids`, `goal_id`, the
+  optional additive `boundary_id`, and the full `proposed_goal` as private
+  audit/integration metadata and never display them directly to players.
+  Action IDs, kinds, targets, and parameters are integration data unless the
+  game separately authorizes them;
+- all shipped SDKs use tolerant object decoding. Dynamic clients already
+  preserve `boundary_id`; Unity's typed example declares it explicitly, and
+  older typed clients may safely ignore this additive v1 response field.
 
 On `mutation_outcome_unknown`, retain the non-Proposal operation and retry only
 its exact typed payload and IDs; the mutation may already be durable, and other
