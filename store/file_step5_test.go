@@ -72,9 +72,9 @@ func TestFileStoreLockBuildTagsMatchSupportedGOOS(t *testing.T) {
 	}{
 		{goos: "darwin", goarch: "amd64", supported: true},
 		{goos: "linux", goarch: "amd64", supported: true},
+		{goos: "windows", goarch: "amd64", supported: true},
 		{goos: "ios", goarch: "arm64"},
 		{goos: "android", goarch: "arm64"},
-		{goos: "windows", goarch: "amd64"},
 		{goos: "freebsd", goarch: "amd64"},
 	}
 	goTool := filepath.Join(runtime.GOROOT(), "bin", "go")
@@ -99,8 +99,12 @@ func TestFileStoreLockBuildTagsMatchSupportedGOOS(t *testing.T) {
 			}
 			files := string(output)
 			hasUnix := strings.Contains(files, "lock_unix.go")
+			hasWindows := strings.Contains(files, "lock_windows.go")
 			hasUnsupported := strings.Contains(files, "lock_unsupported.go")
-			if hasUnix != target.supported || hasUnsupported == target.supported {
+			hasSupportedImplementation := hasUnix || hasWindows
+			if hasSupportedImplementation != target.supported ||
+				hasUnsupported == target.supported ||
+				(hasUnix && hasWindows) {
 				t.Fatalf(
 					"%s/%s files=%q, supported=%t",
 					target.goos,
@@ -114,8 +118,8 @@ func TestFileStoreLockBuildTagsMatchSupportedGOOS(t *testing.T) {
 }
 
 func TestFileStoreLockIsReleasedAfterProcessExit(t *testing.T) {
-	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
-		t.Skip("flock implementation is intentionally limited to darwin and linux")
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" && runtime.GOOS != "windows" {
+		t.Skip("data-directory locking is unsupported on this platform")
 	}
 	if os.Getenv("RIN_STORE_LOCK_HELPER") == "1" {
 		store, err := OpenFile(os.Getenv("RIN_STORE_LOCK_ROOT"))

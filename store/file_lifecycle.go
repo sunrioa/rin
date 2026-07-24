@@ -95,16 +95,6 @@ func (s *File) beginRoot() (func(), error) {
 	return s.lifecycle.RUnlock, nil
 }
 
-func syncDirectory(path string) error {
-	directory, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	syncErr := directory.Sync()
-	closeErr := directory.Close()
-	return errors.Join(syncErr, closeErr)
-}
-
 func (s *File) sessionDurabilityIsConfirmed(sessionID string) bool {
 	s.durabilityMu.Lock()
 	defer s.durabilityMu.Unlock()

@@ -421,28 +421,32 @@ opening the data directory. A second process fails to open the same directory;
 the lease remains held until `(*store.File).Close`, which is idempotent and
 waits for in-flight Store calls. Embedded users must therefore always call
 `Close`; the `rin serve` and `rin inspect` commands do so automatically.
-The bundled `flock` implementation currently supports only `darwin` and
-`linux`. On every other GOOS, `store.OpenFile` returns
-`ErrDataDirectoryLockUnsupported` and fails closed instead of returning a
-usable File Store without the single-writer guarantee. Multi-instance
-deployments must implement an externally coordinated Store instead of sharing
-a JSONL directory.
+The bundled exclusive data-directory lock supports `darwin`, `linux`, and
+`windows`. Unix uses non-blocking `flock`; Windows uses an exclusive file handle
+opened without sharing, and the operating system releases the lease at process
+exit. On every other GOOS, `store.OpenFile` returns
+`ErrDataDirectoryLockUnsupported` and fails closed. Multi-instance deployments
+must implement an externally coordinated Store instead of sharing a JSONL
+directory.
 
-The bundled file store is supported only on a local filesystem where `flock`,
-same-directory atomic rename, file `fsync`, and directory `fsync` have reliable
-local semantics. NFS, SMB, FUSE mounts, and cloud-synchronized directories are
-unsupported even for one Rin process. Put an externally coordinated Store in
-front of remote or shared storage instead of pointing the JSONL store at it.
+The bundled file store is supported only on a local filesystem where exclusive
+file locking, same-directory atomic rename, file sync, and directory sync have
+reliable local semantics. NFS, SMB, FUSE mounts, and cloud-synchronized
+directories are unsupported even for one Rin process. Put an externally
+coordinated Store in front of remote or shared storage instead of pointing the
+JSONL store at it.
 
-File creation and append sync `events.jsonl`; the corresponding index write
-is synced separately. New Session directories are renamed into place and
-their parent directory is synced. Snapshot, checkpoint, and rebuilt-index
-publication uses a `0600` temporary file, file `fsync`, rename, and directory
-`fsync`; retention deletion is followed by another directory `fsync`. A crash
-after a durable event but before its index update leaves a stale derived index
-that is rebuilt from the log. These are local-filesystem crash-consistency
-measures, not a guarantee against storage hardware, kernel, filesystem,
-backup, or operator failures.
+File creation and append sync `events.jsonl`; the corresponding index write is
+synced separately. New Session directories are renamed into place and their
+parent directory is synced. Snapshot, checkpoint, and rebuilt-index publication
+uses a synced temporary file, rename, and directory sync; retention deletion is
+followed by another directory sync. Unix temporary files use `0600`. Windows
+files inherit the data-root ACL, which operators must restrict to the Sidecar
+account. Unix uses `fsync`; Windows uses `FlushFileBuffers`. A crash after a
+durable event but before its index update leaves a stale derived index that is
+rebuilt from the log. These are local-filesystem crash-consistency measures,
+not a guarantee against storage hardware, kernel, filesystem, backup, or
+operator failures.
 
 Lazy loading changes where cost is paid; it does not make unbounded lineage
 free. Engine Open is proportional to Session-directory enumeration rather

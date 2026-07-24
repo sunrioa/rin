@@ -53,6 +53,10 @@ jobs:
         env:
           CGO_ENABLED: "0"
         run: go build -trimpath ./cmd/rin
+      - name: Test bundled File Store and Sidecar lifecycle
+        env:
+          CGO_ENABLED: "0"
+        run: go test ./store ./cmd/rin
 
   sdk-python:
     runs-on: ubuntu-latest

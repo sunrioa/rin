@@ -295,22 +295,25 @@ File Store 打开数据目录前会在 `.rin.lock` 取得 non-blocking exclusive
 第二个进程打开同一目录会失败；lease 一直保持到
 `(*store.File).Close`，该方法幂等且会等待正在执行的 Store 调用。嵌入式用户
 因此必须始终调用 `Close`；`rin serve` 与 `rin inspect` 命令会自动调用它。
-随附 `flock` 实现当前只支持 `darwin` 与 `linux`。其他所有 GOOS 上，
-`store.OpenFile` 会返回 `ErrDataDirectoryLockUnsupported` 并 fail closed，
-不会在缺少单写者保证时返回可用的 File Store。多实例部署必须实现外部协调的
-Store，不能共享 JSONL 目录。
+随附数据目录独占锁支持 `darwin`、`linux` 与 `windows`。Unix 使用 non-blocking
+`flock`，`windows` 使用无共享模式的独占文件 handle；进程退出时操作系统释放
+lease。其他所有 GOOS 上，`store.OpenFile` 返回
+`ErrDataDirectoryLockUnsupported` 并 fail closed。多实例部署必须实现外部协调
+的 Store，不能共享 JSONL 目录。
 
-随附 File Store 只支持 `flock`、同目录原子 rename、file `fsync` 与 directory
-`fsync` 都具有可靠本地语义的本地文件系统。即使只有一个 Rin 进程，也不支持
-NFS、SMB、FUSE mount 或云同步目录。远程或共享存储必须使用外部协调的 Store，
-不能让 JSONL Store 直接指向这些目录。
+随附 File Store 只支持本机独占文件锁、同目录原子 rename、file sync 与
+directory sync 都具有可靠本地语义的本地文件系统。即使只有一个 Rin 进程，也
+不支持 NFS、SMB、FUSE mount 或云同步目录。远程或共享存储必须使用外部协调的
+Store，不能让 JSONL Store 直接指向这些目录。
 
 文件创建与 append 会同步 `events.jsonl`，对应索引写入单独同步。新 Session
-目录 rename 到位后还会同步父目录。Snapshot、checkpoint 与重建索引均通过
-`0600` 临时文件、file `fsync`、rename 和 directory `fsync` 发布；保留策略删除
-旧文件后也会再次 directory `fsync`。如果事件已持久而索引更新前崩溃，留下的
-陈旧派生索引会从日志重建。这些是本地文件系统 crash-consistency 措施，不是
-对存储硬件、kernel、filesystem、备份或运维故障的绝对保证。
+目录 rename 到位后还会同步父目录。Snapshot、checkpoint 与重建索引均通过已
+同步的临时文件、rename 和 directory sync 发布；保留策略删除旧文件后也会再次
+directory sync。Unix 临时文件使用 `0600`，Windows 文件继承数据根目录 ACL，
+且部署方必须把 ACL 限制到 Sidecar 账户。Unix 使用 `fsync`，Windows 使用
+`FlushFileBuffers`。如果事件已持久而索引更新前崩溃，留下的陈旧派生索引会从
+日志重建。这些是本地文件系统 crash-consistency 措施，不是对存储硬件、
+kernel、filesystem、备份或运维故障的绝对保证。
 
 Lazy load 只是转移成本，不会让无限增长的 lineage 免费。Engine Open 成本与
 Session 目录枚举相关，而不再读取每个日志正文。某 Session 第一次访问仍需

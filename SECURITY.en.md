@@ -31,9 +31,11 @@ be evaluated through the Changelog and migration guides.
   rounded across language boundaries.
 - Session IDs use safe identifiers only; HTTP requests cannot provide file
   paths.
-- Events, indexes, checkpoints, snapshots, and the lock file use `0600`
-  permissions. Snapshot, checkpoint, and rebuilt-index publication uses a
-  synced temporary file, rename, and directory sync.
+- On Unix, events, indexes, checkpoints, snapshots, and the lock file use
+  `0600`, while data directories use `0700`. Windows does not interpret POSIX
+  mode bits; these files inherit the data-root ACL, which operators must
+  restrict to the Sidecar account. Snapshot, checkpoint, and rebuilt-index
+  publication uses a synced temporary file, rename, and directory sync.
 - Event logs use `retain_forever`; the file store keeps the two newest valid
   checkpoints and two newest valid Snapshot files per Session. Backups and
   deletion policies must treat every retained artifact as sensitive.
@@ -128,22 +130,24 @@ content until absence is confirmed.
 The bundled file store takes a non-blocking exclusive data-directory lock
 before reading or writing. A second process fails to open that directory, and
 embedded callers must call `(*store.File).Close()` to release the lease.
-The bundled `flock` implementation currently supports only `darwin` and
-`linux`. On every other GOOS, `store.OpenFile` returns
-`ErrDataDirectoryLockUnsupported` and fails closed instead of running without
-the lock. High-availability or multi-instance hosts must implement another,
-externally coordinated Store rather than share the JSONL directory.
+The bundled exclusive data-directory lock supports `darwin`, `linux`, and
+`windows`: Unix uses `flock`, while Windows opens an exclusive file handle
+without sharing. On every other GOOS, `store.OpenFile` returns
+`ErrDataDirectoryLockUnsupported` and fails closed. High-availability or
+multi-instance hosts must implement another externally coordinated Store
+rather than share the JSONL directory.
 
 The bundled JSONL store is supported only on a local filesystem with reliable
-`flock`, same-directory atomic rename, file `fsync`, and directory `fsync`
-semantics. NFS, SMB, FUSE mounts, and cloud-synchronized directories are not
-supported. Remote or shared storage requires an externally coordinated Store.
+exclusive file locking, same-directory atomic rename, file sync, and directory
+sync semantics. NFS, SMB, FUSE mounts, and cloud-synchronized directories are
+not supported. Remote or shared storage requires an externally coordinated
+Store.
 
-File and directory `fsync` calls narrow crash windows, and a stale derived
-index is rebuilt from the authoritative event log. They are not an absolute
-durability guarantee against storage hardware, kernel, filesystem, backup,
-or operator failure. Stop the Sidecar or use a coordinated snapshot before
-copying the data directory.
+Unix file/directory `fsync` and Windows `FlushFileBuffers` calls narrow crash
+windows, and a stale derived index is rebuilt from the authoritative event log.
+They are not an absolute durability guarantee against storage hardware, kernel,
+filesystem, backup, or operator failure. Stop the Sidecar or use a coordinated
+snapshot before copying the data directory.
 
 ## Reporting
 

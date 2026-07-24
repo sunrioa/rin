@@ -44,7 +44,7 @@ HTTP status, `api/openapi.json` wins and the prose is a documentation bug.
 | Identifier identity | Request and Event IDs remain reserved for the entire lineage | Legacy incomplete history cannot recover already-evicted IDs | Never rotate an unresolved ID or reuse an abandoned-branch ID |
 | Reducer projection | `rin.reducer-projection/v2` | v1 checkpoints are discarded as derived caches; event logs are not rewritten | Expect legacy Proposal presentation to be reconstructed on read/exact retry |
 | Snapshot transport | 16 MiB compact JSON; surrounding request/response defaults are 32 MiB | Oversized legacy events may replay locally but cannot cross the inline API | Capacity-plan Identifier History; no streaming transport exists |
-| File Store | Local `darwin`/`linux` filesystems with reliable `flock`, rename, and sync semantics | Other GOOS fail closed | Use another coordinated Store for Windows, HA, remote, or shared storage |
+| File Store | Local `darwin`/`linux`/`windows` filesystems with reliable exclusive locking, rename, and sync semantics | Other GOOS fail closed | Use another coordinated Store for HA, remote, or shared storage |
 | SDK delivery | Source-first Python 3.9+, Node/Fetch, .NET 6+, Java 17+, Lua 5.1+ | Not published to language registries | Vendor the complete client directory and pin its Rin revision |
 
 Snapshot forward compatibility is a client-storage guarantee, not a server

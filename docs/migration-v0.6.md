@@ -131,9 +131,11 @@ required. A normal lazy load is not a checkpoint-independent full audit. Run
 `Engine.VerifyAll()` in maintenance tooling when a genesis-to-head audit of
 every Session is required.
 
-The bundled File Store is supported only on local `darwin` and `linux`
-filesystems with reliable locking, atomic rename, and sync semantics. Do not
-move it to Windows, NFS, SMB, FUSE, or a cloud-synchronized directory.
+The bundled File Store supports local `darwin`, `linux`, and `windows`
+filesystems with reliable exclusive locking, atomic rename, and sync semantics.
+Do not move it to NFS, SMB, FUSE, or a cloud-synchronized directory. After a
+Windows migration, verify startup, restart, and lock contention with real save
+data.
 
 ## Verification checklist
 

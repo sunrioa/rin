@@ -127,7 +127,8 @@ python3 tools/generate_contract.py --check
 ```
 
 CI 执行 Go Format、Vet、Race Test，以及 Linux、macOS、Windows 上的 Zero-CGO
-Build；还会在 Python 3.9 与当前 Python 3 上运行 Python SDK/Ren'Py，在
+Build 和 File Store/Sidecar 生命周期测试；这些平台测试覆盖持久化、重启与第二
+写者拒绝。CI 还会在 Python 3.9 与当前 Python 3 上运行 Python SDK/Ren'Py，在
 Node 18/24、Java 17/25、.NET 6/10 上运行相应 Client Test，并在 Lua 5.1/5.4
 下运行 Lua Client Test。Contract Generator Check 防止 OpenAPI 与生成的
 Route/Version Projection 漂移。

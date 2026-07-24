@@ -168,13 +168,13 @@ checkpoint，或 `head revision / 所选 checkpoint revision >= 2` 时，Runtime
 持久化，缓存写入失败也不会让 read 失败。运维需要不依赖 checkpoint、从
 genesis 到 head 审计所有 Session 时，调用 `Engine.VerifyAll()`。
 
-随附 `flock` 实现当前只支持 `darwin` 与 `linux`。其他所有 GOOS 上，
-`store.OpenFile` 会返回 `ErrDataDirectoryLockUnsupported` 并 fail closed，
-不会返回可用的 File Store。
+随附数据目录独占锁支持 `darwin`、`linux` 与 `windows`：Unix 使用 non-blocking
+`flock`，`windows` 使用无共享模式的独占文件 handle。其他所有 GOOS 上，
+`store.OpenFile` 返回 `ErrDataDirectoryLockUnsupported` 并 fail closed。
 
-随附 File Store 只能用于 `flock`、同目录原子 rename、file `fsync` 与 directory
-`fsync` 语义可靠的本地文件系统。不支持 NFS、SMB、FUSE mount 和云同步目录；
-远程或共享存储必须使用外部协调的 Store。
+随附 File Store 只能用于本机独占文件锁、同目录原子 rename、file sync 与
+directory sync 语义可靠的本地文件系统。不支持 NFS、SMB、FUSE mount 和
+云同步目录；远程或共享存储必须使用外部协调的 Store。
 
 事件日志采用 `retain_forever`，因为 Replay、持久 Identifier History 与审计
 依赖它。File Store 默认保留每个 Session 最近 2 个有效内部 checkpoint 和最近

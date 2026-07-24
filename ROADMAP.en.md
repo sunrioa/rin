@@ -88,7 +88,7 @@ transport, cryptographic signing, or post-1.0 stability.
 - [ ] Do not mark transfer supported before over-16-MiB end-to-end,
   cancellation, corruption, and crash-recovery tests pass. Raising the request
   body limit alone is not a substitute for streaming transfer.
-- [ ] Implement a Windows data-directory exclusive lock plus real Sidecar
+- [x] Implement a Windows data-directory exclusive lock plus real Sidecar
   persistence, restart, and lock-contention tests. Windows support is a project
   constraint; cross-compilation alone is not runtime support.
 

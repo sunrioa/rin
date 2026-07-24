@@ -211,13 +211,14 @@ durable when the read returns, and a cache-write failure does not fail that
 read. Call `Engine.VerifyAll()` when maintenance requires a
 checkpoint-independent, genesis-to-head audit of every Session.
 
-The bundled `flock` implementation currently supports only `darwin` and
-`linux`. On every other GOOS, `store.OpenFile` returns
-`ErrDataDirectoryLockUnsupported` and fails closed without returning a usable
-File Store.
+The bundled exclusive data-directory lock supports `darwin`, `linux`, and
+`windows`: Unix uses non-blocking `flock`, while Windows uses an exclusive file
+handle opened without sharing. On every other GOOS, `store.OpenFile` returns
+`ErrDataDirectoryLockUnsupported` and fails closed.
 
-Use the bundled file store only on a local filesystem with reliable `flock`,
-same-directory atomic rename, file `fsync`, and directory `fsync` semantics.
+Use the bundled file store only on a local filesystem with reliable exclusive
+file locking, same-directory atomic rename, file sync, and directory sync
+semantics.
 NFS, SMB, FUSE mounts, and cloud-synchronized directories are unsupported;
 remote or shared storage requires an externally coordinated Store.
 

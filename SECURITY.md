@@ -23,8 +23,10 @@ Rin `0.6.0` 是 Preview、pre-1.0 软件。Preview 状态不会放宽本文的 F
   `9007199254740991` 之间精确表示；字段自己的非负和更窄约束仍然有效。跨语言
   边界不会舍入不安全整数，而是直接拒绝。
 - Session ID 只能使用安全标识符，HTTP 请求不能提供文件路径。
-- 事件、索引、checkpoint、Snapshot 与锁文件权限为 `0600`。Snapshot、
-  checkpoint 与重建索引使用已同步的临时文件、rename 和 directory sync 发布。
+- 在 Unix 上，事件、索引、checkpoint、Snapshot 与锁文件权限为 `0600`，数据
+  目录为 `0700`。Windows 不解释 POSIX mode bit，这些文件继承数据根目录 ACL；
+  部署方必须把该 ACL 限制到 Sidecar 账户。Snapshot、checkpoint 与重建索引使用
+  已同步的临时文件、rename 和 directory sync 发布。
 - 事件日志采用 `retain_forever`；File Store 默认保留每个 Session 最近 2 个
   有效 checkpoint 与最近 2 个有效 Snapshot 文件。备份与删除策略必须把所有
   保留 artifact 都视为敏感数据。
@@ -84,18 +86,19 @@ Attempt/Job 身份，阻塞新 Turn，并在确认 Proposal 不存在前禁止�
 
 随附 File Store 会在读写前取得数据目录的 non-blocking exclusive lock。第二个
 进程打开同一目录会失败；嵌入式调用方必须调用 `(*store.File).Close()` 释放
-lease。随附 `flock` 实现当前只支持 `darwin` 与 `linux`。其他所有 GOOS 上，
-`store.OpenFile` 会返回 `ErrDataDirectoryLockUnsupported` 并 fail closed，
-不会在无锁状态下运行。高可用或多实例宿主必须实现另一个外部协调 Store，
-不能共享 JSONL 目录。
+lease。`darwin` 与 `linux` 使用 `flock`，`windows` 使用无共享模式的独占文件
+handle。其他所有 GOOS 上，`store.OpenFile` 返回
+`ErrDataDirectoryLockUnsupported` 并 fail closed。高可用或多实例宿主必须实现
+另一个外部协调 Store，不能共享 JSONL 目录。
 
-随附 JSONL Store 只支持 `flock`、同目录原子 rename、file `fsync` 与 directory
-`fsync` 语义可靠的本地文件系统。不支持 NFS、SMB、FUSE mount 和云同步目录；
-远程或共享存储必须使用外部协调的 Store。
+随附 JSONL Store 只支持本机独占文件锁、同目录原子 rename、file sync 与
+directory sync 语义可靠的本地文件系统。不支持 NFS、SMB、FUSE mount 和
+云同步目录；远程或共享存储必须使用外部协调的 Store。
 
-File 与 directory `fsync` 会缩小崩溃窗口，陈旧派生索引会从权威事件日志重建，
-但这些机制不是针对存储硬件、kernel、filesystem、备份或运维故障的绝对持久性
-保证。复制数据目录前应停止 Sidecar，或使用协调一致的存储快照。
+Unix file/directory `fsync` 与 Windows `FlushFileBuffers` 会缩小崩溃窗口，陈旧
+派生索引会从权威事件日志重建，但这些机制不是针对存储硬件、kernel、
+filesystem、备份或运维故障的绝对持久性保证。复制数据目录前应停止 Sidecar，
+或使用协调一致的存储快照。
 
 ## Reporting
 

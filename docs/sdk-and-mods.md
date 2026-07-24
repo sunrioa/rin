@@ -143,11 +143,13 @@ make test-sdks
 python3 tools/generate_contract.py --check
 ```
 
-CI executes Go formatting, vet, race tests, and zero-CGO builds on Linux,
-macOS, and Windows. It runs the Python SDK and Ren'Py adapter on Python 3.9
-and the current Python 3 release, JavaScript on Node 18 and 24, Java on 17 and
-25, C# against .NET 6 and 10, and Lua on 5.1 and 5.4. The contract generator
-check prevents drift from OpenAPI to generated route/version projections.
+CI executes Go formatting, vet, race tests, plus zero-CGO builds and File
+Store/Sidecar lifecycle tests on Linux, macOS, and Windows. The platform tests
+cover persistence, restart, and rejection of a second writer. CI runs the
+Python SDK and Ren'Py adapter on Python 3.9 and the current Python 3 release,
+JavaScript on Node 18 and 24, Java on 17 and 25, C# against .NET 6 and 10, and
+Lua on 5.1 and 5.4. The contract generator check prevents drift from OpenAPI
+to generated route/version projections.
 
 The SDK tests invoke real client methods against local fake transports or HTTP
 test servers and assert method/path selection, a nonempty UTF-8 JSON body,

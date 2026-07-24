@@ -119,8 +119,9 @@ Event Log、内嵌 Restore Payload 和备份中。
 完整审计；运维需要对每个 Session 执行 Genesis-to-head 审计时，应调用
 `Engine.VerifyAll()`。
 
-随附 File Store 只支持具有可靠锁、原子 Rename 与 Sync 语义的本地 `darwin` 和
-`linux` 文件系统。不得迁移到 Windows、NFS、SMB、FUSE 或云同步目录。
+随附 File Store 支持具有可靠独占文件锁、原子 Rename 与 Sync 语义的本地
+`darwin`、`linux` 和 `windows` 文件系统。不得迁移到 NFS、SMB、FUSE 或云同步
+目录；Windows 迁移后仍必须验证真实存档的启动、重启与锁竞争。
 
 ## 验证清单
 
