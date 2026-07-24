@@ -231,10 +231,14 @@ func TestRestoreRebasesAllFeaturesAndKeepsReceiptWhenFull(t *testing.T) {
 	source.Actors[actor.ID] = actor
 	source.Receipts = make(map[string]protocol.RequestReceipt, maxReceipts)
 	for index := 0; index < maxReceipts; index++ {
+		revision := uint64(0)
+		if index == maxReceipts-1 {
+			revision = source.Revision
+		}
 		source.Receipts[fmt.Sprintf("receipt.%04d", index)] = protocol.RequestReceipt{
 			Kind:     EventObserved,
 			EntityID: fmt.Sprintf("entity.%04d", index),
-			Revision: source.Revision,
+			Revision: revision,
 		}
 	}
 	if err := protocol.ValidateSessionState(source); err != nil {

@@ -84,16 +84,20 @@ func validateFeatures(field string, values []string) error {
 }
 
 func ValidateBinding(binding Binding) error {
-	if err := validateID("binding.game_id", binding.GameID); err != nil {
+	return validateBinding("binding", binding)
+}
+
+func validateBinding(field string, binding Binding) error {
+	if err := validateID(field+".game_id", binding.GameID); err != nil {
 		return err
 	}
-	if err := validateID("binding.content_id", binding.ContentID); err != nil {
+	if err := validateID(field+".content_id", binding.ContentID); err != nil {
 		return err
 	}
-	if err := validateText("binding.content_version", binding.ContentVersion, 64, true); err != nil {
+	if err := validateText(field+".content_version", binding.ContentVersion, 64, true); err != nil {
 		return err
 	}
-	return validateText("binding.content_hash", binding.ContentHash, 128, true)
+	return validateText(field+".content_hash", binding.ContentHash, 128, true)
 }
 
 func validateGoal(field string, goal Goal) error {
@@ -486,6 +490,9 @@ func ValidateRestore(request RestoreRequest) error {
 		return err
 	}
 	if err := validateID("request_id", request.RequestID); err != nil {
+		return err
+	}
+	if err := validateBinding("expected_binding", request.ExpectedBinding); err != nil {
 		return err
 	}
 	if request.Snapshot.State.SessionID != request.SessionID {

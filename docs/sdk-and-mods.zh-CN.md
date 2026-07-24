@@ -73,6 +73,13 @@ Commit 是结果记账而不是执行授权。Outbox、延迟结果、相同 `re
   Token。
 - SDK 拒绝重定向、限制响应大小，并只向用户显示有界 Rin 错误码，不暴露
   供应商正文。
+- 随附客户端默认响应上限为 32 MiB。完整 inline Snapshot compact JSON 上限
+  为 16 MiB，超限返回 `413 snapshot_too_large` 且绝不截断；更长 lineage
+  需要计划中的 Step 5 streaming transport。
+- Restore 调用方必须从运行中的可信内容 manifest 取得必填
+  `expected_binding`，不能从导入 Snapshot 读取。
+- Snapshot 是按事件日志保护的可信、不透明状态；其 SHA-256 canonical checksum
+  只能发现意外损坏，既不认证来源，也不能阻止能重算 checksum 的一方。
 - 把生成对白当作显示数据。绝不能把它解析成控制台命令、反射目标、脚本名、
   Item ID 或文件路径。
 

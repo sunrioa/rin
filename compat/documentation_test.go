@@ -226,6 +226,70 @@ func TestStateClosureDocumentationContract(t *testing.T) {
 		}
 	}
 
+	englishSnapshotDocs := []string{
+		"../README.en.md",
+		"../SECURITY.en.md",
+		"../docs/architecture.md",
+		"../docs/game-adapters.md",
+		"../docs/outcome-reporting.md",
+		"../docs/protocol-v1.md",
+		"../docs/rpg-events.md",
+		"../docs/sdk-and-mods.md",
+		"../sdk/README.md",
+	}
+	for _, path := range englishSnapshotDocs {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, fragment := range []string{
+			"`expected_binding`",
+			"trusted",
+			"opaque",
+			"SHA-256",
+			"16 MiB",
+			"32 MiB",
+			"`413 snapshot_too_large`",
+			"Step 5",
+		} {
+			if !strings.Contains(string(payload), fragment) {
+				t.Errorf("%s is missing bilingual English Snapshot rule %q", path, fragment)
+			}
+		}
+	}
+
+	chineseSnapshotDocs := []string{
+		"../README.md",
+		"../SECURITY.md",
+		"../docs/architecture.zh-CN.md",
+		"../docs/game-adapters.zh-CN.md",
+		"../docs/outcome-reporting.zh-CN.md",
+		"../docs/protocol-v1.zh-CN.md",
+		"../docs/rpg-events.zh-CN.md",
+		"../docs/sdk-and-mods.zh-CN.md",
+		"../sdk/README.zh-CN.md",
+	}
+	for _, path := range chineseSnapshotDocs {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, fragment := range []string{
+			"`expected_binding`",
+			"可信",
+			"不透明",
+			"SHA-256",
+			"16 MiB",
+			"32 MiB",
+			"`413 snapshot_too_large`",
+			"Step 5",
+		} {
+			if !strings.Contains(string(payload), fragment) {
+				t.Errorf("%s is missing bilingual Chinese Snapshot rule %q", path, fragment)
+			}
+		}
+	}
+
 	prohibited := map[string][]string{
 		"../docs/architecture.md": {
 			"A failed transition therefore leaves both the event log",
@@ -253,6 +317,143 @@ func TestStateClosureDocumentationContract(t *testing.T) {
 		for _, fragment := range fragments {
 			if strings.Contains(string(payload), fragment) {
 				t.Errorf("%s retains obsolete state-closure wording %q", path, fragment)
+			}
+		}
+	}
+}
+
+func TestSnapshotTransportAndTrustDocumentationContract(t *testing.T) {
+	required := map[string][]string{
+		"../README.en.md": {
+			"Snapshot hashes are checksums",
+			"trusted content manifest",
+			"`expected_binding`",
+			"16 MiB",
+			"32 MiB",
+			"`413 snapshot_too_large`",
+			"Step 5 streaming transport",
+		},
+		"../README.md": {
+			"Snapshot hash 是 checksum",
+			"可信内容 manifest",
+			"`expected_binding`",
+			"16 MiB",
+			"32 MiB",
+			"`413 snapshot_too_large`",
+			"Step 5 streaming transport",
+		},
+		"../docs/protocol-v1.md": {
+			`"expected_binding": {`,
+			"must come from the running game's trusted",
+			"on an existing target all three must match",
+			"not signatures",
+			"do not authenticate provenance",
+			"16 MiB",
+			"32 MiB",
+			"`413 snapshot_too_large`",
+			"`413 body_too_large`",
+			"still fits the configured request-body limit",
+			"rejected during decoding first",
+			"legacy four-field Restore request shape",
+			"new-schema exact retry",
+			"remain replayable",
+			"Snapshot still fits the inline limit",
+			"cannot be retransmitted through the inline API",
+			"never silently truncated",
+			"Step 5 streaming transport",
+		},
+		"../docs/protocol-v1.zh-CN.md": {
+			`"expected_binding": {`,
+			"运行中游戏的可信内容 manifest",
+			"existing target 则要求三方全部匹配",
+			"不是签名",
+			"不验证来源真实性",
+			"16 MiB",
+			"32 MiB",
+			"`413 snapshot_too_large`",
+			"`413 body_too_large`",
+			"仍处于配置的请求正文上限内",
+			"解码阶段会优先返回",
+			"旧四字段 Restore request shape",
+			"新 schema exact retry",
+			"正常重放",
+			"Snapshot 仍在 inline 上限内时",
+			"不能通过 inline API 重新传输",
+			"绝不会被静默截断",
+			"Step 5 streaming transport",
+		},
+		"../docs/architecture.md": {
+			"trusted, opaque serialized state",
+			"running game's trusted content",
+			"Complete compact inline Snapshot",
+			"never truncated",
+			"Step 5 streaming transport",
+		},
+		"../docs/architecture.zh-CN.md": {
+			"Snapshot 是可信、",
+			"不透明的序列化状态",
+			"运行中游戏可信内容",
+			"完整 inline Snapshot compact JSON",
+			"绝不会截断",
+			"Step 5 streaming transport",
+		},
+		"../sdk/README.md": {
+			"trusted, opaque state",
+			"running game's trusted content",
+			"Every SDK defaults to a",
+			"32 MiB response limit",
+			"16 MiB",
+			"planned Step 5",
+		},
+		"../sdk/README.zh-CN.md": {
+			"可信、",
+			"运行中游戏可信内容",
+			"所有 SDK 默认响应上限为 32 MiB",
+			"16 MiB",
+			"Step 5",
+		},
+	}
+
+	for path, fragments := range required {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, fragment := range fragments {
+			if !strings.Contains(string(payload), fragment) {
+				t.Errorf("%s is missing Snapshot transport/trust rule %q", path, fragment)
+			}
+		}
+	}
+
+	prohibited := map[string][]string{
+		"../README.en.md": {
+			"tampered or mismatched saves are",
+		},
+		"../README.md": {
+			"篡改或串档会被拒绝",
+		},
+		"../sdk/README.md": {
+			"default to a\n2 MiB response limit",
+		},
+		"../sdk/README.zh-CN.md": {
+			"默认响应上限为\n2 MiB",
+		},
+		"../docs/protocol-v1.md": {
+			"limits do not guarantee that every arbitrarily long Session Snapshot will fit",
+		},
+		"../docs/protocol-v1.zh-CN.md": {
+			"当前 HTTP 与 SDK 上限不能保证任意长 Session",
+		},
+	}
+	for path, fragments := range prohibited {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, fragment := range fragments {
+			if strings.Contains(string(payload), fragment) {
+				t.Errorf("%s retains obsolete Snapshot transport/trust wording %q", path, fragment)
 			}
 		}
 	}

@@ -15,6 +15,9 @@ public final class RinClientTest {
     private record RequestCase(Supplier<CompletableFuture<Map<String, Object>>> call, String method, String path) { }
 
     public static void main(String[] args) throws Exception {
+        require(
+                RinClient.DEFAULT_MAX_RESPONSE_BYTES == 32 * 1024 * 1024,
+                "default response limit does not match the inline transport budget");
         String[] lastRequest = new String[3];
         String[] mode = {"normal"};
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);

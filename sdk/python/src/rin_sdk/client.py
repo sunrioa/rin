@@ -14,7 +14,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 PROTOCOL_VERSION = "rin.protocol/v1"
 DEFAULT_BASE_URL = "http://127.0.0.1:7374"
-DEFAULT_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 _MAX_GENERATION_CONTENT_BYTES = 4 * 1024 * 1024
 _MAX_SIGNED_INT64 = (1 << 63) - 1
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")

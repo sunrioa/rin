@@ -318,6 +318,8 @@ func (s *Server) respond(response http.ResponseWriter, data any, err error) {
 	}
 	status := http.StatusInternalServerError
 	switch {
+	case rinruntime.ErrorCode(err) == "snapshot_too_large":
+		status = http.StatusRequestEntityTooLarge
 	case protocol.IsValidationError(err),
 		rinruntime.ErrorCode(err) == "invalid_request",
 		rinruntime.ErrorCode(err) == "invalid_snapshot":

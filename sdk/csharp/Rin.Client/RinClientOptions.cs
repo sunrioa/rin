@@ -8,5 +8,5 @@ public sealed class RinClientOptions
 
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(5);
 
-    public int MaxResponseBytes { get; init; } = 2 * 1024 * 1024;
+    public int MaxResponseBytes { get; init; } = 32 * 1024 * 1024;
 }

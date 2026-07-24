@@ -57,8 +57,9 @@ type arbitratedPayload struct {
 }
 
 type restoredPayload struct {
-	Snapshot    protocol.Snapshot `json:"snapshot"`
-	RequestHash string            `json:"request_hash,omitempty"`
+	Snapshot        protocol.Snapshot `json:"snapshot"`
+	ExpectedBinding *protocol.Binding `json:"expected_binding,omitempty"`
+	RequestHash     string            `json:"request_hash,omitempty"`
 }
 
 func applyEvent(state protocol.SessionState, event protocol.EventRecord) (protocol.SessionState, error) {
@@ -431,8 +432,11 @@ func applyRestored(current protocol.SessionState, event protocol.EventRecord) (p
 	if err := json.Unmarshal(event.Data, &payload); err != nil {
 		return protocol.SessionState{}, fmt.Errorf("%w: decode restore payload: %v", ErrCorruptLog, err)
 	}
-	if err := ValidateSnapshot(payload.Snapshot); err != nil {
+	if err := validateSnapshotContents(payload.Snapshot); err != nil {
 		return protocol.SessionState{}, fmt.Errorf("%w: %v", ErrCorruptLog, err)
+	}
+	if payload.ExpectedBinding != nil && *payload.ExpectedBinding != payload.Snapshot.State.Binding {
+		return protocol.SessionState{}, fmt.Errorf("%w: restore expected binding mismatch", ErrCorruptLog)
 	}
 	restored, err := clone(payload.Snapshot.State)
 	if err != nil {

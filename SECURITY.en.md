@@ -13,9 +13,12 @@ requirements, and vulnerability-reporting process.
   behind a TLS reverse proxy on a controlled network.
 - Once a token is configured, every endpoint except `/health` uses
   constant-time Bearer-token verification.
-- JSON bodies are limited to 32 MiB by default, primarily for complete
-  snapshots. Unknown fields, multiple JSON values, and non-UTF-8 input are
-  rejected.
+- JSON request bodies and bundled-client response bodies are limited to
+  32 MiB by default. Complete inline Snapshot compact JSON is separately
+  capped at 16 MiB to leave envelope and durable-record headroom; it is
+  rejected with `413 snapshot_too_large`, never truncated, when larger.
+  A larger lineage awaits the planned Step 5 streaming transport. Unknown
+  fields, multiple JSON values, and non-UTF-8 input are rejected.
 - Session IDs use safe identifiers only; HTTP requests cannot provide file
   paths.
 - Events and snapshots use `0600` permissions; immutable snapshot files are
@@ -33,6 +36,13 @@ Policy and model output are untrusted. The runtime accepts only candidate
 actions declared by the game for the current request and verifies actor,
 goal, memory, boundary, revision, and content binding. Rin does not execute
 scripts, shells, dynamic plugins, or model-generated tool calls.
+
+Snapshots are trusted, opaque serialized state and require the same controls
+as event logs. Their SHA-256 canonical checksums detect accidental corruption
+or unsynchronized modification; they are not signatures or provenance proof,
+and an editor can recompute them. Restore therefore requires
+`expected_binding` from the running game's trusted content manifest instead
+of trusting the imported Snapshot to declare which content is active.
 
 Online mode sends only the current actor's bounded traits, boundaries, active
 goals, relevant memories, beliefs, recent actions, and candidate actions.

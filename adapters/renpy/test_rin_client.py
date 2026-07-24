@@ -1093,6 +1093,13 @@ class RinClientTests(unittest.TestCase):
             client.health()
         self.assertEqual(caught.exception.code, "response_too_large")
 
+    def test_default_response_limit_matches_inline_transport_budget(self):
+        self.assertEqual(rin_client.DEFAULT_MAX_RESPONSE_BYTES, 32 * 1024 * 1024)
+        self.assertEqual(
+            rin_client.RinClient().max_response_bytes,
+            rin_client.DEFAULT_MAX_RESPONSE_BYTES,
+        )
+
     def test_renpy_bridge_python_block_parses(self):
         source = Path(__file__).with_name("rin_bridge.rpy").read_text(encoding="utf-8")
         marker = "init -30 python:\n"

@@ -30,7 +30,7 @@ import java.util.function.Function;
 public final class RinClient {
     public static final String PROTOCOL_VERSION = "rin.protocol/v1";
     public static final String DEFAULT_BASE_URL = "http://127.0.0.1:7374";
-    public static final int DEFAULT_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+    public static final int DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 
     private static final int MAX_GENERATION_CONTENT_BYTES = 4 * 1024 * 1024;
     private static final long MAX_SAFE_DOUBLE_INTEGER = 9_007_199_254_740_991L;

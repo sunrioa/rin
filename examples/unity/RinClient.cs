@@ -27,7 +27,7 @@ public sealed class RinClient : MonoBehaviour
     [SerializeField, Range(1, 120)] private int requestTimeoutSeconds = 5;
     [SerializeField, Range(1, 300)] private int jobDeadlineSeconds = 25;
     [SerializeField, Range(0.05f, 5f)] private float pollIntervalSeconds = 0.1f;
-    [SerializeField] private int maxResponseBytes = 2 * 1024 * 1024;
+    [SerializeField] private int maxResponseBytes = 32 * 1024 * 1024;
 
     public bool IsConfigured { get; private set; }
 

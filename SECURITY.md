@@ -10,7 +10,10 @@
 - 非 loopback 地址必须同时传入 `-allow-remote` 并设置 `RIN_TOKEN`。
 - Rin 不终止入站 TLS；远程部署必须放在受控网络和 TLS 反向代理之后。
 - 除 `/health` 外，配置 Token 后所有端点都使用 constant-time Bearer 校验。
-- JSON 正文默认限制为 32 MiB（主要用于完整快照），未知字段、多个 JSON 值和非 UTF-8 内容被拒绝。
+- JSON 请求正文与随附客户端响应正文默认限制为 32 MiB。完整 inline Snapshot
+  compact JSON 另有 16 MiB 上限，以便为 envelope 与持久记录预留空间；超限
+  时返回 `413 snapshot_too_large`，绝不会截断。更长 lineage 需等待计划中的
+  Step 5 streaming transport。未知字段、多个 JSON 值和非 UTF-8 内容被拒绝。
 - Session ID 只能使用安全标识符，HTTP 请求不能提供文件路径。
 - 事件和快照权限为 `0600`；快照以不可变文件原子写入。
 - API Key、Sidecar Token 和供应商配置不属于协议状态，不会持久化。
@@ -20,6 +23,11 @@
 ## Trust model
 
 Policy 和模型输出均不可信。运行时只接受游戏本次声明的候选动作，并核对 Actor、Goal、Memory、Boundary、revision 和 content binding。Rin 不执行脚本、Shell、动态插件或模型生成的工具调用。
+
+Snapshot 是可信、不透明的序列化状态，必须按事件日志同等级别保护。其中
+SHA-256 canonical checksum 可发现意外损坏或未同步修改，但不是签名或来源
+证明，修改者可以重算。Restore 因此要求 `expected_binding` 来自运行中游戏
+的可信内容 manifest，而不是信任导入 Snapshot 自己声明当前启用的内容。
 
 在线模式只发送当前 Actor 的有限 traits、boundaries、active goals、相关 memories、beliefs、近期行动及本次候选动作。事件日志、完整 Session、Receipts、快照、文件路径、Token 和 API Key 不进入模型数据包。所有游戏文字放在明确标记的 `untrusted_game_data` 下，模型返回值仍需本地白名单验证。
 

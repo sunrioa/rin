@@ -95,6 +95,14 @@ An NPC can refuse, misunderstand, delay, or pursue a small goal, but it cannot c
 - Submit Jobs only for loaded, relevant actors and cap concurrency in the game as well as Rin.
 - Batch world events into one concise observation when every listed observer perceived the same outcome.
 - Keep important named NPCs at higher frequency; use deterministic policies for crowds.
-- Snapshot at game save boundaries. Restore only when the game/content binding matches.
+- Snapshot at game save boundaries. Restore with mandatory `expected_binding`
+  from the running trusted content manifest; it must match the Snapshot and
+  any existing target Session.
+- Treat a Snapshot as trusted, opaque event-log-level state. Its SHA-256
+  canonical checksums detect accidental damage, not provenance or an editor
+  able to recompute them. Inline compact JSON is capped at 16 MiB; server
+  requests and bundled-client responses default to 32 MiB. A
+  `413 snapshot_too_large` result never truncates the lineage and requires the
+  planned Step 5 streaming transport.
 
 This keeps model cost proportional to meaningful decisions rather than population size or frame rate.

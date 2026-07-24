@@ -1,5 +1,6 @@
 from .client import (
     DEFAULT_BASE_URL,
+    DEFAULT_MAX_RESPONSE_BYTES,
     PROTOCOL_VERSION,
     RinAPIError,
     RinClient,
@@ -11,6 +12,7 @@ from .client import (
 
 __all__ = (
     "DEFAULT_BASE_URL",
+    "DEFAULT_MAX_RESPONSE_BYTES",
     "PROTOCOL_VERSION",
     "RinAPIError",
     "RinClient",

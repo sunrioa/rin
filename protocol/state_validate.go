@@ -321,6 +321,8 @@ func ValidateSessionState(state SessionState) error {
 	if len(state.Receipts) > 1024 {
 		return &ValidationError{Field: "state.receipts", Message: "must contain at most 1024 values"}
 	}
+	receiptRevisions := make(map[uint64]string, len(state.Receipts))
+	currentReceiptCount := 0
 	for id, receipt := range state.Receipts {
 		field := "state.receipts." + id
 		if err := validateID(field, id); err != nil {
@@ -328,6 +330,12 @@ func ValidateSessionState(state SessionState) error {
 		}
 		if err := validateID(field+".kind", receipt.Kind); err != nil {
 			return err
+		}
+		if !validIdentifierRequestKind(receipt.Kind) {
+			return &ValidationError{
+				Field:   field + ".kind",
+				Message: "must be a supported durable mutation kind",
+			}
 		}
 		if receipt.EntityID != "" {
 			if err := validateID(field+".entity_id", receipt.EntityID); err != nil {
@@ -342,6 +350,24 @@ func ValidateSessionState(state SessionState) error {
 		}
 		if receipt.Revision > state.Revision {
 			return &ValidationError{Field: field + ".revision", Message: "must not exceed the session revision"}
+		}
+		if receipt.Revision != 0 {
+			if previous, exists := receiptRevisions[receipt.Revision]; exists {
+				return &ValidationError{
+					Field:   field + ".revision",
+					Message: fmt.Sprintf("duplicates the non-zero revision of receipt %s", previous),
+				}
+			}
+			receiptRevisions[receipt.Revision] = id
+		}
+		if receipt.Revision == state.Revision {
+			currentReceiptCount++
+		}
+	}
+	if currentReceiptCount != 1 {
+		return &ValidationError{
+			Field:   "state.receipts",
+			Message: "must contain exactly one receipt for the current session revision",
 		}
 	}
 	return nil

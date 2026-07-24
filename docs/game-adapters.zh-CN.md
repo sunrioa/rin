@@ -117,6 +117,15 @@ Snapshot、普通结果字典，以及上文所述的普通稳定 Proposal Attem
 fail closed，不能生成新身份；只有确实 `not_found` 时，才可先持久化完整
 初始化状态，再发布新 run ID。
 
+每次 Restore 都必须发送来自运行中游戏可信内容 manifest 的
+`expected_binding`，不得从存档读取。它必须等于存档 Snapshot 的 Binding；
+target Session 已存在时还必须与该 Session 的 Binding 一致。Snapshot 是可信、
+不透明的状态，必须按事件日志同等级别保护。SHA-256 canonical checksum 只能
+发现意外损坏，不能证明来源真实性，也不能阻止能重算 checksum 的一方。完整
+inline Snapshot compact JSON 上限为 16 MiB；服务端请求和随附客户端响应默认
+上限均为 32 MiB。`413 snapshot_too_large` 绝不截断存档；更长 lineage 需等待
+计划中的 Step 5 streaming transport。
+
 Godot 负责导航、动画、战斗、背包和对白渲染。Activity、到期角色、仲裁、
 批量提交、时间线和回放 helper 都是 coroutine；只在模拟或区域变化时更新
 Activity，不要每帧调用。适配器限制响应字节、禁用重定向，并只对精确的
@@ -156,6 +165,7 @@ Rin 公共定位的一部分。测试内容包括：
 - 将玩家自由文本转为显式 Observation；
 - 在结构化内容生成前提供仅候选的角色方向；
 - 接受方向并 Commit，再把 Snapshot 存入游戏存档；
+- 从运行中的可信内容 manifest 取得 Restore `expected_binding`；
 - 同时根据已存 Snapshot 与当前 Sidecar head 派生 Restore ID；
 - Sidecar Generation 不可用时使用确定性的 authored fallback。
 

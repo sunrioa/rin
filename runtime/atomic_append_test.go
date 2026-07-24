@@ -725,6 +725,7 @@ func TestFreshRestoreRetryRecoversAfterConfirmationFailure(t *testing.T) {
 		ProtocolVersion: protocol.Version,
 		SessionID:       sessionID,
 		RequestID:       "restore.atomic-fresh",
+		ExpectedBinding: snapshot.State.Binding,
 		Snapshot:        snapshot,
 	}
 	if _, err := engine.Restore(request); !errors.Is(err, errInjectedAppend) ||

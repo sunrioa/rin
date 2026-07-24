@@ -860,6 +860,9 @@ func (e *Engine) Snapshot(request protocol.SessionRequest) (protocol.Snapshot, e
 	snapshot, err := snapshotWithIdentifiers(session.state, session.identifiers)
 	session.mu.Unlock()
 	if err != nil {
+		if ErrorCode(err) == "snapshot_too_large" {
+			return protocol.Snapshot{}, err
+		}
 		return protocol.Snapshot{}, NewError("snapshot_failed", "could not create snapshot", err)
 	}
 	if err := e.store.SaveSnapshot(request.SessionID, snapshot); err != nil {
@@ -875,9 +878,21 @@ func (e *Engine) Restore(request protocol.RestoreRequest) (protocol.MutationResu
 	if err := ValidateSnapshot(request.Snapshot); err != nil {
 		return protocol.MutationResult{}, err
 	}
+	if request.ExpectedBinding != request.Snapshot.State.Binding {
+		return protocol.MutationResult{}, NewFieldError(
+			"binding_mismatch",
+			"snapshot does not match the caller's expected game content",
+			"expected_binding",
+			ErrConflict,
+		)
+	}
 	requestHash, err := requestDigest(request)
 	if err != nil {
 		return protocol.MutationResult{}, NewError("request_encode_failed", "could not identify restore request", err)
+	}
+	legacyRequestHash, err := legacyRestoreRequestDigest(request)
+	if err != nil {
+		return protocol.MutationResult{}, NewError("request_encode_failed", "could not identify legacy restore request", err)
 	}
 	importedIdentifiers, err := identifiersForSnapshot(request.Snapshot)
 	if err != nil {
@@ -927,7 +942,11 @@ func (e *Engine) Restore(request protocol.RestoreRequest) (protocol.MutationResu
 			protocol.SessionState{},
 			EventSessionRestored,
 			request.RequestID,
-			restoredPayload{Snapshot: request.Snapshot, RequestHash: requestHash},
+			restoredPayload{
+				Snapshot:        request.Snapshot,
+				ExpectedBinding: &request.ExpectedBinding,
+				RequestHash:     requestHash,
+			},
 			e.now(),
 		)
 		if err != nil {
@@ -958,20 +977,26 @@ func (e *Engine) Restore(request protocol.RestoreRequest) (protocol.MutationResu
 
 	session.mu.Lock()
 	defer session.mu.Unlock()
+	if session.state.Binding != request.ExpectedBinding {
+		return protocol.MutationResult{}, NewFieldError(
+			"binding_mismatch",
+			"expected binding does not match the existing session",
+			"expected_binding",
+			ErrConflict,
+		)
+	}
 	identity, handled, duplicate, err := e.resolveMutationRetry(
 		session,
 		request.RequestID,
 		EventSessionRestored,
 		requestHash,
+		legacyRequestHash,
 	)
 	if err != nil {
 		return protocol.MutationResult{}, err
 	}
 	if handled {
 		return mutationResultFromIdentity(session.state.SessionID, identity, duplicate), nil
-	}
-	if session.state.Binding != request.Snapshot.State.Binding {
-		return protocol.MutationResult{}, NewFieldError("binding_mismatch", "snapshot belongs to different game content", "snapshot.state.binding", ErrConflict)
 	}
 	if _, mergeErr := mergeIdentifierHistories(session.identifiers, importedIdentifiers); mergeErr != nil {
 		return protocol.MutationResult{}, NewError(
@@ -984,7 +1009,11 @@ func (e *Engine) Restore(request protocol.RestoreRequest) (protocol.MutationResu
 		session.state,
 		EventSessionRestored,
 		request.RequestID,
-		restoredPayload{Snapshot: request.Snapshot, RequestHash: requestHash},
+		restoredPayload{
+			Snapshot:        request.Snapshot,
+			ExpectedBinding: &request.ExpectedBinding,
+			RequestHash:     requestHash,
+		},
 		e.now(),
 	)
 	if err != nil {
@@ -1165,9 +1194,24 @@ func (e *Engine) mutationSession(id string) (*managedSession, error) {
 func (e *Engine) resolveMutationRetry(
 	session *managedSession,
 	requestID, kind, requestHash string,
+	compatibleRequestHashes ...string,
 ) (protocol.RequestIdentity, bool, bool, error) {
 	identity, used, err := identifierRequest(session.identifiers, requestID, kind, requestHash)
 	if err != nil {
+		for _, compatibleHash := range compatibleRequestHashes {
+			if compatibleHash == requestHash {
+				continue
+			}
+			compatibleIdentity, compatibleUsed, compatibleErr := identifierRequest(
+				session.identifiers,
+				requestID,
+				kind,
+				compatibleHash,
+			)
+			if compatibleErr == nil && compatibleUsed {
+				return compatibleIdentity, true, true, nil
+			}
+		}
 		return protocol.RequestIdentity{}, false, false, err
 	}
 	if used {

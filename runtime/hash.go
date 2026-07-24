@@ -121,16 +121,34 @@ func snapshotWithIdentifiers(
 	if err != nil {
 		return protocol.Snapshot{}, err
 	}
-	return protocol.Snapshot{
+	snapshot := protocol.Snapshot{
 		ProtocolVersion:       protocol.Version,
 		StateHash:             hash,
 		State:                 copyState,
 		IdentifierHistory:     &copyIdentifiers,
 		IdentifierHistoryHash: identifierHash,
-	}, nil
+	}
+	if size, err := checkInlineSnapshotSize(snapshot, MaxInlineSnapshotBytes); err != nil {
+		return protocol.Snapshot{}, snapshotTooLargeError(size, err)
+	}
+	return snapshot, nil
 }
 
 func ValidateSnapshot(snapshot protocol.Snapshot) error {
+	return validateSnapshot(snapshot, MaxInlineSnapshotBytes)
+}
+
+func validateSnapshot(snapshot protocol.Snapshot, maximumInlineBytes int) error {
+	if err := validateSnapshotHeader(snapshot); err != nil {
+		return err
+	}
+	if size, err := checkInlineSnapshotSize(snapshot, maximumInlineBytes); err != nil {
+		return snapshotTooLargeErrorForLimit(size, maximumInlineBytes, err)
+	}
+	return validateSnapshotBody(snapshot)
+}
+
+func validateSnapshotHeader(snapshot protocol.Snapshot) error {
 	if snapshot.ProtocolVersion != protocol.Version {
 		return NewFieldError("invalid_snapshot", "snapshot protocol version is unsupported", "snapshot.protocol_version", nil)
 	}
@@ -140,6 +158,21 @@ func ValidateSnapshot(snapshot protocol.Snapshot) error {
 	if snapshot.State.SessionID == "" {
 		return NewFieldError("invalid_snapshot", "snapshot session id is required", "snapshot.state.session_id", nil)
 	}
+	return nil
+}
+
+// validateSnapshotContents deliberately excludes the inline transport limit.
+// Durable restore events written by an older release may contain a Snapshot
+// larger than today's inline contract and must remain replayable. New
+// Snapshot, Replay, and Restore API boundaries call ValidateSnapshot first.
+func validateSnapshotContents(snapshot protocol.Snapshot) error {
+	if err := validateSnapshotHeader(snapshot); err != nil {
+		return err
+	}
+	return validateSnapshotBody(snapshot)
+}
+
+func validateSnapshotBody(snapshot protocol.Snapshot) error {
 	if err := protocol.ValidateSessionState(snapshot.State); err != nil {
 		return NewError("invalid_snapshot", "snapshot contains invalid session state", err)
 	}
@@ -157,6 +190,24 @@ func ValidateSnapshot(snapshot protocol.Snapshot) error {
 				"snapshot identifier history hash requires identifier history",
 				"snapshot.identifier_history_hash",
 				ErrCorruptLog,
+			)
+		}
+		legacyIdentifiers := identifiersFromState(snapshot.State)
+		if err := protocol.ValidateIdentifierHistory(
+			legacyIdentifiers,
+			snapshot.State.SessionID,
+		); err != nil {
+			return NewError(
+				"invalid_snapshot",
+				"legacy snapshot cannot seed valid identifier history",
+				err,
+			)
+		}
+		if err := validateIdentifiersCoverState(legacyIdentifiers, snapshot.State); err != nil {
+			return NewError(
+				"invalid_snapshot",
+				"legacy snapshot identifier projection does not cover retained state",
+				err,
 			)
 		}
 		return nil
@@ -200,27 +251,61 @@ func validateIdentifiersCoverState(
 	}
 	for requestID, receipt := range state.Receipts {
 		identity := history.Requests[requestID]
-		if identity.Ambiguous {
-			continue
-		}
-		if receipt.RequestHash != "" && identity.RequestHash != receipt.RequestHash {
+		if receipt.RequestHash != "" &&
+			identity.RequestHash != "" &&
+			identity.RequestHash != receipt.RequestHash {
 			return fmt.Errorf("identifier history hash does not match retained request id %q", requestID)
 		}
-		if receipt.Revision != 0 && identity.ResultRevision != receipt.Revision {
+		if receipt.Revision != 0 &&
+			identity.ResultRevision != 0 &&
+			identity.ResultRevision != receipt.Revision {
 			return fmt.Errorf("identifier history revision does not match retained request id %q", requestID)
 		}
-		if receipt.Revision != 0 &&
-			receipt.Revision == state.Revision &&
-			identity.ResultHeadHash != state.HeadHash {
-			return fmt.Errorf("identifier history head does not match the current request id %q", requestID)
+		if receipt.Revision == state.Revision {
+			if identity.Ambiguous {
+				if identity.ResultHeadHash != "" && identity.ResultHeadHash != state.HeadHash {
+					return fmt.Errorf("identifier history head does not match the current request id %q", requestID)
+				}
+			} else {
+				if identity.ResultRevision != state.Revision {
+					return fmt.Errorf("identifier history is missing the current revision for request id %q", requestID)
+				}
+				if identity.ResultHeadHash != state.HeadHash {
+					return fmt.Errorf("identifier history head does not match the current request id %q", requestID)
+				}
+			}
 		}
 		switch receipt.Kind {
+		case EventObserved:
+			event, found := history.Events[receipt.EntityID]
+			if !found {
+				return fmt.Errorf("identifier history is missing observation event id %q", receipt.EntityID)
+			}
+			if event.Kind != "" && event.Kind != EventObserved {
+				return fmt.Errorf("identifier history kind does not match observation event id %q", receipt.EntityID)
+			}
+			if event.RequestID != "" && event.RequestID != requestID {
+				return fmt.Errorf("identifier history request does not match observation event id %q", receipt.EntityID)
+			}
+			if receipt.Revision != 0 &&
+				event.Revision != 0 &&
+				event.Revision != receipt.Revision {
+				return fmt.Errorf("identifier history revision does not match observation event id %q", receipt.EntityID)
+			}
 		case EventProposed:
-			if identity.Proposal == nil || receipt.EntityID != identity.Proposal.ID {
+			if identity.Proposal != nil {
+				if receipt.EntityID != identity.Proposal.ID {
+					return fmt.Errorf("identifier history proposal does not match retained request id %q", requestID)
+				}
+			} else if !identity.Ambiguous {
 				return fmt.Errorf("identifier history proposal does not match retained request id %q", requestID)
 			}
 		case EventArbitrated:
-			if identity.Arbitration == nil || receipt.EntityID != identity.Arbitration.ID {
+			if identity.Arbitration != nil {
+				if receipt.EntityID != identity.Arbitration.ID {
+					return fmt.Errorf("identifier history arbitration does not match retained request id %q", requestID)
+				}
+			} else if !identity.Ambiguous {
 				return fmt.Errorf("identifier history arbitration does not match retained request id %q", requestID)
 			}
 		}
@@ -229,20 +314,101 @@ func validateIdentifiersCoverState(
 		if err := validateRetainedProposalIdentity(history, proposal); err != nil {
 			return err
 		}
+		if err := validateRetainedEventKind(
+			history,
+			proposal.OutcomeEventID,
+			"proposal outcome",
+			EventCommitted,
+			EventBatchCommitted,
+		); err != nil {
+			return err
+		}
 	}
 	for _, actor := range state.Actors {
+		for _, goal := range actor.Goals {
+			if err := validateRetainedEventKind(
+				history,
+				goal.StatusSourceEventID,
+				"goal status",
+				EventCommitted,
+				EventBatchCommitted,
+			); err != nil {
+				return err
+			}
+		}
+		for _, memory := range actor.Memories {
+			if err := validateRetainedEventKind(
+				history,
+				memory.EventID,
+				"memory",
+				EventObserved,
+				EventCommitted,
+				EventBatchCommitted,
+			); err != nil {
+				return err
+			}
+		}
+		for _, summary := range actor.MemorySummaries {
+			for _, eventID := range summary.SourceEventIDs {
+				if err := validateRetainedEventKind(
+					history,
+					eventID,
+					"memory summary",
+					EventObserved,
+					EventCommitted,
+					EventBatchCommitted,
+				); err != nil {
+					return err
+				}
+			}
+		}
 		for _, proposal := range actor.RecentActions {
 			if err := validateRetainedProposalIdentity(history, proposal); err != nil {
 				return err
+			}
+			if err := validateRetainedEventKind(
+				history,
+				proposal.OutcomeEventID,
+				"recent action outcome",
+				EventCommitted,
+				EventBatchCommitted,
+			); err != nil {
+				return err
+			}
+		}
+		for _, fact := range actor.Beliefs {
+			if err := validateRetainedEventKind(
+				history,
+				fact.SourceEventID,
+				"belief",
+				EventObserved,
+				EventCommitted,
+				EventBatchCommitted,
+			); err != nil {
+				return err
+			}
+		}
+		for _, set := range actor.BeliefSets {
+			for _, claim := range set.Claims {
+				if err := validateRetainedEventKind(
+					history,
+					claim.Fact.SourceEventID,
+					"belief claim",
+					EventObserved,
+					EventCommitted,
+					EventBatchCommitted,
+				); err != nil {
+					return err
+				}
 			}
 		}
 	}
 	for _, record := range state.Arbitrations {
 		identity := history.Requests[record.RequestID]
-		if identity.Ambiguous {
-			continue
-		}
 		if identity.Arbitration == nil {
+			if identity.Ambiguous {
+				continue
+			}
 			return fmt.Errorf("identifier history is missing retained arbitration result %q", record.RequestID)
 		}
 		comparable := record
@@ -259,15 +425,39 @@ func validateIdentifiersCoverState(
 	return nil
 }
 
+func validateRetainedEventKind(
+	history protocol.IdentifierHistory,
+	eventID string,
+	source string,
+	allowed ...string,
+) error {
+	if eventID == "" {
+		return nil
+	}
+	identity, found := history.Events[eventID]
+	if !found {
+		return fmt.Errorf("identifier history is missing %s event id %q", source, eventID)
+	}
+	if identity.Kind == "" {
+		return nil
+	}
+	for _, kind := range allowed {
+		if identity.Kind == kind {
+			return nil
+		}
+	}
+	return fmt.Errorf("identifier history kind %q is invalid for %s event id %q", identity.Kind, source, eventID)
+}
+
 func validateRetainedProposalIdentity(
 	history protocol.IdentifierHistory,
 	proposal protocol.ActionProposal,
 ) error {
 	identity := history.Requests[proposal.RequestID]
-	if identity.Ambiguous {
-		return nil
-	}
 	if identity.Proposal == nil {
+		if identity.Ambiguous {
+			return nil
+		}
 		return fmt.Errorf("identifier history is missing retained proposal result %q", proposal.RequestID)
 	}
 	original := *identity.Proposal

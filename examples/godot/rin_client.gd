@@ -20,7 +20,7 @@ const MAX_SAFE_JSON_INTEGER := 9007199254740991
 @export_range(1.0, 120.0, 0.5) var request_timeout_seconds := 5.0
 @export_range(1.0, 300.0, 0.5) var job_deadline_seconds := 25.0
 @export_range(0.05, 5.0, 0.05) var poll_interval_seconds := 0.1
-@export_range(1024, 33554432, 1024) var max_response_bytes := 2097152
+@export_range(1024, 33554432, 1024) var max_response_bytes := 33554432
 
 
 func _ready() -> void:

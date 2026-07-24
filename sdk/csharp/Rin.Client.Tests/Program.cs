@@ -2,6 +2,10 @@ using System.Net;
 using System.Text;
 using Rin.Client;
 
+Require(
+    new RinClientOptions().MaxResponseBytes == 32 * 1024 * 1024,
+    "default response limit does not match the inline transport budget");
+
 var handler = new RecordingHandler();
 using var client = new RinClient(new RinClientOptions { Token = "fixture" }, handler);
 var payload = new Dictionary<string, object?>();

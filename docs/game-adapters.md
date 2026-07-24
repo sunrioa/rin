@@ -96,6 +96,16 @@ Add [the client](../examples/godot/rin_client.gd) as a node or autoload. `propos
 
 Restore the run ID, stable Create request, operation sequence, protocol-tick high-water mark, complete Proposal Attempt, applied markers, and report Outbox as one authoritative game state before enabling play. The high-water mark prevents a reset engine frame counter from producing `tick_regressed` after restart. An I/O, parse, or schema error is not `not_found`; fail closed rather than minting a new identity. On a real `not_found`, persist the complete initialized state before publishing its new run ID.
 
+Every Restore must send `expected_binding` from the running game's trusted
+content manifest, not from the save. It must equal the saved Snapshot binding
+and, when a target Session exists, that Session's binding. Treat the Snapshot
+as trusted, opaque state under the same protection as the event log. Its
+SHA-256 canonical checksums detect accidental corruption, not provenance or a
+party able to recompute them. Complete inline Snapshot compact JSON is capped
+at 16 MiB; the server request and bundled-client response defaults are 32 MiB.
+`413 snapshot_too_large` never truncates the save—a larger lineage waits for
+the planned Step 5 streaming transport.
+
 Godot owns navigation, animation, combat, inventory, and dialogue rendering. Helpers for activity, due actors, arbitration, batch commit, timeline, and replay are coroutines; call activity on simulation/region changes, not every frame. The adapter caps response bytes, disables redirects, and accepts plaintext HTTP only for an exact loopback host and valid port.
 
 ## Unity
@@ -121,6 +131,7 @@ The reference flow combines:
 - free player text as an explicit Observation;
 - candidate-only character directions before structured content generation;
 - accepted direction Commit followed by Snapshot storage in the game save;
+- Restore `expected_binding` sourced from the running trusted content manifest;
 - restore IDs derived from both the saved Snapshot and current Sidecar head;
 - deterministic authored fallback whenever Sidecar generation is unavailable.
 

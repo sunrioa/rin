@@ -94,6 +94,15 @@ func TestValidateIdentifierHistoryRejectsInvalidHashesAndKeys(t *testing.T) {
 			field: "identifier_history.requests.request.observe.result_head_hash",
 		},
 		{
+			name: "unsupported request kind",
+			mutate: func(history *IdentifierHistory) {
+				identity := history.Requests["request.observe"]
+				identity.Kind = "custom.mutation"
+				history.Requests["request.observe"] = identity
+			},
+			field: "identifier_history.requests.request.observe.kind",
+		},
+		{
 			name: "ambiguous non-empty request hash is still validated",
 			mutate: func(history *IdentifierHistory) {
 				identity := history.Requests["request.observe"]
@@ -125,6 +134,18 @@ func TestValidateIdentifierHistoryRejectsInvalidHashesAndKeys(t *testing.T) {
 				history.Events["event/observe"] = identity
 			},
 			field: "identifier_history.events key",
+		},
+		{
+			name: "unsupported event kind",
+			mutate: func(history *IdentifierHistory) {
+				request := history.Requests["request.observe"]
+				request.Kind = identifierHistoryActivityKind
+				history.Requests["request.observe"] = request
+				event := history.Events["event.observe"]
+				event.Kind = identifierHistoryActivityKind
+				history.Events["event.observe"] = event
+			},
+			field: "identifier_history.events.event.observe.kind",
 		},
 	}
 

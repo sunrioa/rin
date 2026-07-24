@@ -53,9 +53,22 @@ request may run again after Job retention expires or the sidecar restarts.
 Snapshot responses contain `identifier_history` and
 `identifier_history_hash`. This history grows with the Session lineage and may
 contain historical Proposal/Arbitration text, so treat it like the event log
-and preserve unknown additive fields when storing it. All SDKs default to a
-2 MiB response limit and allow configuration only within their documented
-bound; large-lineage Snapshot transport remains subject to that limit.
+and preserve unknown additive fields when storing it. Treat the entire Snapshot
+as trusted, opaque state: its SHA-256 canonical checksums detect accidental
+damage or an unsynchronized edit, but do not authenticate its source or stop
+someone who can recompute them.
+
+Restore requires `expected_binding` from the running game's trusted content
+manifest. It must match the imported Snapshot binding and, for an existing
+target Session, that Session's binding; do not populate it by reading the
+Snapshot.
+
+Complete inline Snapshot compact JSON is capped at 16 MiB. Rin returns
+`413 snapshot_too_large` rather than truncating it. Every SDK defaults to a
+32 MiB response limit, matching the server's default 32 MiB request-body limit
+and leaving headroom for envelopes, Restore metadata, and durable EventRecord
+framing. A lineage that outgrows the inline ceiling needs the planned Step 5
+streaming transport.
 
 The SDKs are intentionally source-first and are not yet published to PyPI,
 npm, NuGet, or Maven Central. Pin this repository revision when vendoring one.

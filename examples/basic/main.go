@@ -26,6 +26,8 @@ type client struct {
 	http    *http.Client
 }
 
+const defaultMaxRinResponseBytes = 32 << 20
+
 type envelope struct {
 	OK    bool                  `json:"ok"`
 	Data  json.RawMessage       `json:"data"`
@@ -1809,7 +1811,7 @@ func (c client) post(path string, input, output any) error {
 		return err
 	}
 	defer response.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(response.Body, 2<<20))
+	body, err := io.ReadAll(io.LimitReader(response.Body, defaultMaxRinResponseBytes))
 	if err != nil {
 		return &apiError{
 			Status:  response.StatusCode,

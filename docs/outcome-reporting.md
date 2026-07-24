@@ -159,6 +159,16 @@ Goal updates, recent action, and scheduling effects. A restored Proposal does
 not authorize execution: the persisted Attempt and applied-operation marker
 distinguish an unhandled action from one that must never run again.
 
+When restoring that save, send mandatory `expected_binding` from the running
+game's trusted content manifest—not from the Snapshot. It must match the
+Snapshot binding and any existing target Session binding. Snapshot SHA-256
+canonical checksums detect accidental corruption but do not authenticate
+provenance or stop a party that can recompute them, so the Snapshot remains
+trusted opaque state protected like the event log. Complete inline Snapshot
+compact JSON is capped at 16 MiB, while server request bodies and bundled
+client responses default to 32 MiB. `413 snapshot_too_large` never truncates
+the saved lineage; it requires the planned Step 5 streaming transport.
+
 If the sidecar session cannot be restored and therefore truly has no matching
 Proposal, `observe` is a degraded reconciliation path for the authoritative
 event's memory and Facts at its original occurrence tick. It cannot recreate

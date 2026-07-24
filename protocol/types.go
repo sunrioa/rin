@@ -254,6 +254,7 @@ type RestoreRequest struct {
 	ProtocolVersion string   `json:"protocol_version"`
 	SessionID       string   `json:"session_id"`
 	RequestID       string   `json:"request_id"`
+	ExpectedBinding Binding  `json:"expected_binding"`
 	Snapshot        Snapshot `json:"snapshot"`
 }
 

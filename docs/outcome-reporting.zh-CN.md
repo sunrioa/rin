@@ -131,6 +131,15 @@ Outbox 完整补报 Fact、Goal update、近期动作和调度影响。恢复出
 绝不授权执行动作；游戏必须用持久化 Attempt 与 applied-operation marker
 区分尚未处理的动作和绝不能重做的动作。
 
+恢复该存档时，必填 `expected_binding` 必须来自运行中游戏的可信内容
+manifest，而不是 Snapshot。它必须与 Snapshot Binding 以及任何 existing
+target Session 的 Binding 一致。Snapshot 的 SHA-256 canonical checksum 只能
+发现意外损坏，不能认证来源或阻止能重算 checksum 的一方，因此 Snapshot 仍是
+按事件日志保护的可信、不透明状态。完整 inline Snapshot compact JSON 上限为
+16 MiB，服务端请求正文与随附客户端响应默认上限为 32 MiB。
+`413 snapshot_too_large` 绝不截断已存 lineage；它需要计划中的 Step 5
+streaming transport。
+
 若 Sidecar Session 无法恢复、因而确实不存在匹配 Proposal，`observe` 只是降级
 对账路径：它能按原始发生 tick 恢复权威事件的记忆和 Fact，但不能重建
 Proposal 专属的 Goal delta、近期动作或调度。此时应把最终的绝对世界状态表达

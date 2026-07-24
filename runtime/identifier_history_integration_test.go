@@ -200,6 +200,7 @@ func TestIdentifierHistoryRestoreKeepsFutureIdentifiers(t *testing.T) {
 		ProtocolVersion: protocol.Version,
 		SessionID:       sessionID,
 		RequestID:       "restore.identifier-old-snapshot",
+		ExpectedBinding: oldSnapshot.State.Binding,
 		Snapshot:        oldSnapshot,
 	})
 	if err != nil {
@@ -304,6 +305,15 @@ func TestSnapshotIdentifierHistoryRejectsRehashedCrossProjectionTampering(t *tes
 	if _, err := engine.CreateSession(create); err != nil {
 		t.Fatal(err)
 	}
+	observation := identifierObserveRequest(
+		sessionID,
+		"observe.identifier-cross",
+		"event.identifier-cross",
+		0,
+	)
+	if _, err := engine.Observe(observation); err != nil {
+		t.Fatal(err)
+	}
 	mira, _, err := engine.Propose(
 		context.Background(),
 		targetedProposalRequest(sessionID, "propose.identifier-cross-mira", "npc.mira"),
@@ -355,6 +365,15 @@ func TestSnapshotIdentifierHistoryRejectsRehashedCrossProjectionTampering(t *tes
 			},
 		},
 		{
+			name: "ambiguous known current result head",
+			mutate: func(snapshot *protocol.Snapshot) {
+				identity := snapshot.IdentifierHistory.Requests[record.RequestID]
+				identity.Ambiguous = true
+				identity.ResultHeadHash = strings.Repeat("c", 64)
+				snapshot.IdentifierHistory.Requests[record.RequestID] = identity
+			},
+		},
+		{
 			name: "proposal result",
 			mutate: func(snapshot *protocol.Snapshot) {
 				identity := snapshot.IdentifierHistory.Requests[mira.RequestID]
@@ -370,15 +389,145 @@ func TestSnapshotIdentifierHistoryRejectsRehashedCrossProjectionTampering(t *tes
 				snapshot.IdentifierHistory.Requests[record.RequestID] = identity
 			},
 		},
+		{
+			name: "ambiguous proposal receipt entity",
+			mutate: func(snapshot *protocol.Snapshot) {
+				identity := snapshot.IdentifierHistory.Requests[mira.RequestID]
+				identity.Ambiguous = true
+				snapshot.IdentifierHistory.Requests[mira.RequestID] = identity
+				receipt := snapshot.State.Receipts[mira.RequestID]
+				receipt.EntityID = "proposal.identifier-cross-forged"
+				snapshot.State.Receipts[mira.RequestID] = receipt
+			},
+		},
+		{
+			name: "ambiguous arbitration receipt entity",
+			mutate: func(snapshot *protocol.Snapshot) {
+				identity := snapshot.IdentifierHistory.Requests[record.RequestID]
+				identity.Ambiguous = true
+				snapshot.IdentifierHistory.Requests[record.RequestID] = identity
+				receipt := snapshot.State.Receipts[record.RequestID]
+				receipt.EntityID = "arbitration.identifier-cross-forged"
+				snapshot.State.Receipts[record.RequestID] = receipt
+			},
+		},
+		{
+			name: "missing current receipt",
+			mutate: func(snapshot *protocol.Snapshot) {
+				delete(snapshot.State.Receipts, record.RequestID)
+			},
+		},
+		{
+			name: "current receipt revision erased",
+			mutate: func(snapshot *protocol.Snapshot) {
+				receipt := snapshot.State.Receipts[record.RequestID]
+				receipt.Revision = 0
+				snapshot.State.Receipts[record.RequestID] = receipt
+			},
+		},
+		{
+			name: "duplicate current receipt revision",
+			mutate: func(snapshot *protocol.Snapshot) {
+				snapshot.State.Receipts["request.identifier-forged-current"] = protocol.RequestReceipt{
+					Kind: rinruntime.EventSessionCreated, EntityID: sessionID, Revision: snapshot.State.Revision,
+				}
+			},
+		},
+		{
+			name: "observation event kind",
+			mutate: func(snapshot *protocol.Snapshot) {
+				request := snapshot.IdentifierHistory.Requests[observation.RequestID]
+				request.Kind = rinruntime.EventCommitted
+				snapshot.IdentifierHistory.Requests[observation.RequestID] = request
+				event := snapshot.IdentifierHistory.Events[observation.EventID]
+				event.Kind = rinruntime.EventCommitted
+				snapshot.IdentifierHistory.Events[observation.EventID] = event
+			},
+		},
+		{
+			name: "observation event request",
+			mutate: func(snapshot *protocol.Snapshot) {
+				const forgedRequestID = "observe.identifier-cross-forged"
+				snapshot.IdentifierHistory.Requests[forgedRequestID] =
+					snapshot.IdentifierHistory.Requests[observation.RequestID]
+				event := snapshot.IdentifierHistory.Events[observation.EventID]
+				event.RequestID = forgedRequestID
+				snapshot.IdentifierHistory.Events[observation.EventID] = event
+			},
+		},
+		{
+			name: "observation event revision",
+			mutate: func(snapshot *protocol.Snapshot) {
+				request := snapshot.IdentifierHistory.Requests[observation.RequestID]
+				request.ResultRevision++
+				snapshot.IdentifierHistory.Requests[observation.RequestID] = request
+				event := snapshot.IdentifierHistory.Events[observation.EventID]
+				event.Revision = request.ResultRevision
+				snapshot.IdentifierHistory.Events[observation.EventID] = event
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			tampered := cloneIdentifierSnapshot(t, snapshot)
 			test.mutate(&tampered)
+			rehashSnapshotState(t, &tampered)
 			rehashIdentifierHistory(t, &tampered)
 			assertInvalidCrossProjectionSnapshot(t, tampered)
 		})
 	}
+}
+
+func TestSnapshotIdentifierHistoryRejectsWrongRetainedEventRole(t *testing.T) {
+	const sessionID = "session.identifier-event-role"
+	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	create := createRequest(sessionID)
+	create.Features = append(create.Features, protocol.FeatureActorActivity)
+	if _, err := engine.CreateSession(create); err != nil {
+		t.Fatal(err)
+	}
+	proposal, _, err := engine.Propose(
+		context.Background(),
+		proposeRequest(sessionID, "propose.identifier-event-role", 0, nil),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit := protocol.CommitRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       sessionID,
+		RequestID:       "commit.identifier-event-role",
+		ProposalID:      proposal.ID,
+		EventID:         "event.identifier-event-role",
+		Tick:            0,
+		Accepted:        true,
+		Outcome:         "The action occurred.",
+	}
+	if _, err := engine.Commit(commit); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.SetActorActivity(identifierActivityRequest(
+		sessionID,
+		"activity.identifier-event-role",
+		1,
+	)); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := engine.Snapshot(sessionRequest(sessionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := cloneIdentifierSnapshot(t, snapshot)
+	delete(tampered.State.Receipts, commit.RequestID)
+	request := tampered.IdentifierHistory.Requests[commit.RequestID]
+	request.Kind = rinruntime.EventObserved
+	tampered.IdentifierHistory.Requests[commit.RequestID] = request
+	event := tampered.IdentifierHistory.Events[commit.EventID]
+	event.Kind = rinruntime.EventObserved
+	tampered.IdentifierHistory.Events[commit.EventID] = event
+	rehashSnapshotState(t, &tampered)
+	rehashIdentifierHistory(t, &tampered)
+	assertInvalidCrossProjectionSnapshot(t, tampered)
 }
 
 func TestIdentifierHistoryRetrySurvivesOpen(t *testing.T) {
@@ -533,6 +682,7 @@ func TestIdentifierHistoryReplayRetainsLaterLineageTombstones(t *testing.T) {
 		ProtocolVersion: protocol.Version,
 		SessionID:       sessionID,
 		RequestID:       "restore.identifier-replay-tombstones",
+		ExpectedBinding: replayed.State.Binding,
 		Snapshot:        replayed,
 	}); err != nil {
 		t.Fatal(err)
@@ -579,11 +729,71 @@ func TestLegacySnapshotImportsStickyPartialHistory(t *testing.T) {
 		t.Fatalf("legacy state-only snapshot was rejected: %v", err)
 	}
 
+	for _, test := range []struct {
+		name      string
+		requestID string
+		mutate    func(*protocol.Snapshot)
+	}{
+		{
+			name:      "unknown receipt kind",
+			requestID: "restore.identifier-legacy-unknown-kind",
+			mutate: func(snapshot *protocol.Snapshot) {
+				receipt := snapshot.State.Receipts[legacyRequest.RequestID]
+				receipt.Kind = "custom.mutation"
+				snapshot.State.Receipts[legacyRequest.RequestID] = receipt
+			},
+		},
+		{
+			name:      "observation receipt without event",
+			requestID: "restore.identifier-legacy-empty-event",
+			mutate: func(snapshot *protocol.Snapshot) {
+				receipt := snapshot.State.Receipts[legacyRequest.RequestID]
+				receipt.EntityID = ""
+				snapshot.State.Receipts[legacyRequest.RequestID] = receipt
+			},
+		},
+		{
+			name:      "observation receipts reuse event",
+			requestID: "restore.identifier-legacy-reused-event",
+			mutate: func(snapshot *protocol.Snapshot) {
+				snapshot.State.Receipts["observe.identifier-legacy-duplicate"] =
+					protocol.RequestReceipt{
+						Kind:     rinruntime.EventObserved,
+						EntityID: legacyRequest.EventID,
+					}
+			},
+		},
+	} {
+		t.Run("rejects "+test.name, func(t *testing.T) {
+			invalid := cloneIdentifierSnapshot(t, legacy)
+			test.mutate(&invalid)
+			rehashSnapshotState(t, &invalid)
+			if err := rinruntime.ValidateSnapshot(invalid); err == nil ||
+				rinruntime.ErrorCode(err) != "invalid_snapshot" {
+				t.Fatalf("invalid legacy identifier projection validated: %v", err)
+			}
+			rejectingTarget := newEngine(t, store.NewMemory(), policy.Deterministic{})
+			if _, err := rejectingTarget.Restore(protocol.RestoreRequest{
+				ProtocolVersion: protocol.Version,
+				SessionID:       sessionID,
+				RequestID:       test.requestID,
+				ExpectedBinding: invalid.State.Binding,
+				Snapshot:        invalid,
+			}); err == nil || rinruntime.ErrorCode(err) != "invalid_snapshot" {
+				t.Fatalf("invalid legacy identifier projection restored: %v", err)
+			}
+			if _, err := rejectingTarget.State(sessionRequest(sessionID)); rinruntime.ErrorCode(err) != "session_not_found" {
+				t.Fatalf("failed legacy Restore registered a session: %v", err)
+			}
+		})
+	}
+
 	target := newEngine(t, store.NewMemory(), policy.Deterministic{})
 	if _, err := target.Restore(protocol.RestoreRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       sessionID,
 		RequestID:       "restore.identifier-legacy-partial",
+		ExpectedBinding: legacy.State.Binding,
 		Snapshot:        legacy,
 	}); err != nil {
 		t.Fatal(err)
@@ -648,6 +858,7 @@ func TestLegacySnapshotImportsStickyPartialHistory(t *testing.T) {
 			ProtocolVersion: protocol.Version,
 			SessionID:       overlapSessionID,
 			RequestID:       "restore.identifier-legacy-overlap",
+			ExpectedBinding: stateOnly.State.Binding,
 			Snapshot:        stateOnly,
 		}); err != nil {
 			t.Fatal(err)
@@ -732,6 +943,7 @@ func TestLegacySnapshotSeedsTypedRequestIDsAfterReceiptEviction(t *testing.T) {
 		ProtocolVersion: protocol.Version,
 		SessionID:       sessionID,
 		RequestID:       "restore.identifier-legacy-typed-tombstones",
+		ExpectedBinding: legacy.State.Binding,
 		Snapshot:        legacy,
 	}); err != nil {
 		t.Fatal(err)
@@ -914,6 +1126,7 @@ func TestIdentifierHistoryRejectsAlteredPayloadForEveryMutation(t *testing.T) {
 			ProtocolVersion: protocol.Version,
 			SessionID:       sessionID,
 			RequestID:       "restore.identifier-altered",
+			ExpectedBinding: firstSnapshot.State.Binding,
 			Snapshot:        firstSnapshot,
 		}
 		first, err := target.Restore(request)
@@ -985,6 +1198,7 @@ func TestProposeRejectsRestoreEvenWhenWorldRevisionRepeats(t *testing.T) {
 		ProtocolVersion: protocol.Version,
 		SessionID:       sessionID,
 		RequestID:       "restore.identifier-during-propose",
+		ExpectedBinding: oldSnapshot.State.Binding,
 		Snapshot:        oldSnapshot,
 	}); err != nil {
 		t.Fatal(err)
@@ -1156,6 +1370,15 @@ func rehashIdentifierHistory(t *testing.T, snapshot *protocol.Snapshot) {
 		t.Fatal(err)
 	}
 	snapshot.IdentifierHistoryHash = fmt.Sprintf("%x", sha256.Sum256(payload))
+}
+
+func rehashSnapshotState(t *testing.T, snapshot *protocol.Snapshot) {
+	t.Helper()
+	payload, err := json.Marshal(snapshot.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.StateHash = fmt.Sprintf("%x", sha256.Sum256(payload))
 }
 
 func assertInvalidCrossProjectionSnapshot(t *testing.T, snapshot protocol.Snapshot) {

@@ -58,10 +58,15 @@ func identifiersFromState(state protocol.SessionState) protocol.IdentifierHistor
 		history.Requests[requestID] = protocol.RequestIdentity{Kind: kind, Ambiguous: true}
 	}
 	for requestID, receipt := range state.Receipts {
+		resultHeadHash := ""
+		if receipt.Revision == state.Revision {
+			resultHeadHash = state.HeadHash
+		}
 		history.Requests[requestID] = protocol.RequestIdentity{
 			Kind:           receipt.Kind,
 			RequestHash:    receipt.RequestHash,
 			ResultRevision: receipt.Revision,
+			ResultHeadHash: resultHeadHash,
 			Ambiguous:      true,
 		}
 		if receipt.Kind == EventObserved && receipt.EntityID != "" {
@@ -141,6 +146,26 @@ func checkedRequestDigest(stored string, request any) (string, error) {
 	return derived, nil
 }
 
+// legacyRestoreRequest preserves the exact Restore request JSON shape whose
+// digest was stored by events written before expected_binding became
+// mandatory. Field order is part of that digest, so replay must not synthesize
+// a new-schema field.
+type legacyRestoreRequest struct {
+	ProtocolVersion string            `json:"protocol_version"`
+	SessionID       string            `json:"session_id"`
+	RequestID       string            `json:"request_id"`
+	Snapshot        protocol.Snapshot `json:"snapshot"`
+}
+
+func legacyRestoreRequestDigest(request protocol.RestoreRequest) (string, error) {
+	return requestDigest(legacyRestoreRequest{
+		ProtocolVersion: request.ProtocolVersion,
+		SessionID:       request.SessionID,
+		RequestID:       request.RequestID,
+		Snapshot:        request.Snapshot,
+	})
+}
+
 func requestIdentityFromEvent(event protocol.EventRecord) (protocol.RequestIdentity, []identifiedEvent, error) {
 	identity := protocol.RequestIdentity{
 		Kind:           event.Type,
@@ -217,13 +242,24 @@ func requestIdentityFromEvent(event protocol.EventRecord) (protocol.RequestIdent
 	case EventSessionRestored:
 		var payload restoredPayload
 		if err = json.Unmarshal(event.Data, &payload); err == nil {
-			request := protocol.RestoreRequest{
-				ProtocolVersion: protocol.Version,
-				SessionID:       payload.Snapshot.State.SessionID,
-				RequestID:       event.RequestID,
-				Snapshot:        payload.Snapshot,
+			if payload.ExpectedBinding == nil {
+				request := legacyRestoreRequest{
+					ProtocolVersion: protocol.Version,
+					SessionID:       payload.Snapshot.State.SessionID,
+					RequestID:       event.RequestID,
+					Snapshot:        payload.Snapshot,
+				}
+				hash, err = checkedRequestDigest(payload.RequestHash, request)
+			} else {
+				request := protocol.RestoreRequest{
+					ProtocolVersion: protocol.Version,
+					SessionID:       payload.Snapshot.State.SessionID,
+					RequestID:       event.RequestID,
+					ExpectedBinding: *payload.ExpectedBinding,
+					Snapshot:        payload.Snapshot,
+				}
+				hash, err = checkedRequestDigest(payload.RequestHash, request)
 			}
-			hash, err = checkedRequestDigest(payload.RequestHash, request)
 		}
 	default:
 		err = fmt.Errorf("%w: unknown event type %q", ErrCorruptLog, event.Type)
@@ -513,8 +549,21 @@ func arbitrationFromIdentity(identity protocol.RequestIdentity) (protocol.Arbitr
 }
 
 func identifiersForSnapshot(snapshot protocol.Snapshot) (protocol.IdentifierHistory, error) {
+	var history protocol.IdentifierHistory
 	if snapshot.IdentifierHistory == nil {
-		return identifiersFromState(snapshot.State), nil
+		history = identifiersFromState(snapshot.State)
+	} else {
+		var err error
+		history, err = cloneIdentifierHistory(*snapshot.IdentifierHistory)
+		if err != nil {
+			return protocol.IdentifierHistory{}, err
+		}
 	}
-	return cloneIdentifierHistory(*snapshot.IdentifierHistory)
+	if err := protocol.ValidateIdentifierHistory(history, snapshot.State.SessionID); err != nil {
+		return protocol.IdentifierHistory{}, err
+	}
+	if err := validateIdentifiersCoverState(history, snapshot.State); err != nil {
+		return protocol.IdentifierHistory{}, err
+	}
+	return history, nil
 }

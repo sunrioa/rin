@@ -22,7 +22,7 @@ from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_ope
 
 PROTOCOL_VERSION = "rin.protocol/v1"
 DEFAULT_BASE_URL = "http://127.0.0.1:7374"
-DEFAULT_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 MAX_GENERATION_CONTENT_BYTES = 4 * 1024 * 1024
 MAX_INT64 = (1 << 63) - 1
 TERMINAL_JOB_STATES = frozenset((

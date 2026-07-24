@@ -16,6 +16,17 @@ import (
 	"github.com/sunrioa/rin/protocol"
 )
 
+func TestDefaultRinResponseLimitMatchesInlineTransportBudget(t *testing.T) {
+	t.Parallel()
+	if defaultMaxRinResponseBytes != 32<<20 {
+		t.Fatalf(
+			"default response limit = %d, want %d",
+			defaultMaxRinResponseBytes,
+			32<<20,
+		)
+	}
+}
+
 func TestOutcomeStoreRetainsExactRequestAndDoesNotReapply(t *testing.T) {
 	t.Parallel()
 

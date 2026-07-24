@@ -26,8 +26,9 @@ Rin separates character reasoning from game-world facts:
   `commit` to report the actual outcome to Rin.
 - Every state change is written to a hash-chained JSONL event log that can be
   replayed and inspected.
-- Snapshots bind `game/content/version/hash`; tampered or mismatched saves are
-  rejected.
+- Snapshots bind `game/content/version/hash`. Their SHA-256 canonical
+  checksums detect accidental corruption or an unsynchronized edit, while
+  Restore rejects a binding mismatch.
 - Tick scheduling lets many NPCs think only when needed instead of calling a
   model every frame.
 - Asynchronous jobs prefetch online-model results so slow requests,
@@ -135,6 +136,20 @@ Proposal and Generation Job records have separate, bounded in-process
 retention. In particular, a Generation request may run again after its Job is
 evicted or the sidecar restarts; the durable Session-mutation guarantee does
 not apply to Generation Jobs.
+
+Snapshot hashes are checksums, not signatures or provenance proof: someone
+who can change a Snapshot can recompute them. Treat each Snapshot as trusted,
+opaque state and protect it at the same level as the event log. Restore
+requires `expected_binding` from the running game's trusted content manifest;
+it must match `snapshot.state.binding` and, when the target Session already
+exists, that Session's binding.
+
+Inline Snapshot compact JSON is limited to 16 MiB. Rin returns
+`413 snapshot_too_large` instead of truncating a Snapshot. The server's
+default request-body limit and every bundled client's default response limit
+are 32 MiB, leaving room for the API envelope, Restore metadata, and durable
+EventRecord framing. A lineage that outgrows the inline limit requires the
+planned Step 5 streaming transport.
 
 See the [protocol reference](docs/protocol-v1.md) for complete fields and
 error semantics, the [architecture guide](docs/architecture.md) for

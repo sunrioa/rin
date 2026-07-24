@@ -242,7 +242,7 @@ func TestSessionStateGoalAndTemporalBounds(t *testing.T) {
 		},
 	}
 	state.Actors[actor.ID] = actor
-	state.Receipts["request.legacy"] = RequestReceipt{Kind: "observed", Revision: 0}
+	state.Receipts["request.legacy"] = RequestReceipt{Kind: "observation.recorded", Revision: 0}
 	requireValidState(t, state)
 
 	tests := []struct {
@@ -289,7 +289,40 @@ func TestSessionStateGoalAndTemporalBounds(t *testing.T) {
 			name: "receipt future revision",
 			mutate: func(state *SessionState) {
 				state.Receipts["request.future"] = RequestReceipt{
-					Kind: "observed", Revision: state.Revision + 1,
+					Kind: "observation.recorded", Revision: state.Revision + 1,
+				}
+			},
+		},
+		{
+			name: "missing current receipt",
+			mutate: func(state *SessionState) {
+				delete(state.Receipts, "request.current")
+			},
+		},
+		{
+			name: "current receipt downgraded to historical",
+			mutate: func(state *SessionState) {
+				receipt := state.Receipts["request.current"]
+				receipt.Revision = 0
+				state.Receipts["request.current"] = receipt
+			},
+		},
+		{
+			name: "duplicate current receipt revision",
+			mutate: func(state *SessionState) {
+				state.Receipts["request.duplicate-current"] = RequestReceipt{
+					Kind: "observation.recorded", Revision: state.Revision,
+				}
+			},
+		},
+		{
+			name: "duplicate historical non-zero receipt revision",
+			mutate: func(state *SessionState) {
+				state.Receipts["request.historical-a"] = RequestReceipt{
+					Kind: "observation.recorded", Revision: 2,
+				}
+				state.Receipts["request.historical-b"] = RequestReceipt{
+					Kind: "observation.recorded", Revision: 2,
 				}
 			},
 		},
@@ -319,11 +352,39 @@ func TestSessionStateGoalAndTemporalBounds(t *testing.T) {
 			set.Claims = append([]BeliefClaim(nil), set.Claims...)
 			invalidActor.BeliefSets = map[string]BeliefSet{key: set}
 			invalid.Actors[invalidActor.ID] = invalidActor
-			invalid.Receipts["request.legacy"] = RequestReceipt{Kind: "observed", Revision: 0}
+			invalid.Receipts["request.legacy"] = RequestReceipt{Kind: "observation.recorded", Revision: 0}
 			testCase.mutate(&invalid)
 			requireInvalidState(t, invalid)
 		})
 	}
+}
+
+func TestSessionStateReceiptKindsMatchDurableMutations(t *testing.T) {
+	valid := []string{
+		identifierHistoryCreateKind,
+		identifierHistoryObservationKind,
+		identifierHistoryProposalKind,
+		identifierHistoryCommitKind,
+		identifierHistoryBatchKind,
+		identifierHistoryActivityKind,
+		identifierHistoryArbitrationKind,
+		identifierHistoryRestoreKind,
+	}
+	for _, kind := range valid {
+		t.Run(kind, func(t *testing.T) {
+			state := invariantTestState()
+			receipt := state.Receipts["request.current"]
+			receipt.Kind = kind
+			state.Receipts["request.current"] = receipt
+			requireValidState(t, state)
+		})
+	}
+
+	state := invariantTestState()
+	receipt := state.Receipts["request.current"]
+	receipt.Kind = "custom.mutation"
+	state.Receipts["request.current"] = receipt
+	requireInvalidState(t, state)
 }
 
 func TestSessionStateArbitrationDisabledRequiresZeroWorldBases(t *testing.T) {
@@ -435,7 +496,13 @@ func invariantTestState(features ...string) SessionState {
 			},
 		},
 		Proposals: make(map[string]ActionProposal),
-		Receipts:  make(map[string]RequestReceipt),
+		Receipts: map[string]RequestReceipt{
+			"request.current": {
+				Kind:     "session.created",
+				EntityID: "session.test",
+				Revision: 3,
+			},
+		},
 	}
 	if HasFeature(features, FeatureArbitration) {
 		state.WorldRevision = 2

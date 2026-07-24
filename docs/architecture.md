@@ -265,7 +265,11 @@ independently covers canonical `identifier_history`, including its
 `identifier-history-v1` version and `coverage_complete` marker. History retains
 original Proposal/Arbitration results, so it grows linearly with mutations and
 may re-expose text already evicted from cognition State. Snapshot files and
-bodies require the same confidentiality controls as the full event log.
+bodies require the same confidentiality and integrity controls as the full
+event log. These SHA-256 values are canonical checksums: they detect accidental
+damage or an edit that did not update the checksum, but they are not signatures
+or provenance proof and cannot stop an editor who can recompute them. A
+Snapshot is trusted, opaque serialized state, not an untrusted import format.
 
 The file store is single-writer. Only one Rin process may use a data directory
 at a time. Multi-instance deployments should implement an externally
@@ -289,6 +293,11 @@ only scheduling time, never boundaries or the action allowlist.
 - A snapshot carries the content-pack binding and state hash. Rin validates a
   cloned State before hashing or saving it, so every successfully returned
   snapshot passes the same structural validation used by Restore.
+- Restore requires `expected_binding` from the running game's trusted content
+  manifest; callers must not derive it from the imported Snapshot. It must
+  match `snapshot.state.binding`. For an existing target Session, that Session
+  is the third participant and its binding must also match; a fresh target is
+  initialized only after the first two match.
 - A new Snapshot also carries `identifier_history` and
   `identifier_history_hash`. The history is outside bounded State and retains
   permanent request/Event ID tombstones plus original operation results.
@@ -322,11 +331,12 @@ only scheduling time, never boundaries or the action allowlist.
 - When loading the same save repeatedly, callers should bind the restore
   request ID to both the saved snapshot hash and current sidecar head. This
   distinguishes a network retry from a real second rollback.
-- Identifier History grows with the lineage. Current HTTP request limits and
-  the SDK response limits remain transport bounds, so arbitrarily long
-  lineages are not yet guaranteed to round-trip through one JSON request. A
-  bounded archive/streaming transport is follow-up work; history must never be
-  silently truncated.
+- Identifier History grows with the lineage. Complete compact inline Snapshot
+  JSON is capped at 16 MiB and is never truncated; Snapshot, Replay, or Restore
+  returns `413 snapshot_too_large` when that ceiling is exceeded. The server's
+  default request-body limit and every bundled client's default response limit
+  are 32 MiB, leaving envelope, Restore, and EventRecord headroom. Such a
+  lineage requires the planned Step 5 streaming transport.
 
 ## Model integration rule
 

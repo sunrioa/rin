@@ -195,6 +195,7 @@ func runMutationStateClosureSequence(t *testing.T, operations []byte) {
 				ProtocolVersion: protocol.Version,
 				SessionID:       sessionID,
 				RequestID:       "restore.property." + suffix,
+				ExpectedBinding: snapshot.State.Binding,
 				Snapshot:        snapshot,
 			})
 			assertEngineTransitionClosure(t, engine, sessionID, before, err)
@@ -352,6 +353,7 @@ func assertSnapshotRestoreRoundTrip(t *testing.T, source *Engine, sessionID stri
 		ProtocolVersion: protocol.Version,
 		SessionID:       sessionID,
 		RequestID:       "restore.fresh.roundtrip",
+		ExpectedBinding: snapshot.State.Binding,
 		Snapshot:        snapshot,
 	}); err != nil {
 		t.Fatalf("fresh restore failed: %v", err)
@@ -373,6 +375,7 @@ func assertSnapshotRestoreRoundTrip(t *testing.T, source *Engine, sessionID stri
 		ProtocolVersion: protocol.Version,
 		SessionID:       sessionID,
 		RequestID:       "restore.existing.roundtrip",
+		ExpectedBinding: restoredSnapshot.State.Binding,
 		Snapshot:        restoredSnapshot,
 	})
 	assertEngineTransitionClosure(t, fresh, sessionID, before, err)

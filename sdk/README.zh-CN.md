@@ -47,9 +47,19 @@ Job 保留期结束或 Sidecar 重启后，相同请求可能再次执行。
 
 Snapshot 响应包含 `identifier_history` 和 `identifier_history_hash`。History
 会随 Session lineage 增长，也可能包含历史 Proposal/Arbitration 文本，因此
-应按事件日志保护，并在保存时保留未知增量字段。所有 SDK 默认响应上限为
-2 MiB，且只能在各自文档规定的范围内调整；大型 lineage Snapshot 传输仍受该
-上限约束。
+应按事件日志保护，并在保存时保留未知增量字段。整个 Snapshot 都是可信、
+不透明的状态：其中 SHA-256 canonical checksum 可发现意外损坏或未同步修改，
+但不验证来源，也无法阻止能重算 checksum 的一方。
+
+Restore 必须提供来自运行中游戏可信内容 manifest 的 `expected_binding`。它必须
+与导入 Snapshot 的 Binding 一致；target Session 已存在时还必须与该 Session
+的 Binding 一致。不得通过读取 Snapshot 来填写它。
+
+完整 inline Snapshot 的 compact JSON 上限为 16 MiB。Rin 超限时返回
+`413 snapshot_too_large`，绝不截断内容。所有 SDK 默认响应上限为 32 MiB，
+与服务端默认 32 MiB 请求正文上限匹配，并为 envelope、Restore 元数据和持久
+EventRecord framing 预留空间。Lineage 超过 inline 上限后需要计划中的 Step 5
+streaming transport。
 
 SDK 有意采用源码优先方式，尚未发布到 PyPI、npm、NuGet 或 Maven Central。
 Vendor 时应固定本仓库 Revision。路由兼容性由

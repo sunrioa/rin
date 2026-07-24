@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -79,10 +80,16 @@ func TestInvalidSnapshotMapsToBadRequest(t *testing.T) {
 		ProtocolVersion: protocol.Version,
 		SessionID:       "session.invalid-snapshot",
 		RequestID:       "restore.invalid-snapshot",
+		ExpectedBinding: protocol.Binding{
+			GameID: "game.http", ContentID: "base", ContentVersion: "1", ContentHash: "hash",
+		},
 		Snapshot: protocol.Snapshot{
 			ProtocolVersion: protocol.Version,
 			State: protocol.SessionState{
 				SessionID: "session.invalid-snapshot",
+				Binding: protocol.Binding{
+					GameID: "game.http", ContentID: "base", ContentVersion: "1", ContentHash: "hash",
+				},
 			},
 		},
 	})
@@ -95,6 +102,86 @@ func TestInvalidSnapshotMapsToBadRequest(t *testing.T) {
 	}
 	if envelope.Error == nil || envelope.Error.Code != "invalid_snapshot" {
 		t.Fatalf("invalid snapshot error: %+v", envelope.Error)
+	}
+}
+
+func TestOversizedInlineSnapshotMapsToPayloadTooLarge(t *testing.T) {
+	binding := protocol.Binding{
+		GameID: "game.http", ContentID: "base", ContentVersion: "1", ContentHash: "hash",
+	}
+	server := newServer(t, httpapi.Options{})
+	response := perform(t, server, "/v1/session/restore", protocol.RestoreRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       "session.oversized-snapshot",
+		RequestID:       "restore.oversized-snapshot",
+		ExpectedBinding: binding,
+		Snapshot: protocol.Snapshot{
+			ProtocolVersion: protocol.Version,
+			StateHash:       strings.Repeat("a", rinruntime.MaxInlineSnapshotBytes),
+			State: protocol.SessionState{
+				ProtocolVersion: protocol.Version,
+				SessionID:       "session.oversized-snapshot",
+				Binding:         binding,
+			},
+		},
+	})
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized snapshot status: %d %s", response.Code, response.Body.String())
+	}
+	var envelope protocol.APIResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Error == nil || envelope.Error.Code != "snapshot_too_large" {
+		t.Fatalf("oversized snapshot error: %+v", envelope.Error)
+	}
+}
+
+func TestDefaultTransportBudgetRoundTripsSnapshotLargerThanLegacyClientLimit(t *testing.T) {
+	const legacyClientLimit = 2 << 20
+	create := largeSnapshotCreateRequest("session.large-inline-snapshot")
+	source := newServer(t, httpapi.Options{})
+	if response := perform(t, source, "/v1/session/create", create); response.Code != http.StatusOK {
+		t.Fatalf("large create: %d %s", response.Code, response.Body.String())
+	}
+	snapshotResponse := perform(t, source, "/v1/session/snapshot", protocol.SessionRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       create.SessionID,
+	})
+	if snapshotResponse.Code != http.StatusOK {
+		t.Fatalf("large snapshot: %d %s", snapshotResponse.Code, snapshotResponse.Body.String())
+	}
+	if snapshotResponse.Body.Len() <= legacyClientLimit {
+		t.Fatalf(
+			"fixture snapshot response is %d bytes, want more than the legacy %d-byte client limit",
+			snapshotResponse.Body.Len(),
+			legacyClientLimit,
+		)
+	}
+	if snapshotResponse.Body.Len() > 32<<20 {
+		t.Fatalf("fixture exceeded the default client response budget: %d", snapshotResponse.Body.Len())
+	}
+	var envelope struct {
+		OK   bool              `json:"ok"`
+		Data protocol.Snapshot `json:"data"`
+	}
+	if err := json.Unmarshal(snapshotResponse.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.OK {
+		t.Fatalf("large snapshot envelope was not successful: %s", snapshotResponse.Body.String())
+	}
+
+	target := newServer(t, httpapi.Options{})
+	restoreResponse := perform(t, target, "/v1/session/restore", protocol.RestoreRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       create.SessionID,
+		RequestID:       "restore.large-inline-snapshot",
+		ExpectedBinding: create.Binding,
+		Snapshot:        envelope.Data,
+	})
+	if restoreResponse.Code != http.StatusOK {
+		t.Fatalf("large snapshot restore: %d %s", restoreResponse.Code, restoreResponse.Body.String())
 	}
 }
 
@@ -548,6 +635,38 @@ func newServer(t *testing.T, options httpapi.Options) http.Handler {
 		t.Fatal(err)
 	}
 	return httpapi.New(engine, options)
+}
+
+func largeSnapshotCreateRequest(sessionID string) protocol.CreateSessionRequest {
+	request := apiCreateRequest()
+	request.SessionID = sessionID
+	request.RequestID = "create." + sessionID
+	request.Actors = make([]protocol.ActorSeed, 128)
+	description := strings.Repeat("d", 300)
+	motivation := strings.Repeat("m", 300)
+	for actorIndex := range request.Actors {
+		actorID := fmt.Sprintf("npc.large.%03d", actorIndex)
+		goals := make([]protocol.Goal, 32)
+		for goalIndex := range goals {
+			goals[goalIndex] = protocol.Goal{
+				ID:             fmt.Sprintf("goal.large.%03d.%02d", actorIndex, goalIndex),
+				Description:    description,
+				Motivation:     motivation,
+				Priority:       1,
+				TargetProgress: 1,
+				Status:         "active",
+			}
+		}
+		request.Actors[actorIndex] = protocol.ActorSeed{
+			ID:              actorID,
+			Kind:            "npc",
+			DisplayName:     actorID,
+			Goals:           goals,
+			ThinkEveryTicks: 1,
+			Enabled:         true,
+		}
+	}
+	return request
 }
 
 func jsonRequest(t *testing.T, path string, value any) *http.Request {

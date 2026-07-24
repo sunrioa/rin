@@ -70,6 +70,9 @@ func (e *Engine) Replay(request protocol.ReplayRequest) (protocol.Snapshot, erro
 	}
 	snapshot, err := snapshotWithIdentifiers(state, identifiers)
 	if err != nil {
+		if ErrorCode(err) == "snapshot_too_large" {
+			return protocol.Snapshot{}, err
+		}
 		return protocol.Snapshot{}, NewError("replay_failed", "could not snapshot replayed state", err)
 	}
 	return snapshot, nil

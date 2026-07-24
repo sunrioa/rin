@@ -1,7 +1,7 @@
 local rin = {
     PROTOCOL_VERSION = "rin.protocol/v1",
     DEFAULT_BASE_URL = "http://127.0.0.1:7374",
-    DEFAULT_MAX_RESPONSE_BYTES = 2 * 1024 * 1024,
+    DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024,
 }
 
 local Client = {}

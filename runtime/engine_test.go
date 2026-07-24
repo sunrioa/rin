@@ -397,6 +397,7 @@ func TestSnapshotTamperAndFreshRestore(t *testing.T) {
 		ProtocolVersion: protocol.Version,
 		SessionID:       "session.snapshot",
 		RequestID:       "restore.snapshot",
+		ExpectedBinding: snapshot.State.Binding,
 		Snapshot:        snapshot,
 	})
 	if err != nil {
@@ -464,10 +465,14 @@ func TestFreshRestoreRetainsPendingProposalForSavedOutcomeOutbox(t *testing.T) {
 	snapshot.State.Receipts = make(map[string]protocol.RequestReceipt, 1024)
 	for index := 0; index < 1024; index++ {
 		requestID := fmt.Sprintf("legacy.receipt.%04d", index)
+		revision := uint64(0)
+		if index == 1023 {
+			revision = snapshot.State.Revision
+		}
 		snapshot.State.Receipts[requestID] = protocol.RequestReceipt{
 			Kind:     rinruntime.EventObserved,
 			EntityID: fmt.Sprintf("legacy.event.%04d", index),
-			Revision: snapshot.State.Revision,
+			Revision: revision,
 		}
 	}
 	snapshot, err = rinruntime.SnapshotOf(snapshot.State)
@@ -480,6 +485,7 @@ func TestFreshRestoreRetainsPendingProposalForSavedOutcomeOutbox(t *testing.T) {
 		ProtocolVersion: protocol.Version,
 		SessionID:       sessionID,
 		RequestID:       "restore.outbox",
+		ExpectedBinding: snapshot.State.Binding,
 		Snapshot:        snapshot,
 	}
 	if _, err := restored.Restore(restoreRequest); err != nil {
@@ -598,6 +604,7 @@ func TestFreshRestoreRebasesArrivalRevisionsWithinTheNewEventChain(t *testing.T)
 		ProtocolVersion: protocol.Version,
 		SessionID:       sessionID,
 		RequestID:       "restore.revision-generation",
+		ExpectedBinding: snapshot.State.Binding,
 		Snapshot:        snapshot,
 	}); err != nil {
 		t.Fatal(err)

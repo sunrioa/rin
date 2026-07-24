@@ -1,6 +1,6 @@
 export const PROTOCOL_VERSION = "rin.protocol/v1";
 export const DEFAULT_BASE_URL = "http://127.0.0.1:7374";
-export const DEFAULT_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+export const DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 
 const MAX_GENERATION_CONTENT_BYTES = 4 * 1024 * 1024;
 const PROTOCOL_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/;

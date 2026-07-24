@@ -1,4 +1,8 @@
 local rin = dofile("sdk/lua/rin.lua")
+assert(
+    rin.DEFAULT_MAX_RESPONSE_BYTES == 32 * 1024 * 1024,
+    "default response limit does not match the inline transport budget"
+)
 
 local last_request
 local function fetch(request, callback)

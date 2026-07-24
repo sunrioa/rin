@@ -9,8 +9,13 @@ game-owned adapter.
 
 Requests use `Content-Type: application/json`. The default maximum request body
 is 32 MiB; individual fields and arrays have smaller structural limits.
-Identifier History grows with a Session lineage, so the current HTTP and SDK
-limits do not guarantee that every arbitrarily long Session Snapshot will fit.
+Every bundled client also defaults to a 32 MiB maximum response body. Inline
+Snapshot compact JSON has a separate 16 MiB ceiling, leaving transport headroom
+for the response envelope, Restore metadata, and durable EventRecord framing.
+Rin returns `413 snapshot_too_large` rather than truncating any Snapshot.
+Identifier History grows with a Session lineage, so a lineage that exceeds the
+inline ceiling cannot use the Snapshot or Replay JSON transport until the
+planned Step 5 streaming transport is available.
 A successful response is:
 
 ```json
@@ -542,6 +547,12 @@ Restore:
   "protocol_version": "rin.protocol/v1",
   "session_id": "playthrough-1",
   "request_id": "restore.save-slot-2",
+  "expected_binding": {
+    "game_id": "my-game",
+    "content_id": "base-story",
+    "content_version": "1.0.0",
+    "content_hash": "sha256:..."
+  },
   "snapshot": {
     "protocol_version": "rin.protocol/v1",
     "state_hash": "...",
@@ -557,20 +568,57 @@ Restore:
 }
 ```
 
-Restore rejects snapshots with an invalid hash, different session ID, or
-different binding. Rin validates a cloned State before computing or saving a
-Snapshot, so every successfully returned Snapshot immediately passes
-`ValidateSnapshot` and can be imported into a fresh or non-exhausted matching
-Session.
+`expected_binding` is mandatory and must come from the running game's trusted
+content manifest, never from the Snapshot being imported. Restore verifies the
+three participants in the operation: `expected_binding` must equal
+`snapshot.state.binding`, and an existing target Session must carry that same
+binding. On a fresh target the first two values establish the new Session's
+binding; on an existing target all three must match. Any mismatch is
+`409 binding_mismatch`.
+
+Restore also rejects a different Session ID or an invalid checksum. Rin
+validates a cloned State before computing or saving a Snapshot, so every
+successfully returned Snapshot immediately passes `ValidateSnapshot` and can
+be imported into a fresh or non-exhausted matching Session.
 
 `state_hash` covers the bounded `state`; `identifier_history_hash` separately
-covers the canonical JSON form of `identifier_history`. The history uses
-version `identifier-history-v1`. Its request entries retain canonical request
-digests and original result coordinates or typed Proposal/Arbitration results;
-its event entries retain every accepted Event ID. `coverage_complete=true`
-means the producer knows the complete imported lineage. Supplying only one of
-the two history fields, malformed history, or a hash mismatch is
-`400 invalid_snapshot`.
+covers the canonical JSON form of `identifier_history`; both are SHA-256
+checksums. They detect accidental corruption and changes made without updating
+the checksum, but they are not signatures, do not authenticate provenance, and
+do not protect against a party that can edit the Snapshot and recompute them.
+A Snapshot is trusted, opaque serialized state: do not accept it from an
+untrusted source or edit it, and protect its file and body at the same level as
+the event log. The trusted runtime manifest remains the source of
+`expected_binding`.
+
+The history uses version `identifier-history-v1`. Its request entries retain
+canonical request digests and original result coordinates or typed
+Proposal/Arbitration results; its event entries retain every accepted Event
+ID. `coverage_complete=true` means the producer knows the complete imported
+lineage. Supplying only one of the two history fields, malformed history, or a
+checksum mismatch is `400 invalid_snapshot`.
+
+The compact canonical JSON encoding of the complete Snapshot must not exceed
+16 MiB. Snapshot creation and Replay fail atomically with
+`413 snapshot_too_large` when it does. Restore returns that error when the
+complete request still fits the configured request-body limit; a request that
+exceeds that outer limit (32 MiB by default) is rejected during decoding first
+as `413 body_too_large`. No State or Identifier History is truncated. All
+bundled clients' default 32 MiB response limit deliberately leaves room around
+the Snapshot for envelopes and durable records.
+
+Upgrade compatibility is intentionally asymmetric. A new HTTP Restore request
+without `expected_binding` is `400 invalid_request`; callers must upgrade and
+source the field from their trusted manifest. Existing on-disk
+`session.restored` events remain replayable, including events whose embedded
+Snapshot is now above 16 MiB. When rebuilding request identity, Rin
+reconstructs the legacy four-field Restore request shape and preserves its
+digest semantics. When a legacy event's Snapshot still fits the inline limit,
+a new-schema exact retry with the trusted matching `expected_binding`
+recognizes the old digest and returns the original result as a duplicate. An
+oversized legacy event can still be opened and replayed from disk, but
+cannot be retransmitted through the inline API until the planned Step 5
+streaming transport exists.
 
 A legacy v1 Snapshot without these two fields remains restorable, but Rin
 imports it with `coverage_complete=false`. It can seed only IDs still
@@ -647,10 +695,10 @@ result revisions may therefore be greater than `snapshot.state.revision`.
 Identifier History and its retained Proposal/Arbitration results grow linearly
 with successful mutations. It can contain historical model-authored text which
 bounded cognition State has already evicted, so protect Snapshot files and
-bodies at the same sensitivity level as the event log. Current request and SDK
-response-size limits remain hard transport boundaries; complete large-lineage
-transport requires the planned bounded archive/streaming follow-up rather than
-silently truncating Identifier History.
+bodies at the same sensitivity level as the event log. Once the complete
+compact Snapshot exceeds 16 MiB it cannot be returned or restored inline.
+Complete large-lineage transport requires the planned Step 5 streaming
+transport; Identifier History is never silently truncated.
 
 ## Common errors
 
@@ -663,6 +711,7 @@ silently truncating Identifier History.
 | `404` | `revision_not_found` | Replay revision does not exist |
 | `409` | `request_id_conflict` | Request ID is ambiguous or was already bound to another kind or payload |
 | `409` | `event_exists` | Event ID is already reserved in this Session lineage |
+| `409` | `binding_mismatch` | Trusted `expected_binding`, imported Snapshot, or existing Session binding differs |
 | `409` | `identifier_history_conflict` | Restore histories contain incompatible verified identities |
 | `409` / `500` | `mutation_outcome_unknown` | A non-Proposal mutation may be durable; retain it and retry only the exact request before any other mutation |
 | `409` | `state_changed` / `proposal_stale` | Base state changed during Proposal generation or pre-application Arbitration |
@@ -670,7 +719,8 @@ silently truncating Identifier History.
 | `409` | `actor_not_due` | Actor has not reached its thinking tick |
 | `200` Job / `409` / `500` | `proposal_outcome_unknown` | Proposal durability is unresolved; retain the exact attempt and reconcile it without fallback |
 | `422` | `no_safe_action` | Boundary triggered without a safe candidate |
-| `413` | `body_too_large` | Request exceeds the body limit |
+| `413` | `body_too_large` | Request exceeds the configured request-body limit before Snapshot validation |
+| `413` | `snapshot_too_large` | Decoded complete compact Snapshot exceeds the 16 MiB inline limit; nothing is truncated |
 | `429` | `jobs_queue_full` / `jobs_capacity` | Proposal queue or retention is full |
 | `429` | `generation_queue_full` / `generation_capacity` | Generation queue or retention is full |
 | `503` | `jobs_unavailable` / `jobs_closed` | Proposal jobs are disabled or closing |

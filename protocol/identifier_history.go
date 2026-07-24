@@ -5,8 +5,14 @@ import "fmt"
 const IdentifierHistoryVersion = "identifier-history-v1"
 
 const (
+	identifierHistoryCreateKind      = "session.created"
+	identifierHistoryObservationKind = "observation.recorded"
 	identifierHistoryProposalKind    = "proposal.created"
+	identifierHistoryCommitKind      = "action.committed"
+	identifierHistoryBatchKind       = "action.batch-committed"
+	identifierHistoryActivityKind    = "actor.activity-updated"
 	identifierHistoryArbitrationKind = "world.arbitrated"
+	identifierHistoryRestoreKind     = "session.restored"
 )
 
 // IdentifierHistory is the durable identity ledger carried by a Snapshot.
@@ -66,8 +72,16 @@ func ValidateIdentifierHistory(history IdentifierHistory, sessionID string) erro
 					Message: "is required unless the identity is ambiguous",
 				}
 			}
-		} else if err := validateID(field+".kind", identity.Kind); err != nil {
-			return err
+		} else {
+			if err := validateID(field+".kind", identity.Kind); err != nil {
+				return err
+			}
+			if !validIdentifierRequestKind(identity.Kind) {
+				return &ValidationError{
+					Field:   field + ".kind",
+					Message: "must be a supported durable mutation kind",
+				}
+			}
 		}
 		if identity.RequestHash == "" {
 			if !identity.Ambiguous {
@@ -165,8 +179,16 @@ func ValidateIdentifierHistory(history IdentifierHistory, sessionID string) erro
 					Message: "is required unless the identity is ambiguous",
 				}
 			}
-		} else if err := validateID(field+".kind", identity.Kind); err != nil {
-			return err
+		} else {
+			if err := validateID(field+".kind", identity.Kind); err != nil {
+				return err
+			}
+			if !validIdentifierEventKind(identity.Kind) {
+				return &ValidationError{
+					Field:   field + ".kind",
+					Message: "must be observation.recorded, action.committed, or action.batch-committed",
+				}
+			}
 		}
 		if identity.RequestID == "" {
 			if !identity.Ambiguous {
@@ -212,6 +234,33 @@ func ValidateIdentifierHistory(history IdentifierHistory, sessionID string) erro
 		}
 	}
 	return nil
+}
+
+func validIdentifierRequestKind(kind string) bool {
+	switch kind {
+	case identifierHistoryCreateKind,
+		identifierHistoryObservationKind,
+		identifierHistoryProposalKind,
+		identifierHistoryCommitKind,
+		identifierHistoryBatchKind,
+		identifierHistoryActivityKind,
+		identifierHistoryArbitrationKind,
+		identifierHistoryRestoreKind:
+		return true
+	default:
+		return false
+	}
+}
+
+func validIdentifierEventKind(kind string) bool {
+	switch kind {
+	case identifierHistoryObservationKind,
+		identifierHistoryCommitKind,
+		identifierHistoryBatchKind:
+		return true
+	default:
+		return false
+	}
 }
 
 func validateHistoryProposal(

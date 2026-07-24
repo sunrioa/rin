@@ -2,11 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  DEFAULT_MAX_RESPONSE_BYTES,
   RinAPIError,
   RinClient,
   RinConfigurationError,
   RinProtocolError,
 } from "../src/index.js";
+
+test("default response limit matches the inline transport budget", () => {
+  assert.equal(DEFAULT_MAX_RESPONSE_BYTES, 32 * 1024 * 1024);
+  const client = new RinClient(undefined, { fetch: () => {} });
+  assert.equal(client.maxResponseBytes, DEFAULT_MAX_RESPONSE_BYTES);
+});
 
 function response(status, envelope, headers = {}) {
   const bytes = new TextEncoder().encode(JSON.stringify(envelope));

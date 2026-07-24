@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from rin_sdk import (  # noqa: E402
+    DEFAULT_MAX_RESPONSE_BYTES,
     RinAPIError,
     RinClient,
     RinConfigurationError,
@@ -102,6 +103,10 @@ def _generation_job(status="running", *, job_id="job.fixture", result=None, erro
 
 
 class RinClientTests(unittest.TestCase):
+    def test_default_response_limit_matches_the_inline_transport_budget(self):
+        self.assertEqual(DEFAULT_MAX_RESPONSE_BYTES, 32 * 1024 * 1024)
+        self.assertEqual(RinClient().max_response_bytes, DEFAULT_MAX_RESPONSE_BYTES)
+
     def test_routes_and_token(self):
         client = RinClient(token="fixture")
         client._opener = _Opener()

@@ -146,6 +146,33 @@ func TestSDKTransportSecurityGuardsRemainVisible(t *testing.T) {
 	}
 }
 
+func TestClientDefaultResponseLimitsMatchInlineTransportBudget(t *testing.T) {
+	tests := []struct {
+		path     string
+		required string
+	}{
+		{"../sdk/python/src/rin_sdk/client.py", "DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024"},
+		{"../sdk/javascript/src/index.js", "DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024"},
+		{"../sdk/csharp/Rin.Client/RinClientOptions.cs", "MaxResponseBytes { get; init; } = 32 * 1024 * 1024"},
+		{"../sdk/java/src/main/java/io/github/sunrioa/rin/RinClient.java", "DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024"},
+		{"../sdk/lua/rin.lua", "DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024"},
+		{"../adapters/renpy/rin_client.py", "DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024"},
+		{"../examples/godot/rin_client.gd", "max_response_bytes := 33554432"},
+		{"../examples/unity/RinClient.cs", "maxResponseBytes = 32 * 1024 * 1024"},
+		{"../examples/mods/luanti-rin-npc/rin.lua", "DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024"},
+		{"../examples/basic/main.go", "defaultMaxRinResponseBytes = 32 << 20"},
+	}
+	for _, test := range tests {
+		payload, err := os.ReadFile(test.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(payload), test.required) {
+			t.Errorf("%s is missing 32 MiB default %q", test.path, test.required)
+		}
+	}
+}
+
 func TestSDKJobWaitersValidateReturnedIdentity(t *testing.T) {
 	tests := []struct {
 		path     string
