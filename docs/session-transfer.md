@@ -169,6 +169,7 @@ the Snapshot endpoint media type.
 
 1. Define protocol frames, validators, and hash rules. **Implemented.**
 2. Define `TransferStore` and implement File Store staging/atomic publication.
+   **Implemented.**
 3. Implement the immutable Runtime export boundary and post-import genesis
    verification.
 4. Add the HTTP stream.

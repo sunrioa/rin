@@ -91,6 +91,27 @@ type RangeStore interface {
 	) (EventPage, error)
 }
 
+// TransferWriter receives one validated complete-lineage transfer into
+// invisible Store staging. Publish must be atomic: before it succeeds the
+// target Session is absent, and after it succeeds the complete event log is
+// visible. Abort is idempotent and must never publish staged data.
+//
+// A writer is single-consumer. Callers must invoke Abort after any failed
+// WriteEvent or Publish unless Publish succeeded.
+type TransferWriter interface {
+	WriteEvent(frame protocol.TransferEvent) error
+	Publish(complete protocol.TransferComplete) error
+	Abort() error
+}
+
+// TransferStore is an optional Store capability for bounded-memory,
+// complete-lineage import. BeginTransfer must reject an existing target and
+// create only invisible staging. Runtime must not emulate this capability by
+// calling Create and Append because that would expose a partial Session.
+type TransferStore interface {
+	BeginTransfer(manifest protocol.TransferManifest) (TransferWriter, error)
+}
+
 // Checkpoint is a derived replay cache, not an exported or imported Snapshot.
 // Its Snapshot may exceed the public inline transport ceiling. Checksum detects
 // accidental corruption; it is not authentication or provenance proof.

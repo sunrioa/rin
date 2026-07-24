@@ -250,6 +250,16 @@ anchor。checkpoint 缺失、损坏、过期或不匹配时，会尝试更旧 ca
 回退到 genesis replay。checksum 只能发现意外损坏，不提供认证或来源证明。
 checkpoint 写入失败不会撤销已经持久的 mutation，也不会让成功恢复的 read 失败。
 
+可选 `TransferStore` 提供 `BeginTransfer`，返回单 consumer
+`TransferWriter`。随附 File Store 把逐条验证的 EventRecord 写入同一数据根下
+不可见的 staging directory，并增量构建派生索引。Checksum、sequence、chain、
+截断或写入失败都不能创建目标 Session。`Publish` 会同步完整 staged log 与索引，
+再用一次同目录 atomic rename 暴露它们；`Abort` 幂等，启动时会清理遗留的
+`.transfer-*.tmp` directory。Writer 生命周期内会一直持有目标 Session lock，
+因此调用方在 import 失败或取消时必须调用 Abort。未实现该可选能力的 Store
+必须在 Runtime 边界返回 transfer-unavailable，不能通过公共 `Create`/`Append`
+模拟 import。
+
 Runtime 会在 Session 创建后（包括 Restore 新建 Session）排队 revision 1
 checkpoint，之后只在大于等于 256 的二次幂 revision 自动排队。它不会在每个
 256 倍数或每次后续 Restore 都写 checkpoint。成功 lazy recovery 时，仅在没有

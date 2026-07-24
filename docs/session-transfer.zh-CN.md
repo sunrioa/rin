@@ -141,7 +141,7 @@ Snapshot endpoint 的媒体类型。
 ## 实施顺序
 
 1. 定义 protocol frame、校验器和 hash 规则；**已实现。**
-2. 定义 `TransferStore`，实现 File Store staging/atomic publish；
+2. 定义 `TransferStore`，实现 File Store staging/atomic publish；**已实现。**
 3. 实现 Runtime immutable export boundary 和 import 后 genesis verify；
 4. 增加 HTTP stream；
 5. 增加 TypeScript/C# SDK stream helper；

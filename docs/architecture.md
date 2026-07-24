@@ -365,6 +365,18 @@ accidental corruption; it is not authentication or provenance proof.
 Checkpoint write failure never reverses an already durable mutation or fails a
 successfully recovered read.
 
+Optional `TransferStore` supplies `BeginTransfer`, which returns a
+single-consumer `TransferWriter`. The bundled File Store writes each verified
+EventRecord into an invisible same-root staging directory and builds its
+derived index incrementally. A checksum, sequence, chain, truncation, or write
+failure cannot create the target Session. `Publish` syncs the complete staged
+log and index, then exposes them with one same-directory atomic rename; `Abort`
+is idempotent, and startup removes abandoned `.transfer-*.tmp` directories.
+The target Session lock is held for the writer lifetime, so callers must always
+abort a failed or cancelled import. Stores without this optional capability
+must return transfer-unavailable at the Runtime boundary rather than simulate
+import through public `Create`/`Append`.
+
 Runtime queues a revision-1 checkpoint after Session creation (including a
 fresh Session created by Restore), then automatically queues checkpoints only
 at power-of-two revisions at or above 256. It does not checkpoint every
