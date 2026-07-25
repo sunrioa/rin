@@ -64,8 +64,8 @@ BepInEx config or game save. Remote origins require HTTPS.
 `RinNpc.Core` owns Create/Observe/Proposal Job recovery, freshness checks,
 allowlisting, outcome construction, and Outbox drain. The backend wrappers only
 own lifecycle, configuration, tick capture, logging, and main-thread apply.
-At this revision the Mono wrapper is 106 lines and the IL2CPP wrapper is 88;
-the reusable runtime is 228 lines. The larger state-store file is persistence
+At this revision the Mono wrapper is 107 lines and the IL2CPP wrapper is 89;
+the reusable runtime is 247 lines. The larger state-store file is persistence
 infrastructure rather than workflow code copied into each game.
 The state file is bounded to 2 MB and the Outbox to 32 entries. Its name is a
 SHA-256-derived Windows-safe filename under

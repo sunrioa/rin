@@ -59,8 +59,8 @@ python tools/package_bepinex.py
 
 `RinNpc.Core` 统一负责 Create/Observe、Proposal Job 恢复、Freshness、
 Allowlist、Outcome 构造与 Outbox Drain。Backend Wrapper 只负责生命周期、
-配置、Tick、日志和主线程 Apply。当前 Mono Wrapper 为 106 行、IL2CPP
-Wrapper 为 88 行，共享 Runtime 为 228 行；更大的状态 Store 文件属于持久化
+配置、Tick、日志和主线程 Apply。当前 Mono Wrapper 为 107 行、IL2CPP
+Wrapper 为 89 行，共享 Runtime 为 247 行；更大的状态 Store 文件属于持久化
 基础设施，不是复制到每个游戏的 Workflow。状态文件最大 2 MB，Outbox 最多 32 条；
 文件名由 SHA-256 派生，可安全用于 Windows，位置为
 `BepInEx/config/rin-npc-example`。
