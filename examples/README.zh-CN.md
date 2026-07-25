@@ -8,12 +8,14 @@ Test，不是生产存档架构。
 
 设计真实接入时请使用 [`recovery`](recovery/)。它演示稳定身份、持久 Proposal
 Attempt、Applied-operation Marker、权威 Outcome Outbox、Exact Retry、离线对账、
-Snapshot Binding、原子文件替换与重启恢复。这些复杂内容被独立放置，避免
+Snapshot Binding、可恢复的临时文件替换与重启恢复。这些复杂内容被独立放置，避免
 Quickstart 再次变得不可读。
 
 可安装的 Node.js 18+ [`terminal-story`](terminal-story/) 是覆盖
 Windows/macOS/Linux 的可玩纵向切片，包含安全 JavaScript SDK 工作流、可复现
 Sidecar 基准，以及不回避结果的持久化规则树对照。
 
-各引擎与 Mod 目录演示宿主特有的线程和打包方式；其中的持久化 Hook 仍需接入
-游戏自己的权威存档系统。
+各引擎与 Mod 目录演示宿主特有的线程和打包方式，并已持久化稳定的 Workflow
+恢复状态，但仍属于 `advisory`。真实接入必须把效果 Apply 与 Operation Marker
+连接到游戏自己的权威存档或幂等边界；声明生产稳定前应执行
+[真实宿主验收矩阵](../docs/mod-integration-validation.zh-CN.md)。

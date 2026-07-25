@@ -8,8 +8,9 @@
 每个接入都必须声明真实的
 [宿主能力 Profile](host-capability-profiles.zh-CN.md)。调用正确的 Rin Endpoint
 不会自动让宿主具备 Crash Safety；更强 Profile 要求网络前持久边界，以及按
-Operation ID 幂等的 Apply 或真实游戏事务。在各自的持久化改造完成前，仓库
-中的宿主示例都保持 `advisory`。
+Operation ID 幂等的 Apply 或真实游戏事务。仓库中的宿主示例已经持久化稳定
+Identity 与有界恢复状态，但其存储无法与任意游戏世界效果形成 Crash-atomic
+边界，因此仍保持 `advisory`。
 
 本文描述 Rin `0.6.0` Preview。权威 Wire Schema 是
 [`api/openapi.json`](../api/openapi.json)。
@@ -133,7 +134,8 @@ Fabric 参考是固定 Minecraft 1.21.1 与 Java 21 的完整 Gradle 项目；�
 的流程状态，并用 `MinecraftServer.execute` 调度宿主工作。由于
 `markDirty()` 是最终存盘而非持久事务边界，它仍保持 `advisory`。
 
-BepInEx 参考固定 `6.0.0-be.785`，并把 Unity Mono
+BepInEx 参考固定上游尚未正式发布的 Bleeding-edge BepInEx 6
+`6.0.0-be.785`，并把 Unity Mono
 （`netstandard2.0`）与 IL2CPP（`net6.0`）分开。共享 Core 持久化稳定
 Save Identity、Pending Turn、Job ID 与有上限的 Outcome Outbox。Mono
 提供有上限的 Unity 主线程队列和可选 F8 演示；IL2CPP 明确要求游戏专用
@@ -158,11 +160,12 @@ Outcome Outbox；225 行 NPC 宿主只保留游戏拥有的 Policy 与效果。C
 Godot Binary 固定 SHA-512，并在 Linux 与 Windows 执行 Headless 解析和重启
 测试。
 
-Unity 2021.3+ 参考是可导入的 UPM 包。Coroutine Workflow 在
+Unity 包声明最低 API Level 为 `2021.3`。Coroutine Workflow 在
 `Application.persistentDataPath` 维护可重启的 Pending Turn、Job、Freshness、
 Settlement 与 Outbox 状态；游戏侧示例只有 18 行。.NET Harness 会在 Linux
-与 Windows 使用 Unity API Stub 编译包并测试文件恢复，但不宣称执行了需要
-许可证的 Editor。
+与 Windows 使用 Unity API Stub 编译包并测试文件恢复。在执行
+[真实宿主验收矩阵](mod-integration-validation.zh-CN.md)前，这不能证明包已在
+2021.3 或后续 Unity 版本中完成 Editor 导入或 Player 兼容测试。
 
 ## 验证
 

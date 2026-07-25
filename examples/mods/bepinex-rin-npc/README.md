@@ -2,7 +2,8 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-This is a buildable BepInEx 6 reference, split by Unity backend.
+This is a buildable reference for the upstream bleeding-edge, unreleased
+BepInEx 6 line, split by Unity backend.
 
 **Host capability profile: `advisory`.** The example persists stable identity,
 Pending Turn, Job ID, and Outcome Outbox state, but a generic BepInEx plugin
@@ -21,7 +22,9 @@ interop assemblies are generated for a particular game, so this repository
 does not pretend a generic `UnityEngine` reference is sufficient. A real
 IL2CPP adapter must set `Plugin.ApplyDialogue` to a delegate that marshals onto
 the game's owning thread, then call `RequestNpcTurnAsync` from its interaction
-hook.
+hook. Successful compilation is not proof that either backend loads in a
+particular game; complete the
+[real-host validation matrix](../../../docs/mod-integration-validation.md).
 
 ## Build and install
 

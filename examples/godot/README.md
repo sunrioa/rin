@@ -7,7 +7,7 @@ This is a runnable Godot 4.7.1 project and a source-first integration kit:
 - `rin_client.gd` owns bounded asynchronous HTTP and Proposal Job transport;
 - `rin_workflow.gd` owns stable save-slot identity, Pending Turn recovery,
   freshness, per-slot concurrency, shutdown cancellation, and Outcome Outbox;
-- `example_npc.gd` is a 221-line game-owned policy and UI example.
+- `example_npc.gd` is a 225-line game-owned policy and UI example.
 
 Open this directory in Godot 4.7.1, start Rin on
 `http://127.0.0.1:7374`, run the scene, then call

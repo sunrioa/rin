@@ -47,8 +47,9 @@ The last command must print `0.6.0`. Also verify:
 - the `terminal-story` install/test and real-Sidecar 20-turn gate pass on
   Windows, macOS, and Linux CI, and public value claims remain inside the
   [measured scope](player-value.md);
-- the real-game manual checks that remain incomplete are visible as Preview
-  limitations rather than reported as completed tests.
+- the incomplete rows in the [real-host Mod validation
+  matrix](mod-integration-validation.md) remain visible as Preview limitations
+  rather than reported as completed tests.
 
 Language toolchains that are unavailable locally must be executed by the
 corresponding CI job before tagging. A source-marker scan or route-name scan
@@ -93,7 +94,8 @@ Use the `0.6.0` section of the [Changelog](../CHANGELOG.md). Keep the word
 - the fact that SDKs are source-first;
 - the measured player-value scope and the fact that one persistent preference
   rule does not justify Rin over its rule-tree baseline;
-- remaining manual integration checks.
+- remaining rows from the [real-host Mod validation
+  matrix](mod-integration-validation.md).
 
 If binary artifacts are published separately, build them from the tagged
 commit in a controlled environment and publish SHA-256 checksums. The

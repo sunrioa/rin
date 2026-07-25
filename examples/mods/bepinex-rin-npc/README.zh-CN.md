@@ -2,7 +2,8 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-这是一个可真实构建的 BepInEx 6 参考项目，并按 Unity Backend 分开。
+这是一个可真实构建的参考项目，面向上游尚未正式发布的 Bleeding-edge
+BepInEx 6，并按 Unity Backend 分开。
 
 **Host capability profile：`advisory`。** 示例会持久化稳定身份、Pending
 Turn、Job ID 与 Outcome Outbox，但通用 BepInEx 插件无法把任意游戏的存档
@@ -19,7 +20,9 @@ Turn、Job ID 与 Outcome Outbox，但通用 BepInEx 插件无法把任意游戏
 两个项目都固定 BepInEx `6.0.0-be.785`，不能同时安装。IL2CPP Interop
 Assembly 由具体游戏生成，因此仓库不会假装一个通用 `UnityEngine` 引用足够。
 真实 IL2CPP Adapter 必须把 `Plugin.ApplyDialogue` 设置为能切回游戏所有者
-线程的 Delegate，并从交互 Hook 调用 `RequestNpcTurnAsync`。
+线程的 Delegate，并从交互 Hook 调用 `RequestNpcTurnAsync`。编译成功不能
+证明任一 Backend 能在具体游戏中加载；还需执行
+[真实宿主验收矩阵](../../../docs/mod-integration-validation.zh-CN.md)。
 
 ## 构建与安装
 

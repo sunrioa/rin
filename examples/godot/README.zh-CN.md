@@ -7,7 +7,7 @@
 - `rin_client.gd` 负责有界异步 HTTP 与 Proposal Job Transport；
 - `rin_workflow.gd` 负责稳定 Save Slot Identity、Pending Turn 恢复、
   Freshness、每槽并发、退出取消与 Outcome Outbox；
-- `example_npc.gd` 是 221 行、由游戏拥有的 Policy 与 UI 示例。
+- `example_npc.gd` 是 225 行、由游戏拥有的 Policy 与 UI 示例。
 
 用 Godot 4.7.1 打开本目录，在 `http://127.0.0.1:7374` 启动 Rin，运行场景，
 再从游戏 UI 或 Debugger 调用 `ask_npc_to_respond()`。接入其他项目时，复制

@@ -1,6 +1,9 @@
 # Rin Unity 适配器
 
-本目录是可安装的 Unity Package Manager 包，支持 Unity 2021.3 及以上版本。
+[English](README.md) | [简体中文](README.zh-CN.md)
+
+本目录是可安装的 Unity Package Manager 包，并声明最低 API Level 为 Unity
+`2021.3`。
 从本地 Checkout 添加包，把 `RinClient` 与 `RinUnityWorkflow` 挂到一个跨场景
 保留的 GameObject，关联 Client 字段，并把精简的 `RinNpcExample` 留在游戏代码。
 
@@ -18,5 +21,7 @@ Token 在运行时从 `RIN_TOKEN` 读取，不会序列化进 Scene 或 Prefab�
 Loopback HTTP 无需 Token。
 
 `tools/verify_unity.py` 使用严格 Unity API Stub 编译该包，并在 .NET 6 执行
-持久化/重启测试；CI 会在 Linux 与 Windows 运行。它是包与编译器验证，不冒充
-需要许可证的 Unity Editor 运行。
+持久化/重启测试；CI 会在 Linux 与 Windows 运行。它是包与编译器验证，不是
+Unity Editor 导入或已构建 Player 测试。声明兼容某个 Unity 版本或 Scripting
+Backend 前，应执行
+[真实宿主验收矩阵](../../docs/mod-integration-validation.zh-CN.md)。

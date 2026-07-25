@@ -24,6 +24,7 @@ func TestBilingualDocumentationPairs(t *testing.T) {
 		{"../docs/host-capability-profiles.md", "../docs/host-capability-profiles.zh-CN.md"},
 		{"../docs/migration-v0.6.md", "../docs/migration-v0.6.zh-CN.md"},
 		{"../docs/model-policy.md", "../docs/model-policy.zh-CN.md"},
+		{"../docs/mod-integration-validation.md", "../docs/mod-integration-validation.zh-CN.md"},
 		{"../docs/outcome-reporting.md", "../docs/outcome-reporting.zh-CN.md"},
 		{"../docs/protocol-v1.md", "../docs/protocol-v1.zh-CN.md"},
 		{"../docs/release-guide.md", "../docs/release-guide.zh-CN.md"},
@@ -35,6 +36,9 @@ func TestBilingualDocumentationPairs(t *testing.T) {
 		{"../sdk/csharp/README.md", "../sdk/csharp/README.zh-CN.md"},
 		{"../sdk/java/README.md", "../sdk/java/README.zh-CN.md"},
 		{"../sdk/lua/README.md", "../sdk/lua/README.zh-CN.md"},
+		{"../examples/README.md", "../examples/README.zh-CN.md"},
+		{"../examples/godot/README.md", "../examples/godot/README.zh-CN.md"},
+		{"../examples/unity/README.md", "../examples/unity/README.zh-CN.md"},
 		{"../examples/mods/fabric-rin-npc/README.md", "../examples/mods/fabric-rin-npc/README.zh-CN.md"},
 		{"../examples/mods/bepinex-rin-npc/README.md", "../examples/mods/bepinex-rin-npc/README.zh-CN.md"},
 		{"../examples/mods/luanti-rin-npc/README.md", "../examples/mods/luanti-rin-npc/README.zh-CN.md"},
@@ -50,6 +54,58 @@ func TestBilingualDocumentationPairs(t *testing.T) {
 			text := string(payload)
 			if !strings.Contains(text, "[English]") || !strings.Contains(text, "[简体中文]") {
 				t.Errorf("%s is missing the bilingual navigation", path)
+			}
+		}
+	}
+}
+
+func TestRealHostValidationLimitsRemainExplicit(t *testing.T) {
+	required := map[string][]string{
+		"../docs/mod-integration-validation.md": {
+			"Minecraft Dedicated Server",
+			"BepInEx 6 as bleeding-edge/unreleased",
+			"Luanti headless server",
+			"Unity Editor package import",
+			"Mono and IL2CPP Players",
+			"operation marker, and durable outcome",
+			"at least two hours or 1,000 turns",
+			"`advisory`",
+		},
+		"../docs/mod-integration-validation.zh-CN.md": {
+			"Minecraft Dedicated Server",
+			"BepInEx 6 视为 Bleeding-edge/未正式发布",
+			"Luanti Headless Server",
+			"Unity Editor Package 导入",
+			"Windows Mono 与 IL2CPP Player",
+			"游戏效果、Operation Marker 与持久",
+			"至少两小时或 1,000 Turn",
+			"`advisory`",
+		},
+		"../examples/unity/README.md": {
+			"not a Unity Editor import",
+			"minimum API level",
+		},
+		"../examples/unity/README.zh-CN.md": {
+			"不是",
+			"最低 API Level",
+		},
+		"../examples/mods/bepinex-rin-npc/README.md": {
+			"bleeding-edge, unreleased",
+			"not proof that either backend loads",
+		},
+		"../examples/mods/bepinex-rin-npc/README.zh-CN.md": {
+			"尚未正式发布的 Bleeding-edge",
+			"编译成功不能",
+		},
+	}
+	for path, fragments := range required {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, fragment := range fragments {
+			if !strings.Contains(string(payload), fragment) {
+				t.Errorf("%s is missing real-host evidence boundary %q", path, fragment)
 			}
 		}
 	}
@@ -71,6 +127,8 @@ func TestReleaseDocumentationIdentity(t *testing.T) {
 		"../docs/compatibility.zh-CN.md",
 		"../docs/migration-v0.6.md",
 		"../docs/migration-v0.6.zh-CN.md",
+		"../docs/mod-integration-validation.md",
+		"../docs/mod-integration-validation.zh-CN.md",
 		"../docs/protocol-v1.md",
 		"../docs/protocol-v1.zh-CN.md",
 		"../docs/release-guide.md",
@@ -847,7 +905,7 @@ func TestPublicDocumentationLanguage(t *testing.T) {
 		}
 		if entry.IsDir() {
 			switch entry.Name() {
-			case ".git", ".cache", "bin", "obj":
+			case ".git", ".cache", "bin", "obj", "node_modules":
 				return filepath.SkipDir
 			}
 			return nil
@@ -880,7 +938,7 @@ func TestMarkdownLocalLinksResolve(t *testing.T) {
 		}
 		if entry.IsDir() {
 			switch entry.Name() {
-			case ".git", ".cache", "bin", "obj":
+			case ".git", ".cache", "bin", "obj", "node_modules":
 				return filepath.SkipDir
 			}
 			return nil

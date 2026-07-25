@@ -10,8 +10,9 @@ Every integration must declare its real
 [host capability profile](host-capability-profiles.md). Calling the correct
 Rin endpoints does not make a host crash-safe: stronger profiles require a
 durable-before-network boundary plus either operation-keyed idempotent apply or
-an actual game transaction. The checked-in host examples remain `advisory`
-until their dedicated persistence work is complete.
+an actual game transaction. The checked-in host examples already persist
+stable identity and bounded recovery state, but remain `advisory` because their
+storage cannot be made crash-atomic with an arbitrary game-world effect.
 
 This document describes Rin `0.6.0` Preview. The authoritative wire schema is
 [`api/openapi.json`](../api/openapi.json).
@@ -153,7 +154,8 @@ world/session identity and bounded workflow state in Saved Data, and schedules
 host work with `MinecraftServer.execute`. It remains `advisory` because
 `markDirty()` is eventual rather than a durable transaction boundary.
 
-The BepInEx reference pins `6.0.0-be.785` and separates Unity Mono
+The BepInEx reference pins the upstream bleeding-edge, unreleased BepInEx 6
+build `6.0.0-be.785` and separates Unity Mono
 (`netstandard2.0`) from IL2CPP (`net6.0`). Shared Core code persists a stable
 save identity, Pending Turn, Job ID, and bounded Outcome Outbox. Mono provides
 a bounded Unity main-thread queue and optional F8 demo. IL2CPP deliberately
@@ -180,11 +182,14 @@ bounded Outcome Outbox under `user://`, while the 225-line NPC host retains
 only game-owned policy and effects. Official Godot binaries are SHA-512 pinned
 for headless parsing and restart tests on Linux and Windows.
 
-The Unity 2021.3+ reference is an importable UPM package. Its coroutine
+The Unity package declares a `2021.3` minimum API level. Its coroutine
 Workflow owns restartable Pending Turn, Job, freshness, settlement, and Outbox
 state under `Application.persistentDataPath`; the game-facing example is 18
 lines. A .NET harness compiles the package against Unity API stubs and exercises
-file recovery on Linux and Windows. This does not claim a licensed Editor run.
+file recovery on Linux and Windows. Until the
+[real-host validation matrix](mod-integration-validation.md) is executed, this
+does not prove Editor import or Player compatibility with 2021.3 or later
+Unity releases.
 
 ## Verification
 

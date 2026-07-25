@@ -1,7 +1,9 @@
 # Rin Unity adapter
 
-This directory is an installable Unity Package Manager package for Unity
-2021.3 or newer. Add it from a local checkout, attach `RinClient` and
+[English](README.md) | [简体中文](README.zh-CN.md)
+
+This directory is an installable Unity Package Manager package that declares
+Unity `2021.3` as its minimum API level. Add it from a local checkout, attach `RinClient` and
 `RinUnityWorkflow` to one persistent GameObject, assign the client field, then
 keep the small `RinNpcExample` in game-owned code.
 
@@ -22,4 +24,7 @@ scene or prefab. The default loopback HTTP endpoint needs no token.
 
 `tools/verify_unity.py` compiles the package against strict Unity API stubs and
 runs persistence/restart tests on .NET 6. CI runs it on Linux and Windows.
-This is a package/compiler verification, not a licensed Unity Editor run.
+This is a package/compiler verification, not a Unity Editor import or built
+Player test. Run the
+[real-host validation matrix](../../docs/mod-integration-validation.md) before
+claiming compatibility with a particular Unity release or scripting backend.

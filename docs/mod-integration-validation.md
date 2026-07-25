@@ -1,0 +1,122 @@
+# Real-host mod integration validation
+
+[English](mod-integration-validation.md) | [简体中文](mod-integration-validation.zh-CN.md)
+
+Rin `0.6.0` is Preview software. Compilation, mocked engine APIs, and
+restart-focused unit tests are useful gates, but they do not prove that a Mod
+is stable inside a real game. Until the relevant rows below have recorded
+evidence, the engine and Mod examples remain `advisory`.
+
+## What CI currently proves
+
+| Integration | Automated evidence | Not yet proved |
+| --- | --- | --- |
+| Fabric | Real Mod JAR build and NBT recovery-state round trip | Load and recovery in an actual Minecraft Dedicated Server |
+| BepInEx Mono/IL2CPP | Real BepInEx package compilation and Core restart tests | Plugin load, game hooks, save identity, and shutdown in representative games |
+| Luanti | Lua 5.1/5.4 workflow tests with a ModStorage-faithful harness | A real Luanti headless server, world saves, and concurrent players |
+| Godot | Official Godot 4 headless parse and restart tests | Live Sidecar traffic in an editor session and exported build |
+| Unity | Strict Unity API stubs plus .NET restart tests | Unity Editor package import and Mono/IL2CPP Player builds |
+| Ren'Py | Python adapter tests | Engine save/load, rollback, and interaction restart |
+| Terminal Story | Real Sidecar 20-turn CI on Windows, macOS, and Linux | It is a reference game, not evidence for another game's Mod lifecycle |
+
+## Shared crash and recovery matrix
+
+Run every applicable case against a copy of a real save. Kill the game or
+Sidecar at the named boundary; do not substitute an exception thrown inside a
+unit test.
+
+1. After persisting a Pending Turn, before sending its request.
+2. After the Sidecar accepts a request, while its response is lost.
+3. Before and after persisting an asynchronous Job ID, including Sidecar
+   restart while polling.
+4. After applying the game effect, before persisting its operation marker or
+   Outcome Outbox entry. An `advisory` integration may expose this duplication
+   window; promotion requires a game transaction or an idempotent operation
+   primitive that closes it.
+5. After sending an outcome while its acknowledgement is lost.
+6. During temporary-file/backup replacement and during the host's normal
+   autosave.
+7. With the Sidecar absent, started late, restarted, and unavailable during
+   orderly game shutdown.
+
+For every restart, verify that request and event IDs remain stable, no turn
+overlaps another turn, an already applied operation is not applied twice,
+unresolved work remains recoverable, and the Outcome Outbox eventually drains.
+
+## Host-specific gates
+
+### Fabric
+
+- Install the built JAR in the pinned Minecraft `1.21.1` Fabric Dedicated
+  Server and verify startup, command/event hooks, and server-thread access.
+- Exercise two different worlds, reopen the same world, use `save-all flush`,
+  normal `/stop`, forced termination, and at least two concurrent players.
+- Confirm the save/world identity is not shared across worlds and recovery
+  state follows the authoritative world save. Run on Windows as well as Linux.
+- Add Fabric GameTests for deterministic gameplay behavior; retain a real
+  server smoke test for lifecycle and packaging.
+
+### BepInEx
+
+- Treat BepInEx 6 as bleeding-edge/unreleased and pin the exact runtime build.
+- For Mono, load the DLL in one named representative game, source
+  `SaveIdentity` from the actual save/profile, verify main-thread effect
+  application, dependency resolution, quit, and restart.
+- For IL2CPP, repeat in a concrete game after its first-run interop generation.
+  Replace the example `ApplyDialogue` delegate with a real game hook and test
+  AOT/native backend behavior. A build against generic packages is not enough.
+
+### Luanti
+
+- Load the Mod in a real Luanti headless server with `secure.http_mods`
+  configured. Test real ModStorage across map-save intervals, `/shutdown`,
+  forced termination, and world reopen.
+- Exercise simultaneous players, slow/unavailable Sidecar responses, and the
+  platform's loopback/redirect policy on Windows and Linux.
+
+### Godot
+
+- Run an actual scene against a live Sidecar in the editor and in exported
+  Windows and Linux builds.
+- Verify `user://` persistence, scene reload, application exit, network
+  partition, UI responsiveness, and that callbacks touching nodes return to
+  the main thread.
+
+### Unity
+
+- Import the package through Unity Package Manager at the declared minimum
+  `2021.3` API level and at every Unity version the project intends to claim.
+- Build and run Windows Mono and IL2CPP Players. Test scene/domain reload,
+  `Application.persistentDataPath`, stripping/AOT, coroutine/main-thread
+  behavior, application quit, and the shared crash matrix.
+
+### Ren'Py
+
+- Run inside the actual engine and verify save/load, rollback, interaction
+  restart, and clean shutdown.
+- Confirm that serialized state contains plain recovery data, not live worker,
+  socket, lock, or callback objects.
+
+## Soak and release evidence
+
+As a recommended Preview release gate, run at least two hours or 1,000 turns
+per claimed host/backend while injecting timeouts, connection resets, Sidecar
+restarts, and game restarts. This is a repeatable minimum, not proof that every
+game is stable. Require:
+
+- no unbounded thread, task, handle, memory, recovery-file, or outbox growth;
+- no duplicate world effect and no permanently overlapping turn;
+- eventual recovery or an explicit terminal error for every accepted turn;
+- no credential, full player text, or save payload in normal logs;
+- no unacceptable frame or server-tick stall under the game's own budget.
+
+Record the Rin commit and artifact hash, exact game/loader/engine/backend and
+versions, OS and filesystem, complete Mod list, source of the save identity,
+test/crash point, expected and actual result, relevant sanitized logs, and
+remaining Pending Turn/Attempt/Outbox counts.
+
+Only promote a host capability after this evidence is reviewed. Call an
+operation `idempotent` only after the same operation ID has been repeated
+without repeating its game effect. Call it `transactional` only when the game
+effect, operation marker, and durable outcome are committed by one real
+transaction.
