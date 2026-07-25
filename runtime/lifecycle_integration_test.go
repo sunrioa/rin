@@ -53,6 +53,88 @@ func TestFileSessionLifecycleSurvivesRestart(t *testing.T) {
 	})
 }
 
+func TestSessionQuotaFailsBeforeAppendButKeepsExactRetry(t *testing.T) {
+	t.Parallel()
+	memory := store.NewMemory()
+	quotaStore := struct {
+		rinruntime.Store
+		rinruntime.LifecycleStore
+	}{Store: memory, LifecycleStore: memory}
+	initial, err := rinruntime.Open(quotaStore, policy.Deterministic{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	create := lifecycleCreateRequest()
+	created, err := initial.CreateSession(create)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := initial.SessionStats(protocol.SessionRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       created.SessionID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	limited, err := rinruntime.OpenWithOptions(
+		quotaStore,
+		policy.Deterministic{},
+		rinruntime.EngineOptions{
+			SessionSoftLimitBytes: before.Bytes.Total - 1,
+			SessionHardLimitBytes: before.Bytes.Total + 1,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stats, err := limited.SessionStats(protocol.SessionRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       created.SessionID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stats.SoftLimitExceeded ||
+		stats.HardLimitExceeded ||
+		stats.HardLimitBytes != before.Bytes.Total+1 {
+		t.Fatalf("unexpected quota stats: %+v", stats)
+	}
+	_, err = limited.Observe(protocol.ObserveRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       created.SessionID,
+		RequestID:       "observe.quota",
+		EventID:         "event.quota",
+		Tick:            1,
+		ObserverIDs:     []string{"npc.lifecycle"},
+		Source:          "player",
+		Kind:            "dialogue",
+		Summary:         "This event must fail before append.",
+		Importance:      1,
+	})
+	if rinruntime.ErrorCode(err) != "session_quota_exceeded" {
+		t.Fatalf("quota mutation error = %v", err)
+	}
+	after, err := limited.SessionStats(protocol.SessionRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       created.SessionID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Revision != created.Revision ||
+		after.EventCount != before.EventCount ||
+		after.Bytes.Total != before.Bytes.Total {
+		t.Fatalf("quota failure changed storage: before=%+v after=%+v", before, after)
+	}
+	retry, err := limited.CreateSession(create)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !retry.Duplicate || retry.Revision != created.Revision {
+		t.Fatalf("exact retry was blocked over quota: %+v", retry)
+	}
+}
+
 func assertSessionLifecycle(
 	t *testing.T,
 	eventStore rinruntime.Store,

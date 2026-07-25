@@ -31,6 +31,9 @@
   与整流 checksum、可信 Binding header、同根 staging import、atomic publish、
   终止 error frame，以及调用方拥有的 JavaScript/C# stream helper。端到端测试
   会迁移超过 16 MiB 的 lineage、重放并继续 mutation。
+- 经过鉴权的 Session Stats、Archive 与 Fail-closed Delete（永久 ID Tombstone），
+  以及可配置的受管存储 Soft/Hard Quota。File Store 生命周期恢复在 Linux、
+  macOS 与 Windows 上均有覆盖。
 
 ### 变化
 

@@ -55,6 +55,12 @@ func (e *Engine) SessionStats(
 			Other:       stored.OtherBytes,
 			Total:       total,
 		},
+		SoftLimitBytes: e.sessionSoftLimitBytes,
+		HardLimitBytes: e.sessionHardLimitBytes,
+		SoftLimitExceeded: e.sessionSoftLimitBytes > 0 &&
+			total > e.sessionSoftLimitBytes,
+		HardLimitExceeded: e.sessionHardLimitBytes > 0 &&
+			total > e.sessionHardLimitBytes,
 	}, nil
 }
 

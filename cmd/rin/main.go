@@ -46,6 +46,16 @@ func run(arguments []string) (resultErr error) {
 	dataDirectory := flags.String("data", envOr("RIN_DATA_DIR", "./rin-data"), "event and snapshot directory")
 	allowRemote := flags.Bool("allow-remote", false, "allow a non-loopback listen address")
 	maxBody := flags.Int64("max-body-bytes", envInt64("RIN_MAX_BODY_BYTES", httpapi.DefaultMaxBodyBytes), "maximum JSON request size")
+	sessionSoftLimit := flags.Uint64(
+		"session-soft-limit-bytes",
+		envUint64("RIN_SESSION_SOFT_LIMIT_BYTES", 0),
+		"per-Session managed byte warning threshold; 0 disables",
+	)
+	sessionHardLimit := flags.Uint64(
+		"session-hard-limit-bytes",
+		envUint64("RIN_SESSION_HARD_LIMIT_BYTES", 0),
+		"per-Session managed byte hard limit; 0 disables",
+	)
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
@@ -68,7 +78,14 @@ func run(arguments []string) (resultErr error) {
 	if err != nil {
 		return err
 	}
-	engine, err := rinruntime.Open(fileStore, modelRuntime.Policy)
+	engine, err := rinruntime.OpenWithOptions(
+		fileStore,
+		modelRuntime.Policy,
+		rinruntime.EngineOptions{
+			SessionSoftLimitBytes: *sessionSoftLimit,
+			SessionHardLimitBytes: *sessionHardLimit,
+		},
+	)
 	if err != nil {
 		return err
 	}
@@ -117,7 +134,15 @@ func run(arguments []string) (resultErr error) {
 		}
 		return err
 	}
-	logFields := []any{"address", listener.Addr().String(), "protocol", protocol.Version, "auth", token != "", "policy", modelRuntime.Mode, "structured_generation", generationManager != nil}
+	logFields := []any{
+		"address", listener.Addr().String(),
+		"protocol", protocol.Version,
+		"auth", token != "",
+		"policy", modelRuntime.Mode,
+		"structured_generation", generationManager != nil,
+		"session_soft_limit_bytes", *sessionSoftLimit,
+		"session_hard_limit_bytes", *sessionHardLimit,
+	}
 	if modelRuntime.Mode == "model-with-fallback" {
 		logFields = append(logFields, "model_config", describeModelConfig())
 	}
@@ -184,6 +209,18 @@ func envInt64(key string, fallback int64) int64 {
 	}
 	parsed, err := strconv.ParseInt(value, 10, 64)
 	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
+}
+
+func envUint64(key string, fallback uint64) uint64 {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseUint(value, 10, 64)
+	if err != nil {
 		return fallback
 	}
 	return parsed

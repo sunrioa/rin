@@ -81,7 +81,10 @@ retention policy if even these identifiers are personal data.
 ## Capacity policy
 
 The default remains unlimited for compatibility. Operators may configure
-per-Session soft and hard managed-byte limits:
+per-Session soft and hard managed-byte limits with
+`-session-soft-limit-bytes` / `RIN_SESSION_SOFT_LIMIT_BYTES` and
+`-session-hard-limit-bytes` / `RIN_SESSION_HARD_LIMIT_BYTES`. A value of zero
+disables that limit:
 
 - crossing the soft limit succeeds and is exposed by Stats/readiness metrics;
 - a mutation whose conservative encoded-size reservation would exceed the hard
@@ -92,8 +95,11 @@ per-Session soft and hard managed-byte limits:
   truncated.
 
 Limits cover the Event Log plus Store-managed Snapshots, checkpoints, indexes,
-archive markers, and uncertainty metadata. Transfer staging has its own limits
-and is not charged to an existing Session before atomic publication.
+archive markers, and uncertainty metadata. Event reservations include a
+conservative index allowance, and Snapshot replacement is checked before old
+artifacts can be reclaimed, so an operation can fail slightly before measured
+usage reaches the configured hard limit. Transfer imports apply the hard limit
+to staging and publish nothing when it is exceeded.
 
 ## Retention and privacy boundaries
 

@@ -717,6 +717,7 @@ Confirmation；它会删除内容，并以最小 Tombstone 永久退役该 ID。
 | `429` | `generation_queue_full` / `generation_capacity` | 生成队列或保留区已满 |
 | `503` | `jobs_unavailable` / `jobs_closed` | Proposal Job 服务未启用或正在关闭 |
 | `503` | `generation_unavailable` / `generation_closed` | 生成服务未启用或正在关闭 |
+| `507` | `session_quota_exceeded` | 配置的每 Session 受管存储 Hard Limit 将被超过；Event/Import 不会发布 |
 
 服务从不把事件 payload、Token、内部路径或模型响应原文放入错误消息。这些 HTTP
 错误与成功 HTTP Response 中终态 Job 的有界 `data.error` 是不同层次。

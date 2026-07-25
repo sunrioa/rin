@@ -64,6 +64,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "507": {
+            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -98,6 +101,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "507": {
+            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -138,6 +144,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "507": {
+            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -352,6 +361,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "507": {
+            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -386,6 +398,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "507": {
+            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -420,6 +435,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "507": {
+            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -454,6 +472,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "507": {
+            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -615,6 +636,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "507": {
+            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -646,6 +670,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "507": {
+            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -727,6 +754,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "507": {
+            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -1220,6 +1250,9 @@
         "$ref": "#/components/responses/ErrorResponse"
       },
       "TooManyRequests": {
+        "$ref": "#/components/responses/ErrorResponse"
+      },
+      "InsufficientStorage": {
         "$ref": "#/components/responses/ErrorResponse"
       },
       "InternalError": {

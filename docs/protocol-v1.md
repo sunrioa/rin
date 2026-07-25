@@ -845,6 +845,7 @@ preconditions, durability, retry, backup, and privacy semantics are defined in
 | `429` | `generation_queue_full` / `generation_capacity` | Generation queue or retention is full |
 | `503` | `jobs_unavailable` / `jobs_closed` | Proposal jobs are disabled or closing |
 | `503` | `generation_unavailable` / `generation_closed` | Generation is disabled or closing |
+| `507` | `session_quota_exceeded` | The configured per-Session managed-storage hard limit would be exceeded; the event/import is not published |
 
 The service never places event payloads, tokens, internal paths, or raw model
 responses in error messages. These HTTP errors are distinct from a terminal

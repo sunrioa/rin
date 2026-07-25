@@ -265,6 +265,57 @@ func TestTransferExportStopsAfterCancellation(t *testing.T) {
 	}
 }
 
+func TestTransferImportHardQuotaFailsBeforePublication(t *testing.T) {
+	sourceStore := store.NewMemory()
+	source := transferEngine(t, sourceStore)
+	const sessionID = "session.transfer-quota"
+	createTransferSession(t, source, sessionID)
+	sink := &collectingTransferSink{}
+	if err := source.ExportTransfer(
+		context.Background(),
+		protocol.SessionRequest{
+			ProtocolVersion: protocol.Version,
+			SessionID:       sessionID,
+		},
+		sink,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	targetStore, err := store.OpenFile(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer targetStore.Close()
+	target, err := rinruntime.OpenWithOptions(
+		targetStore,
+		policy.Deterministic{},
+		rinruntime.EngineOptions{SessionHardLimitBytes: 1},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, err := target.BeginTransferImport(
+		sink.manifest,
+		sink.manifest.Binding,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.WriteEvent(sink.events[0]); rinruntime.ErrorCode(err) != "session_quota_exceeded" {
+		t.Fatalf("transfer quota error = %v", err)
+	}
+	if err := writer.Abort(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := target.State(protocol.SessionRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       sessionID,
+	}); !errors.Is(err, rinruntime.ErrNotFound) {
+		t.Fatalf("quota-rejected import became visible: %v", err)
+	}
+}
+
 type transferLegacyStore struct {
 	rinruntime.Store
 }

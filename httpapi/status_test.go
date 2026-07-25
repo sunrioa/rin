@@ -70,3 +70,25 @@ func TestRecoveryErrorsAlwaysMapToInternalServerError(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionQuotaMapsToInsufficientStorage(t *testing.T) {
+	response := httptest.NewRecorder()
+	server := &Server{}
+	server.respond(
+		response,
+		nil,
+		nil,
+		rinruntime.NewError(
+			"session_quota_exceeded",
+			"Session storage limit reached",
+			rinruntime.ErrConflict,
+		),
+	)
+	if response.Code != http.StatusInsufficientStorage {
+		t.Fatalf(
+			"status = %d, want %d",
+			response.Code,
+			http.StatusInsufficientStorage,
+		)
+	}
+}

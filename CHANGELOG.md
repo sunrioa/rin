@@ -34,6 +34,9 @@ release checklist passes. See the [release guide](docs/release-guide.md).
   import, atomic publication, terminal error frames, and caller-owned
   JavaScript/C# stream helpers. End-to-end coverage moves a lineage larger
   than 16 MiB, replays it, and resumes mutation.
+- Authenticated Session stats, archive, and fail-closed deletion with permanent
+  ID tombstones, plus configurable soft/hard managed-storage quotas. File Store
+  lifecycle recovery is covered on Linux, macOS, and Windows.
 
 ### Changed
 

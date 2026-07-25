@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -39,27 +40,54 @@ type sessionLifecycleGate struct {
 }
 
 type Engine struct {
-	mu             sync.RWMutex
-	sessions       map[string]*managedSession
-	pendingCreates map[string]uncertainMutationAppend
-	lifecycleMu    sync.Mutex
-	lifecycleGates map[string]*sessionLifecycleGate
-	store          Store
-	policy         Policy
-	now            func() time.Time
+	mu                    sync.RWMutex
+	sessions              map[string]*managedSession
+	pendingCreates        map[string]uncertainMutationAppend
+	lifecycleMu           sync.Mutex
+	lifecycleGates        map[string]*sessionLifecycleGate
+	store                 Store
+	policy                Policy
+	now                   func() time.Time
+	sessionSoftLimitBytes uint64
+	sessionHardLimitBytes uint64
 }
 
 func Open(store Store, policy Policy) (*Engine, error) {
+	return OpenWithOptions(store, policy, EngineOptions{})
+}
+
+type EngineOptions struct {
+	SessionSoftLimitBytes uint64
+	SessionHardLimitBytes uint64
+}
+
+func OpenWithOptions(
+	store Store,
+	policy Policy,
+	options EngineOptions,
+) (*Engine, error) {
 	if store == nil || policy == nil {
 		return nil, errors.New("store and policy are required")
 	}
+	if options.SessionHardLimitBytes > 0 &&
+		options.SessionSoftLimitBytes > options.SessionHardLimitBytes {
+		return nil, errors.New("Session soft limit must not exceed hard limit")
+	}
+	if options.SessionSoftLimitBytes > 0 ||
+		options.SessionHardLimitBytes > 0 {
+		if _, ok := store.(LifecycleStore); !ok {
+			return nil, errors.New("Session storage limits require Store stats support")
+		}
+	}
 	engine := &Engine{
-		sessions:       make(map[string]*managedSession),
-		pendingCreates: make(map[string]uncertainMutationAppend),
-		lifecycleGates: make(map[string]*sessionLifecycleGate),
-		store:          store,
-		policy:         policy,
-		now:            time.Now,
+		sessions:              make(map[string]*managedSession),
+		pendingCreates:        make(map[string]uncertainMutationAppend),
+		lifecycleGates:        make(map[string]*sessionLifecycleGate),
+		store:                 store,
+		policy:                policy,
+		now:                   time.Now,
+		sessionSoftLimitBytes: options.SessionSoftLimitBytes,
+		sessionHardLimitBytes: options.SessionHardLimitBytes,
 	}
 	ids, err := store.ListSessions()
 	if err != nil {
@@ -158,6 +186,9 @@ func (e *Engine) CreateSession(request protocol.CreateSessionRequest) (protocol.
 	event, err := newEvent(protocol.SessionState{}, EventSessionCreated, request.RequestID, payload, e.now())
 	if err != nil {
 		return protocol.MutationResult{}, eventEncodeError(err, "could not encode session event")
+	}
+	if err := e.checkSessionQuota(request.SessionID, managedEventBytes(event)); err != nil {
+		return protocol.MutationResult{}, err
 	}
 	state, identifiers, err := e.createAndConfirm(request.SessionID, event)
 	if err != nil {
@@ -921,6 +952,20 @@ func (e *Engine) Snapshot(request protocol.SessionRequest) (protocol.Snapshot, e
 		}
 		return protocol.Snapshot{}, NewError("snapshot_failed", "could not create snapshot", err)
 	}
+	encodedSnapshot, err := json.Marshal(snapshot)
+	if err != nil {
+		return protocol.Snapshot{}, NewError(
+			"snapshot_failed",
+			"could not size snapshot",
+			err,
+		)
+	}
+	if err := e.checkSessionQuota(
+		request.SessionID,
+		uint64(len(encodedSnapshot)),
+	); err != nil {
+		return protocol.Snapshot{}, err
+	}
 	if err := e.store.SaveSnapshot(request.SessionID, snapshot); err != nil {
 		return protocol.Snapshot{}, NewError("snapshot_store_failed", "could not persist snapshot", err)
 	}
@@ -1014,6 +1059,9 @@ func (e *Engine) Restore(request protocol.RestoreRequest) (protocol.MutationResu
 		)
 		if err != nil {
 			return protocol.MutationResult{}, eventEncodeError(err, "could not encode restore")
+		}
+		if err := e.checkSessionQuota(request.SessionID, managedEventBytes(event)); err != nil {
+			return protocol.MutationResult{}, err
 		}
 		state, identifiers, err := e.createAndConfirm(request.SessionID, event)
 		if err != nil {
@@ -1348,6 +1396,9 @@ func (e *Engine) appendAndApply(session *managedSession, event protocol.EventRec
 	if len(session.uncertainMutations) > 0 && !isUncertainMutationRetry(session, event) {
 		return unresolvedMutationError(session)
 	}
+	if err := e.checkSessionQuota(session.id, managedEventBytes(event)); err != nil {
+		return err
+	}
 	candidate, err := clone(session.state)
 	if err != nil {
 		return NewError("state_copy_failed", "could not prepare an isolated state transition", err)
@@ -1412,6 +1463,51 @@ func (e *Engine) appendAndApply(session *managedSession, event protocol.EventRec
 	applyIdentifierDelta(&session.identifiers, identifierDelta)
 	advanceLineageEpoch(session, event)
 	e.maybeSaveCheckpoint(session, event)
+	return nil
+}
+
+const managedEventIndexReservationBytes = uint64(512)
+
+func managedEventBytes(event protocol.EventRecord) uint64 {
+	encoded, err := json.Marshal(event)
+	if err != nil {
+		return ^uint64(0)
+	}
+	return uint64(len(encoded)+1) + managedEventIndexReservationBytes
+}
+
+func (e *Engine) checkSessionQuota(
+	sessionID string,
+	additional uint64,
+) error {
+	if e.sessionHardLimitBytes == 0 {
+		return nil
+	}
+	lifecycle := e.store.(LifecycleStore)
+	stats, err := lifecycle.Stats(sessionID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			if additional <= e.sessionHardLimitBytes {
+				return nil
+			}
+		} else {
+			return NewError(
+				"store_stats_failed",
+				"could not enforce Session storage quota",
+				err,
+			)
+		}
+	}
+	total := stats.EventLogBytes + stats.SnapshotBytes +
+		stats.CheckpointBytes + stats.IndexBytes + stats.OtherBytes
+	if additional > e.sessionHardLimitBytes ||
+		total > e.sessionHardLimitBytes-additional {
+		return NewError(
+			"session_quota_exceeded",
+			"Session managed storage hard limit would be exceeded",
+			ErrConflict,
+		)
+	}
 	return nil
 }
 

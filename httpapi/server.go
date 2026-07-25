@@ -402,6 +402,8 @@ func (s *Server) respond(response http.ResponseWriter, request *http.Request, da
 		status = http.StatusInternalServerError
 	case code == "snapshot_too_large":
 		status = http.StatusRequestEntityTooLarge
+	case code == "session_quota_exceeded":
+		status = http.StatusInsufficientStorage
 	case protocol.IsValidationError(err),
 		code == "invalid_request",
 		code == "invalid_snapshot",

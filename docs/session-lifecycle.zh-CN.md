@@ -69,7 +69,10 @@ Tombstone 不包含 Event、Snapshot、生成文本、Actor、Fact、Goal 或 Bi
 
 ## 容量策略
 
-默认仍不限制，以保持兼容。Operator 可以配置每 Session Soft/Hard 受管字节上限：
+默认仍不限制，以保持兼容。Operator 可通过
+`-session-soft-limit-bytes` / `RIN_SESSION_SOFT_LIMIT_BYTES` 和
+`-session-hard-limit-bytes` / `RIN_SESSION_HARD_LIMIT_BYTES`
+配置每 Session Soft/Hard 受管字节上限；值为零表示禁用：
 
 - 超过 Soft Limit 的操作成功，但 Stats/Readiness Metric 会暴露；
 - 若 Mutation 的保守编码预留会超过 Hard Limit，则在 Append 前返回
@@ -79,8 +82,10 @@ Tombstone 不包含 Event、Snapshot、生成文本、Actor、Fact、Goal 或 Bi
 - 可以跳过派生 Artifact，但绝不能截断 Event History。
 
 Limit 覆盖 Event Log 及 Store 管理的 Snapshot、Checkpoint、Index、Archive
-Marker 和 Uncertainty Metadata。Transfer Staging 有自身限制，在原子发布前不计入
-Existing Session。
+Marker 和 Uncertainty Metadata。Event 预留包含保守的 Index Allowance；
+Snapshot Replacement 会在旧 Artifact 可回收前检查，因此操作可能在实际测量值
+到达 Hard Limit 前少量提前失败。Transfer Import 对 Staging 应用 Hard Limit，
+一旦超限不会发布任何 Session。
 
 ## 保留与隐私边界
 

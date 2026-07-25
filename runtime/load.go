@@ -1,6 +1,10 @@
 package runtime
 
-import "github.com/sunrioa/rin/protocol"
+import (
+	"encoding/json"
+
+	"github.com/sunrioa/rin/protocol"
+)
 
 const (
 	replayPageSize       = 256
@@ -532,7 +536,14 @@ func (e *Engine) runCheckpointWorker(
 		if err == nil {
 			// A checkpoint is only a derived cache. A failure here must never
 			// reverse a mutation whose event is already durable and published.
-			_ = checkpoints.SaveCheckpoint(capture.state.SessionID, checkpoint)
+			encoded, encodeErr := json.Marshal(checkpoint)
+			if encodeErr == nil &&
+				e.checkSessionQuota(
+					capture.state.SessionID,
+					uint64(len(encoded)),
+				) == nil {
+				_ = checkpoints.SaveCheckpoint(capture.state.SessionID, checkpoint)
+			}
 		}
 
 		session.checkpointMu.Lock()

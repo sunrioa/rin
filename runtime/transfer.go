@@ -283,6 +283,7 @@ func (e *Engine) BeginTransferImport(
 		staged:          staged,
 		identifiers:     newIdentifierHistory(true),
 		unlockLifecycle: unlockLifecycle,
+		hardLimitBytes:  e.sessionHardLimitBytes,
 	}, nil
 }
 
@@ -299,6 +300,8 @@ type runtimeTransferWriter struct {
 	unlockLifecycle   func()
 	finished          bool
 	failed            error
+	hardLimitBytes    uint64
+	managedBytes      uint64
 }
 
 var _ TransferWriter = (*runtimeTransferWriter)(nil)
@@ -310,6 +313,16 @@ func (w *runtimeTransferWriter) WriteEvent(
 	defer w.mu.Unlock()
 	if err := w.ready(); err != nil {
 		return err
+	}
+	additional := managedEventBytes(frame.Record)
+	if w.hardLimitBytes > 0 &&
+		(additional > w.hardLimitBytes ||
+			w.managedBytes > w.hardLimitBytes-additional) {
+		return w.fail(NewError(
+			"session_quota_exceeded",
+			"Session transfer exceeds the managed storage hard limit",
+			ErrConflict,
+		))
 	}
 	normalizeWritableState(&w.state)
 	next, err := applyEvent(w.state, frame.Record)
@@ -344,6 +357,7 @@ func (w *runtimeTransferWriter) WriteEvent(
 			err,
 		))
 	}
+	w.managedBytes += additional
 	applyIdentifierDelta(&w.identifiers, delta)
 	w.state = next
 	if frame.Record.Type == EventSessionRestored &&
