@@ -35,9 +35,20 @@ public interface WorkflowStore {
 
     CompletionStage<List<OutcomeOutboxEntry>> listOutcomeReports();
 
+    /**
+     * Atomically replaces an unrecoverable Commit with its pre-recorded,
+     * absolute-fact Observe fallback.
+     */
+    default CompletionStage<OutcomeOutboxEntry> replaceOutcomeWithFallback(
+            OutcomeOutboxEntry entry) {
+        return java.util.concurrent.CompletableFuture.failedFuture(
+                new RinConfigurationException(
+                        "outcome_fallback_unsupported",
+                        "Workflow Store cannot persist an Outcome fallback conversion"));
+    }
+
     /** Durably removes only the exact entry acknowledged by Rin. */
     CompletionStage<Void> acknowledgeOutcome(
             OutcomeOutboxEntry entry,
             Map<String, Object> result);
 }
-

@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
@@ -11,6 +12,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 
 public final class WorkflowCoordinator {
+    private static final Set<String> TERMINAL_COMMIT_ERRORS =
+            Set.of("session_not_found", "unknown_proposal", "proposal_resolved");
     private final RinClient client;
     private final WorkflowStore store;
     private final HostCapabilities capabilities;
@@ -159,12 +162,35 @@ public final class WorkflowCoordinator {
             int index) {
         if (index >= entries.size()) return CompletableFuture.completedFuture(index);
         OutcomeOutboxEntry entry = Objects.requireNonNull(entries.get(index), "Outbox entry");
-        Map<String, Object> commit = entry.commit();
-        requireIdentifier("request_id", commit.get("request_id"));
-        requireIdentifier("event_id", commit.get("event_id"));
-        return client.commit(commit)
-                .thenCompose(result -> store.acknowledgeOutcome(entry, result))
+        Map<String, Object> request = entry.request();
+        requireIdentifier("request_id", request.get("request_id"));
+        requireIdentifier("event_id", request.get("event_id"));
+        CompletionStage<Void> report = entry.isDegradedObserve()
+                ? client.observe(request)
+                        .thenCompose(result -> store.acknowledgeOutcome(entry, result))
+                : reportCommit(entry);
+        return report
                 .thenCompose(ignored -> drainEntries(entries, index + 1));
+    }
+
+    private CompletionStage<Void> reportCommit(OutcomeOutboxEntry entry) {
+        return client.commit(entry.commit())
+                .handle((result, failure) -> {
+                    if (failure == null) {
+                        return store.acknowledgeOutcome(entry, result);
+                    }
+                    Throwable cause = unwrap(failure);
+                    if (!(cause instanceof RinApiException api)
+                            || !TERMINAL_COMMIT_ERRORS.contains(api.code())
+                            || entry.fallbackObserve().isEmpty()) {
+                        return CompletableFuture.<Void>failedFuture(cause);
+                    }
+                    return store.replaceOutcomeWithFallback(entry)
+                            .thenCompose(converted -> client.observe(converted.request())
+                                    .thenCompose(observed ->
+                                            store.acknowledgeOutcome(converted, observed)));
+                })
+                .thenCompose(Function.identity());
     }
 
     private CompletionStage<ResolvedPendingTurn> resolve(

@@ -42,7 +42,7 @@ sdk/
   conformance/       language-neutral route inventory
   <language>/        source, language README, tests, optional quickstart
 examples/mods/
-  fabric-rin-npc/    source overlay for the official Fabric template
+  fabric-rin-npc/    pinned, buildable Fabric server Mod
   bepinex-rin-npc/   BepInEx 6 source overlay
   luanti-rin-npc/    complete server mod with vendored Lua SDK
 ```
@@ -87,7 +87,10 @@ hook must apply the game effect, persist the applied marker and exact Commit,
 and remove the Pending Turn atomically. Idempotent hosts instead receive the
 stable operation ID before the Store completes the report transaction. Outbox
 drain acknowledges only a normal success or Rin's explicit exact-duplicate
-success; any transport, uncertainty, or conflict error leaves the entry intact.
+success. A Store may persist a pre-recorded, absolute-fact Observe fallback;
+the coordinator converts to it only for an explicit terminal Commit error.
+Transport and uncertainty errors leave the exact entry intact.
+`ProposalFreshness` centralizes the final pending/revision check.
 
 Provider failure inside a confirmed Sidecar Proposal operation can use Rin's
 deterministic Policy. Sidecar submit/poll/cancel uncertainty is different and
@@ -143,10 +146,11 @@ before supporting authenticated remote Rin from Luanti.
 
 ## Example mods
 
-The Fabric overlay follows the official project layout, reuses Minecraft's
-Gson, and schedules effects with `MinecraftServer.execute`. Generate the build
-files from the current Fabric template instead of pinning a Loom/Minecraft
-combination that will age inside Rin.
+The Fabric reference is a complete Gradle project pinned to Minecraft 1.21.1
+and Java 21. It embeds the source-first Java SDK in its JAR, stores stable
+world/session identity and bounded workflow state in Saved Data, and schedules
+host work with `MinecraftServer.execute`. It remains `advisory` because
+`markDirty()` is eventual rather than a durable transaction boundary.
 
 The BepInEx overlay targets BepInEx 6 and .NET 6. It makes no HTTP request per
 frame: `Update` drains a bounded queue and optionally detects the F8 demo key.
@@ -170,8 +174,9 @@ Store/Sidecar lifecycle tests on Linux, macOS, and Windows. The platform tests
 cover persistence, restart, and rejection of a second writer. CI runs the
 Python SDK and Ren'Py adapter on Python 3.9 and the current Python 3 release,
 JavaScript on Node 18 and 24, Java on 17 and 25, C# against .NET 6 and 10, and
-Lua on 5.1 and 5.4. The contract generator check prevents drift from OpenAPI
-to generated route/version projections.
+Lua on 5.1 and 5.4. The pinned Fabric project and its Saved Data restart test
+also build on Linux and Windows. The contract generator check prevents drift
+from OpenAPI to generated route/version projections.
 
 The SDK tests invoke real client methods against local fake transports or HTTP
 test servers and assert method/path selection, a nonempty UTF-8 JSON body,

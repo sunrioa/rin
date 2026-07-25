@@ -3,7 +3,7 @@
   "id": "rin_npc_example",
   "version": "0.6.0",
   "name": "Rin NPC Example",
-  "description": "Minimal server-side integration for the Rin agent runtime.",
+  "description": "Server-side integration reference for the Rin agent runtime.",
   "authors": ["sunrioa"],
   "license": "MIT",
   "environment": "server",
@@ -11,9 +11,9 @@
     "main": ["io.github.sunrioa.rin.example.RinNpcMod"]
   },
   "depends": {
-    "fabricloader": ">=0.16.0",
+    "fabricloader": ">=0.16.14",
     "fabric-api": "*",
-    "minecraft": ">=1.21",
+    "minecraft": "~1.21.1",
     "java": ">=21"
   }
 }

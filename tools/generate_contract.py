@@ -581,7 +581,7 @@ def projection_rules(contract: Contract) -> Iterable[Projection]:
             rf'\g<1>"{version}"\g<2>',
         ),
         Projection(
-            "examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/RinNpcMod.java",
+            "examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/RinNpcRequests.java",
             r'"content_version", "[^"]+"',
             f'"content_version", "{version}"',
         ),

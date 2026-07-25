@@ -152,7 +152,89 @@ final class WorkflowCoordinatorTest {
                 advisoryStore.pendingTurn != null,
                 "capability rejection removed the Pending Turn");
 
+        require(
+                ProposalFreshness.evaluate(
+                        Map.of(
+                                "revision", 8L,
+                                "proposals", Map.of(
+                                        "proposal.workflow",
+                                        Map.of("status", "pending"))),
+                        Map.of(
+                                "id", "proposal.workflow",
+                                "created_revision", 8L))
+                        == ProposalFreshness.Decision.FRESH,
+                "fresh non-world Proposal was rejected");
+        require(
+                ProposalFreshness.evaluate(
+                        Map.of(
+                                "world_revision", 9L,
+                                "proposals", Map.of(
+                                        "proposal.workflow",
+                                        Map.of("status", "pending"))),
+                        Map.of(
+                                "id", "proposal.workflow",
+                                "based_on_world_revision", 8L))
+                        == ProposalFreshness.Decision.STALE,
+                "stale world Proposal was accepted");
+
         verifyEvictedJobRecovery(request);
+        verifyTerminalCommitFallback();
+    }
+
+    private static void verifyTerminalCommitFallback() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        int[] observes = new int[1];
+        server.createContext("/", exchange -> {
+            String path = exchange.getRequestURI().getPath();
+            boolean commit = path.equals("/v1/action/commit");
+            if (path.equals("/v1/session/observe")) observes[0]++;
+            byte[] bytes = (commit ? "terminal-commit" : "observed")
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(commit ? 409 : 200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        server.start();
+        try {
+            JsonCodec codec = new JsonCodec() {
+                public String encode(Map<String, ?> value) {
+                    return "{}";
+                }
+
+                public Map<String, Object> decodeObject(String json) {
+                    if (json.equals("terminal-commit")) {
+                        return Map.of(
+                                "ok", false,
+                                "error", Map.of(
+                                        "code", "unknown_proposal",
+                                        "message", "evicted"));
+                    }
+                    return Map.of("ok", true, "data", Map.of("duplicate", false));
+                }
+            };
+            RinClient client = new RinClient(
+                    "http://127.0.0.1:" + server.getAddress().getPort(),
+                    "",
+                    Duration.ofSeconds(2),
+                    1024 * 1024,
+                    codec);
+            TestStore store = new TestStore();
+            store.outcomes.add(new OutcomeOutboxEntry(
+                    "outcome.fallback",
+                    Map.of(
+                            "request_id", "commit.fallback",
+                            "event_id", "event.fallback"),
+                    Map.of(
+                            "request_id", "observe.fallback",
+                            "event_id", "event.fallback")));
+            int drained = new WorkflowCoordinator(client, store).drainOutbox().join();
+            require(drained == 1, "terminal fallback did not count the drained entry");
+            require(observes[0] == 1, "terminal Commit did not report its safe Observe");
+            require(store.fallbackConversions == 1, "fallback conversion was not persisted");
+            require(store.outcomes.isEmpty(), "fallback Observe was not acknowledged");
+        } finally {
+            server.stop(0);
+        }
     }
 
     private static void verifyEvictedJobRecovery(Map<String, Object> sourceRequest)
@@ -258,6 +340,7 @@ final class WorkflowCoordinatorTest {
     private static final class TestStore implements WorkflowStore {
         private PendingTurn pendingTurn;
         private final List<OutcomeOutboxEntry> outcomes = new ArrayList<>();
+        private int fallbackConversions;
 
         public CompletionStage<PendingTurn> loadPendingTurn() {
             return CompletableFuture.completedFuture(pendingTurn);
@@ -293,6 +376,19 @@ final class WorkflowCoordinatorTest {
 
         public CompletionStage<List<OutcomeOutboxEntry>> listOutcomeReports() {
             return CompletableFuture.completedFuture(List.copyOf(outcomes));
+        }
+
+        public CompletionStage<OutcomeOutboxEntry> replaceOutcomeWithFallback(
+                OutcomeOutboxEntry entry) {
+            int index = outcomes.indexOf(entry);
+            if (index < 0) {
+                return CompletableFuture.failedFuture(
+                        new IllegalStateException("fallback entry changed"));
+            }
+            OutcomeOutboxEntry converted = entry.asDegradedObserve();
+            outcomes.set(index, converted);
+            fallbackConversions++;
+            return CompletableFuture.completedFuture(converted);
         }
 
         public CompletionStage<Void> acknowledgeOutcome(

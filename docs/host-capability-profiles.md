@@ -89,11 +89,11 @@ validation.
 
 ## Current reference status
 
-Until their dedicated build and persistence work is complete, the checked-in
-Fabric, BepInEx, Luanti, Godot, and Unity examples declare `advisory`. Their
-current in-memory stores demonstrate ordering but provide no restart
-guarantee. A production integration must not copy their old “atomic” comments
-as evidence of a real transaction.
+The checked-in Fabric, BepInEx, Luanti, Godot, and Unity examples declare
+`advisory`. Fabric now has stable Saved Data identity and restartable bounded
+workflow state; the other references still complete their dedicated
+persistence work in later phases. Restart recovery alone does not establish a
+durable-before-network or atomic apply boundary.
 
 Fabric Saved Data is designed for cross-session persistence, but marking it
 dirty schedules later saving; that alone is not a durable-before-network
@@ -120,4 +120,3 @@ Primary host references:
 - [Fabric Saved Data](https://docs.fabricmc.net/develop/serialization/saved-data)
 - [Luanti ModStorage](https://docs.luanti.org/for-creators/api/classes/modstorage/)
 - [BepInEx 6 plugin project guide](https://docs.bepinex.dev/v6.0.0-pre.1/articles/dev_guide/plugin_tutorial/2_plugin_start.html)
-

@@ -77,9 +77,10 @@ Coordinator 负责通用协议状态机。宿主负责稳定存储、权威 Appl
 
 ## 当前参考状态
 
-在各自的构建与持久化改造完成前，仓库中的 Fabric、BepInEx、Luanti、Godot 与
-Unity 示例都声明为 `advisory`。当前内存 Store 只能演示顺序，不能提供重启
-保证。生产接入不能把旧示例中的“atomic”注释当作真实事务证据。
+仓库中的 Fabric、BepInEx、Luanti、Godot 与 Unity 示例都声明为 `advisory`。
+Fabric 现在已有稳定 Saved Data 身份和可重启的有界流程状态；其余参考会在后续
+阶段完成各自的持久化改造。仅能在重启后恢复，并不能证明网络前持久或原子
+Apply 边界。
 
 Fabric Saved Data 用于跨 Session 保存，但 Mark Dirty 只会安排后续保存，不能
 单独充当网络前持久屏障。Luanti ModStorage 按 `map_save_interval` 持久化，并且
@@ -103,4 +104,3 @@ Fabric Saved Data 用于跨 Session 保存，但 Mark Dirty 只会安排后续�
 - [Fabric Saved Data](https://docs.fabricmc.net/develop/serialization/saved-data)
 - [Luanti ModStorage](https://docs.luanti.org/for-creators/api/classes/modstorage/)
 - [BepInEx 6 Plugin 项目指南](https://docs.bepinex.dev/v6.0.0-pre.1/articles/dev_guide/plugin_tutorial/2_plugin_start.html)
-

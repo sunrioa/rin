@@ -812,7 +812,7 @@ func TestEngineExamplesValidateCanonicalRecoveryJobsAndSchedulerHeadroom(t *test
 func TestModExamplesOptIntoOutcomeReporting(t *testing.T) {
 	tests := map[string]string{
 		"../examples/mods/bepinex-rin-npc/Plugin.cs":                                                 "outcome-reporting-v1",
-		"../examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/RinNpcMod.java": "outcome-reporting-v1",
+		"../examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/RinNpcRequests.java": "outcome-reporting-v1",
 		"../examples/mods/luanti-rin-npc/init.lua":                                                   "outcome-reporting-v1",
 		"../examples/basic/main.go":                                                                  "FeatureOutcomeReporting",
 		"../examples/recovery/main.go":                                                               "FeatureOutcomeReporting",
@@ -885,40 +885,6 @@ func TestManagedModExamplesPersistAndValidateProposalAttempts(t *testing.T) {
 			outboxMarker:         "outcomeOutbox[operationId] = pending;",
 			effectMarker:         "applyGameState();",
 			clearMarker:          "proposalAttempt = null",
-		},
-		{
-			name: "fabric",
-			path: "../examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/RinNpcMod.java",
-			required: []string{
-				"ProposalAttempt proposalAttempt",
-				"retainNewProposalAttempt",
-				"attempt.proposeRequest",
-				"persistProposalJobId(registration, attempt, jobId)",
-				"getProposalJob(jobId)",
-				"validateJobIdentity(attempt, jobId, currentJob)",
-				"validateProposalIdentity",
-				"attempt.proposeTick",
-				"long occurrenceTick = Math.max(",
-				"invalidateSessionIfNotFound",
-				"registration.proposalAttempt = null",
-			},
-			attemptPersistMarker: "registration.proposalAttempt = retained;",
-			submitMarker:         "rin.submitProposalJob(attempt.proposeRequest)",
-			jobPersistMarker:     "persistProposalJobId(registration, attempt, jobId);",
-			getMarker:            "rin.getProposalJob(jobId)",
-			repostStart:          "private static boolean shouldRepostProposal",
-			repostEnd:            "private static boolean isConfirmedSafeTerminal",
-			terminalStart:        "private static boolean isConfirmedSafeTerminal",
-			terminalEnd:          "private static RinApiException unknownProposalOutcome",
-			terminalExclusion:    "!AMBIGUOUS_PROPOSAL_ERRORS.contains(apiError.code())",
-			safeFallbackMarker:   "if (isConfirmedSafeTerminal(cause))",
-			fallbackCallMarker:   "ProposalResolution.authoredFallback(",
-			transactionStart:     "private boolean persistAuthoritativeTransaction(",
-			transactionEnd:       "private CompletableFuture<Void> flushOutcomeOutbox(",
-			appliedMarker:        "appliedOperations.put(operationId, result);",
-			outboxMarker:         "outcomeOutbox.put(operationId, pending);",
-			effectMarker:         "applyGameState.run();",
-			clearMarker:          "registration.proposalAttempt = null",
 		},
 	}
 	for _, test := range tests {
@@ -1016,33 +982,38 @@ func TestManagedModExamplesPersistAndValidateProposalAttempts(t *testing.T) {
 		})
 	}
 
-	t.Run("fabric-player-left-fallback-is-rejected", func(t *testing.T) {
-		const path = "../examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/RinNpcMod.java"
+}
+
+func TestFabricDelegatesWorkflowAndPersistsRestartState(t *testing.T) {
+	files := map[string][]string{
+		"../examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/RinNpcMod.java": {
+			"WorkflowCoordinator", "ProposalFreshness.evaluate",
+			"preparePendingTurn", "HostProfile.ADVISORY",
+		},
+		"../examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/RinFabricState.java": {
+			"worldId", "PendingTurn", "OutcomeOutboxEntry",
+			"MAX_OUTCOMES_PER_SESSION", "markDirty()",
+		},
+		"../examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/FabricWorkflowStore.java": {
+			"implements WorkflowStore", "savePendingTurn",
+			"replaceOutcomeWithFallback", "acknowledgeOutcome",
+		},
+		"../examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/RinNpcRequests.java": {
+			"outcome-reporting-v1", "candidate_actions",
+			"safeObserve", "content_version",
+		},
+	}
+	for path, required := range files {
 		payload, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		text := string(payload)
-		start := strings.Index(text, "private CompletableFuture<Void> applyAuthoredFallbackTransaction(")
-		end := strings.Index(text, "private PendingOutcome commitPending(")
-		if start < 0 || end <= start {
-			t.Fatal("Fabric fallback transaction section is missing")
-		}
-		fallback := text[start:end]
-		for _, required := range []string{
-			"if (player == null)",
-			"new AppliedAction(",
-			"false,",
-			"The player left before the authored fallback could be applied.",
-		} {
-			if !strings.Contains(fallback, required) {
-				t.Errorf("%s can report an accepted authored fallback without a player/effect: missing %q", path, required)
+		for _, fragment := range required {
+			if !strings.Contains(string(payload), fragment) {
+				t.Errorf("%s is missing Fabric recovery contract %q", path, fragment)
 			}
 		}
-		if strings.Contains(fallback, "AppliedAction applied = new AppliedAction(true, line);") {
-			t.Errorf("%s unconditionally accepts an authored fallback before checking its effect target", path)
-		}
-	})
+	}
 }
 
 func TestLuantiExampleResumesDurableProposalAttempts(t *testing.T) {

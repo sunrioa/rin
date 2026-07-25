@@ -27,8 +27,10 @@ rin.health().thenAccept(data -> System.out.println(data.get("status")));
 `WorkflowCoordinator` 负责可复用的 Pending Turn、Job 恢复、结算与 Outcome
 Outbox 状态机。接入方提供持久 `WorkflowStore` 和已校验的
 `HostCapabilities`。`idempotent-action` Apply Callback 会收到稳定 Operation
-ID；`transactional-action` 会把 Apply 与入队交给同一个宿主事务。
-`advisory` 宿主不能提供要求更强 Profile 的动作。参见
+ID；`transactional-action` 会把 Apply 与入队交给同一个宿主事务。Store 可以
+为终态 Commit 冲突保留预先记录、只含绝对事实的 Observe Fallback；Transport
+未决时仍保留精确 Commit。`ProposalFreshness.evaluate` 负责统一的最终
+Pending/Revision 校验。`advisory` 宿主不能提供要求更强 Profile 的动作。参见
 [宿主能力分级](../../docs/host-capability-profiles.zh-CN.md)。
 
 使用 JDK 17 编译 SDK 和无依赖 Smoke Test：

@@ -14,6 +14,8 @@
 
 - JavaScript、C# 与 Java 新增带版本的宿主能力校验和共享 Pending Turn
   Workflow Coordinator。
+- 固定版本、可安装的 Fabric 1.21.1 服务端 Mod，具备稳定 Saved Data 身份、
+  可重启 Pending Turn/Outbox 状态及 Linux/Windows 构建。
 - 由游戏掌握权威的 Observation -> Proposal -> Apply/Reject -> Commit 生命周期；
   `outcome-reporting-v1` 支持延迟 Outcome 合并和游戏侧持久 Outbox 恢复。
 - 覆盖完整 lineage 的持久 Request/Event ID History，包括 exact retry 原始结果
@@ -59,6 +61,9 @@
 - 宿主接入现在必须显式声明 `advisory`、`idempotent-action` 或
   `transactional-action` 能力 Profile。仓库记录只减不增的示例代码预算，防止
   协议流程逻辑继续静默膨胀到游戏 Adapter 中。
+- Java 统一处理 Proposal Freshness 和终态 Commit 到安全 Observe 的恢复；
+  Fabric 适配器仍如实保持 `advisory`，因为 Saved Data Dirty Mark 不是同步
+  事务边界。
 - Inline Snapshot compact JSON 上限为 16 MiB；默认请求正文和随附客户端响应正文
   上限为 32 MiB。超限状态会被拒绝，绝不截断。
 - Snapshot 与 Checkpoint Hash 是 Checksum，不是签名或来源证明。Event Hash

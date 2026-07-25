@@ -38,7 +38,7 @@ sdk/
   conformance/       与语言无关的路由清单
   <language>/        源码、语言 README、测试、可选快速开始
 examples/mods/
-  fabric-rin-npc/    官方 Fabric 模板的源码覆盖层
+  fabric-rin-npc/    固定版本、可构建的 Fabric 服务端 Mod
   bepinex-rin-npc/   BepInEx 6 源码覆盖层
   luanti-rin-npc/    内置 Lua SDK 的完整服务器 Mod
 ```
@@ -76,7 +76,9 @@ JavaScript/TypeScript 与 C# SDK 保留底层的
 Transactional Settlement Hook 必须原子应用游戏效果、持久化 Applied Marker
 与完整 Commit，并删除 Pending Turn。幂等宿主会先收到稳定 Operation ID，再由
 Store 完成 Report 事务。Outbox Drain 只确认普通成功或 Rin 明确返回的
-exact-duplicate 成功；任何 Transport、未决或冲突错误都会保留项目。
+exact-duplicate 成功。Store 还可以持久化预先记录、只含绝对事实的 Observe
+Fallback；Coordinator 只在明确终态 Commit 错误时转换。Transport 与未决错误
+保留原 Entry。`ProposalFreshness` 统一负责应用前的 Pending/Revision 校验。
 
 已确认 Sidecar Proposal Operation 内部的 Provider 失败可使用 Rin 的
 Deterministic Policy。Sidecar Submit/Poll/Cancel 结果未决是另一种状态，不能
@@ -125,9 +127,10 @@ Header。要从 Luanti 支持经过鉴权的远程 Rin，应先使用更严格�
 
 ## 示例 Mod
 
-Fabric 覆盖层遵循官方项目布局，复用 Minecraft 的 Gson，并通过
-`MinecraftServer.execute` 安排效果。应从当前 Fabric 模板生成构建文件，
-不要在 Rin 中固定会老化的 Loom/Minecraft 组合。
+Fabric 参考是固定 Minecraft 1.21.1 与 Java 21 的完整 Gradle 项目；其 JAR
+内含源码优先的 Java SDK，通过 Saved Data 保存稳定世界/Session 身份和有上限
+的流程状态，并用 `MinecraftServer.execute` 调度宿主工作。由于
+`markDirty()` 是最终存盘而非持久事务边界，它仍保持 `advisory`。
 
 BepInEx 覆盖层面向 BepInEx 6 和 .NET 6。它不会每帧发送 HTTP：
 `Update` 只排空有上限的队列并可选检测 F8 演示按键。订阅
@@ -149,7 +152,8 @@ CI 执行 Go Format、Vet、Race Test，以及 Linux、macOS、Windows 上的 Ze
 Build 和 File Store/Sidecar 生命周期测试；这些平台测试覆盖持久化、重启与第二
 写者拒绝。CI 还会在 Python 3.9 与当前 Python 3 上运行 Python SDK/Ren'Py，在
 Node 18/24、Java 17/25、.NET 6/10 上运行相应 Client Test，并在 Lua 5.1/5.4
-下运行 Lua Client Test。Contract Generator Check 防止 OpenAPI 与生成的
+下运行 Lua Client Test。固定版本的 Fabric 项目及其 Saved Data 重启测试还会
+在 Linux 与 Windows 构建。Contract Generator Check 防止 OpenAPI 与生成的
 Route/Version Projection 漂移。
 
 SDK Test 会通过本地 Fake Transport 或 HTTP Test Server 真实调用 Client Method，

@@ -47,6 +47,11 @@ public record PendingTurn(
         return (Map<String, Object>) copyValue(value);
     }
 
+    /** Returns an immutable defensive copy of a JSON-compatible object. */
+    public static Map<String, Object> copyJsonObject(Map<String, ?> value) {
+        return copyObject(value);
+    }
+
     private static Object copyValue(Object value) {
         if (value == null || value instanceof String ||
                 value instanceof Number || value instanceof Boolean) {

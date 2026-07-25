@@ -4,7 +4,27 @@
   "files": [
     {
       "path": "examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/RinNpcMod.java",
-      "max_lines": 1046,
+      "max_lines": 260,
+      "profile": "advisory"
+    },
+    {
+      "path": "examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/RinFabricState.java",
+      "max_lines": 220,
+      "profile": "advisory"
+    },
+    {
+      "path": "examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/FabricWorkflowStore.java",
+      "max_lines": 130,
+      "profile": "advisory"
+    },
+    {
+      "path": "examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/FabricServerTasks.java",
+      "max_lines": 45,
+      "profile": "advisory"
+    },
+    {
+      "path": "examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/RinNpcRequests.java",
+      "max_lines": 160,
       "profile": "advisory"
     },
     {

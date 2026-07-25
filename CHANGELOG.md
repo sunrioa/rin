@@ -15,6 +15,8 @@ release checklist passes. See the [release guide](docs/release-guide.md).
 
 - Versioned host-capability validation and shared Pending Turn workflow
   coordinators for JavaScript, C#, and Java.
+- A pinned, installable Fabric 1.21.1 server Mod with stable Saved Data
+  identity, restartable Pending Turn/Outbox state, and Linux/Windows builds.
 - A game-authoritative Observation -> Proposal -> apply/reject -> Commit
   lifecycle, with `outcome-reporting-v1` for late outcome merging and durable
   game-side Outbox recovery.
@@ -70,6 +72,9 @@ release checklist passes. See the [release guide](docs/release-guide.md).
   `idempotent-action`, or `transactional-action` capability profile. The
   repository records non-increasing example-code budgets so protocol workflow
   logic cannot silently grow further inside game adapters.
+- Java centralizes Proposal freshness and terminal Commit-to-safe-Observe
+  recovery; the Fabric adapter remains honestly `advisory` because Saved Data
+  dirty marking is not a synchronous transaction boundary.
 - Inline Snapshot compact JSON is capped at 16 MiB; default request and bundled
   client response limits are 32 MiB. Oversized state is rejected, never
   truncated.

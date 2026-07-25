@@ -2,48 +2,60 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-面向 Rin 智能体运行时的服务端接入参考。
+这是一个可直接构建的服务端参考项目，固定并共同测试 Minecraft `1.21.1`、
+Fabric Loader `0.16.14`、Fabric API `0.116.14+1.21.1`、Loom `1.11.8`、
+Gradle `8.14.3` 与 Java 21。这不表示源码无需修改就能兼容未来所有 Minecraft
+版本。
 
-**Host capability profile：`advisory`。** 当前内存流程状态与 Fabric Saved
-Data 的最终刷盘都不能证明网络前持久化或原子 Apply 边界。参见
-[宿主能力分级](../../../docs/host-capability-profiles.zh-CN.md)。
+## 构建与安装
 
-该目录是源码覆盖层，不是固定版本的 Gradle 模板。从当前官方项目生成器
-开始，确保游戏、Loader、Mapping、API 和构建插件版本互相兼容。
+Linux/macOS：
 
-1. 生成 Java 21 / Minecraft 1.21+ Fabric 项目。
-2. 把本示例的 `src` 目录复制进去。
-3. 把 `sdk/java/src/main/java/io/github/sunrioa/rin` 复制到生成项目的
-   `src/main/java/io/github/sunrioa/rin`。
-4. 启动 Rin，并按需设置 `RIN_URL` / `RIN_TOKEN` 环境变量。
-5. 启动服务器，以玩家身份输入 `/rin-npc ask`。
+```bash
+./gradlew clean build
+```
 
-该命令创建隔离且启用 `outcome-reporting-v1` 的 Session，观察交互并提交
-异步 Proposal Job。应用前会重新读取 Session：Proposal 必须仍是 `pending`，
-而且 World Revision（非世界 Proposal 则为创建 Revision）必须仍然匹配。
-过期 Proposal 不产生游戏效果，只报告 Rejected。允许的结果通过
-`MinecraftServer.execute` 在服务器线程应用，并在实际 Accept/Reject 时
-读取服务器 Tick。应把只发聊天的 `switch` 替换为自己的 NPC API；绝不能
-让模型文本直接调用命令、发放 Item 或修改世界。
+Windows PowerShell 或命令提示符：
 
-完整 Create Payload（包括 Request ID 与 Seed）在模糊失败后的重试中保持
-不变。只有在 Rin 尚未产生任何在线 Proposal 的冷启动不可用场景，游戏才
-执行一个明确编写的 Offline Fallback；一旦已有 Proposal，State 读取失败
-必须 Fail Closed。Outbox 仍有待处理 Entry 时，不得开始新 Turn。Mod 还会
-在提交前保留完整 Propose Request，并在收到 `202` 后立即保存 Job ID；未决
-Attempt 会在下一次命令中用同一身份恢复，不增长 Sequence，也不选择
-Fallback。只有游戏效果、Applied Marker 与 Outbox 在同一事务中落盘时才
-移除 Attempt；任一种保留状态都会阻止新 Turn。
+```bat
+gradlew.bat clean build
+```
 
-本源码示例只在内存中保存 Applied Operation 与 Outbox。每条 Commit 同时
-保存一个只含 Memory 与绝对 Fact 的安全 Observe 降级载荷；临时错误保留
-原 Commit，只有 `unknown_proposal` 等明确终态错误才原子转换为 Observe。
-必须在 Durable ACK/Delete 成功后才能 Evict。生产接入应把所有标记 Hook
-替换为可失败的权威世界/玩家数据事务，同时包住游戏效果、Applied Marker、
-两份报告载荷、保留的 Create/Propose Request、可选 Job ID 及
-Session/Sequence 状态。示例会在效果 Callback 抛错时移除 Marker/Outbox，
-但只有真实游戏保存事务才能回滚已经部分写入的世界效果。
+把 `build/libs/rin-fabric-npc-0.6.0.jar` 和匹配版本的 Fabric API JAR 放入
+专用服务器的 `mods` 目录。启动 Rin，并按需在服务器进程环境中设置
+`RIN_URL`、`RIN_TOKEN`，然后由玩家执行 `/rin-npc ask`。Mod JAR 已包含 Rin
+Java Client 类，不要再安装第二份 SDK JAR。
 
-参考模板：https://github.com/FabricMC/fabric-example-mod
+## 安全与恢复模型
 
-项目结构：https://docs.fabricmc.net/develop/getting-started/project-structure
+**Host capability profile / 宿主能力 Profile：具有稳定身份的 `advisory`。**
+Mod 在主世界 Saved Data
+中保存生成一次的 World UUID、稳定序列、完整且身份不变的
+Create/Observe/Propose 请求、Pending Turn/Job 身份和有上限的 Outcome
+Outbox。同一存档重启后会恢复保留工作，不会创建新 Session。每个 Outbox
+Entry 同时保存精确 Commit 和预先记录、仅含绝对事实的安全 Observe；只有明确
+终态 Commit 错误才允许持久转换。
+
+`PersistentState.markDirty()` 只是安排稍后存盘，不是同步的网络前持久屏障，
+也不能把游戏修改与 Outbox 原子提交。因此本参考只提供可逆的聊天、等待和拒绝
+动作，并如实保持 `advisory`。发放物品、推进任务或修改世界的 Plugin 必须证明
+[宿主能力分级](../../../docs/host-capability-profiles.zh-CN.md)所要求的幂等或
+事务边界。
+
+结算前 Mod 会重新读取 Rin Session State，Java SDK 会校验 Proposal 仍在预期
+Revision 上处于 Pending。State 缺失、过期、畸形或不可用都会 Fail Closed。
+游戏只使用本地白名单 Action ID；模型文本不会成为命令、Item ID、反射目标或
+世界修改。Minecraft API 和 Saved Data 访问都通过 `MinecraftServer.execute`
+切回服务器线程。
+
+宿主编排入口现为 250 行（原为 1,046 行）。Authored Protocol Payload、
+Saved Data、`WorkflowStore` 和服务器线程调度分别位于有上限的独立类中，
+Mod 作者可以单独审查或替换每个边界，无需复制 SDK 状态机。
+
+存档上限为 256 个 Session、每个 Session 32 条报告、总 JSON 2,000,000 字符。
+达到上限时 Mod 会停止新工作，不会静默丢弃恢复数据。升级 Preview 示例前请
+备份世界，并确保 Mod 与 Sidecar 来自同一个 Rin Revision。
+
+参考：[Fabric 示例 Mod](https://github.com/FabricMC/fabric-example-mod)、
+[项目结构](https://docs.fabricmc.net/develop/getting-started/project-structure)、
+[Saved Data](https://docs.fabricmc.net/develop/serialization/saved-data)。

@@ -2,53 +2,66 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-A server-side integration reference for the Rin agent runtime.
+A buildable server-side reference for Minecraft `1.21.1`, Fabric Loader
+`0.16.14`, Fabric API `0.116.14+1.21.1`, Loom `1.11.8`, Gradle `8.14.3`, and
+Java 21. These versions are deliberately pinned and tested together; this is
+not a claim of unchanged compatibility with every future Minecraft release.
 
-**Host capability profile: `advisory`.** The current in-memory workflow state
-and Fabric's eventual Saved Data flush do not prove a durable-before-network or
-atomic apply boundary. See [Host capability profiles](../../../docs/host-capability-profiles.md).
+## Build and install
 
-This directory is a source overlay, not a frozen Gradle template. Start from
-the current official project generator so the game, loader, mappings, API, and
-build plugin stay on compatible versions.
+Linux/macOS:
 
-1. Generate a Java 21 / Minecraft 1.21+ Fabric project.
-2. Copy this example's `src` directory into it.
-3. Copy `sdk/java/src/main/java/io/github/sunrioa/rin` into the generated
-   project's `src/main/java/io/github/sunrioa/rin` directory.
-4. Start Rin and set optional `RIN_URL` / `RIN_TOKEN` environment variables.
-5. Run the server and enter `/rin-npc ask` as a player.
+```bash
+./gradlew clean build
+```
 
-The command creates an isolated `outcome-reporting-v1` session, observes the
-interaction, and submits an asynchronous proposal job. Immediately before
-apply it reads Session state again: the proposal must still be `pending`, and
-its world revision (or, for a non-world proposal, creation revision) must still
-match. Stale proposals are rejected without a game effect. The allowlisted
-result is applied with `MinecraftServer.execute`, and its actual server tick is
-captured at that accept/reject decision. Replace the chat-only `switch` with
-your own NPC API; never let model text directly invoke commands, item grants,
-or world edits.
+Windows PowerShell or Command Prompt:
 
-The complete Create payload (including request ID and seed) stays stable across
-ambiguous retries. If Rin is unavailable before any online proposal exists,
-the game may apply one explicit authored offline fallback. Once a proposal
-exists, State/read errors fail closed. A retained Outbox entry always blocks a
-new turn until it can be flushed. Before submitting, the mod also retains the
-complete Propose request and, after `202`, its Job ID. An unresolved attempt is
-resumed on the next command without advancing the sequence or choosing a
-fallback; it is removed only in the game transaction that stores the effect,
-applied marker, and Outbox entry. Either retained state blocks a new turn.
+```bat
+gradlew.bat clean build
+```
 
-This source-only sample keeps applied operations and the Outbox in memory. A
-Commit entry also contains a safe Observe fallback made only of memory and an
-absolute fact. Temporary Commit errors retain the exact Commit; only explicit
-terminal errors such as `unknown_proposal` atomically convert it to Observe.
-Durable ACK/delete must succeed before eviction. Replace all marked persistence
-hooks with one fallible authoritative world/player-data transaction covering
-the game effect, applied marker, both report payloads, retained Create/Propose
-requests, optional Job ID, and session/sequence state. The demo removes
-marker/outbox state when its effect callback throws, but only a real game save
-transaction can roll back a partial world mutation.
+Copy `build/libs/rin-fabric-npc-0.6.0.jar` plus the matching Fabric API JAR to
+the dedicated server's `mods` directory. Start Rin, optionally set `RIN_URL`
+and `RIN_TOKEN` in the server process environment, then run `/rin-npc ask` as
+a player. The Mod JAR includes the Rin Java client classes; do not install a
+second SDK JAR.
 
-Reference template: https://github.com/FabricMC/fabric-example-mod
-Project structure: https://docs.fabricmc.net/develop/getting-started/project-structure
+## Safety and recovery model
+
+**Host capability profile: `advisory` with stable identity.** The Mod stores a
+generated world UUID, stable sequence, exact Create/Observe/Propose requests,
+Pending Turn/Job identity, and a bounded Outcome Outbox in overworld Saved
+Data. Restarting the same save resumes retained work instead of creating a new
+Session. Each Outbox entry retains the exact Commit and a pre-recorded
+absolute-fact Observe fallback. Only explicit terminal Commit errors permit
+that persisted conversion.
+
+`PersistentState.markDirty()` schedules a later save; it is not a synchronous
+durable-before-network barrier and cannot atomically combine a game mutation
+with Outbox persistence. This reference therefore offers only reversible
+chat/wait/refuse actions and truthfully remains `advisory`. Item grants, quest
+changes, and world edits require a proven idempotent or transactional host
+boundary described in
+[Host capability profiles](../../../docs/host-capability-profiles.md).
+
+Immediately before settlement, the Mod reloads Rin Session state and the Java
+SDK checks that the Proposal remains pending at the expected revision.
+Missing, stale, malformed, or unavailable state fails closed. The game selects
+only a local allowlisted action ID; model text never becomes a command, item
+ID, reflection target, or world edit. Minecraft access and Saved Data mutation
+are marshalled through `MinecraftServer.execute`.
+
+The host orchestration entry is 250 lines (down from 1,046). Authored protocol
+payloads, Saved Data, the `WorkflowStore`, and server-thread dispatch are
+separate bounded classes, so a game author can review or replace each boundary
+without copying the SDK state machine.
+
+Saved state is bounded to 256 sessions, 32 reports per session, and 2,000,000
+JSON characters. Reaching a bound stops new work instead of silently discarding
+recovery data. Back up the world before upgrading this Preview example and
+keep the Mod and Sidecar pinned to the same Rin revision.
+
+References: [Fabric example mod](https://github.com/FabricMC/fabric-example-mod),
+[project structure](https://docs.fabricmc.net/develop/getting-started/project-structure),
+and [Saved Data](https://docs.fabricmc.net/develop/serialization/saved-data).
