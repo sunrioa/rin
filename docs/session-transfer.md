@@ -4,11 +4,10 @@
 
 ## Status
 
-This is the implementation decision for a future Session Transfer facility.
-Protocol frame types, structural validators, and checksum primitives now exist,
-but Rin does not yet expose export or import operations. Until the Store,
-Runtime, HTTP, contract, and SDK work is complete, the existing 16 MiB inline
-Snapshot limit remains authoritative.
+Session Transfer now has protocol frames, Store staging, Runtime streaming, and
+Bearer-protected HTTP export/import operations. Priority SDK stream helpers and
+the final over-16-MiB end-to-end qualification remain in progress. Existing
+inline Snapshot/Restore stays compatible and retains its 16 MiB limit.
 
 ## Problem
 
@@ -137,17 +136,28 @@ outcome reconciliation.
 
 ### 7. HTTP and cancellation semantics
 
-The planned Bearer-protected operations are:
+The Bearer-protected operations are:
 
 - `POST /v1/session/export`: small JSON request and NDJSON streaming response;
-- `POST /v1/session/import`: trusted Binding arrives as bounded metadata and the
-  request body is an NDJSON stream.
+- `POST /v1/session/import`: the request body is an NDJSON stream and the
+  trusted Binding arrives independently in the required
+  `Rin-Expected-Game-Id`, `Rin-Expected-Content-Id`,
+  `Rin-Expected-Content-Version`, and `Rin-Expected-Content-Hash` headers.
 
-Executable contract tests must fix the exact wire shape before it enters
-OpenAPI. HTTP validates media type, UTF-8, JSON depth, bytes, and unknown members
-per frame, stops after disconnect/cancellation, never logs Event Data, and
-rejects compression bombs. Once a response has begun, an export failure uses a
-terminal error frame and can never masquerade as `complete`.
+Export accepts `application/json` and returns
+`application/x-ndjson`; import requires `application/x-ndjson`. Import rejects
+every `Content-Encoding` other than absent or `identity`. Manifest, complete,
+and error frames are at most 32 KiB. Event frames are bounded by the Store's
+64 MiB EventRecord ceiling plus 32 KiB of framing. Every frame must end in LF,
+contain valid UTF-8 JSON, use its expected closed object shape, and appear in
+the declared order. Data is consumed with backpressure and request cancellation
+is checked between frames.
+
+Once an export response has begun, a failure writes one terminal `error` frame
+containing the normal bounded `ErrorDetail`; it can never write `complete`.
+Import treats only a verified `complete` followed by EOF as success. Truncation,
+extra frames, corruption, cancellation, or Binding failure aborts invisible
+staging and publishes no Session. HTTP and tests never log Event Data.
 
 ### 8. Keep inline Snapshot compatible
 
@@ -174,7 +184,7 @@ the Snapshot endpoint media type.
    **Implemented.**
 3. Implement the immutable Runtime export boundary and post-import genesis
    verification. **Implemented.**
-4. Add the HTTP stream.
+4. Add the HTTP stream. **Implemented.**
 5. Add TypeScript/C# SDK stream helpers.
 6. Add over-16-MiB end-to-end, cancellation, corruption, and crash tests.
 7. Update compatibility, security, migration, release, and operations docs.

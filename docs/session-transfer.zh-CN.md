@@ -4,9 +4,10 @@
 
 ## 状态
 
-本文是下一版 Session Transfer 的实施决策。Protocol frame 类型、结构校验器和
-checksum primitive 已实现，但 Rin 还没有开放 export/import operation。在 Store、
-Runtime、HTTP、契约与 SDK 全部完成前，现有 16 MiB inline Snapshot 上限仍然有效。
+Session Transfer 已实现 protocol frame、Store staging、Runtime streaming 以及
+Bearer 保护的 HTTP export/import operation。Priority SDK stream helper 和最终
+超过 16 MiB 的端到端验收仍在进行中。现有 inline Snapshot/Restore 保持兼容，
+并继续执行 16 MiB 上限。
 
 ## 问题
 
@@ -115,16 +116,24 @@ Transfer 不允许只导出有界 State 或删除 tombstone，否则放弃分支
 
 ### 7. HTTP 与取消语义
 
-计划新增两个 Bearer 保护的 operation：
+现有两个 Bearer 保护的 operation：
 
 - `POST /v1/session/export`：小型 JSON 请求，NDJSON streaming response；
-- `POST /v1/session/import`：可信 Binding 通过有界 metadata 传入，请求正文为
-  NDJSON stream。
+- `POST /v1/session/import`：请求正文为 NDJSON stream；可信 Binding 独立通过
+  必填的 `Rin-Expected-Game-Id`、`Rin-Expected-Content-Id`、
+  `Rin-Expected-Content-Version` 与 `Rin-Expected-Content-Hash` header 传入。
 
-具体 Wire Shape 进入 OpenAPI 前必须先有可执行 contract tests。HTTP 层逐 frame
-检查 Content-Type、UTF-8、JSON depth、字节数和未知字段，在 disconnect/cancel
-后停止 I/O，不记录 Event Data，并拒绝压缩炸弹。响应开始后发生的导出错误必须用
-终止 error frame 表达，绝不能伪装成 complete。
+Export 接受 `application/json` 并返回 `application/x-ndjson`；Import 要求
+`application/x-ndjson`。Import 只允许未设置 `Content-Encoding` 或设置为
+`identity`，其余全部拒绝。Manifest、complete 与 error frame 上限为 32 KiB；
+event frame 上限为 Store 的 64 MiB EventRecord 限制加 32 KiB framing。每个
+frame 必须以 LF 结束、是有效 UTF-8 JSON、符合预期 closed object shape，并严格
+按声明顺序出现。服务端按 backpressure 消费数据，并在 frame 之间检查请求取消。
+
+Export response 一旦开始，后续失败只写一个包含普通有界 `ErrorDetail` 的终止
+`error` frame，绝不能再写 `complete`。Import 只有验证 `complete` 且随后读到
+EOF 才算成功。截断、多余 frame、损坏、取消或 Binding 失败都会 abort 不可见
+staging，不发布 Session。HTTP 与测试均不记录 Event Data。
 
 ### 8. inline Snapshot 保持兼容
 
@@ -145,7 +154,7 @@ Snapshot endpoint 的媒体类型。
 1. 定义 protocol frame、校验器和 hash 规则；**已实现。**
 2. 定义 `TransferStore`，实现 File Store staging/atomic publish；**已实现。**
 3. 实现 Runtime immutable export boundary 和 import 后 genesis verify；**已实现。**
-4. 增加 HTTP stream；
+4. 增加 HTTP stream；**已实现。**
 5. 增加 TypeScript/C# SDK stream helper；
 6. 增加超过 16 MiB 的端到端、取消、损坏和崩溃恢复测试；
 7. 更新兼容、安全、迁移、发布和运维文档。

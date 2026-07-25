@@ -107,6 +107,18 @@
       "status": 200
     },
     {
+      "name": "export_session",
+      "method": "POST",
+      "path": "/v1/session/export",
+      "status": 200
+    },
+    {
+      "name": "import_session",
+      "method": "POST",
+      "path": "/v1/session/import",
+      "status": 200
+    },
+    {
       "name": "timeline",
       "method": "POST",
       "path": "/v1/session/timeline",

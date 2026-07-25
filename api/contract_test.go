@@ -32,8 +32,8 @@ func TestContractMetadataAndRoutesMatchGeneratedRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtimeRoutes := httpapi.ContractRoutes()
-	if len(openAPIRoutes) != 20 || len(runtimeRoutes) != len(openAPIRoutes) {
-		t.Fatalf("route count: OpenAPI=%d runtime=%d, want 20", len(openAPIRoutes), len(runtimeRoutes))
+	if len(openAPIRoutes) != 22 || len(runtimeRoutes) != len(openAPIRoutes) {
+		t.Fatalf("route count: OpenAPI=%d runtime=%d, want 22", len(openAPIRoutes), len(runtimeRoutes))
 	}
 	runtimeByKey := make(map[string]httpapi.ContractRoute, len(runtimeRoutes))
 	for _, route := range runtimeRoutes {

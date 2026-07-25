@@ -377,7 +377,8 @@ func (s *Server) respond(response http.ResponseWriter, request *http.Request, da
 		status = http.StatusRequestEntityTooLarge
 	case protocol.IsValidationError(err),
 		code == "invalid_request",
-		code == "invalid_snapshot":
+		code == "invalid_snapshot",
+		code == "transfer_replay_failed":
 		status = http.StatusBadRequest
 	case errors.Is(err, rinruntime.ErrNotFound):
 		status = http.StatusNotFound

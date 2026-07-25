@@ -17,6 +17,14 @@ const (
 	TransferFrameManifest = "manifest"
 	TransferFrameEvent    = "event"
 	TransferFrameComplete = "complete"
+	TransferFrameError    = "error"
+
+	// TransferControlFrameMaxBytes bounds manifest, complete, and error
+	// frames independently from EventRecord payloads.
+	TransferControlFrameMaxBytes = 32 * 1024
+	// TransferEventFrameMaxBytes includes the Store's 64 MiB EventRecord
+	// ceiling plus bounded framing and checksum members.
+	TransferEventFrameMaxBytes = 64*1024*1024 + TransferControlFrameMaxBytes
 )
 
 // TransferManifest fixes the immutable boundary of one complete-lineage
@@ -58,6 +66,13 @@ type TransferComplete struct {
 	TerminalHeadHash string `json:"terminal_head_hash"`
 	EventCount       uint64 `json:"event_count"`
 	StreamSHA256     string `json:"stream_sha256"`
+}
+
+// TransferError is the only non-successful terminal response frame. It is
+// emitted only when an HTTP export fails after the manifest has started.
+type TransferError struct {
+	Type  string      `json:"type"`
+	Error ErrorDetail `json:"error"`
 }
 
 func ValidateTransferManifest(manifest TransferManifest) error {
@@ -246,6 +261,28 @@ func ValidateTransferComplete(complete TransferComplete) error {
 			"stream_sha256",
 			"must be a lowercase SHA-256 hash",
 		)
+	}
+	return nil
+}
+
+func ValidateTransferError(frame TransferError) error {
+	if frame.Type != TransferFrameError {
+		return transferValidationError("type", "must equal "+TransferFrameError)
+	}
+	if !validErrorCode(frame.Error.Code) {
+		return transferValidationError("error.code", "must be a valid error code")
+	}
+	if frame.Error.Message == "" {
+		return transferValidationError("error.message", "is required")
+	}
+	if len([]rune(frame.Error.Code)) > ErrorCodeMaxLength {
+		return transferValidationError("error.code", "exceeds the maximum length")
+	}
+	if len([]rune(frame.Error.Message)) > ErrorMessageMaxLength {
+		return transferValidationError("error.message", "exceeds the maximum length")
+	}
+	if len([]rune(frame.Error.Field)) > ErrorFieldMaxLength {
+		return transferValidationError("error.field", "exceeds the maximum length")
 	}
 	return nil
 }

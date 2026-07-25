@@ -551,6 +551,82 @@
         }
       }
     },
+    "/v1/session/export": {
+      "post": {
+        "operationId": "export_session",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/Session"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SessionTransfer"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/session/import": {
+      "post": {
+        "operationId": "import_session",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ExpectedGameId"
+          },
+          {
+            "$ref": "#/components/parameters/ExpectedContentId"
+          },
+          {
+            "$ref": "#/components/parameters/ExpectedContentVersion"
+          },
+          {
+            "$ref": "#/components/parameters/ExpectedContentHash"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/SessionTransfer"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/MutationResult"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
     "/v1/session/timeline": {
       "post": {
         "operationId": "timeline",
@@ -660,6 +736,42 @@
         "required": true,
         "schema": {
           "$ref": "#/components/schemas/Identifier"
+        }
+      },
+      "ExpectedGameId": {
+        "name": "Rin-Expected-Game-Id",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        }
+      },
+      "ExpectedContentId": {
+        "name": "Rin-Expected-Content-Id",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/Identifier"
+        }
+      },
+      "ExpectedContentVersion": {
+        "name": "Rin-Expected-Content-Version",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "ExpectedContentHash": {
+        "name": "Rin-Expected-Content-Hash",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
         }
       }
     },
@@ -793,6 +905,18 @@
             }
           }
         }
+      },
+      "SessionTransfer": {
+        "required": true,
+        "description": "A UTF-8 NDJSON stream ordered as manifest, one or more events, then complete. Content-Encoding other than identity is rejected.",
+        "content": {
+          "application/x-ndjson": {
+            "schema": {
+              "type": "string",
+              "contentMediaType": "application/x-ndjson"
+            }
+          }
+        }
       }
     },
     "responses": {
@@ -882,6 +1006,17 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/SnapshotResponse"
+            }
+          }
+        }
+      },
+      "SessionTransfer": {
+        "description": "A bounded-frame UTF-8 NDJSON stream. Only a final complete frame denotes success; an error frame denotes failure after response streaming began.",
+        "content": {
+          "application/x-ndjson": {
+            "schema": {
+              "type": "string",
+              "contentMediaType": "application/x-ndjson"
             }
           }
         }
@@ -1019,6 +1154,199 @@
             "minLength": 1,
             "maxLength": 128
           }
+        }
+      },
+      "TransferManifest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "transfer_version",
+          "protocol_version",
+          "projection_version",
+          "transfer_id",
+          "session_id",
+          "binding",
+          "start_revision",
+          "start_head_hash",
+          "terminal_revision",
+          "terminal_head_hash",
+          "event_count",
+          "lineage_generation",
+          "hash_algorithm"
+        ],
+        "properties": {
+          "type": {
+            "const": "manifest"
+          },
+          "transfer_version": {
+            "const": "rin.session-transfer/v1"
+          },
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "projection_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 96
+          },
+          "transfer_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "binding": {
+            "$ref": "#/components/schemas/Binding"
+          },
+          "start_revision": {
+            "const": 0
+          },
+          "start_head_hash": {
+            "const": ""
+          },
+          "terminal_revision": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "terminal_head_hash": {
+            "$ref": "#/components/schemas/SHA256"
+          },
+          "event_count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "lineage_generation": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "hash_algorithm": {
+            "const": "sha256"
+          }
+        }
+      },
+      "TransferEventRecord": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sequence",
+          "type",
+          "request_id",
+          "prev_hash",
+          "hash",
+          "recorded_at",
+          "data"
+        ],
+        "properties": {
+          "sequence": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "type": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "prev_hash": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "hash": {
+            "$ref": "#/components/schemas/SHA256"
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data": true
+        }
+      },
+      "TransferEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "record",
+          "record_sha256"
+        ],
+        "properties": {
+          "type": {
+            "const": "event"
+          },
+          "record": {
+            "$ref": "#/components/schemas/TransferEventRecord"
+          },
+          "record_sha256": {
+            "$ref": "#/components/schemas/SHA256"
+          }
+        }
+      },
+      "TransferComplete": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "terminal_revision",
+          "terminal_head_hash",
+          "event_count",
+          "stream_sha256"
+        ],
+        "properties": {
+          "type": {
+            "const": "complete"
+          },
+          "terminal_revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "terminal_head_hash": {
+            "$ref": "#/components/schemas/SHA256"
+          },
+          "event_count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "stream_sha256": {
+            "$ref": "#/components/schemas/SHA256"
+          }
+        }
+      },
+      "TransferError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "error"
+        ],
+        "properties": {
+          "type": {
+            "const": "error"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        }
+      },
+      "TransferFrame": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/TransferManifest"
+          },
+          {
+            "$ref": "#/components/schemas/TransferEvent"
+          },
+          {
+            "$ref": "#/components/schemas/TransferComplete"
+          },
+          {
+            "$ref": "#/components/schemas/TransferError"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type"
         }
       },
       "BoundaryInput": {
