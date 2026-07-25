@@ -120,7 +120,8 @@ jobs:
         working-directory: examples/terminal-story
         run: node --test
       - name: Prepare Sidecar output directory
-        run: node -e "require('fs').mkdirSync('bin', { recursive: true })"
+        run: |
+          node -e "require('fs').mkdirSync('bin', { recursive: true })"
       - name: Build Sidecar for the playable slice
         if: runner.os != 'Windows'
         run: go build -trimpath -o bin/rin ./cmd/rin
