@@ -16,6 +16,13 @@ var payload = new Dictionary<string, object?>
     ["request_id"] = "request.fixture",
     ["utf8"] = "雨",
 };
+var transferOutput = new MemoryStream();
+var transferInput = new MemoryStream(Encoding.UTF8.GetBytes(TransferFixture.Body()));
+var transferBinding = new RinBinding(
+    "game.fixture",
+    "base",
+    "1",
+    "hash");
 var cases = new (string Name, Func<Task<JsonElement>> Call, HttpMethod Method, string Path)[]
 {
     ("health", () => client.HealthAsync(), HttpMethod.Get, "/health"),
@@ -35,6 +42,8 @@ var cases = new (string Name, Func<Task<JsonElement>> Call, HttpMethod Method, s
     ("state", () => client.StateAsync(payload), HttpMethod.Post, "/v1/session/get"),
     ("snapshot", () => client.SnapshotAsync(payload), HttpMethod.Post, "/v1/session/snapshot"),
     ("restore", () => client.RestoreAsync(payload), HttpMethod.Post, "/v1/session/restore"),
+    ("export_session", () => client.ExportSessionAsync(payload, transferOutput), HttpMethod.Post, "/v1/session/export"),
+    ("import_session", () => client.ImportSessionAsync(transferInput, transferBinding), HttpMethod.Post, "/v1/session/import"),
     ("timeline", () => client.TimelineAsync(payload), HttpMethod.Post, "/v1/session/timeline"),
     ("replay", () => client.ReplayAsync(payload), HttpMethod.Post, "/v1/session/replay"),
     ("due_agents", () => client.DueAgentsAsync(payload), HttpMethod.Post, "/v1/scheduler/due"),
@@ -48,8 +57,26 @@ foreach (var test in cases)
     Require(handler.Path == test.Path, "wrong path for " + test.Path);
     Require(handler.Authorization == "Bearer fixture", "missing bearer token");
     Require(handler.UserAgent == "rin-csharp/" + RinClient.ClientVersion, "wrong user agent");
-    Require(result.GetProperty("status").GetString() == "ok", "response envelope was not decoded");
-    if (test.Method == HttpMethod.Post)
+    if (test.Path == "/v1/session/export")
+    {
+        Require(
+            result.GetProperty("type").GetString() == "complete",
+            "transfer complete frame was not returned");
+    }
+    else
+    {
+        Require(result.GetProperty("status").GetString() == "ok", "response envelope was not decoded");
+    }
+    if (test.Path == "/v1/session/import")
+    {
+        Require(
+            handler.ExpectedGameId == transferBinding.GameId,
+            "trusted transfer Binding header was not sent");
+        Require(
+            handler.ContentType == "application/x-ndjson",
+            "transfer import media type changed");
+    }
+    else if (test.Method == HttpMethod.Post)
     {
         using var sent = JsonDocument.Parse(handler.Body);
         Require(
@@ -75,6 +102,56 @@ observedRoutes.Sort(StringComparer.Ordinal);
 Require(
     observedRoutes.SequenceEqual(expectedRoutes, StringComparer.Ordinal),
     "actual SDK request method/path/status set differs from sdk/conformance/routes.json");
+Require(
+    Encoding.UTF8.GetString(transferOutput.ToArray()) == TransferFixture.Body(),
+    "transfer export destination did not receive the exact framed stream");
+Require(transferInput.CanRead, "transfer import closed the caller-owned source");
+Require(transferOutput.CanWrite, "transfer export closed the caller-owned destination");
+
+var transferLines = TransferFixture.Body().Split('\n');
+var transferErrorHandler = new RecordingHandler
+{
+    TransferResponseBody = transferLines[0] + "\n" +
+        "{\"type\":\"error\",\"error\":{\"code\":\"store_load_failed\"," +
+        "\"message\":\"export stopped\"}}\n",
+};
+using (var transferErrorClient = new RinClient(
+    new RinClientOptions(),
+    transferErrorHandler))
+{
+    try
+    {
+        await transferErrorClient.ExportSessionAsync(payload, new MemoryStream());
+        throw new InvalidOperationException("terminal transfer error was accepted");
+    }
+    catch (RinApiException exception)
+    {
+        Require(
+            exception.Code == "store_load_failed",
+            "terminal transfer error code changed");
+    }
+}
+
+var truncatedTransferHandler = new RecordingHandler
+{
+    TransferResponseBody = transferLines[0] + "\n" + transferLines[1] + "\n",
+};
+using (var truncatedTransferClient = new RinClient(
+    new RinClientOptions(),
+    truncatedTransferHandler))
+{
+    try
+    {
+        await truncatedTransferClient.ExportSessionAsync(payload, new MemoryStream());
+        throw new InvalidOperationException("truncated transfer was accepted");
+    }
+    catch (RinProtocolException exception)
+    {
+        Require(
+            exception.Code == "invalid_transfer",
+            "truncated transfer returned the wrong error");
+    }
+}
 
 await client.CommitAsync(new Dictionary<string, object?> { ["accepted"] = false });
 using (var sent = JsonDocument.Parse(handler.Body))
@@ -485,8 +562,6 @@ static string[] ContractRouteKeys()
     using var document = JsonDocument.Parse(File.ReadAllText(ContractManifestPath()));
     return document.RootElement.GetProperty("operations")
         .EnumerateArray()
-        .Where(operation =>
-            operation.GetProperty("profile").GetString() == "transport")
         .Select(operation => RouteKey(
             operation.GetProperty("name").GetString() ?? string.Empty,
             operation.GetProperty("method").GetString() ?? string.Empty,
@@ -543,12 +618,15 @@ sealed class RecordingHandler : HttpMessageHandler
     public string Path { get; private set; } = string.Empty;
     public string Authorization { get; private set; } = string.Empty;
     public string UserAgent { get; private set; } = string.Empty;
+    public string ExpectedGameId { get; private set; } = string.Empty;
+    public string ContentType { get; private set; } = string.Empty;
     public string Body { get; private set; } = string.Empty;
     public HttpStatusCode Status { get; private set; }
     public long? DeclaredLength { get; init; }
     public HttpStatusCode? ForcedStatus { get; init; }
     public Func<HttpContent>? ContentFactory { get; init; }
     public Func<HttpRequestMessage, string>? ResponseBodyFactory { get; init; }
+    public string? TransferResponseBody { get; init; }
 
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
@@ -562,6 +640,13 @@ sealed class RecordingHandler : HttpMessageHandler
             ? values.Single()
             : string.Empty;
         UserAgent = request.Headers.UserAgent.ToString();
+        ExpectedGameId = request.Headers.TryGetValues(
+            "Rin-Expected-Game-Id",
+            out var gameIds)
+                ? gameIds.Single()
+                : string.Empty;
+        ContentType = request.Content?.Headers.ContentType?.MediaType ??
+            string.Empty;
         Body = request.Content is null
             ? string.Empty
             : await request.Content.ReadAsStringAsync(cancellationToken);
@@ -570,12 +655,51 @@ sealed class RecordingHandler : HttpMessageHandler
             : HttpStatusCode.OK);
         Status = status;
         var responseBodyFactory = ResponseBodyFactory;
-        var content = responseBodyFactory is not null
+        var content = Path == "/v1/session/export"
+            ? new ByteArrayContent(Encoding.UTF8.GetBytes(
+                TransferResponseBody ?? TransferFixture.Body()))
+            : responseBodyFactory is not null
             ? new ByteArrayContent(Encoding.UTF8.GetBytes(responseBodyFactory(request)))
             : ContentFactory?.Invoke() ??
               new ByteArrayContent(Encoding.UTF8.GetBytes("{\"ok\":true,\"data\":{\"status\":\"ok\"}}"));
+        if (Path == "/v1/session/export")
+        {
+            content.Headers.ContentType =
+                new System.Net.Http.Headers.MediaTypeHeaderValue(
+                    "application/x-ndjson");
+        }
         if (DeclaredLength.HasValue) content.Headers.ContentLength = DeclaredLength.Value;
         return new HttpResponseMessage(status) { Content = content };
+    }
+}
+
+static class TransferFixture
+{
+    internal static string Body()
+    {
+        var head = new string('a', 64);
+        var digest = new string('b', 64);
+        return JsonSerializer.Serialize(new
+        {
+            type = "manifest",
+            transfer_version = "rin.session-transfer/v1",
+            session_id = "session.fixture",
+            terminal_revision = 1,
+            terminal_head_hash = head,
+            event_count = 1,
+        }) + "\n" + JsonSerializer.Serialize(new
+        {
+            type = "event",
+            record = new { sequence = 1 },
+            record_sha256 = digest,
+        }) + "\n" + JsonSerializer.Serialize(new
+        {
+            type = "complete",
+            terminal_revision = 1,
+            terminal_head_hash = head,
+            event_count = 1,
+            stream_sha256 = digest,
+        }) + "\n";
     }
 }
 

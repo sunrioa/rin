@@ -80,9 +80,9 @@ Complete inline Snapshot compact JSON is capped at 16 MiB. Rin returns
 32 MiB response limit, matching the server's default 32 MiB request-body limit
 and leaving headroom for envelopes, Restore metadata, and durable EventRecord
 framing. Session Transfer is the supported large-lineage path. The JavaScript
-priority SDK exposes streaming source/sink helpers; C# support is in progress.
-The Python, Java, and Lua packages remain JSON transport clients and do not
-claim large-lineage transfer support.
+and C# priority SDKs expose streaming source/sink helpers. The Python, Java,
+and Lua packages remain JSON transport clients and do not claim large-lineage
+transfer support.
 
 The SDKs are intentionally source-first and are not yet published to PyPI,
 npm, NuGet, or Maven Central. Pin this repository revision when vendoring one.

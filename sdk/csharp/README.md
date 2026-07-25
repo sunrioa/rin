@@ -28,3 +28,35 @@ dotnet run --project sdk/csharp/Rin.Client.Tests/Rin.Client.Tests.csproj
 
 Unity and BepInEx callers must await off the render loop, then marshal the
 validated result back to Unity's main thread before touching game objects.
+
+Session Transfer uses caller-owned streams and never buffers the complete
+lineage:
+
+```csharp
+var request = new
+{
+    protocol_version = RinClient.ProtocolVersion,
+    session_id = "session.example",
+};
+
+await using (var output = File.Create("session.ndjson"))
+{
+    await rin.ExportSessionAsync(request, output);
+}
+
+await using (var input = File.OpenRead("session.ndjson"))
+{
+    await rin.ImportSessionAsync(
+        input,
+        new RinBinding(
+            "game.example",
+            "base",
+            "1",
+            "trusted-build-hash"));
+}
+```
+
+The client does not close either stream. Export succeeds only after a valid
+terminal `complete` frame; terminal errors, truncation, invalid order, and
+oversized frames throw. Import sends the Binding in independent trusted
+headers.

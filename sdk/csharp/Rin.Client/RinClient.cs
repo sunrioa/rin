@@ -111,6 +111,130 @@ public sealed class RinClient : IDisposable
     public Task<JsonElement> RestoreAsync(object payload, CancellationToken cancellationToken = default) =>
         PostAsync("/v1/session/restore", payload, 200, cancellationToken);
 
+    /// <summary>Streams one Session Transfer into a caller-owned destination.</summary>
+    public async Task<JsonElement> ExportSessionAsync(
+        object payload,
+        Stream destination,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        ArgumentNullException.ThrowIfNull(destination);
+        if (!destination.CanWrite)
+        {
+            throw new RinConfigurationException(
+                "invalid_transfer_sink",
+                "Transfer destination must be writable");
+        }
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            baseUrl + "/v1/session/export");
+        request.Headers.Accept.Clear();
+        request.Headers.Accept.Add(
+            new MediaTypeWithQualityHeaderValue("application/x-ndjson"));
+        request.Content = JsonContent(payload);
+        AddAuthorization(request);
+
+        using var deadline =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(timeout);
+        using var response = await SendAsync(request, deadline.Token, cancellationToken)
+            .ConfigureAwait(false);
+        if (response.StatusCode != HttpStatusCode.OK)
+        {
+            var errorBody = await ReadBoundedAsync(response.Content, deadline.Token)
+                .ConfigureAwait(false);
+            throw DecodeApiError(errorBody, (int)response.StatusCode);
+        }
+        if (!string.Equals(
+            response.Content.Headers.ContentType?.MediaType,
+            "application/x-ndjson",
+            StringComparison.OrdinalIgnoreCase))
+        {
+            throw new RinProtocolException(
+                "invalid_transfer",
+                "Rin export response must be application/x-ndjson");
+        }
+        await using var source = await response.Content
+            .ReadAsStreamAsync(deadline.Token).ConfigureAwait(false);
+        try
+        {
+            return await new SessionTransferExportReader(destination)
+                .CopyAsync(source, deadline.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException exception)
+            when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new RinTransportException(
+                "transport_timeout",
+                "Rin transfer timed out",
+                exception);
+        }
+        catch (Exception exception)
+            when (exception is HttpRequestException or IOException)
+        {
+            throw new RinTransportException(
+                "transport_failed",
+                "Rin transfer could not be read",
+                exception);
+        }
+    }
+
+    /// <summary>Streams one caller-owned Session Transfer source into Rin.</summary>
+    public async Task<JsonElement> ImportSessionAsync(
+        Stream source,
+        RinBinding expectedBinding,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(expectedBinding);
+        if (!source.CanRead)
+        {
+            throw new RinConfigurationException(
+                "invalid_transfer_source",
+                "Transfer source must be readable");
+        }
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            baseUrl + "/v1/session/import");
+        request.Content = new StreamContent(new NonDisposingReadStream(source));
+        request.Content.Headers.ContentType =
+            new MediaTypeHeaderValue("application/x-ndjson");
+        request.Headers.TryAddWithoutValidation(
+            "Rin-Expected-Game-Id",
+            expectedBinding.GameId);
+        request.Headers.TryAddWithoutValidation(
+            "Rin-Expected-Content-Id",
+            expectedBinding.ContentId);
+        request.Headers.TryAddWithoutValidation(
+            "Rin-Expected-Content-Version",
+            expectedBinding.ContentVersion);
+        request.Headers.TryAddWithoutValidation(
+            "Rin-Expected-Content-Hash",
+            expectedBinding.ContentHash);
+        AddAuthorization(request);
+
+        using var deadline =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(timeout);
+        using var response = await SendAsync(request, deadline.Token, cancellationToken)
+            .ConfigureAwait(false);
+        byte[] raw;
+        try
+        {
+            raw = await ReadBoundedAsync(response.Content, deadline.Token)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException exception)
+            when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new RinTransportException(
+                "transport_timeout",
+                "Rin transfer timed out",
+                exception);
+        }
+        return DecodeEnvelope(raw, (int)response.StatusCode, 200);
+    }
+
     public Task<JsonElement> TimelineAsync(object payload, CancellationToken cancellationToken = default) =>
         PostAsync("/v1/session/timeline", payload, 200, cancellationToken);
 
@@ -459,6 +583,77 @@ public sealed class RinClient : IDisposable
         return RequestAsync(HttpMethod.Post, path, payload, expectedStatus, cancellationToken);
     }
 
+    private ByteArrayContent JsonContent(object payload)
+    {
+        byte[] encoded;
+        try
+        {
+            encoded = JsonSerializer.SerializeToUtf8Bytes(
+                payload,
+                payload.GetType(),
+                JsonOptions);
+            using var document = JsonDocument.Parse(encoded);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                throw new RinProtocolException(
+                    "invalid_request",
+                    "Rin payload must be an object");
+            }
+            ValidateRequestJson(document.RootElement, 0);
+        }
+        catch (Exception exception)
+            when (exception is JsonException or NotSupportedException or ArgumentException)
+        {
+            throw new RinProtocolException(
+                "invalid_request",
+                "Rin payload is not JSON serializable",
+                exception);
+        }
+        var content = new ByteArrayContent(encoded);
+        content.Headers.ContentType =
+            new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
+        return content;
+    }
+
+    private void AddAuthorization(HttpRequestMessage request)
+    {
+        if (token.Length > 0)
+        {
+            request.Headers.TryAddWithoutValidation(
+                "Authorization",
+                "Bearer " + token);
+        }
+    }
+
+    private async Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken deadline,
+        CancellationToken callerCancellation)
+    {
+        try
+        {
+            return await httpClient.SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                deadline).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException exception)
+            when (!callerCancellation.IsCancellationRequested)
+        {
+            throw new RinTransportException(
+                "transport_timeout",
+                "Rin request timed out",
+                exception);
+        }
+        catch (HttpRequestException exception)
+        {
+            throw new RinTransportException(
+                "transport_failed",
+                "Rin is unavailable",
+                exception);
+        }
+    }
+
     private async Task<JsonElement> RequestAsync(
         HttpMethod method,
         string path,
@@ -474,44 +669,14 @@ public sealed class RinClient : IDisposable
         using var request = new HttpRequestMessage(method, baseUrl + path);
         if (payload is not null)
         {
-            byte[] encoded;
-            try
-            {
-                encoded = JsonSerializer.SerializeToUtf8Bytes(payload, payload.GetType(), JsonOptions);
-                using var document = JsonDocument.Parse(encoded);
-                if (document.RootElement.ValueKind != JsonValueKind.Object)
-                {
-                    throw new RinProtocolException("invalid_request", "Rin payload must be an object");
-                }
-                ValidateRequestJson(document.RootElement, 0);
-            }
-            catch (Exception exception) when (exception is JsonException or NotSupportedException or ArgumentException)
-            {
-                throw new RinProtocolException("invalid_request", "Rin payload is not JSON serializable", exception);
-            }
-            request.Content = new ByteArrayContent(encoded);
-            request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
+            request.Content = JsonContent(payload);
         }
-        if (token.Length > 0)
-        {
-            request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + token);
-        }
+        AddAuthorization(request);
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(timeout);
-        HttpResponseMessage response;
-        try
-        {
-            response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
-        {
-            throw new RinTransportException("transport_timeout", "Rin request timed out", exception);
-        }
-        catch (HttpRequestException exception)
-        {
-            throw new RinTransportException("transport_failed", "Rin is unavailable", exception);
-        }
+        var response = await SendAsync(request, deadline.Token, cancellationToken)
+            .ConfigureAwait(false);
 
         using (response)
         {
@@ -537,38 +702,10 @@ public sealed class RinClient : IDisposable
             {
                 throw new RinTransportException("transport_failed", "Rin response could not be read", exception);
             }
-            JsonDocument document;
-            try
-            {
-                document = JsonDocument.Parse(raw);
-            }
-            catch (JsonException exception)
-            {
-                if ((int)response.StatusCode != expectedStatus)
-                {
-                    throw new RinApiException("http_error", "Rin request failed", (int)response.StatusCode);
-                }
-                throw new RinProtocolException("invalid_response", "Rin returned invalid JSON", exception);
-            }
-
-            using (document)
-            {
-                var root = document.RootElement;
-                if (root.ValueKind != JsonValueKind.Object)
-                {
-                    throw new RinProtocolException("invalid_response", "Rin response must be an object");
-                }
-                var ok = root.TryGetProperty("ok", out var okElement) && okElement.ValueKind == JsonValueKind.True;
-                if ((int)response.StatusCode != expectedStatus || !ok)
-                {
-                    throw ApiError(root, (int)response.StatusCode);
-                }
-                if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object)
-                {
-                    throw new RinProtocolException("invalid_response", "Rin response data must be an object");
-                }
-                return data.Clone();
-            }
+            return DecodeEnvelope(
+                raw,
+                (int)response.StatusCode,
+                expectedStatus);
         }
     }
 
@@ -600,6 +737,72 @@ public sealed class RinClient : IDisposable
             TextProperty(detail, "message", 500, "Rin request failed"),
             status,
             TextProperty(detail, "field", 160));
+    }
+
+    private static RinApiException DecodeApiError(byte[] raw, int status)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(raw);
+            return ApiError(document.RootElement, status);
+        }
+        catch (JsonException)
+        {
+            return new RinApiException(
+                "http_error",
+                "Rin request failed",
+                status);
+        }
+    }
+
+    private static JsonElement DecodeEnvelope(
+        byte[] raw,
+        int status,
+        int expectedStatus)
+    {
+        JsonDocument document;
+        try
+        {
+            document = JsonDocument.Parse(raw);
+        }
+        catch (JsonException exception)
+        {
+            if (status != expectedStatus)
+            {
+                throw new RinApiException(
+                    "http_error",
+                    "Rin request failed",
+                    status);
+            }
+            throw new RinProtocolException(
+                "invalid_response",
+                "Rin returned invalid JSON",
+                exception);
+        }
+        using (document)
+        {
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                throw new RinProtocolException(
+                    "invalid_response",
+                    "Rin response must be an object");
+            }
+            var ok = root.TryGetProperty("ok", out var okElement) &&
+                okElement.ValueKind == JsonValueKind.True;
+            if (status != expectedStatus || !ok)
+            {
+                throw ApiError(root, status);
+            }
+            if (!root.TryGetProperty("data", out var data) ||
+                data.ValueKind != JsonValueKind.Object)
+            {
+                throw new RinProtocolException(
+                    "invalid_response",
+                    "Rin response data must be an object");
+            }
+            return data.Clone();
+        }
     }
 
     private static string TextProperty(JsonElement element, string name, int maximum, string fallback = "")

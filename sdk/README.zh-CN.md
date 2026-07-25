@@ -67,9 +67,9 @@ Restore 必须提供来自运行中游戏可信内容 manifest 的 `expected_bin
 `413 snapshot_too_large`，绝不截断内容。所有 SDK 默认响应上限为 32 MiB，
 与服务端默认 32 MiB 请求正文上限匹配，并为 envelope、Restore 元数据和持久
 EventRecord framing 预留空间。Session Transfer 是大 lineage 的受支持路径。
-JavaScript priority SDK 已提供 streaming source/sink helper，C# 支持正在实现；
-Python、Java 与 Lua package 仍属于 JSON transport client，不宣称支持大
-lineage transfer。
+JavaScript 与 C# priority SDK 已提供 streaming source/sink helper；Python、
+Java 与 Lua package 仍属于 JSON transport client，不宣称支持大 lineage
+transfer。
 
 SDK 有意采用源码优先方式，尚未发布到 PyPI、npm、NuGet 或 Maven Central。
 Vendor 时应固定本仓库 Revision。路由兼容性由
