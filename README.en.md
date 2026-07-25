@@ -301,6 +301,12 @@ tools/         Deterministic contract projection generator
 examples/      Go, Godot, Unity, and Fabric/BepInEx/Luanti mod examples
 ```
 
+The installable Node.js
+[`Last Station`](examples/terminal-story/README.md) slice runs on Windows,
+macOS, and Linux and records the current player-value evidence. Its fair
+persistent-rule-tree comparison shows that Rin is not justified for a single
+preference rule; see the [measured release gates](docs/player-value.md).
+
 ## Scope boundaries
 
 Rin does not own rendering, navigation, physics, combat, inventory, quest

@@ -28,6 +28,7 @@ go test -race ./...
 go vet ./...
 python3 -m unittest discover -s adapters/renpy -p 'test_*.py'
 make test-sdks
+make test-terminal-story
 CGO_ENABLED=0 go build -trimpath ./cmd/rin
 python3 tools/generate_contract.py --check --tag v0.6.0
 make build VERSION=0.6.0
@@ -43,6 +44,9 @@ The last command must print `0.6.0`. Also verify:
 - the migration checklist covers safe integers, required `accepted`, UTF-8,
   error layers, Proposal Attempt/Outbox recovery, and Restore Binding;
 - no tracked file claims that SDKs are published to a language registry;
+- the `terminal-story` install/test and real-Sidecar 20-turn gate pass on
+  Windows, macOS, and Linux CI, and public value claims remain inside the
+  [measured scope](player-value.md);
 - the real-game manual checks that remain incomplete are visible as Preview
   limitations rather than reported as completed tests.
 
@@ -87,6 +91,8 @@ Use the `0.6.0` section of the [Changelog](../CHANGELOG.md). Keep the word
   profiles, and the over-16-MiB round-trip gate;
 - the migration and compatibility links;
 - the fact that SDKs are source-first;
+- the measured player-value scope and the fact that one persistent preference
+  rule does not justify Rin over its rule-tree baseline;
 - remaining manual integration checks.
 
 If binary artifacts are published separately, build them from the tagged

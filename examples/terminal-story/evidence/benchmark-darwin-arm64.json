@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "measured_at": "2026-07-25T07:40:40.753Z",
+  "environment": {
+    "platform": "darwin",
+    "architecture": "arm64",
+    "node": "v22.23.1",
+    "rin_binary": "rin",
+    "policy": "deterministic"
+  },
+  "workload": {
+    "turns": 100,
+    "projected_turns_per_hour": 60,
+    "projection_hours": 100,
+    "reload_save_between_turns": true
+  },
+  "setup": {
+    "sidecar_ready_ms": 40.81
+  },
+  "latency_ms": {
+    "rin_full_safe_turn": {
+      "samples": 100,
+      "p50": 62.88,
+      "p95": 72.06
+    },
+    "persistent_rule_tree_turn": {
+      "samples": 100,
+      "p50": 9.99,
+      "p95": 11.12
+    },
+    "startup_fallback_turn": 9.63
+  },
+  "integration_nonblank_lines": {
+    "rin_adapter": 92,
+    "persistent_rule_tree": 19
+  },
+  "storage": {
+    "measured_turns": 100,
+    "measured_bytes": 604954,
+    "measured_event_log_bytes": 252091,
+    "projected_100_hours_bytes": 36297240,
+    "projection_method": "measured total bytes / turns * 60 turns/hour * 100 hours"
+  },
+  "provider": {
+    "calls": 0,
+    "measured_cost_usd": 0,
+    "note": "Deterministic policy; no model provider configured."
+  },
+  "fallback": {
+    "mode": "fallback",
+    "action_id": "offer.tea",
+    "only_before_first_rin_mutation": true
+  },
+  "player_visible": {
+    "preference": "tea",
+    "rin_action_id": "offer.tea",
+    "persistent_rule_tree_action_id": "offer.tea",
+    "stateless_rule_tree_action_id": "offer.water",
+    "rin_recalled_memory": true,
+    "parity_with_persistent_rule_tree": true
+  }
+}

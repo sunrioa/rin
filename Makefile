@@ -1,20 +1,21 @@
 GO ?= go
 PYTHON ?= python3
 NODE ?= node
+NPM ?= npm
 DOTNET ?= dotnet
 JAVAC ?= javac
 JAVA ?= java
 LUA ?= lua
 VERSION ?= 0.6.0
 
-.PHONY: fmt test verify contract-check contract-write test-go test-adapters test-sdks test-sdk-python test-sdk-javascript test-sdk-csharp test-sdk-java test-sdk-lua race vet build
+.PHONY: fmt test verify contract-check contract-write test-go test-adapters test-sdks test-sdk-python test-sdk-javascript test-sdk-csharp test-sdk-java test-sdk-lua test-terminal-story race vet build
 
 fmt:
 	$(GO) fmt ./...
 
 test: test-go test-adapters
 
-verify: contract-check vet race test-adapters test-sdks
+verify: contract-check vet race test-adapters test-sdks test-terminal-story
 
 contract-check:
 	$(PYTHON) tools/generate_contract.py --check
@@ -48,6 +49,9 @@ test-sdk-java:
 
 test-sdk-lua:
 	$(LUA) sdk/lua/test_client.lua
+
+test-terminal-story:
+	cd examples/terminal-story && $(NPM) ci --ignore-scripts --offline && $(NODE) --test
 
 race:
 	$(GO) test -race ./...

@@ -36,6 +36,8 @@
   macOS 与 Windows 上均有覆盖。
 - 分离的 Liveness/Readiness Probe、经过鉴权的有界 Diagnostics、无依赖
   Prometheus Metrics，以及不含玩家内容的结构化 Request Correlation。
+- 可安装 Node.js 终端故事纵向切片，包含持久 JavaScript 工作流、跨平台验收 Job、
+  原始基准证据，以及同样持久化的规则树对照。
 
 ### 变化
 

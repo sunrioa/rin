@@ -64,6 +64,8 @@ unchecked item is not a supported feature.
 - [x] Lazy Session recovery, range reads, derived checkpoints, and full-history maintenance audit
 - [x] Player-text reconstruction and fair bounded memory-summary projection
 - [x] Bilingual Changelog, compatibility matrix, migration guide, and release checklist
+- [x] Installable Node.js playable slice, persistent-rule-tree comparison, raw
+  benchmark evidence, and Windows/macOS/Linux acceptance job
 - [ ] Complete manual installation and interaction tests in real Fabric, BepInEx, and Luanti game versions
 
 ## Preview release gates
@@ -73,6 +75,8 @@ Before publishing a Preview tag:
 - [ ] Required Go, adapter, SDK, contract-generation, and cross-platform build checks pass on the release commit
 - [ ] OpenAPI, generated route inventory, protocol prose, and both language sets have no drift
 - [ ] A fresh clone can check out, test, and build the proposed tag
+- [ ] Player-value claims remain inside the measured scope and satisfy the
+  [evidence gates](docs/player-value.md)
 
 These gates describe work to verify for a release commit; this document does
 not claim a registry package, automated binary pipeline, cryptographic
@@ -92,6 +96,9 @@ Session Transfer is a separate supported complete-lineage path.
 - [x] Implement a Windows data-directory exclusive lock plus real Sidecar
   persistence, restart, and lock-contention tests. Windows support is a project
   constraint; cross-compilation alone is not runtime support.
+- [x] Remove unmeasured optional cognition features from the release value
+  claim; the single-preference slice reaches parity with a much smaller
+  persistent rule tree and does not justify a broader “worth it” claim.
 
 Every milestone keeps one principle: a model may propose intent and expression;
 the game engine decides what actually happens.

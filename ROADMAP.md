@@ -62,6 +62,8 @@
 - [x] Lazy Session 恢复、Range Read、派生 Checkpoint 与全历史运维审计
 - [x] 玩家文本重建与公平有界 Memory Summary Projection
 - [x] 双语 Changelog、兼容矩阵、迁移指南与发布清单
+- [x] 可安装 Node.js 可玩切片、持久化规则树对照、原始基准证据，以及
+  Windows/macOS/Linux 验收 Job
 - [ ] 在真实 Fabric、BepInEx、Luanti 游戏版本中完成人工安装与交互验收
 
 ## Preview 发布门禁
@@ -71,6 +73,8 @@
 - [ ] 发布 Commit 通过必要的 Go、Adapter、SDK、契约生成和跨平台 Build 检查
 - [ ] OpenAPI、生成 Route Inventory、Protocol 文字与两套语言文档不存在漂移
 - [ ] Fresh Clone 能 Checkout、测试并构建候选 Tag
+- [ ] 玩家价值主张不超出实测范围，并通过
+  [证据门禁](docs/player-value.zh-CN.md)
 
 这些门禁描述发布 Commit 必须验证的工作；本文不宣称已有语言 Registry Package、
 自动 Binary Pipeline、密码学签名或 post-1.0 稳定性。Inline Snapshot 仍不使用
@@ -85,5 +89,7 @@ streaming；有界 Session Transfer 是独立的完整 lineage 受支持路径�
   已支持，也不以单纯提高请求正文上限代替流式传输。
 - [x] 实现 Windows 数据目录独占锁与真实 Sidecar 持久化/重启/锁竞争测试；
   Windows 支持是项目约束，交叉编译成功不能代替运行时支持。
+- [x] 从发布价值主张中移除未经测量的 Optional Cognition Feature；单偏好切片
+  只与小得多的持久化规则树持平，不支持更宽泛的“值得复杂度”宣称。
 
 每个里程碑都保持同一原则：模型可以提出意图和表达，游戏引擎决定现实发生什么。

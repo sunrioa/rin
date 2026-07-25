@@ -99,6 +99,38 @@ jobs:
         working-directory: sdk/javascript
         run: node --test
 
+  terminal-story:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+      - name: Install the playable JavaScript slice
+        working-directory: examples/terminal-story
+        run: npm ci --ignore-scripts --offline
+      - name: Test safe workflow and fallback boundaries
+        working-directory: examples/terminal-story
+        run: node --test
+      - name: Prepare Sidecar output directory
+        run: node -e "require('fs').mkdirSync('bin', { recursive: true })"
+      - name: Build Sidecar for the playable slice
+        if: runner.os != 'Windows'
+        run: go build -trimpath -o bin/rin ./cmd/rin
+      - name: Build Sidecar for the playable slice on Windows
+        if: runner.os == 'Windows'
+        run: go build -trimpath -o bin/rin.exe ./cmd/rin
+      - name: Run real-Sidecar player-value gates
+        working-directory: examples/terminal-story
+        run: node ./src/benchmark.js --iterations 20
+
   sdk-java:
     runs-on: ubuntu-latest
     strategy:

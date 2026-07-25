@@ -11,5 +11,9 @@ Attempt、Applied-operation Marker、权威 Outcome Outbox、Exact Retry、离�
 Snapshot Binding、原子文件替换与重启恢复。这些复杂内容被独立放置，避免
 Quickstart 再次变得不可读。
 
+可安装的 Node.js 18+ [`terminal-story`](terminal-story/) 是覆盖
+Windows/macOS/Linux 的可玩纵向切片，包含安全 JavaScript SDK 工作流、可复现
+Sidecar 基准，以及不回避结果的持久化规则树对照。
+
 各引擎与 Mod 目录演示宿主特有的线程和打包方式；其中的持久化 Hook 仍需接入
 游戏自己的权威存档系统。

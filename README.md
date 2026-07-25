@@ -245,6 +245,11 @@ tools/         确定性契约 Projection Generator
 examples/      Go、Godot、Unity 与 Fabric/BepInEx/Luanti Mod 示例
 ```
 
+可安装的 Node.js
+[`Last Station`](examples/terminal-story/README.zh-CN.md) 切片覆盖 Windows、
+macOS 与 Linux，并记录当前玩家价值证据。公平的持久化规则树对照表明：单条偏好
+规则并不值得引入 Rin；详见[实测发布门禁](docs/player-value.zh-CN.md)。
+
 ## 能力边界
 
 Rin 不负责渲染、导航、物理、战斗、背包、任务规则或任意脚本执行，也不把

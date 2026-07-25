@@ -40,6 +40,9 @@ release checklist passes. See the [release guide](docs/release-guide.md).
 - Separate liveness/readiness probes, authenticated bounded diagnostics,
   dependency-free Prometheus metrics, and content-free structured request
   correlation.
+- An installable Node.js terminal-story vertical slice with a durable
+  JavaScript workflow, cross-platform acceptance job, raw benchmark evidence,
+  and an equally persistent rule-tree comparison.
 
 ### Changed
 
