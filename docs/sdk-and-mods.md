@@ -104,8 +104,9 @@ error envelope from an HTTP-200 terminal Job carrying `data.error`.
   contain bounded Rin codes rather than provider bodies.
 - Bundled clients default to a 32 MiB response limit. Complete inline Snapshot
   compact JSON is capped at 16 MiB and is rejected with
-  `413 snapshot_too_large`, never truncated. No streaming Snapshot transport
-  is currently provided.
+  `413 snapshot_too_large`, never truncated. JavaScript and C# provide
+  bounded Session Transfer streams for complete large-lineage migration;
+  the other packages remain JSON transport clients.
 - Restore callers source mandatory `expected_binding` from the running trusted
   content manifest, not from the imported Snapshot.
 - A Snapshot is trusted, opaque event-log-level state. Its SHA-256 canonical

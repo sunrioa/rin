@@ -108,7 +108,7 @@ An NPC can refuse, misunderstand, delay, or pursue a small goal, but it cannot c
   canonical checksums detect accidental damage, not provenance or an editor
   able to recompute them. Inline compact JSON is capped at 16 MiB; server
   requests and bundled-client responses default to 32 MiB. A
-  `413 snapshot_too_large` result never truncates the lineage. No streaming
-  Snapshot transport is currently provided.
+  `413 snapshot_too_large` result never truncates the lineage. Complete
+  large-lineage migration uses Session Transfer.
 
 This keeps model cost proportional to meaningful decisions rather than population size or frame rate.

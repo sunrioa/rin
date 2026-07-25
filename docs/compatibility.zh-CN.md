@@ -41,7 +41,7 @@ pre-1.0 minor 版本可以进行不兼容变更，前提是在 Changelog 与迁�
 | Restore | `expected_binding` 必填，来源是运行中可信 Manifest | 不带 Identifier History 的 Legacy Snapshot 以永久不完整 Coverage 导入 | 保持全局唯一 ID，并遵循迁移指南 |
 | Identifier 身份 | Request/Event ID 在完整 Lineage 内永久保留 | Legacy 不完整 History 无法恢复已淘汰 ID | 不轮换未决 ID，也不复用被放弃分支的 ID |
 | Reducer 投影 | `rin.reducer-projection/v2` | v1 Checkpoint 作为派生缓存丢弃，Event Log 不改写 | 旧 Proposal 展示可在读取或 exact retry 时被重建 |
-| Snapshot 传输 | Compact JSON 16 MiB；外层请求/响应默认 32 MiB | 超大 Legacy Event 可本地 Replay，但不能通过 Inline API | 为 Identifier History 规划容量；当前没有 Streaming |
+| Snapshot 与 Session 传输 | Inline Snapshot 保持 16 MiB compact JSON；NDJSON Session Transfer 每帧有界且没有 inline 总量上限 | 现有 Snapshot client 保持兼容；transfer v1 只以同一 ID 导入新 Session | 大 lineage 使用 JavaScript/C# stream；保留可信 Binding header 并要求终止 `complete` |
 | File Store | 具有可靠独占文件锁、rename、sync 的本地 `darwin`/`linux`/`windows` 文件系统 | 其他 GOOS Fail Closed | HA、远程或共享存储使用其他协调 Store |
 | SDK 分发 | 源码优先：Python 3.9+、Node/Fetch、.NET 6+、Java 17+、Lua 5.1+ | 未发布到语言 Registry | Vendor 完整 Client 目录并固定 Rin Revision |
 

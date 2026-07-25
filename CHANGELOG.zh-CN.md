@@ -27,6 +27,10 @@
 - [`api/openapi.json`](api/openapi.json) 中的 OpenAPI 3.1 wire Schema、
   [兼容矩阵](docs/compatibility.zh-CN.md)和
   [v0.6 迁移指南](docs/migration-v0.6.zh-CN.md)。
+- 有界 frame 的 NDJSON Session Transfer：immutable export boundary、逐 event
+  与整流 checksum、可信 Binding header、同根 staging import、atomic publish、
+  终止 error frame，以及调用方拥有的 JavaScript/C# stream helper。端到端测试
+  会迁移超过 16 MiB 的 lineage、重放并继续 mutation。
 
 ### 变化
 
@@ -69,8 +73,10 @@
 ### 已知限制
 
 - Rin 仍为 Preview，不提供 post-1.0 级别的兼容或弃用保证。
-- 完整 Inline Snapshot 没有流式传输。
-- 随附 File Store 只支持 `darwin` 与 `linux`，不支持网络、FUSE 或云同步文件系统。
+- 完整 Inline Snapshot 仍不使用 streaming 且上限为 16 MiB；Session Transfer
+  是完整 lineage 的受支持迁移/备份路径。
+- 随附 File Store 支持本地 `darwin`、`linux` 与 `windows`，不支持网络、FUSE
+  或云同步文件系统。
 - Event 与 Snapshot Hash 不能认证遭到对抗性重写的历史。
 - Fabric、BepInEx、Luanti 示例仍待在真实版本中完成人工安装与交互验收。
 

@@ -43,7 +43,7 @@ HTTP status, `api/openapi.json` wins and the prose is a documentation bug.
 | Restore | `expected_binding` is required and comes from the running trusted manifest | A legacy Snapshot without Identifier History imports with permanently incomplete coverage | Keep globally unique IDs and follow the migration guide |
 | Identifier identity | Request and Event IDs remain reserved for the entire lineage | Legacy incomplete history cannot recover already-evicted IDs | Never rotate an unresolved ID or reuse an abandoned-branch ID |
 | Reducer projection | `rin.reducer-projection/v2` | v1 checkpoints are discarded as derived caches; event logs are not rewritten | Expect legacy Proposal presentation to be reconstructed on read/exact retry |
-| Snapshot transport | 16 MiB compact JSON; surrounding request/response defaults are 32 MiB | Oversized legacy events may replay locally but cannot cross the inline API | Capacity-plan Identifier History; no streaming transport exists |
+| Snapshot and Session transfer | Inline Snapshot remains 16 MiB compact JSON; NDJSON Session Transfer has bounded frames and no inline total ceiling | Existing Snapshot clients stay compatible; transfer v1 imports only a new Session with the same ID | Use JavaScript/C# streams for large lineages; preserve trusted Binding headers and require terminal `complete` |
 | File Store | Local `darwin`/`linux`/`windows` filesystems with reliable exclusive locking, rename, and sync semantics | Other GOOS fail closed | Use another coordinated Store for HA, remote, or shared storage |
 | SDK delivery | Source-first Python 3.9+, Node/Fetch, .NET 6+, Java 17+, Lua 5.1+ | Not published to language registries | Vendor the complete client directory and pin its Rin revision |
 

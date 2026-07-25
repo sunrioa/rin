@@ -20,7 +20,7 @@ releases do not carry a post-1.0 stability guarantee.
 | Release changes | [Changelog](../CHANGELOG.md) | [变更日志](../CHANGELOG.zh-CN.md) |
 | Release and client compatibility | [Compatibility matrix](compatibility.md) | [兼容矩阵](compatibility.zh-CN.md) |
 | Upgrade from earlier revisions | [v0.6 migration](migration-v0.6.md) | [v0.6 迁移](migration-v0.6.zh-CN.md) |
-| Future long-Session transfer design | [Scalable Session Transfer](session-transfer.md) | [可扩展 Session Transfer](session-transfer.zh-CN.md) |
+| Supported scalable Session Transfer | [Scalable Session Transfer](session-transfer.md) | [可扩展 Session Transfer](session-transfer.zh-CN.md) |
 | Release and immutable tag procedure | [Release guide](release-guide.md) | [发布指南](release-guide.zh-CN.md) |
 | Delivered milestones and Preview gates | [Roadmap](../ROADMAP.en.md) | [路线图](../ROADMAP.md) |
 | Repository overview | [README](../README.en.md) | [项目说明](../README.md) |

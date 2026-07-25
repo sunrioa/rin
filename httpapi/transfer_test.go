@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -24,7 +25,6 @@ func TestHTTPTransferRoundTrip(t *testing.T) {
 	if response := perform(t, source, "/v1/session/create", create); response.Code != http.StatusOK {
 		t.Fatalf("create: %d %s", response.Code, response.Body.String())
 	}
-
 	export := perform(t, source, "/v1/session/export", protocol.SessionRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       create.SessionID,
@@ -73,6 +73,20 @@ func TestHTTPTransferFailsClosedForCorruptionAndFraming(t *testing.T) {
 	if response := perform(t, source, "/v1/session/create", create); response.Code != http.StatusOK {
 		t.Fatalf("create: %d %s", response.Code, response.Body.String())
 	}
+	if response := perform(t, source, "/v1/session/observe", protocol.ObserveRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       create.SessionID,
+		RequestID:       "observe.http-transfer-invalid",
+		EventID:         "event.http-transfer-invalid",
+		Tick:            1,
+		ObserverIDs:     []string{"npc.http"},
+		Source:          "game",
+		Kind:            "test",
+		Summary:         "Second event for ordering checks.",
+		Importance:      1,
+	}); response.Code != http.StatusOK {
+		t.Fatalf("observe: %d %s", response.Code, response.Body.String())
+	}
 	export := perform(t, source, "/v1/session/export", protocol.SessionRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       create.SessionID,
@@ -80,10 +94,11 @@ func TestHTTPTransferFailsClosedForCorruptionAndFraming(t *testing.T) {
 	if export.Code != http.StatusOK {
 		t.Fatalf("export: %d %s", export.Code, export.Body.String())
 	}
-	corruptedLines := bytes.Split(
+	originalLines := bytes.Split(
 		bytes.TrimSuffix(export.Body.Bytes(), []byte{'\n'}),
 		[]byte{'\n'},
 	)
+	corruptedLines := append([][]byte(nil), originalLines...)
 	var corruptedEvent protocol.TransferEvent
 	if err := json.Unmarshal(corruptedLines[1], &corruptedEvent); err != nil {
 		t.Fatal(err)
@@ -91,6 +106,12 @@ func TestHTTPTransferFailsClosedForCorruptionAndFraming(t *testing.T) {
 	corruptedEvent.RecordSHA256 = strings.Repeat("0", 64)
 	corruptedLines[1], _ = json.Marshal(corruptedEvent)
 	corruptedBody := append(bytes.Join(corruptedLines, []byte{'\n'}), '\n')
+	reorderedLines := append([][]byte(nil), originalLines...)
+	reorderedLines[1], reorderedLines[2] = reorderedLines[2], reorderedLines[1]
+	reorderedBody := append(bytes.Join(reorderedLines, []byte{'\n'}), '\n')
+	duplicateLines := append([][]byte(nil), originalLines[:2]...)
+	duplicateLines = append(duplicateLines, originalLines[1:]...)
+	duplicateBody := append(bytes.Join(duplicateLines, []byte{'\n'}), '\n')
 
 	tests := []struct {
 		name    string
@@ -110,6 +131,16 @@ func TestHTTPTransferFailsClosedForCorruptionAndFraming(t *testing.T) {
 		{
 			name:    "event checksum",
 			body:    corruptedBody,
+			binding: create.Binding,
+		},
+		{
+			name:    "reordered events",
+			body:    reorderedBody,
+			binding: create.Binding,
+		},
+		{
+			name:    "duplicate event",
+			body:    duplicateBody,
 			binding: create.Binding,
 		},
 		{
@@ -150,6 +181,49 @@ func TestHTTPTransferRejectsCompressedImport(t *testing.T) {
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusUnsupportedMediaType {
 		t.Fatalf("compressed import status = %d, want 415", response.Code)
+	}
+}
+
+func TestHTTPTransferCancellationAbortsInvisibleImport(t *testing.T) {
+	source := transferHTTPServer(t)
+	create := apiCreateRequest()
+	create.SessionID = "session.http-transfer-canceled"
+	create.RequestID = "create.http-transfer-canceled"
+	if response := perform(t, source, "/v1/session/create", create); response.Code != http.StatusOK {
+		t.Fatalf("create: %d %s", response.Code, response.Body.String())
+	}
+	export := perform(t, source, "/v1/session/export", protocol.SessionRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       create.SessionID,
+	})
+	if export.Code != http.StatusOK {
+		t.Fatalf("export: %d %s", export.Code, export.Body.String())
+	}
+
+	target := transferHTTPServer(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/session/import",
+		bytes.NewReader(export.Body.Bytes()),
+	).WithContext(ctx)
+	request.Header.Set("Content-Type", "application/x-ndjson")
+	request.Header.Set("Rin-Expected-Game-Id", create.Binding.GameID)
+	request.Header.Set("Rin-Expected-Content-Id", create.Binding.ContentID)
+	request.Header.Set("Rin-Expected-Content-Version", create.Binding.ContentVersion)
+	request.Header.Set("Rin-Expected-Content-Hash", create.Binding.ContentHash)
+	response := httptest.NewRecorder()
+	target.ServeHTTP(response, request)
+	if response.Code != http.StatusRequestTimeout {
+		t.Fatalf("canceled import status = %d, want 408", response.Code)
+	}
+	state := perform(t, target, "/v1/session/get", protocol.SessionRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       create.SessionID,
+	})
+	if state.Code != http.StatusNotFound {
+		t.Fatalf("canceled import exposed a Session: %d %s", state.Code, state.Body.String())
 	}
 }
 

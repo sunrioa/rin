@@ -548,8 +548,9 @@ only scheduling time, never boundaries or the action allowlist.
   returns `413 snapshot_too_large` when that ceiling is exceeded. The server's
   default request-body limit and every bundled client's default response limit
   are 32 MiB, leaving envelope, Restore, and EventRecord headroom. Such a
-  lineage cannot use the current JSON Snapshot, Replay, or Restore endpoints;
-  no streaming Snapshot transport is currently provided.
+  lineage cannot use the inline JSON Snapshot, Replay, or Restore endpoints.
+  It retains a bounded-memory migration and backup path through the NDJSON
+  Session Transfer export/import endpoints and JavaScript/C# stream helpers.
 
 ## Model integration rule
 

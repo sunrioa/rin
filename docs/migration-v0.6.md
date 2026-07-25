@@ -112,7 +112,10 @@ evicted before export cannot be reconstructed, so globally unique IDs remain
 mandatory forever for that lineage.
 
 The complete compact Snapshot must fit 16 MiB. Identifier History is not
-truncated to make it fit, and no streaming Snapshot transport exists.
+truncated to make it fit. For a lineage that no longer fits, migrate the
+complete Session through `/v1/session/export` and `/v1/session/import`; provide
+the destination's expected Binding from the running trusted manifest, never
+from the transfer stream.
 
 Treat a Snapshot as trusted opaque state. Its hashes detect accidental damage,
 not provenance or a party able to edit and recompute it.

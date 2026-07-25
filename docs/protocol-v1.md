@@ -25,8 +25,10 @@ Snapshot compact JSON has a separate 16 MiB ceiling, leaving transport headroom
 for the response envelope, Restore metadata, and durable EventRecord framing.
 Rin returns `413 snapshot_too_large` rather than truncating any Snapshot.
 Identifier History grows with a Session lineage, so a lineage that exceeds the
-inline ceiling cannot use the Snapshot or Replay JSON transport. No streaming
-Snapshot transport is currently provided.
+inline ceiling cannot use the Snapshot or Replay JSON transport. It can use
+the `rin.session-transfer/v1` NDJSON export/import contract documented in
+[Scalable Session Transfer](session-transfer.md); only a verified terminal
+`complete` publishes an import.
 A successful response is:
 
 ```json
@@ -694,9 +696,9 @@ reconstructs the legacy four-field Restore request shape and preserves its
 digest semantics. When a legacy event's Snapshot still fits the inline limit,
 a new-schema exact retry with the trusted matching `expected_binding`
 recognizes the old digest and returns the original result as a duplicate. An
-oversized legacy event can still be opened and replayed from disk, but
-cannot be retransmitted through the inline API; no streaming Snapshot
-transport is currently provided.
+oversized legacy event can still be opened and replayed from disk. It cannot
+cross the inline API, but a complete lineage can cross the bounded-frame
+Session Transfer API.
 
 A legacy v1 Snapshot without these two fields remains restorable, but Rin
 imports it with `coverage_complete=false`. It can seed only IDs still
@@ -798,8 +800,8 @@ with successful mutations. It can contain historical model-authored text which
 bounded cognition State has already evicted, so protect Snapshot files and
 bodies at the same sensitivity level as the event log. Once the complete
 compact Snapshot exceeds 16 MiB it cannot be returned or restored inline.
-No streaming Snapshot transport is currently provided; Identifier History is
-never silently truncated.
+Session Transfer preserves the complete Event Log and reconstructed Identifier
+History without truncation; Identifier History is never silently truncated.
 
 ## Common errors
 

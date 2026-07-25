@@ -145,8 +145,9 @@ target Session 的 Binding 一致。Snapshot 的 SHA-256 canonical checksum 只�
 发现意外损坏，不能认证来源或阻止能重算 checksum 的一方，因此 Snapshot 仍是
 按事件日志保护的可信、不透明状态。完整 inline Snapshot compact JSON 上限为
 16 MiB，服务端请求正文与随附客户端响应默认上限为 32 MiB。
-`413 snapshot_too_large` 绝不截断已存 lineage。当前不提供流式 Snapshot
-传输。
+`413 snapshot_too_large` 绝不截断已存 lineage。Snapshot JSON 仍是 inline
+传输；完整大 lineage 迁移使用 Session Transfer，其中完整 Event Log
+继续保留 outcome retry ID。
 
 若 Sidecar Session 无法恢复、因而确实不存在匹配 Proposal，`observe` 只是降级
 对账路径：它能按原始发生 tick 恢复权威事件的记忆和 Fact，但不能重建

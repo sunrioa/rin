@@ -35,7 +35,7 @@ make build VERSION=0.6.0
 
 - 每个本地 Markdown Link 都能解析；
 - `api/openapi.json` 是合法 JSON，且包含与
-  `sdk/conformance/routes.json` 相同的 20 个 Route Operation；
+  `sdk/conformance/routes.json` 相同的 22 个 Route Operation；
 - 中英文发布文档互相链接；
 - 迁移清单覆盖安全整数、`accepted` 必填、UTF-8、错误层次、Proposal
   Attempt/Outbox 恢复和 Restore Binding；
@@ -76,6 +76,8 @@ Tag 解引用后的 Commit 必须与计划发布的 `origin/main` Commit 相同�
 - 支持的语言/Runtime 下限；
 - 随附 File Store 的平台和文件系统边界；
 - Snapshot 与请求/响应大小限制；
+- Session Transfer frame 上限、可信 Binding header、priority SDK stream
+  profile 与超过 16 MiB 的 round-trip 门禁；
 - 迁移和兼容链接；
 - SDK 采用源码优先分发；
 - 尚未完成的人工接入检查。

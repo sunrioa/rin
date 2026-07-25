@@ -293,7 +293,7 @@ func TestStateClosureDocumentationContract(t *testing.T) {
 			"16 MiB",
 			"32 MiB",
 			"`413 snapshot_too_large`",
-			"currently provided",
+			"Session Transfer",
 		} {
 			if !strings.Contains(string(payload), fragment) {
 				t.Errorf("%s is missing bilingual English Snapshot rule %q", path, fragment)
@@ -325,7 +325,7 @@ func TestStateClosureDocumentationContract(t *testing.T) {
 			"16 MiB",
 			"32 MiB",
 			"`413 snapshot_too_large`",
-			"当前不提供",
+			"Session Transfer",
 		} {
 			if !strings.Contains(string(payload), fragment) {
 				t.Errorf("%s is missing bilingual Chinese Snapshot rule %q", path, fragment)
@@ -416,7 +416,7 @@ func TestSnapshotTransportAndTrustDocumentationContract(t *testing.T) {
 			"16 MiB",
 			"32 MiB",
 			"`413 snapshot_too_large`",
-			"No streaming Snapshot transport is currently provided",
+			"Session Transfer",
 		},
 		"../README.md": {
 			"Snapshot hash 是 checksum",
@@ -425,7 +425,7 @@ func TestSnapshotTransportAndTrustDocumentationContract(t *testing.T) {
 			"16 MiB",
 			"32 MiB",
 			"`413 snapshot_too_large`",
-			"当前不提供流式 Snapshot 传输",
+			"Session Transfer",
 		},
 		"../docs/protocol-v1.md": {
 			`"expected_binding": {`,
@@ -443,9 +443,8 @@ func TestSnapshotTransportAndTrustDocumentationContract(t *testing.T) {
 			"new-schema exact retry",
 			"remain replayable",
 			"Snapshot still fits the inline limit",
-			"cannot be retransmitted through the inline API",
 			"never silently truncated",
-			"No streaming Snapshot transport is currently provided",
+			"Session Transfer",
 		},
 		"../docs/protocol-v1.zh-CN.md": {
 			`"expected_binding": {`,
@@ -463,16 +462,15 @@ func TestSnapshotTransportAndTrustDocumentationContract(t *testing.T) {
 			"新 schema exact retry",
 			"正常重放",
 			"Snapshot 仍在 inline 上限内时",
-			"不能通过 inline API",
 			"绝不会被静默截断",
-			"当前不提供流式 Snapshot 传输",
+			"Session Transfer",
 		},
 		"../docs/architecture.md": {
 			"trusted, opaque serialized state",
 			"running game's trusted content",
 			"Complete compact inline Snapshot",
 			"never truncated",
-			"no streaming Snapshot transport is currently provided",
+			"Session Transfer",
 		},
 		"../docs/architecture.zh-CN.md": {
 			"Snapshot 是可信、",
@@ -480,8 +478,7 @@ func TestSnapshotTransportAndTrustDocumentationContract(t *testing.T) {
 			"运行中游戏可信内容",
 			"完整 inline Snapshot compact JSON",
 			"绝不会截断",
-			"当前不提供",
-			"流式 Snapshot 传输",
+			"Session Transfer",
 		},
 		"../sdk/README.md": {
 			"trusted, opaque state",
@@ -489,14 +486,14 @@ func TestSnapshotTransportAndTrustDocumentationContract(t *testing.T) {
 			"Every SDK defaults to a",
 			"32 MiB response limit",
 			"16 MiB",
-			"No streaming Snapshot transport is currently provided",
+			"Session Transfer",
 		},
 		"../sdk/README.zh-CN.md": {
 			"可信、",
 			"运行中游戏可信内容",
 			"所有 SDK 默认响应上限为 32 MiB",
 			"16 MiB",
-			"当前不提供流式 Snapshot 传输",
+			"Session Transfer",
 		},
 	}
 

@@ -395,8 +395,9 @@ ID。
   上限为 16 MiB，且绝不会截断；超过后 Snapshot、Replay 或 Restore 返回
   `413 snapshot_too_large`。服务端默认请求正文上限和所有随附客户端默认响应
   上限均为 32 MiB，为 envelope、Restore 与 EventRecord 预留空间。此类
-  lineage 不能使用当前 JSON Snapshot、Replay 或 Restore endpoint；当前不提供
-  流式 Snapshot 传输。
+  lineage 不能使用 inline JSON Snapshot、Replay 或 Restore endpoint，但可通过
+  NDJSON Session Transfer export/import endpoint 与 JavaScript/C# stream helper
+  进行有界内存迁移和备份。
 
 ## 模型接入规则
 

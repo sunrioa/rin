@@ -29,6 +29,11 @@ release checklist passes. See the [release guide](docs/release-guide.md).
 - An OpenAPI 3.1 wire schema at [`api/openapi.json`](api/openapi.json), a
   [compatibility matrix](docs/compatibility.md), and a
   [v0.6 migration guide](docs/migration-v0.6.md).
+- Bounded-frame NDJSON Session Transfer with immutable export boundaries,
+  per-event and stream checksums, trusted Binding headers, same-root staged
+  import, atomic publication, terminal error frames, and caller-owned
+  JavaScript/C# stream helpers. End-to-end coverage moves a lineage larger
+  than 16 MiB, replays it, and resumes mutation.
 
 ### Changed
 
@@ -82,9 +87,11 @@ release checklist passes. See the [release guide](docs/release-guide.md).
 
 - Rin is Preview software and does not yet provide a post-1.0 compatibility or
   deprecation guarantee.
-- Complete inline Snapshots have no streaming transport.
-- The bundled File Store supports `darwin` and `linux` only and is not supported
-  on network, FUSE, or cloud-synchronized filesystems.
+- Complete inline Snapshots remain non-streaming and capped at 16 MiB; Session
+  Transfer is the supported complete-lineage migration/backup path.
+- The bundled File Store supports local `darwin`, `linux`, and `windows`
+  filesystems and is not supported on network, FUSE, or cloud-synchronized
+  filesystems.
 - Event and Snapshot hashes do not authenticate an adversarially rewritten
   history.
 - Real-version manual installation and interaction checks for the Fabric,

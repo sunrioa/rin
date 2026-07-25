@@ -4,9 +4,9 @@
 
 ## 状态
 
-Session Transfer 已实现 protocol frame、Store staging、Runtime streaming 以及
-Bearer 保护的 HTTP export/import operation。Priority SDK stream helper 和最终
-超过 16 MiB 的端到端验收仍在进行中。现有 inline Snapshot/Restore 保持兼容，
+Session Transfer 已实现端到端支持：protocol frame、Store staging、Runtime
+streaming、Bearer 保护的 HTTP export/import、JavaScript/C# stream helper，
+以及超过 16 MiB 的 fail-closed 验收。现有 inline Snapshot/Restore 保持兼容，
 并继续执行 16 MiB 上限。
 
 ## 问题
@@ -133,7 +133,8 @@ frame 必须以 LF 结束、是有效 UTF-8 JSON、符合预期 closed object sh
 Export response 一旦开始，后续失败只写一个包含普通有界 `ErrorDetail` 的终止
 `error` frame，绝不能再写 `complete`。Import 只有验证 `complete` 且随后读到
 EOF 才算成功。截断、多余 frame、损坏、取消或 Binding 失败都会 abort 不可见
-staging，不发布 Session。HTTP 与测试均不记录 Event Data。
+staging，不发布 Session；publish 前的请求取消返回
+`408 transfer_cancelled`。HTTP 与测试均不记录 Event Data。
 
 ### 8. inline Snapshot 保持兼容
 
@@ -155,8 +156,8 @@ Snapshot endpoint 的媒体类型。
 2. 定义 `TransferStore`，实现 File Store staging/atomic publish；**已实现。**
 3. 实现 Runtime immutable export boundary 和 import 后 genesis verify；**已实现。**
 4. 增加 HTTP stream；**已实现。**
-5. 增加 TypeScript/C# SDK stream helper；
-6. 增加超过 16 MiB 的端到端、取消、损坏和崩溃恢复测试；
-7. 更新兼容、安全、迁移、发布和运维文档。
+5. 增加 TypeScript/C# SDK stream helper；**已实现。**
+6. 增加超过 16 MiB 的端到端、取消、损坏和崩溃恢复测试；**已实现。**
+7. 更新兼容、安全、迁移、发布和运维文档；**已实现。**
 
-完成第 6 步之前，Roadmap 不得把 Session Transfer 标记为已支持。
+Roadmap 只在第 6 步通过后把 Session Transfer 标记为已支持。

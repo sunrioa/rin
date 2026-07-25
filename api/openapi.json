@@ -614,6 +614,9 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "408": {
+            "$ref": "#/components/responses/RequestTimeout"
+          },
           "409": {
             "$ref": "#/components/responses/Conflict"
           },

@@ -121,7 +121,7 @@ NPC 可以拒绝、误解、延迟或追求小目标，但不能创建新的合�
 - Snapshot 是按事件日志保护的可信、不透明状态；其 SHA-256 canonical checksum
   只能发现意外损坏，不能证明来源真实性或阻止能重算 checksum 的修改者。
   Inline compact JSON 上限为 16 MiB；服务端请求与随附客户端响应默认上限为
-  32 MiB。`413 snapshot_too_large` 绝不截断 lineage。当前不提供流式
-  Snapshot 传输。
+  32 MiB。`413 snapshot_too_large` 绝不截断 lineage。完整大 lineage 迁移
+  使用 Session Transfer。
 
 这样，模型成本与有意义的决定数量成正比，而不是与人口或帧率成正比。

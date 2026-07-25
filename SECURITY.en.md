@@ -21,8 +21,10 @@ be evaluated through the Changelog and migration guides.
   32 MiB by default. Complete inline Snapshot compact JSON is separately
   capped at 16 MiB to leave envelope and durable-record headroom; it is
   rejected with `413 snapshot_too_large`, never truncated, when larger.
-  No streaming Snapshot transport is currently provided. Unknown fields and
-  multiple JSON values are rejected. The HTTP API validates the raw request
+  Large lineages use NDJSON Session Transfer under the same Bearer check.
+  Import Binding comes from independent trusted headers, compressed request
+  bodies are rejected, and nothing is atomically published until `complete`
+  verifies. Unknown fields and multiple JSON values are rejected. The HTTP API validates the raw request
   body before JSON decoding and returns `400 invalid_json` for invalid UTF-8
   bytes or unpaired JSON Unicode surrogates.
 - Every public HTTP JSON integer must be exactly representable between

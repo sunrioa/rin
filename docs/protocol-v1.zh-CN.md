@@ -21,7 +21,9 @@ Inline Snapshot 的 compact JSON 另有 16 MiB 上限，为响应 envelope、Res
 元数据和持久 EventRecord framing 预留传输空间。Rin 会返回
 `413 snapshot_too_large`，绝不会截断 Snapshot。Identifier History 会随
 Session lineage 增长；超过 inline 上限的 lineage 不能使用 Snapshot 或 Replay
-JSON 传输。当前不提供流式 Snapshot 传输。成功响应：
+JSON 传输，但可以使用 [可扩展 Session Transfer](session-transfer.zh-CN.md)
+中定义的 `rin.session-transfer/v1` NDJSON export/import；导入只有验证终止
+`complete` 后才会发布。成功响应：
 
 ```json
 {"ok":true,"data":{}}
@@ -592,7 +594,7 @@ manifest 取得该字段。磁盘中既有的 `session.restored` 事件仍可正
 旧事件的 Snapshot 仍在 inline 上限内时，携带可信且匹配
 `expected_binding` 的新 schema exact retry 会识别旧 digest，并以 duplicate
 返回原始结果。超限旧事件仍可从磁盘 Open 和 replay，但不能通过 inline API
-重新传输；当前不提供流式 Snapshot 传输。
+重新传输；完整 lineage 可以通过有界 frame 的 Session Transfer API 迁移。
 
 不带这两个字段的旧版 v1 Snapshot 仍可 Restore，但 Rin 会以
 `coverage_complete=false` 导入。它只能从 Snapshot 中仍可发现的 ID 建立
@@ -672,8 +674,8 @@ checkpoint 构建或写入失败不会把已经成功的 read 变成错误。
 Identifier History 及其中保留的 Proposal/Arbitration 结果会随成功 mutation
 线性增长，也可能包含已从有界 cognition State 淘汰的历史模型文本，因此
 Snapshot 文件和正文必须按事件日志同等敏感级别保护。完整 compact Snapshot
-一旦超过 16 MiB，就不能 inline 返回或 Restore。当前不提供流式 Snapshot
-传输；Identifier History 绝不会被静默截断。
+一旦超过 16 MiB，就不能 inline 返回或 Restore。Session Transfer 会保留完整
+Event Log 和重建出的 Identifier History；Identifier History 绝不会被静默截断。
 
 ## 常见错误
 

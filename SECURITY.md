@@ -15,8 +15,10 @@ Rin `0.6.0` 是 Preview、pre-1.0 软件。Preview 状态不会放宽本文的 F
 - 除 `/health` 外，配置 Token 后所有端点都使用 constant-time Bearer 校验。
 - JSON 请求正文与随附客户端响应正文默认限制为 32 MiB。完整 inline Snapshot
   compact JSON 另有 16 MiB 上限，以便为 envelope 与持久记录预留空间；超限
-  时返回 `413 snapshot_too_large`，绝不会截断。当前不提供流式 Snapshot
-  传输。未知字段与多个 JSON 值会被拒绝。HTTP API 会在 JSON 解码前校验原始
+  时返回 `413 snapshot_too_large`，绝不会截断。大 lineage 使用经过相同
+  Bearer 校验的 NDJSON Session Transfer；导入 Binding 由独立可信 header
+  提供，压缩正文会被拒绝，只有校验 complete 后才原子发布。未知字段与多个
+  JSON 值会被拒绝。HTTP API 会在 JSON 解码前校验原始
   请求正文；非法 UTF-8 字节或未配对 JSON Unicode Surrogate 返回
   `400 invalid_json`。
 - 每个公共 HTTP JSON 整数都必须能在 `-9007199254740991` 至

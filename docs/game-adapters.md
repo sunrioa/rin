@@ -125,9 +125,9 @@ as trusted, opaque state under the same protection as the event log. Its
 SHA-256 canonical checksums detect accidental corruption, not provenance or a
 party able to recompute them. Complete inline Snapshot compact JSON is capped
 at 16 MiB; the server request and bundled-client response defaults are 32 MiB.
-`413 snapshot_too_large` never truncates the save. No streaming Snapshot
-transport is currently provided, so a larger lineage cannot use these JSON
-methods.
+`413 snapshot_too_large` never truncates the save. These Snapshot JSON methods
+remain inline. Use Session Transfer through the
+JavaScript/C# priority SDKs for complete large-lineage migration.
 
 Godot owns navigation, animation, combat, inventory, and dialogue rendering. Helpers for activity, due actors, arbitration, batch commit, timeline, and replay are coroutines; call activity on simulation/region changes, not every frame. The adapter caps response bytes, disables redirects, and accepts plaintext HTTP only for an exact loopback host and valid port.
 

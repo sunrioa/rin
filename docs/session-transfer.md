@@ -4,9 +4,9 @@
 
 ## Status
 
-Session Transfer now has protocol frames, Store staging, Runtime streaming, and
-Bearer-protected HTTP export/import operations. Priority SDK stream helpers and
-the final over-16-MiB end-to-end qualification remain in progress. Existing
+Session Transfer is supported end to end: protocol frames, Store staging,
+Runtime streaming, Bearer-protected HTTP export/import, JavaScript/C# stream
+helpers, and over-16-MiB fail-closed qualification are implemented. Existing
 inline Snapshot/Restore stays compatible and retains its 16 MiB limit.
 
 ## Problem
@@ -157,7 +157,8 @@ Once an export response has begun, a failure writes one terminal `error` frame
 containing the normal bounded `ErrorDetail`; it can never write `complete`.
 Import treats only a verified `complete` followed by EOF as success. Truncation,
 extra frames, corruption, cancellation, or Binding failure aborts invisible
-staging and publishes no Session. HTTP and tests never log Event Data.
+staging and publishes no Session; request cancellation before publication
+returns `408 transfer_cancelled`. HTTP and tests never log Event Data.
 
 ### 8. Keep inline Snapshot compatible
 
@@ -185,8 +186,10 @@ the Snapshot endpoint media type.
 3. Implement the immutable Runtime export boundary and post-import genesis
    verification. **Implemented.**
 4. Add the HTTP stream. **Implemented.**
-5. Add TypeScript/C# SDK stream helpers.
+5. Add TypeScript/C# SDK stream helpers. **Implemented.**
 6. Add over-16-MiB end-to-end, cancellation, corruption, and crash tests.
+   **Implemented.**
 7. Update compatibility, security, migration, release, and operations docs.
+   **Implemented.**
 
-The Roadmap must not mark Session Transfer supported before step 6 passes.
+The Roadmap marks Session Transfer supported only after step 6 passed.

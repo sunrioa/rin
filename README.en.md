@@ -180,9 +180,10 @@ Inline Snapshot compact JSON is limited to 16 MiB. Rin returns
 `413 snapshot_too_large` instead of truncating a Snapshot. The server's
 default request-body limit and every bundled client's default response limit
 are 32 MiB, leaving room for the API envelope, Restore metadata, and durable
-EventRecord framing. No streaming Snapshot transport is currently provided,
-so a lineage that outgrows the inline limit cannot be exported, replayed, or
-restored through these JSON endpoints.
+EventRecord framing. A lineage that outgrows the inline limit cannot use those
+JSON endpoints; use the Bearer-protected `/v1/session/export` and
+`/v1/session/import` NDJSON Session Transfer instead. The JavaScript and C#
+SDKs provide caller-owned streaming source/sink helpers.
 
 See the [protocol reference](docs/protocol-v1.md) for complete fields and
 error semantics, the [architecture guide](docs/architecture.md) for
@@ -228,8 +229,9 @@ Event logs use `retain_forever` because Replay, durable identifier history,
 and audit depend on them. The file store keeps the two newest valid internal
 checkpoints and the two newest valid public Snapshot files per Session.
 Capacity planning and backups must account for the unbounded event log and
-Identifier History; Rin does not provide automatic event-log archival or
-streaming Snapshot transport.
+Identifier History; Rin does not provide automatic event-log archival.
+Complete migration or backup of a large lineage uses Session Transfer and does
+not remove the operator's retention or capacity-planning responsibility.
 
 ## Game-engine adapters
 

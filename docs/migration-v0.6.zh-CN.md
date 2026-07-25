@@ -102,7 +102,9 @@ Content Manifest，绝不能从导入 Snapshot 复制。它必须同时匹配 Sn
 必须永远继续使用全局唯一 ID。
 
 完整 Compact Snapshot 必须处于 16 MiB 内。Rin 不会为了通过上限而截断
-Identifier History，当前也没有 Streaming Snapshot Transport。
+Identifier History。超过上限的 lineage 应通过 `/v1/session/export` 与
+`/v1/session/import` 迁移完整 Session；destination 的 expected Binding 必须
+来自运行中可信 manifest，不能来自 transfer stream。
 
 Snapshot 是可信、不透明状态；Hash 只能发现意外损坏，不能证明来源，也不能阻止
 能编辑并重算 Hash 的一方。

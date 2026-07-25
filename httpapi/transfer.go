@@ -109,7 +109,16 @@ func (s *Server) importSession(response http.ResponseWriter, request *http.Reque
 
 	for eventIndex := uint64(0); eventIndex < manifest.EventCount; eventIndex++ {
 		if err := request.Context().Err(); err != nil {
-			s.respond(response, request, nil, err)
+			s.respond(
+				response,
+				request,
+				nil,
+				rinruntime.NewError(
+					"transfer_cancelled",
+					"transfer was cancelled",
+					err,
+				),
+			)
 			return
 		}
 		line, err := readTransferLine(reader, protocol.TransferEventFrameMaxBytes)

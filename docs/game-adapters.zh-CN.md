@@ -143,7 +143,8 @@ target Session 已存在时还必须与该 Session 的 Binding 一致。Snapshot
 发现意外损坏，不能证明来源真实性，也不能阻止能重算 checksum 的一方。完整
 inline Snapshot compact JSON 上限为 16 MiB；服务端请求和随附客户端响应默认
 上限均为 32 MiB。`413 snapshot_too_large` 绝不截断存档。当前不提供流式
-Snapshot 传输，因此更长 lineage 不能使用这些 JSON 方法。
+Snapshot JSON 传输；完整大 lineage 迁移应使用 JavaScript/C# priority SDK 的
+Session Transfer。
 
 Godot 负责导航、动画、战斗、背包和对白渲染。Activity、到期角色、仲裁、
 批量提交、时间线和回放 helper 都是 coroutine；只在模拟或区域变化时更新

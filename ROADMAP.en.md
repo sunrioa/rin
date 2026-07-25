@@ -75,17 +75,18 @@ Before publishing a Preview tag:
 - [ ] A fresh clone can check out, test, and build the proposed tag
 
 These gates describe work to verify for a release commit; this document does
-not claim a registry package, automated binary pipeline, streaming Snapshot
-transport, cryptographic signing, or post-1.0 stability.
+not claim a registry package, automated binary pipeline, cryptographic
+signing, or post-1.0 stability. Inline Snapshot remains non-streaming; bounded
+Session Transfer is a separate supported complete-lineage path.
 
 ## Next remediation priorities
 
-- [ ] Implement bounded-memory, verifiable, atomically published complete
+- [x] Implement bounded-memory, verifiable, atomically published complete
   lineage export/import according to the
   [Scalable Session Transfer design](docs/session-transfer.md), removing the
   lifetime cliff where Identifier History growth makes Snapshot, Replay, and
   Restore unavailable.
-- [ ] Do not mark transfer supported before over-16-MiB end-to-end,
+- [x] Do not mark transfer supported before over-16-MiB end-to-end,
   cancellation, corruption, and crash-recovery tests pass. Raising the request
   body limit alone is not a substitute for streaming transfer.
 - [x] Implement a Windows data-directory exclusive lock plus real Sidecar

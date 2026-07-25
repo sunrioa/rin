@@ -143,8 +143,10 @@ History 的一方可以重建事件链及派生 Index、Checkpoint 与 Snapshot�
 Inline Snapshot 的 compact JSON 上限为 16 MiB；超限时 Rin 返回
 `413 snapshot_too_large`，绝不截断 Snapshot。服务端默认请求正文上限与所有
 随附客户端默认响应上限均为 32 MiB，为 API envelope、Restore 元数据和持久
-EventRecord framing 预留空间。当前不提供流式 Snapshot 传输，因此 lineage
-超过 inline 上限后，不能通过这些 JSON endpoint 导出、Replay 或 Restore。
+EventRecord framing 预留空间。超过 inline 上限的 lineage 不能使用这些 JSON
+endpoint；应改用 Bearer 保护的 `/v1/session/export` 与
+`/v1/session/import` NDJSON Session Transfer。JavaScript 和 C# SDK 提供调用方
+拥有的流式 source/sink helper。
 
 完整字段和错误语义见 [协议文档](docs/protocol-v1.zh-CN.md)，职责边界见
 [架构文档](docs/architecture.zh-CN.md)，应用、结果记账和重试顺序见
@@ -181,7 +183,8 @@ primitive 语义可靠的本地文件系统。Unix 使用 file/directory `fsync`
 事件日志采用 `retain_forever`，因为 Replay、持久 Identifier History 与审计
 依赖它。File Store 默认保留每个 Session 最近 2 个有效内部 checkpoint 和最近
 2 个有效公共 Snapshot 文件。容量规划与备份必须计入无限增长的事件日志与
-Identifier History；Rin 不提供事件日志自动归档，也不提供流式 Snapshot 传输。
+Identifier History；Rin 不提供事件日志自动归档。大 lineage 的完整迁移/备份
+使用 Session Transfer；它不改变事件日志永久保留或容量规划责任。
 
 ## 游戏引擎适配
 
