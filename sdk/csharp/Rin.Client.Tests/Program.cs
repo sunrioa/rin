@@ -485,6 +485,8 @@ static string[] ContractRouteKeys()
     using var document = JsonDocument.Parse(File.ReadAllText(ContractManifestPath()));
     return document.RootElement.GetProperty("operations")
         .EnumerateArray()
+        .Where(operation =>
+            operation.GetProperty("profile").GetString() == "transport")
         .Select(operation => RouteKey(
             operation.GetProperty("name").GetString() ?? string.Empty,
             operation.GetProperty("method").GetString() ?? string.Empty,

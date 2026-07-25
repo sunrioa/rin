@@ -79,15 +79,19 @@ Complete inline Snapshot compact JSON is capped at 16 MiB. Rin returns
 `413 snapshot_too_large` rather than truncating it. Every SDK defaults to a
 32 MiB response limit, matching the server's default 32 MiB request-body limit
 and leaving headroom for envelopes, Restore metadata, and durable EventRecord
-framing. No streaming Snapshot transport is currently provided, so a lineage
-that outgrows the inline ceiling cannot use these JSON methods.
+framing. Session Transfer is the supported large-lineage path. The JavaScript
+priority SDK exposes streaming source/sink helpers; C# support is in progress.
+The Python, Java, and Lua packages remain JSON transport clients and do not
+claim large-lineage transfer support.
 
 The SDKs are intentionally source-first and are not yet published to PyPI,
 npm, NuGet, or Maven Central. Pin this repository revision when vendoring one.
 Route compatibility is defined by
 [`api/openapi.json`](../api/openapi.json);
 [`conformance/routes.json`](conformance/routes.json) is its generated coverage
-inventory.
+inventory. Each operation is tagged `transport` or `streaming`. Every client
+must cover the transport profile; only clients with bounded stream APIs may
+claim the streaming profile.
 
 Game-specific examples live under [`examples/mods`](../examples/mods). They
 show where host events enter Rin and where the game validates and applies a

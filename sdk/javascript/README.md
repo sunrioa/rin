@@ -21,3 +21,34 @@ cd sdk/javascript && npm test
 
 Calls are Promise-based. Apply engine state only after returning to the
 engine's main thread and validating the proposal against a local allowlist.
+
+Session Transfer is streamed and never returned as one large string. The
+caller owns the source/sink and decides when to close it:
+
+```js
+import { createReadStream, createWriteStream } from "node:fs";
+import { Readable, Writable } from "node:stream";
+
+const request = {
+  protocol_version: "rin.protocol/v1",
+  session_id: "session.example",
+};
+const output = Writable.toWeb(createWriteStream("session.ndjson"));
+await rin.exportSession(request, output);
+await output.getWriter().close();
+
+await rin.importSession(
+  Readable.toWeb(createReadStream("session.ndjson")),
+  {
+    game_id: "game.example",
+    content_id: "base",
+    content_version: "1",
+    content_hash: "trusted-build-hash",
+  },
+);
+```
+
+`exportSession` resolves only after a valid terminal `complete` frame. A
+terminal `error`, truncation, invalid order, or oversized frame rejects the
+Promise. `importSession` sends the Binding through independent trusted headers
+and accepts only a `ReadableStream` or async `Uint8Array` iterable.

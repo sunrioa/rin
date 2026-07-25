@@ -440,10 +440,12 @@ public final class RinClientTest {
                 "\"name\"\\s*:\\s*\"([a-z0-9_]+)\"\\s*,\\s*"
                         + "\"method\"\\s*:\\s*\"([A-Z]+)\"\\s*,\\s*"
                         + "\"path\"\\s*:\\s*\"([^\"]+)\"\\s*,\\s*"
-                        + "\"status\"\\s*:\\s*(\\d+)")
+                        + "\"status\"\\s*:\\s*(\\d+)\\s*,\\s*"
+                        + "\"profile\"\\s*:\\s*\"([a-z]+)\"")
                 .matcher(manifest);
         List<String> routes = new ArrayList<>();
         while (matcher.find()) {
+            if (!matcher.group(5).equals("transport")) continue;
             routes.add(routeKey(
                     matcher.group(1),
                     matcher.group(2),

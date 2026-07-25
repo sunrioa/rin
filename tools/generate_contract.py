@@ -58,6 +58,7 @@ class Operation:
     method: str
     path: str
     success_status: int
+    sdk_profile: str
 
 
 def load_contract() -> Contract:
@@ -216,6 +217,12 @@ def contract_operations(contract: Contract) -> List[Operation]:
                 raise ContractError(
                     f"{route_key[0]} {path} must declare exactly one concrete 2xx response"
                 )
+            sdk_profile = operation.get("x-rin-sdk-profile", "transport")
+            if sdk_profile not in ("transport", "streaming"):
+                raise ContractError(
+                    f"{route_key[0]} {path} has unsupported x-rin-sdk-profile "
+                    f"{sdk_profile!r}"
+                )
             seen_ids.add(operation_id)
             seen_routes.add(route_key)
             operations.append(
@@ -224,6 +231,7 @@ def contract_operations(contract: Contract) -> List[Operation]:
                     method=route_key[0],
                     path=path,
                     success_status=success_statuses[0],
+                    sdk_profile=sdk_profile,
                 )
             )
     if not operations:
@@ -243,6 +251,7 @@ def render_routes(contract: Contract, operations: Iterable[Operation]) -> str:
                 "method": operation.method,
                 "path": operation.path,
                 "status": operation.success_status,
+                "profile": operation.sdk_profile,
             }
             for operation in operations
         ],

@@ -2,6 +2,8 @@ export const SDK_VERSION: "0.6.0";
 export const PROTOCOL_VERSION: "rin.protocol/v1";
 export const DEFAULT_BASE_URL: string;
 export const DEFAULT_MAX_RESPONSE_BYTES: number;
+export const TRANSFER_CONTROL_FRAME_MAX_BYTES: number;
+export const TRANSFER_EVENT_FRAME_MAX_BYTES: number;
 
 export type RinObject = Record<string, unknown>;
 export type FetchImplementation = typeof globalThis.fetch;
@@ -19,6 +21,21 @@ export interface RinPollingOptions {
   deadlineMs?: number;
   intervalMs?: number;
 }
+
+export interface RinBinding {
+  game_id: string;
+  content_id: string;
+  content_version: string;
+  content_hash: string;
+}
+
+export interface RinTransferSink {
+  write(chunk: Uint8Array): void | Promise<void>;
+}
+
+export type RinTransferSource =
+  | ReadableStream<Uint8Array>
+  | AsyncIterable<Uint8Array>;
 
 export class RinError extends Error { readonly code: string; }
 export class RinConfigurationError extends RinError {}
@@ -51,6 +68,16 @@ export class RinClient {
   state(payload: RinObject): Promise<RinObject>;
   snapshot(payload: RinObject): Promise<RinObject>;
   restore(payload: RinObject): Promise<RinObject>;
+  /** Streams an NDJSON transfer into a caller-owned sink without closing it. */
+  exportSession(
+    payload: RinObject,
+    sink: RinTransferSink | WritableStream<Uint8Array>,
+  ): Promise<RinObject>;
+  /** Streams an NDJSON transfer from a caller-owned source. */
+  importSession(
+    source: RinTransferSource,
+    expectedBinding: RinBinding,
+  ): Promise<RinObject>;
   timeline(payload: RinObject): Promise<RinObject>;
   replay(payload: RinObject): Promise<RinObject>;
   dueAgents(payload: RinObject): Promise<RinObject>;

@@ -21,3 +21,34 @@ cd sdk/javascript && npm test
 
 调用基于 Promise。只有回到引擎主线程并用本地白名单验证 Proposal 后，
 才能应用引擎状态。
+
+Session Transfer 全程使用 streaming，不会以一个大字符串返回。Source/sink
+归调用方所有，并由调用方决定何时关闭：
+
+```js
+import { createReadStream, createWriteStream } from "node:fs";
+import { Readable, Writable } from "node:stream";
+
+const request = {
+  protocol_version: "rin.protocol/v1",
+  session_id: "session.example",
+};
+const output = Writable.toWeb(createWriteStream("session.ndjson"));
+await rin.exportSession(request, output);
+await output.getWriter().close();
+
+await rin.importSession(
+  Readable.toWeb(createReadStream("session.ndjson")),
+  {
+    game_id: "game.example",
+    content_id: "base",
+    content_version: "1",
+    content_hash: "trusted-build-hash",
+  },
+);
+```
+
+`exportSession` 只有读取到合法的终止 `complete` frame 才会 resolve；终止
+`error`、截断、顺序错误或超限 frame 都会 reject Promise。`importSession`
+通过独立可信 header 发送 Binding，并且只接受 `ReadableStream` 或异步
+`Uint8Array` iterable。

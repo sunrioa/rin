@@ -61,6 +61,14 @@ function generationJob(status = "running", overrides = {}) {
 test("all protocol routes use the expected method and bearer token", async () => {
   const requests = [];
   const fetch = async (url, options) => {
+    const path = new URL(url).pathname;
+    if (path === "/v1/session/export") {
+      requests.push({ url: new URL(url), options, status: 200 });
+      return new Response(validTransfer(), {
+        status: 200,
+        headers: { "content-type": "application/x-ndjson" },
+      });
+    }
     const accepted = url.endsWith("/v1/jobs/propose") || url.endsWith("/v1/generation/jobs") ? 202 : 200;
     requests.push({ url: new URL(url), options, status: accepted });
     return response(accepted, { ok: true, data: { status: "ok" } });
@@ -70,6 +78,19 @@ test("all protocol routes use the expected method and bearer token", async () =>
     protocol_version: PROTOCOL_VERSION,
     request_id: "request.fixture",
     utf8: "雨",
+  };
+  const transferChunks = [];
+  const importSource = () => new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(validTransfer()));
+      controller.close();
+    },
+  });
+  const binding = {
+    game_id: "game.fixture",
+    content_id: "base",
+    content_version: "1",
+    content_hash: "hash",
   };
   const cases = [
     ["health", () => client.health(), "GET", "/health"],
@@ -89,6 +110,10 @@ test("all protocol routes use the expected method and bearer token", async () =>
     ["state", () => client.state(payload), "POST", "/v1/session/get"],
     ["snapshot", () => client.snapshot(payload), "POST", "/v1/session/snapshot"],
     ["restore", () => client.restore(payload), "POST", "/v1/session/restore"],
+    ["export_session", () => client.exportSession(payload, {
+      write: (chunk) => transferChunks.push(chunk),
+    }), "POST", "/v1/session/export"],
+    ["import_session", () => client.importSession(importSource(), binding), "POST", "/v1/session/import"],
     ["timeline", () => client.timeline(payload), "POST", "/v1/session/timeline"],
     ["replay", () => client.replay(payload), "POST", "/v1/session/replay"],
     ["due_agents", () => client.dueAgents(payload), "POST", "/v1/scheduler/due"],
@@ -101,11 +126,20 @@ test("all protocol routes use the expected method and bearer token", async () =>
     assert.equal(request.options.headers.Authorization, "Bearer fixture");
     assert.equal(request.options.headers["User-Agent"], `rin-javascript/${SDK_VERSION}`);
     assert.equal(request.options.redirect, "error");
-    assert.deepEqual(
-      request.options.body === undefined ? undefined : JSON.parse(request.options.body),
-      method === "POST" ? payload : undefined,
-    );
-    assert.equal(result.status, "ok");
+    if (request.url.pathname === "/v1/session/import") {
+      assert.equal(request.options.headers["Content-Type"], "application/x-ndjson");
+      assert.equal(request.options.headers["Rin-Expected-Game-Id"], binding.game_id);
+    } else {
+      assert.deepEqual(
+        request.options.body === undefined ? undefined : JSON.parse(request.options.body),
+        method === "POST" ? payload : undefined,
+      );
+    }
+    if (request.url.pathname === "/v1/session/export") {
+      assert.equal(result.type, "complete");
+    } else {
+      assert.equal(result.status, "ok");
+    }
   }
 
   const manifest = JSON.parse(
@@ -119,7 +153,41 @@ test("all protocol routes use the expected method and bearer token", async () =>
     .map(({ name, method, path, status }) => `${name} ${method} ${path} ${status}`)
     .sort();
   assert.deepEqual(observedRoutes, expectedNamedRoutes);
+  assert.equal(
+    new TextDecoder().decode(
+      Uint8Array.from(transferChunks.flatMap((chunk) => [...chunk])),
+    ),
+    validTransfer(),
+  );
 });
+
+function validTransfer() {
+  const head = "a".repeat(64);
+  const digest = "b".repeat(64);
+  return [
+    JSON.stringify({
+      type: "manifest",
+      transfer_version: "rin.session-transfer/v1",
+      session_id: "session.fixture",
+      terminal_revision: 1,
+      terminal_head_hash: head,
+      event_count: 1,
+    }),
+    JSON.stringify({
+      type: "event",
+      record: { sequence: 1 },
+      record_sha256: digest,
+    }),
+    JSON.stringify({
+      type: "complete",
+      terminal_revision: 1,
+      terminal_head_hash: head,
+      event_count: 1,
+      stream_sha256: digest,
+    }),
+    "",
+  ].join("\n");
+}
 
 test("false commit flags are serialized explicitly", async () => {
   const bodies = [];
@@ -135,6 +203,73 @@ test("false commit flags are serialized explicitly", async () => {
   assert.equal(bodies[0].accepted, false);
   assert.equal(Object.hasOwn(bodies[1].items[0], "accepted"), true);
   assert.equal(bodies[1].items[0].accepted, false);
+});
+
+test("transfer export applies sink backpressure and requires complete", async () => {
+  const chunks = [
+    ...new TextEncoder().encode(validTransfer()),
+  ].map((byte) => new Uint8Array([byte]));
+  let reads = 0;
+  let writes = 0;
+  const client = new RinClient(undefined, {
+    fetch: async () => ({
+      status: 200,
+      headers: { get: (name) => name === "content-type" ? "application/x-ndjson" : null },
+      body: {
+        getReader: () => ({
+          read: async () => reads < chunks.length
+            ? { done: false, value: chunks[reads++] }
+            : { done: true },
+          releaseLock: () => {},
+        }),
+      },
+    }),
+  });
+  const complete = await client.exportSession(
+    { protocol_version: PROTOCOL_VERSION, session_id: "session.fixture" },
+    { write: async () => { writes += 1; } },
+  );
+  assert.equal(complete.type, "complete");
+  assert.equal(writes, 3);
+  assert.equal(reads, chunks.length);
+
+  const truncated = validTransfer().split("\n").slice(0, -2).join("\n") + "\n";
+  const invalid = new RinClient(undefined, {
+    fetch: async () => new Response(truncated, {
+      status: 200,
+      headers: { "content-type": "application/x-ndjson" },
+    }),
+  });
+  await assert.rejects(
+    invalid.exportSession(
+      { protocol_version: PROTOCOL_VERSION, session_id: "session.fixture" },
+      { write: () => {} },
+    ),
+    (error) => error instanceof RinProtocolError && error.code === "invalid_transfer",
+  );
+});
+
+test("transfer error frames are terminal API failures", async () => {
+  const manifest = validTransfer().split("\n")[0];
+  const body = `${manifest}\n${JSON.stringify({
+    type: "error",
+    error: { code: "store_load_failed", message: "export stopped" },
+  })}\n`;
+  let writes = 0;
+  const client = new RinClient(undefined, {
+    fetch: async () => new Response(body, {
+      status: 200,
+      headers: { "content-type": "application/x-ndjson" },
+    }),
+  });
+  await assert.rejects(
+    client.exportSession(
+      { protocol_version: PROTOCOL_VERSION, session_id: "session.fixture" },
+      { write: () => { writes += 1; } },
+    ),
+    (error) => error instanceof RinAPIError && error.code === "store_load_failed",
+  );
+  assert.equal(writes, 1);
 });
 
 test("remote endpoints require TLS and a token", () => {

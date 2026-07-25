@@ -66,13 +66,17 @@ Restore 必须提供来自运行中游戏可信内容 manifest 的 `expected_bin
 完整 inline Snapshot 的 compact JSON 上限为 16 MiB。Rin 超限时返回
 `413 snapshot_too_large`，绝不截断内容。所有 SDK 默认响应上限为 32 MiB，
 与服务端默认 32 MiB 请求正文上限匹配，并为 envelope、Restore 元数据和持久
-EventRecord framing 预留空间。当前不提供流式 Snapshot 传输，lineage 超过
-inline 上限后不能使用这些 JSON 方法。
+EventRecord framing 预留空间。Session Transfer 是大 lineage 的受支持路径。
+JavaScript priority SDK 已提供 streaming source/sink helper，C# 支持正在实现；
+Python、Java 与 Lua package 仍属于 JSON transport client，不宣称支持大
+lineage transfer。
 
 SDK 有意采用源码优先方式，尚未发布到 PyPI、npm、NuGet 或 Maven Central。
 Vendor 时应固定本仓库 Revision。路由兼容性由
 [`api/openapi.json`](../api/openapi.json) 定义；
-[`conformance/routes.json`](conformance/routes.json) 是它生成的覆盖清单。
+[`conformance/routes.json`](conformance/routes.json) 是它生成的覆盖清单。每个
+operation 标记为 `transport` 或 `streaming`；所有 client 必须覆盖 transport
+profile，只有提供有界 stream API 的 client 才能声明 streaming profile。
 
 游戏专用示例位于 [`examples/mods`](../examples/mods)。它们展示宿主事件
 如何进入 Rin，以及游戏在何处验证并应用 Proposal。它们是接入模板，不是

@@ -8,133 +8,155 @@
       "name": "health",
       "method": "GET",
       "path": "/health",
-      "status": 200
+      "status": 200,
+      "profile": "transport"
     },
     {
       "name": "create_session",
       "method": "POST",
       "path": "/v1/session/create",
-      "status": 200
+      "status": 200,
+      "profile": "transport"
     },
     {
       "name": "observe",
       "method": "POST",
       "path": "/v1/session/observe",
-      "status": 200
+      "status": 200,
+      "profile": "transport"
     },
     {
       "name": "propose",
       "method": "POST",
       "path": "/v1/agent/propose",
-      "status": 200
+      "status": 200,
+      "profile": "transport"
     },
     {
       "name": "submit_proposal_job",
       "method": "POST",
       "path": "/v1/jobs/propose",
-      "status": 202
+      "status": 202,
+      "profile": "transport"
     },
     {
       "name": "get_proposal_job",
       "method": "GET",
       "path": "/v1/jobs/{job_id}",
-      "status": 200
+      "status": 200,
+      "profile": "transport"
     },
     {
       "name": "cancel_proposal_job",
       "method": "DELETE",
       "path": "/v1/jobs/{job_id}",
-      "status": 200
+      "status": 200,
+      "profile": "transport"
     },
     {
       "name": "submit_generation_job",
       "method": "POST",
       "path": "/v1/generation/jobs",
-      "status": 202
+      "status": 202,
+      "profile": "transport"
     },
     {
       "name": "get_generation_job",
       "method": "GET",
       "path": "/v1/generation/jobs/{job_id}",
-      "status": 200
+      "status": 200,
+      "profile": "transport"
     },
     {
       "name": "cancel_generation_job",
       "method": "DELETE",
       "path": "/v1/generation/jobs/{job_id}",
-      "status": 200
+      "status": 200,
+      "profile": "transport"
     },
     {
       "name": "commit",
       "method": "POST",
       "path": "/v1/action/commit",
-      "status": 200
+      "status": 200,
+      "profile": "transport"
     },
     {
       "name": "commit_batch",
       "method": "POST",
       "path": "/v1/action/commit-batch",
-      "status": 200
+      "status": 200,
+      "profile": "transport"
     },
     {
       "name": "set_actor_activity",
       "method": "POST",
       "path": "/v1/session/activity",
-      "status": 200
+      "status": 200,
+      "profile": "transport"
     },
     {
       "name": "arbitrate",
       "method": "POST",
       "path": "/v1/world/arbitrate",
-      "status": 200
+      "status": 200,
+      "profile": "transport"
     },
     {
       "name": "state",
       "method": "POST",
       "path": "/v1/session/get",
-      "status": 200
+      "status": 200,
+      "profile": "transport"
     },
     {
       "name": "snapshot",
       "method": "POST",
       "path": "/v1/session/snapshot",
-      "status": 200
+      "status": 200,
+      "profile": "transport"
     },
     {
       "name": "restore",
       "method": "POST",
       "path": "/v1/session/restore",
-      "status": 200
+      "status": 200,
+      "profile": "transport"
     },
     {
       "name": "export_session",
       "method": "POST",
       "path": "/v1/session/export",
-      "status": 200
+      "status": 200,
+      "profile": "streaming"
     },
     {
       "name": "import_session",
       "method": "POST",
       "path": "/v1/session/import",
-      "status": 200
+      "status": 200,
+      "profile": "streaming"
     },
     {
       "name": "timeline",
       "method": "POST",
       "path": "/v1/session/timeline",
-      "status": 200
+      "status": 200,
+      "profile": "transport"
     },
     {
       "name": "replay",
       "method": "POST",
       "path": "/v1/session/replay",
-      "status": 200
+      "status": 200,
+      "profile": "transport"
     },
     {
       "name": "due_agents",
       "method": "POST",
       "path": "/v1/scheduler/due",
-      "status": 200
+      "status": 200,
+      "profile": "transport"
     }
   ]
 }

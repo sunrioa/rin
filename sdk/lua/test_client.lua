@@ -82,11 +82,14 @@ local manifest_file = assert(io.open("sdk/conformance/routes.json", "rb"))
 local manifest = manifest_file:read("*a")
 manifest_file:close()
 local expected_routes = {}
-for name, method, path, status in manifest:gmatch(
+for name, method, path, status, profile in manifest:gmatch(
     '"name"%s*:%s*"([^"]+)"%s*,%s*"method"%s*:%s*"([^"]+)"%s*,' ..
-        '%s*"path"%s*:%s*"([^"]+)"%s*,%s*"status"%s*:%s*(%d+)'
+        '%s*"path"%s*:%s*"([^"]+)"%s*,%s*"status"%s*:%s*(%d+)%s*,' ..
+        '%s*"profile"%s*:%s*"([^"]+)"'
 ) do
-    table.insert(expected_routes, name .. " " .. method .. " " .. path .. " " .. status)
+    if profile == "transport" then
+        table.insert(expected_routes, name .. " " .. method .. " " .. path .. " " .. status)
+    end
 end
 assert(#expected_routes > 0, "sdk/conformance/routes.json contains no operations")
 table.sort(observed_routes)

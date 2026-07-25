@@ -554,6 +554,7 @@
     "/v1/session/export": {
       "post": {
         "operationId": "export_session",
+        "x-rin-sdk-profile": "streaming",
         "requestBody": {
           "$ref": "#/components/requestBodies/Session"
         },
@@ -585,6 +586,7 @@
     "/v1/session/import": {
       "post": {
         "operationId": "import_session",
+        "x-rin-sdk-profile": "streaming",
         "parameters": [
           {
             "$ref": "#/components/parameters/ExpectedGameId"

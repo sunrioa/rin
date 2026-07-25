@@ -2,6 +2,8 @@ export const SDK_VERSION = "0.6.0";
 export const PROTOCOL_VERSION = "rin.protocol/v1";
 export const DEFAULT_BASE_URL = "http://127.0.0.1:7374";
 export const DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
+export const TRANSFER_CONTROL_FRAME_MAX_BYTES = 32 * 1024;
+export const TRANSFER_EVENT_FRAME_MAX_BYTES = 64 * 1024 * 1024 + TRANSFER_CONTROL_FRAME_MAX_BYTES;
 
 const MAX_GENERATION_CONTENT_BYTES = 4 * 1024 * 1024;
 const PROTOCOL_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/;
@@ -75,6 +77,98 @@ export class RinClient {
   state(payload) { return this.post("/v1/session/get", payload); }
   snapshot(payload) { return this.post("/v1/session/snapshot", payload); }
   restore(payload) { return this.post("/v1/session/restore", payload); }
+  async exportSession(payload, sink) {
+    const serialized = serializeRequest(payload);
+    const target = transferSink(sink);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const response = await this.fetch(`${this.baseUrl}/v1/session/export`, {
+        method: "POST",
+        headers: this.headers("application/x-ndjson", "application/json"),
+        body: serialized,
+        signal: controller.signal,
+        redirect: "error",
+      });
+      if (response.status !== 200) {
+        throw await transferAPIError(response, this.maxResponseBytes);
+      }
+      requireTransferContentType(response);
+      const reader = response.body?.getReader?.();
+      if (!reader) {
+        throw new RinProtocolError(
+          "transfer_stream_unavailable",
+          "Rin export response is not available as a stream",
+        );
+      }
+      const parser = new TransferExportParser(target.write);
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!(value instanceof Uint8Array)) {
+            throw new RinProtocolError("invalid_transfer", "Rin returned an invalid transfer chunk");
+          }
+          await parser.push(value);
+        }
+        return parser.finish();
+      } finally {
+        reader.releaseLock?.();
+      }
+    } catch (cause) {
+      if (cause instanceof RinError) throw cause;
+      const timedOut = controller.signal.aborted;
+      throw new RinTransportError(
+        timedOut ? "transport_timeout" : "transport_failed",
+        timedOut ? "Rin transfer timed out" : "Rin transfer failed",
+        { cause },
+      );
+    } finally {
+      clearTimeout(timer);
+      target.release();
+    }
+  }
+
+  async importSession(source, expectedBinding) {
+    const body = transferSource(source);
+    const binding = validateTransferBinding(expectedBinding);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const headers = this.headers("application/json", "application/x-ndjson");
+      headers["Rin-Expected-Game-Id"] = binding.game_id;
+      headers["Rin-Expected-Content-Id"] = binding.content_id;
+      headers["Rin-Expected-Content-Version"] = binding.content_version;
+      headers["Rin-Expected-Content-Hash"] = binding.content_hash;
+      const response = await this.fetch(`${this.baseUrl}/v1/session/import`, {
+        method: "POST",
+        headers,
+        body,
+        signal: controller.signal,
+        redirect: "error",
+        duplex: "half",
+      });
+      const raw = await readBoundedBody(response, this.maxResponseBytes);
+      const envelope = decodeEnvelope(raw);
+      if (response.status !== 200 || envelope.ok !== true) {
+        throw apiError(envelope, response.status);
+      }
+      if (!isObject(envelope.data)) {
+        throw new RinProtocolError("invalid_response", "Rin response data must be an object");
+      }
+      return envelope.data;
+    } catch (cause) {
+      if (cause instanceof RinError) throw cause;
+      const timedOut = controller.signal.aborted;
+      throw new RinTransportError(
+        timedOut ? "transport_timeout" : "transport_failed",
+        timedOut ? "Rin transfer timed out" : "Rin transfer failed",
+        { cause },
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  }
   timeline(payload) { return this.post("/v1/session/timeline", payload); }
   replay(payload) { return this.post("/v1/session/replay", payload); }
   dueAgents(payload) { return this.post("/v1/scheduler/due", payload); }
@@ -122,6 +216,13 @@ export class RinClient {
 
   post(path, payload) {
     return this.request("POST", path, payload);
+  }
+
+  headers(accept, contentType = "") {
+    const headers = { Accept: accept, "User-Agent": `rin-javascript/${SDK_VERSION}` };
+    if (contentType) headers["Content-Type"] = contentType;
+    if (this.token) headers.Authorization = `Bearer ${this.token}`;
+    return headers;
   }
 
   async request(method, path, payload, expectedStatuses = [200]) {
@@ -202,6 +303,246 @@ export class RinClient {
     } finally {
       clearTimeout(timer);
     }
+  }
+}
+
+function serializeRequest(payload) {
+  if (!isObject(payload)) {
+    throw new RinProtocolError("invalid_request", "Rin payload must be an object");
+  }
+  validateRequestJSON(payload);
+  let body;
+  try {
+    body = JSON.stringify(payload);
+  } catch (cause) {
+    throw new RinProtocolError("invalid_request", "Rin payload is not JSON serializable", { cause });
+  }
+  if (typeof body !== "string") {
+    throw new RinProtocolError("invalid_request", "Rin payload is not JSON serializable");
+  }
+  return body;
+}
+
+function transferSink(sink) {
+  if (sink?.getWriter instanceof Function) {
+    const writer = sink.getWriter();
+    return {
+      write: (chunk) => writer.write(chunk),
+      release: () => writer.releaseLock?.(),
+    };
+  }
+  if (sink?.write instanceof Function) {
+    return { write: (chunk) => sink.write(chunk), release: () => {} };
+  }
+  throw new RinConfigurationError(
+    "invalid_transfer_sink",
+    "Transfer sink must provide write(Uint8Array) or be a WritableStream",
+  );
+}
+
+function transferSource(source) {
+  if (source?.getReader instanceof Function) return source;
+  if (source?.[Symbol.asyncIterator] instanceof Function && typeof ReadableStream === "function") {
+    const iterator = source[Symbol.asyncIterator]();
+    return new ReadableStream({
+      async pull(controller) {
+        const { done, value } = await iterator.next();
+        if (done) {
+          controller.close();
+          return;
+        }
+        if (!(value instanceof Uint8Array)) {
+          controller.error(new RinProtocolError(
+            "invalid_transfer_source",
+            "Transfer source must yield Uint8Array chunks",
+          ));
+          return;
+        }
+        controller.enqueue(value);
+      },
+      async cancel(reason) {
+        await iterator.return?.(reason);
+      },
+    });
+  }
+  throw new RinConfigurationError(
+    "invalid_transfer_source",
+    "Transfer source must be a ReadableStream or async Uint8Array iterable",
+  );
+}
+
+function validateTransferBinding(value) {
+  if (!isObject(value)) {
+    throw new RinConfigurationError("invalid_binding", "Expected Binding must be an object");
+  }
+  const fields = {
+    game_id: 96,
+    content_id: 96,
+    content_version: 64,
+    content_hash: 128,
+  };
+  for (const [field, maximum] of Object.entries(fields)) {
+    const text = value[field];
+    if (typeof text !== "string" || text.length < 1 || text.length > maximum ||
+        /[\0\r\n]/.test(text) || hasUnpairedSurrogate(text)) {
+      throw new RinConfigurationError("invalid_binding", `Expected Binding ${field} is invalid`);
+    }
+  }
+  if (!PROTOCOL_IDENTIFIER.test(value.game_id) || !PROTOCOL_IDENTIFIER.test(value.content_id)) {
+    throw new RinConfigurationError("invalid_binding", "Expected Binding identifiers are invalid");
+  }
+  return value;
+}
+
+function requireTransferContentType(response) {
+  const contentType = response.headers?.get?.("content-type") ?? "";
+  if (contentType.split(";", 1)[0].trim().toLowerCase() !== "application/x-ndjson") {
+    throw new RinProtocolError(
+      "invalid_transfer",
+      "Rin export response must be application/x-ndjson",
+    );
+  }
+}
+
+async function transferAPIError(response, maximum) {
+  try {
+    return apiError(decodeEnvelope(await readBoundedBody(response, maximum)), response.status);
+  } catch (cause) {
+    if (cause instanceof RinAPIError) return cause;
+    if (cause instanceof RinError) return cause;
+    return new RinAPIError("http_error", "Rin transfer request failed", { status: response.status });
+  }
+}
+
+function decodeEnvelope(raw) {
+  let envelope;
+  try {
+    envelope = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw));
+  } catch (cause) {
+    throw new RinProtocolError("invalid_response", "Rin returned invalid JSON", { cause });
+  }
+  if (!isObject(envelope)) {
+    throw new RinProtocolError("invalid_response", "Rin response must be an object");
+  }
+  return envelope;
+}
+
+class TransferExportParser {
+  constructor(write) {
+    this.write = write;
+    this.fragments = [];
+    this.length = 0;
+    this.manifest = null;
+    this.eventCount = 0;
+    this.complete = null;
+  }
+
+  async push(chunk) {
+    let start = 0;
+    for (let index = 0; index < chunk.byteLength; index += 1) {
+      if (chunk[index] !== 0x0a) continue;
+      this.append(chunk.subarray(start, index));
+      await this.line();
+      start = index + 1;
+    }
+    if (start < chunk.byteLength) this.append(chunk.subarray(start));
+  }
+
+  append(fragment) {
+    this.length += fragment.byteLength;
+    const maximum = this.manifest === null || this.complete !== null
+      ? TRANSFER_CONTROL_FRAME_MAX_BYTES
+      : TRANSFER_EVENT_FRAME_MAX_BYTES;
+    if (this.length > maximum) {
+      throw new RinProtocolError("transfer_frame_too_large", "Rin transfer frame exceeds its limit");
+    }
+    if (fragment.byteLength > 0) this.fragments.push(fragment);
+  }
+
+  async line() {
+    if (this.length === 0) {
+      throw new RinProtocolError("invalid_transfer", "Rin transfer contains an empty frame");
+    }
+    const bytes = new Uint8Array(this.length);
+    let offset = 0;
+    for (const fragment of this.fragments) {
+      bytes.set(fragment, offset);
+      offset += fragment.byteLength;
+    }
+    this.fragments = [];
+    this.length = 0;
+    let frame;
+    try {
+      frame = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    } catch (cause) {
+      throw new RinProtocolError("invalid_transfer", "Rin transfer contains invalid JSON", { cause });
+    }
+    this.validate(frame, bytes.byteLength);
+    const output = new Uint8Array(bytes.byteLength + 1);
+    output.set(bytes);
+    output[bytes.byteLength] = 0x0a;
+    await this.write(output);
+  }
+
+  validate(frame, byteLength) {
+    if (!isObject(frame) || typeof frame.type !== "string") {
+      throw new RinProtocolError("invalid_transfer", "Rin transfer frame is not an object");
+    }
+    if (frame.type === "error") {
+      if (byteLength > TRANSFER_CONTROL_FRAME_MAX_BYTES) {
+        throw new RinProtocolError("transfer_frame_too_large", "Rin transfer error frame exceeds its limit");
+      }
+      const detail = isObject(frame.error) ? frame.error : {};
+      throw new RinAPIError(
+        safeText(detail.code, 96) || "transfer_failed",
+        safeText(detail.message, 500) || "Rin transfer failed",
+        { field: safeText(detail.field, 160) },
+      );
+    }
+    if (this.complete !== null) {
+      throw new RinProtocolError("invalid_transfer", "Rin transfer contains data after complete");
+    }
+    if (this.manifest === null) {
+      if (frame.type !== "manifest" || frame.transfer_version !== "rin.session-transfer/v1" ||
+          !Number.isSafeInteger(frame.event_count) || frame.event_count < 1 ||
+          frame.terminal_revision !== frame.event_count ||
+          !isProtocolIdentifier(frame.session_id)) {
+        throw new RinProtocolError("invalid_transfer", "Rin transfer manifest is invalid");
+      }
+      this.manifest = frame;
+      return;
+    }
+    if (frame.type === "event") {
+      if (!isObject(frame.record) ||
+          frame.record.sequence !== this.eventCount + 1 ||
+          typeof frame.record_sha256 !== "string") {
+        throw new RinProtocolError("invalid_transfer", "Rin transfer event order is invalid");
+      }
+      this.eventCount += 1;
+      if (this.eventCount > this.manifest.event_count) {
+        throw new RinProtocolError("invalid_transfer", "Rin transfer contains extra events");
+      }
+      return;
+    }
+    if (frame.type !== "complete" || byteLength > TRANSFER_CONTROL_FRAME_MAX_BYTES ||
+        this.eventCount !== this.manifest.event_count ||
+        frame.event_count !== this.manifest.event_count ||
+        frame.terminal_revision !== this.manifest.terminal_revision ||
+        frame.terminal_head_hash !== this.manifest.terminal_head_hash ||
+        typeof frame.stream_sha256 !== "string") {
+      throw new RinProtocolError("invalid_transfer", "Rin transfer complete frame is invalid");
+    }
+    this.complete = frame;
+  }
+
+  finish() {
+    if (this.length !== 0) {
+      throw new RinProtocolError("invalid_transfer", "Rin transfer ended without an LF delimiter");
+    }
+    if (this.complete === null) {
+      throw new RinProtocolError("invalid_transfer", "Rin transfer ended without complete");
+    }
+    return this.complete;
   }
 }
 

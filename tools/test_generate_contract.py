@@ -53,6 +53,14 @@ class ContractAuthorityTests(unittest.TestCase):
             r"operationId 'HealthCheck' must use lower_snake_case",
         )
 
+    def test_sdk_profile_must_be_known(self):
+        self.assert_contract_rejected(
+            lambda document: document["paths"]["/health"]["get"].update(
+                {"x-rin-sdk-profile": "magic"}
+            ),
+            r"unsupported x-rin-sdk-profile",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

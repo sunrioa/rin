@@ -176,6 +176,7 @@ class RinClientTests(unittest.TestCase):
                 operation["status"],
             )
             for operation in manifest["operations"]
+            if operation["profile"] == "transport"
         )
         self.assertEqual(sorted(observed_routes), expected_routes)
 
