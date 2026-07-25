@@ -38,6 +38,18 @@ $headers = @{ Authorization = "Bearer $env:RIN_TOKEN" }
 Invoke-RestMethod -Headers $headers http://127.0.0.1:7374/v1/diagnostics
 ```
 
+For a local Windows game integration, place `rin.exe` beside a writable
+`rin-data` directory and use the checked-in launcher:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/start-rin.ps1 `
+  -Rin .\rin.exe -DataDirectory .\rin-data
+```
+
+The launcher uses literal paths, creates only the requested data directory,
+binds loopback by default, and propagates the Sidecar exit code. Check
+`/ready` before starting the game.
+
 Treat diagnostics and metrics like other authenticated API data. Bind the
 Sidecar to loopback by default; if a reverse proxy exposes it remotely, require
 TLS and keep `/metrics` and `/v1/diagnostics` off public routes.

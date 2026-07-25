@@ -44,6 +44,7 @@ public sealed class Plugin : BaseUnityPlugin, IRinNpcHost
             baseUrl.Value,
             Environment.GetEnvironmentVariable("RIN_TOKEN") ?? string.Empty);
         Logger.LogInfo("Rin Mono example loaded for save identity " + saveIdentity.Value);
+        Logger.LogInfo("Rin diagnostics: " + state.Diagnostics);
     }
 
     private void Update()

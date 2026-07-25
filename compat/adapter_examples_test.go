@@ -795,6 +795,25 @@ func TestUnityReferenceIsInstallableRestartableAndThin(t *testing.T) {
 	}
 }
 
+func TestWindowsSidecarLauncherStaysLocalAndLiteral(t *testing.T) {
+	payload, err := os.ReadFile("../tools/start-rin.ps1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(payload)
+	for _, required := range []string{
+		`$Address = "127.0.0.1:7374"`,
+		"Test-Path -LiteralPath $Rin",
+		"[System.IO.Path]::GetFullPath($DataDirectory)",
+		"& $Rin serve --addr $Address --data $data",
+		"exit $LASTEXITCODE",
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("Windows Sidecar launcher is missing %q", required)
+		}
+	}
+}
+
 func TestModExamplesOptIntoOutcomeReporting(t *testing.T) {
 	tests := map[string]string{
 		"../examples/mods/bepinex-rin-npc/RinNpc.Core/RinNpcRuntime.cs":                                   "RinFeatures.OutcomeReporting",
@@ -819,11 +838,13 @@ func TestBepInExDelegatesWorkflowAndSeparatesBackends(t *testing.T) {
 		"../examples/mods/bepinex-rin-npc/RinNpc.Core/RinNpcRuntime.cs": {
 			"WorkflowCoordinator", "ProposalFreshness.Evaluate",
 			"BeginAsync", "ApplyAndEnqueueOutcomeWithFallbackAsync",
-			"HostProfile.Advisory",
+			"HostProfile.Advisory", `"offer_quest"`, `"advance_quest"`,
+			"store.ApplyQuestEffect(", `"quest-stage-" + store.QuestStage`,
 		},
 		"../examples/mods/bepinex-rin-npc/RinNpc.Core/BepInExWorkflowState.cs": {
 			"IWorkflowFallbackStore", "StageTurnContext", "ReplaceWithFallbackAsync",
-			"Flush(flushToDisk: true)", "MaxOutcomes",
+			"Flush(flushToDisk: true)", "MaxOutcomes", "ApplyQuestEffect(",
+			"AppliedGameOperations", "QuestStage",
 		},
 		"../examples/mods/bepinex-rin-npc/RinNpc.Mono/Plugin.cs": {
 			"BaseUnityPlugin", "ConcurrentQueue<Action>", "ProductIdentity",

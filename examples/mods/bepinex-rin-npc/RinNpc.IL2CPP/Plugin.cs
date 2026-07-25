@@ -44,6 +44,7 @@ public sealed class Plugin : BasePlugin, IRinNpcHost
             baseUrl.Value,
             Environment.GetEnvironmentVariable("RIN_TOKEN") ?? string.Empty);
         Log.LogInfo("Rin IL2CPP transport loaded; register the game-specific main-thread hook.");
+        Log.LogInfo("Rin diagnostics: " + state.Diagnostics);
     }
 
     public async Task RequestNpcTurnAsync(

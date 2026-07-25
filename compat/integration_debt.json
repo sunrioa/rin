@@ -29,12 +29,12 @@
     },
     {
       "path": "examples/mods/bepinex-rin-npc/RinNpc.Core/RinNpcRuntime.cs",
-      "max_lines": 230,
+      "max_lines": 250,
       "profile": "advisory"
     },
     {
       "path": "examples/mods/bepinex-rin-npc/RinNpc.Core/BepInExWorkflowState.cs",
-      "max_lines": 400,
+      "max_lines": 430,
       "profile": "advisory"
     },
     {

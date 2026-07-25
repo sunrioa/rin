@@ -161,6 +161,9 @@ requires a game-specific interop hook because generated assemblies are not
 portable between games. `python tools/package_bepinex.py` builds deterministic
 Windows-safe install ZIPs and rejects packages that accidentally contain
 BepInEx, Unity, or game interop assemblies.
+The F8 slice also demonstrates a game-owned two-step beacon quest. Its stage
+and operation marker survive restart, invalid transitions are rejected, and
+the stage is included in later Observations so memory can affect the next plan.
 
 The Luanti example is a complete server mod. It calls
 `core.request_http_api()` at module scope, keeps the returned API local, and

@@ -18,7 +18,10 @@ public sealed class RinNpcRuntime : IDisposable
 {
     private const string ActorId = "npc.rin.companion";
     private static readonly HashSet<string> AllowedActions =
-        new(StringComparer.Ordinal) { "talk", "wait", "refuse" };
+        new(StringComparer.Ordinal)
+        {
+            "talk", "wait", "refuse", "offer_quest", "advance_quest",
+        };
 
     private readonly IRinNpcHost host;
     private readonly BepInExWorkflowState store;
@@ -71,8 +74,8 @@ public sealed class RinNpcRuntime : IDisposable
                 observer_ids = new[] { ActorId },
                 source = "bepinex-example",
                 kind = "dialogue",
-                summary = observation,
-                tags = new[] { "conversation", "player-request" },
+                summary = observation + " Quest stage is " + store.QuestStage + ".",
+                tags = new[] { "conversation", "player-request", "quest-stage-" + store.QuestStage },
                 importance = 3,
             };
             var propose = new ProposeRequest(
@@ -85,6 +88,8 @@ public sealed class RinNpcRuntime : IDisposable
                     new ActionSpecInput("talk", "dialogue", "offer one concrete hint"),
                     new ActionSpecInput("wait", "wait", "ask the player to observe first"),
                     new ActionSpecInput("refuse", "refuse", "decline an unsafe request"),
+                    new ActionSpecInput("offer_quest", "quest", "offer the authored beacon quest"),
+                    new ActionSpecInput("advance_quest", "quest", "mark the beacon quest complete"),
                 })
             {
                 Tick = checked(observedTick + 1),
@@ -120,12 +125,16 @@ public sealed class RinNpcRuntime : IDisposable
 
             var actionId = resolved.Proposal.Action.Id;
             var allowed = freshness == ProposalFreshnessDecision.Fresh &&
-                AllowedActions.Contains(actionId);
+                AllowedActions.Contains(actionId) &&
+                (actionId != "offer_quest" || store.QuestStage == 0) &&
+                (actionId != "advance_quest" || store.QuestStage == 1);
             var line = actionId switch
             {
                 "talk" => "Companion: Check the terrain, then choose a route with cover.",
                 "wait" => "Companion: Let us observe one more cycle before acting.",
                 "refuse" => "Companion: I cannot help with actions that break the rules.",
+                "offer_quest" => "Companion: Find the ridge beacon and report back.",
+                "advance_quest" => "Companion: The beacon is secure; the route is now open.",
                 _ => string.Empty,
             };
             var commit = new CommitRequest(
@@ -163,7 +172,17 @@ public sealed class RinNpcRuntime : IDisposable
                 HostProfile.Advisory,
                 async (_, token) =>
                 {
-                    if (allowed &&
+                    if (allowed && (actionId == "offer_quest" || actionId == "advance_quest"))
+                    {
+                        if (!store.ApplyQuestEffect(
+                            resolved.PendingTurn.OperationId,
+                            actionId))
+                        {
+                            throw new InvalidOperationException(
+                                "The game rejected an invalid quest transition");
+                        }
+                    }
+                    else if (allowed &&
                         !await host.ApplyDialogueAsync(actionId, line, token)
                             .ConfigureAwait(false))
                     {

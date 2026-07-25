@@ -46,6 +46,16 @@ try
     Require(restarted.PendingObserve is not null, "Observe request was lost");
     var pending = await restarted.LoadAsync();
     Require(pending?.JobId == "job.stable", "Pending Job identity was lost");
+    Require(
+        restarted.ApplyQuestEffect(pending!.OperationId, "offer_quest"),
+        "Quest transition was not persisted");
+    var afterQuestRestart = BepInExWorkflowState.Open(directory, product, save);
+    Require(afterQuestRestart.QuestStage == 1, "Quest stage did not survive restart");
+    Require(
+        afterQuestRestart.ApplyQuestEffect(pending.OperationId, "offer_quest"),
+        "Idempotent quest replay failed");
+    Require(afterQuestRestart.QuestStage == 1, "Quest replay duplicated its effect");
+    restarted = afterQuestRestart;
 
     var proposal = new ActionProposal(
         "proposal.test",
@@ -74,7 +84,7 @@ try
         event_id = commit.EventId,
     };
     await restarted.CompleteWithFallbackAsync(
-        pending!,
+        pending,
         proposal,
         commit,
         fallback);

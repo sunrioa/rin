@@ -65,6 +65,12 @@ Wrapper 为 88 行，共享 Runtime 为 228 行；更大的状态 Store 文件�
 文件名由 SHA-256 派生，可安全用于 Windows，位置为
 `BepInEx/config/rin-npc-example`。
 
+F8 纵向切片虽然很小，但已不再只有对白。Rin 可以提出游戏编写的 Beacon Quest，
+之后再推进它；Game Store 拥有 `0 -> 1 -> 2` 转换，并在 Settlement 前保存
+Operation ID，因此崩溃重试不会重复推进。当前 Quest Stage 会进入下一条
+Observation，让持久效果对后续记忆与规划可见。阶段不符、过期或未列入 Allowlist
+的动作会被拒绝，Authored Offline Fallback 仍固定为 `wait`。
+
 网络提交前先保存完整 Pending Turn，收到 `202` 后立即保存 Job ID；重启会
 恢复同一 Operation 与稳定 Session。动作应用后保存精确 Commit 及安全的绝对
 事实 Observe Fallback。临时错误保留 Commit；只有 `unknown_proposal` 等明确

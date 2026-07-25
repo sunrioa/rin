@@ -71,6 +71,14 @@ The state file is bounded to 2 MB and the Outbox to 32 entries. Its name is a
 SHA-256-derived Windows-safe filename under
 `BepInEx/config/rin-npc-example`.
 
+The F8 vertical slice is intentionally small but no longer dialogue-only. Rin
+may offer an authored beacon quest and later advance it; the game Store owns
+the `0 -> 1 -> 2` transition and persists the operation ID before settlement,
+so a crash/retry cannot advance it twice. The current quest stage is included
+in the next Observation, making the durable effect visible to later memory and
+planning. Invalid-stage, stale, or non-allowlisted actions are rejected, while
+the authored offline fallback remains `wait`.
+
 The complete Pending Turn is persisted before network submission and its Job
 ID immediately after `202`. A restart resumes the same operation and stable
 Session. Applying an action stores the exact Commit plus a safe absolute-fact

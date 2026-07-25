@@ -36,6 +36,17 @@ $headers = @{ Authorization = "Bearer $env:RIN_TOKEN" }
 Invoke-RestMethod -Headers $headers http://127.0.0.1:7374/v1/diagnostics
 ```
 
+Windows 本地游戏接入可把 `rin.exe` 与可写的 `rin-data` 目录放在一起，并使用
+仓库内启动器：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/start-rin.ps1 `
+  -Rin .\rin.exe -DataDirectory .\rin-data
+```
+
+启动器使用 Literal Path，只创建指定数据目录，默认仅绑定 Loopback，并透传
+Sidecar Exit Code。启动游戏前请检查 `/ready`。
+
 Diagnostics 与 Metrics 应按其他鉴权 API 数据保护。Sidecar 默认只绑定 Loopback；
 若 Reverse Proxy 对外暴露，必须使用 TLS，并避免把 `/metrics` 与
 `/v1/diagnostics` 放到公网 Route。

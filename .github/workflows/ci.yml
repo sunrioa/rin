@@ -53,6 +53,17 @@ jobs:
         env:
           CGO_ENABLED: "0"
         run: go build -trimpath ./cmd/rin
+      - name: Parse Windows Sidecar launcher
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path tools/start-rin.ps1),
+            [ref]$tokens,
+            [ref]$errors)
+          if ($errors.Count -ne 0) { throw ($errors -join [Environment]::NewLine) }
       - name: Test bundled File Store and Sidecar lifecycle
         shell: bash
         env:

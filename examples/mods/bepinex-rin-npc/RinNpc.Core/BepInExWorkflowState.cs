@@ -31,6 +31,34 @@ public sealed class BepInExWorkflowState : IWorkflowFallbackStore
     public long Sequence => state.Sequence;
     public CreateSessionRequest? CreateRequest => state.CreateRequest;
     public object? PendingObserve => state.PendingObserve;
+    public int QuestStage => state.QuestStage;
+    public string Diagnostics =>
+        "profile=advisory session=" + state.SessionId +
+        " sequence=" + state.Sequence +
+        " quest_stage=" + state.QuestStage +
+        " pending=" + (state.Pending is not null) +
+        " outbox=" + state.Outcomes.Count;
+
+    public bool ApplyQuestEffect(string operationId, string actionId)
+    {
+        lock (gate)
+        {
+            if (state.AppliedGameOperations.Contains(operationId)) return true;
+            if (state.Pending?.OperationId != operationId) return false;
+            var nextStage = actionId switch
+            {
+                "offer_quest" when state.QuestStage == 0 => 1,
+                "advance_quest" when state.QuestStage == 1 => 2,
+                _ => state.QuestStage,
+            };
+            if (nextStage == state.QuestStage) return false;
+            var candidate = CopyState();
+            candidate.QuestStage = nextStage;
+            candidate.AppliedGameOperations.Add(operationId);
+            Persist(candidate);
+            return true;
+        }
+    }
 
     public static BepInExWorkflowState Open(
         string directory,
@@ -329,6 +357,15 @@ public sealed class BepInExWorkflowState : IWorkflowFallbackStore
             return "session identity";
         }
         if (loaded.Sequence < 0) return "sequence";
+        if (loaded.QuestStage < 0 || loaded.QuestStage > 2 ||
+            loaded.AppliedGameOperations is null ||
+            loaded.AppliedGameOperations.Count > 256 ||
+            loaded.AppliedGameOperations.Any(id => !RinIds.IsValid(id)) ||
+            loaded.AppliedGameOperations.Distinct().Count() !=
+                loaded.AppliedGameOperations.Count)
+        {
+            return "game effect state";
+        }
         if (loaded.Outcomes is null || loaded.Outcomes.Count > MaxOutcomes)
         {
             return "outbox bounds";
@@ -384,5 +421,7 @@ public sealed class BepInExWorkflowState : IWorkflowFallbackStore
         public ProposalAttempt? Pending { get; set; }
         public JsonElement? PendingObserve { get; set; }
         public List<OutcomeOutboxEntry> Outcomes { get; set; } = new();
+        public int QuestStage { get; set; }
+        public List<string> AppliedGameOperations { get; set; } = new();
     }
 }

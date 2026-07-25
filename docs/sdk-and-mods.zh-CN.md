@@ -140,6 +140,9 @@ Save Identity、Pending Turn、Job ID 与有上限的 Outcome Outbox。Mono
 Interop Hook，因为生成的 Assembly 不能跨游戏复用。
 `python tools/package_bepinex.py` 会生成确定性、Windows-safe 的安装 ZIP，
 并拒绝意外包含 BepInEx、Unity 或游戏 Interop Assembly 的包。
+F8 切片还演示了游戏拥有的两阶段 Beacon Quest：Stage 与 Operation Marker
+跨重启保留，无效转换会被拒绝，后续 Observation 也会携带 Stage，让记忆影响
+下一次规划。
 
 Luanti 示例是完整服务器 Mod。它只在模块作用域调用
 `core.request_http_api()`，把返回 API 保持为 local，并要求
