@@ -79,10 +79,18 @@ The default listener is `127.0.0.1:7374`. Check the service with:
 curl http://127.0.0.1:7374/health
 ```
 
-Run the complete client example:
+Run the minimal development quickstart:
 
 ```bash
 go run ./examples/basic
+```
+
+It demonstrates Session creation and Observe only; it does not persist the
+identities required in production. The complete Proposal Attempt, applied
+marker, Outcome Outbox, crash recovery, and safe file-persistence example is:
+
+```bash
+go run ./examples/recovery
 ```
 
 Production integrations should use a dedicated sidecar token:

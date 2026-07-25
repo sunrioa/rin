@@ -57,10 +57,18 @@ go run ./cmd/rin serve -data ./rin-data
 curl http://127.0.0.1:7374/health
 ```
 
-运行完整客户端示例：
+运行最小开发 Quickstart：
 
 ```bash
 go run ./examples/basic
+```
+
+它只演示 Session 创建与 Observe，不持久化生产所需的身份。完整的
+Proposal Attempt、Applied Marker、Outcome Outbox、崩溃恢复与安全文件落盘示例
+独立位于：
+
+```bash
+go run ./examples/recovery
 ```
 
 生产接入建议设置独立 Sidecar Token：

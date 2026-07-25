@@ -188,7 +188,7 @@ func TestClientDefaultResponseLimitsMatchInlineTransportBudget(t *testing.T) {
 		{"../examples/godot/rin_client.gd", "max_response_bytes := 33554432"},
 		{"../examples/unity/RinClient.cs", "maxResponseBytes = 32 * 1024 * 1024"},
 		{"../examples/mods/luanti-rin-npc/rin.lua", "DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024"},
-		{"../examples/basic/main.go", "defaultMaxRinResponseBytes = 32 << 20"},
+		{"../examples/recovery/main.go", "defaultMaxRinResponseBytes = 32 << 20"},
 	}
 	for _, test := range tests {
 		payload, err := os.ReadFile(test.path)

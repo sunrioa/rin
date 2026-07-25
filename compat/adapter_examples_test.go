@@ -815,6 +815,7 @@ func TestModExamplesOptIntoOutcomeReporting(t *testing.T) {
 		"../examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/RinNpcMod.java": "outcome-reporting-v1",
 		"../examples/mods/luanti-rin-npc/init.lua":                                                   "outcome-reporting-v1",
 		"../examples/basic/main.go":                                                                  "FeatureOutcomeReporting",
+		"../examples/recovery/main.go":                                                               "FeatureOutcomeReporting",
 	}
 	for path, marker := range tests {
 		payload, err := os.ReadFile(path)
