@@ -92,11 +92,21 @@ public sealed class RinClient : IDisposable
     public Task<JsonElement> CreateSessionAsync(object payload, CancellationToken cancellationToken = default) =>
         PostAsync("/v1/session/create", payload, 200, cancellationToken);
 
+    public Task<MutationResult> CreateSessionAsync(
+        CreateSessionRequest payload,
+        CancellationToken cancellationToken = default) =>
+        PostTypedAsync<MutationResult>("/v1/session/create", payload, 200, cancellationToken);
+
     public Task<JsonElement> ObserveAsync(object payload, CancellationToken cancellationToken = default) =>
         PostAsync("/v1/session/observe", payload, 200, cancellationToken);
 
     public Task<JsonElement> ProposeAsync(object payload, CancellationToken cancellationToken = default) =>
         PostAsync("/v1/agent/propose", payload, 200, cancellationToken);
+
+    public Task<ProposalResult> ProposeAsync(
+        ProposeRequest payload,
+        CancellationToken cancellationToken = default) =>
+        PostTypedAsync<ProposalResult>("/v1/agent/propose", payload, 200, cancellationToken);
 
     public Task<JsonElement> SubmitProposalJobAsync(object payload, CancellationToken cancellationToken = default) =>
         PostAsync("/v1/jobs/propose", payload, 202, cancellationToken);
@@ -119,6 +129,11 @@ public sealed class RinClient : IDisposable
     /// <summary>Reports an outcome the game already applied or rejected.</summary>
     public Task<JsonElement> CommitAsync(object payload, CancellationToken cancellationToken = default) =>
         PostAsync("/v1/action/commit", payload, 200, cancellationToken);
+
+    public Task<MutationResult> CommitAsync(
+        CommitRequest payload,
+        CancellationToken cancellationToken = default) =>
+        PostTypedAsync<MutationResult>("/v1/action/commit", payload, 200, cancellationToken);
 
     /// <summary>Atomically reports outcomes produced from one original world revision.</summary>
     public Task<JsonElement> CommitBatchAsync(object payload, CancellationToken cancellationToken = default) =>
@@ -609,6 +624,28 @@ public sealed class RinClient : IDisposable
     {
         ArgumentNullException.ThrowIfNull(payload);
         return RequestAsync(HttpMethod.Post, path, payload, expectedStatus, cancellationToken);
+    }
+
+    private async Task<T> PostTypedAsync<T>(
+        string path,
+        object payload,
+        int expectedStatus,
+        CancellationToken cancellationToken)
+    {
+        var data = await PostAsync(path, payload, expectedStatus, cancellationToken)
+            .ConfigureAwait(false);
+        try
+        {
+            return data.Deserialize<T>(JsonOptions) ??
+                throw new JsonException("response data was null");
+        }
+        catch (JsonException exception)
+        {
+            throw new RinProtocolException(
+                "invalid_response",
+                "Rin response data does not match the typed protocol model",
+                exception);
+        }
     }
 
     private ByteArrayContent JsonContent(object payload)

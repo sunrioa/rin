@@ -18,6 +18,11 @@ console.log(capabilities.release_version);
 Use `createRinId("request")` and `createRinId("event")` once, persist the
 result with the operation, and reuse it for every exact retry.
 
+The bundled TypeScript declarations provide OpenAPI-aligned types for the
+authoritative create/propose/commit path, including `CreateSessionRequest`,
+`ProposeRequest`, `ProposalResult`, `CommitRequest`, and `MutationResult`.
+Response types deliberately tolerate additive fields.
+
 Run directly from this checkout:
 
 ```bash

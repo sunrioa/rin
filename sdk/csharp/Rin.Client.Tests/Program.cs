@@ -79,6 +79,84 @@ using (var missingFeatureClient = new RinClient(new RinClientOptions(), missingF
     }
 }
 
+var typedMutationHandler = new RecordingHandler
+{
+    ResponseBodyFactory = _ =>
+        "{\"ok\":true,\"data\":{\"session_id\":\"session.fixture\"," +
+        "\"revision\":3,\"head_hash\":\"" + new string('a', 64) +
+        "\",\"duplicate\":false,\"future_field\":\"preserved\"}}",
+};
+using (var typedClient = new RinClient(new RinClientOptions(), typedMutationHandler))
+{
+    var create = new CreateSessionRequest(
+        "create.fixture",
+        "session.fixture",
+        new RinBinding("game.fixture", "base", "1", "hash"),
+        new[]
+        {
+            new ActorSeedInput("actor.fixture", "npc", "Fixture", 5)
+            {
+                Enabled = true,
+            },
+        })
+    {
+        Features = RinFeatures.AuthoritativePreset,
+    };
+    var created = await typedClient.CreateSessionAsync(create);
+    Require(created.Revision == 3, "typed mutation response lost revision");
+    Require(
+        created.AdditiveFields?.ContainsKey("future_field") == true,
+        "typed mutation response discarded an additive field");
+    using var sent = JsonDocument.Parse(typedMutationHandler.Body);
+    Require(
+        sent.RootElement.GetProperty("binding").GetProperty("game_id").GetString() ==
+        "game.fixture",
+        "typed Binding did not use OpenAPI property names");
+    Require(
+        sent.RootElement.GetProperty("actors")[0].GetProperty("display_name").GetString() ==
+        "Fixture",
+        "typed actor did not use OpenAPI property names");
+
+    var committed = await typedClient.CommitAsync(new CommitRequest(
+        "session.fixture",
+        "commit.fixture",
+        "proposal.fixture",
+        "event.fixture",
+        false));
+    Require(committed.Revision == 3, "typed Commit response was not decoded");
+    using var commitBody = JsonDocument.Parse(typedMutationHandler.Body);
+    Require(
+        commitBody.RootElement.GetProperty("accepted").ValueKind == JsonValueKind.False,
+        "typed Commit omitted an explicit false accepted value");
+}
+
+var typedProposalHandler = new RecordingHandler
+{
+    ResponseBodyFactory = _ =>
+        "{\"ok\":true,\"data\":{\"duplicate\":false,\"future\":\"ok\",\"proposal\":{" +
+        "\"id\":\"proposal.fixture\",\"session_id\":\"session.fixture\"," +
+        "\"request_id\":\"propose.fixture\",\"actor_id\":\"actor.fixture\",\"tick\":4," +
+        "\"based_on_revision\":1,\"based_on_head_hash\":\"\",\"created_revision\":2," +
+        "\"action\":{\"id\":\"talk\",\"kind\":\"dialogue\",\"description\":\"Talk\"}," +
+        "\"stance\":\"engage\",\"summary\":\"Talk\",\"rationale\":\"Useful\"," +
+        "\"status\":\"pending\"}}}",
+};
+using (var typedProposalClient = new RinClient(
+    new RinClientOptions(),
+    typedProposalHandler))
+{
+    var result = await typedProposalClient.ProposeAsync(new ProposeRequest(
+        "session.fixture",
+        "propose.fixture",
+        "actor.fixture",
+        "Talk",
+        new[] { new ActionSpecInput("talk", "dialogue", "Talk") }));
+    Require(result.Proposal.Id == "proposal.fixture", "typed Proposal was not decoded");
+    Require(
+        result.AdditiveFields?.ContainsKey("future") == true,
+        "typed Proposal result discarded an additive field");
+}
+
 var handler = new RecordingHandler();
 using var client = new RinClient(new RinClientOptions { Token = "fixture" }, handler);
 var payload = new Dictionary<string, object?>

@@ -26,6 +26,10 @@ Create stable identities once with `RinIds.Create("request")` and
 `RinIds.Create("event")`, persist them with the operation, and reuse them for
 every exact retry.
 
+OpenAPI-aligned models and typed overloads cover the authoritative
+create/propose/commit path. `MutationResult` and `ProposalResult` retain
+additive response fields through `AdditiveFields`.
+
 Build the source project with:
 
 ```bash

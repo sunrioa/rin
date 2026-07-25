@@ -18,6 +18,10 @@ Outcome Reporting preset 时 Fail Closed。请用 `createRinId("request")` 与
 `createRinId("event")` 生成一次 ID，将其随操作持久化，并在每次 exact retry
 中复用。
 
+随附 TypeScript 声明为权威 create/propose/commit 流程提供与 OpenAPI 对齐的
+`CreateSessionRequest`、`ProposeRequest`、`ProposalResult`、
+`CommitRequest` 和 `MutationResult` 类型；响应类型会容忍未来新增字段。
+
 从当前 Checkout 直接运行：
 
 ```bash

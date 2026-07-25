@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Rin.Client;
 
 public sealed class RinBinding
@@ -14,12 +16,16 @@ public sealed class RinBinding
         ContentHash = ValidateText(contentHash, 128, nameof(contentHash));
     }
 
+    [JsonPropertyName("game_id")]
     public string GameId { get; }
 
+    [JsonPropertyName("content_id")]
     public string ContentId { get; }
 
+    [JsonPropertyName("content_version")]
     public string ContentVersion { get; }
 
+    [JsonPropertyName("content_hash")]
     public string ContentHash { get; }
 
     private static string ValidateIdentifier(string value, string name)

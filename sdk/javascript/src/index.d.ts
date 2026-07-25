@@ -19,6 +19,14 @@ export const FEATURE_PRESETS: Readonly<{
 
 export type RinObject = Record<string, unknown>;
 export type FetchImplementation = typeof globalThis.fetch;
+export type RinFeature =
+  | "memory-archive-v1"
+  | "belief-conflicts-v1"
+  | "goal-candidates-v1"
+  | "actor-activity-v1"
+  | "arbitration-v1"
+  | "outcome-reporting-v1";
+export type GoalStatus = "active" | "completed" | "released";
 
 export interface RinClientOptions {
   token?: string;
@@ -39,6 +47,148 @@ export interface RinBinding {
   content_id: string;
   content_version: string;
   content_hash: string;
+}
+
+export interface BoundaryInput {
+  id: string;
+  description: string;
+  trigger_tags?: string[] | null;
+  response: "refuse" | "redirect" | "wait";
+}
+
+export interface GoalSeedInput {
+  id: string;
+  description: string;
+  motivation?: string;
+  priority: number;
+  preferred_actions?: string[];
+  progress?: number;
+  target_progress: number;
+  status: GoalStatus;
+}
+
+export interface ActorSeedInput {
+  id: string;
+  kind: string;
+  display_name: string;
+  traits?: string[];
+  boundaries?: BoundaryInput[];
+  goals?: GoalSeedInput[];
+  metadata?: Record<string, string>;
+  think_every_ticks: number;
+  enabled?: boolean;
+}
+
+export interface ActionSpecInput {
+  id: string;
+  kind: string;
+  description: string;
+  target_ids?: string[];
+  parameters?: Record<string, string>;
+}
+
+export interface CreateSessionRequest {
+  protocol_version: typeof PROTOCOL_VERSION;
+  request_id: string;
+  session_id: string;
+  binding: RinBinding;
+  seed?: number;
+  features?: RinFeature[];
+  actors: ActorSeedInput[];
+}
+
+export interface ProposeRequest {
+  protocol_version: typeof PROTOCOL_VERSION;
+  session_id: string;
+  request_id: string;
+  actor_id: string;
+  tick?: number;
+  intent: string;
+  tags?: string[];
+  candidate_actions: ActionSpecInput[];
+  candidate_goals?: GoalSeedInput[];
+  urgent?: boolean;
+}
+
+export interface FactInput {
+  subject_id: string;
+  predicate: string;
+  object: string;
+  visibility?: string[];
+  confidence?: number;
+  source_event_id?: string;
+  observed_tick?: 0;
+}
+
+export interface GoalUpdateInput {
+  goal_id: string;
+  progress_delta?: number;
+  status?: GoalStatus;
+}
+
+export interface CommitRequest {
+  protocol_version: typeof PROTOCOL_VERSION;
+  session_id: string;
+  request_id: string;
+  proposal_id: string;
+  event_id: string;
+  tick?: number;
+  accepted: boolean;
+  outcome?: string;
+  tags?: string[];
+  facts?: FactInput[];
+  goal_updates?: GoalUpdateInput[];
+}
+
+export interface MutationResult {
+  session_id: string;
+  revision: number;
+  head_hash: string;
+  duplicate: boolean;
+  [additiveField: string]: unknown;
+}
+
+export interface ActionProposal {
+  id: string;
+  session_id: string;
+  request_id: string;
+  actor_id: string;
+  tick: number;
+  based_on_revision: number;
+  based_on_head_hash: string;
+  based_on_world_revision?: number;
+  created_revision: number;
+  action: ActionSpecInput;
+  stance: "engage" | "refuse" | "redirect" | "wait";
+  summary: string;
+  rationale: string;
+  policy_source?: string;
+  recalled_memory_ids?: string[];
+  goal_id?: string;
+  boundary_id?: string;
+  proposed_goal?: RinObject;
+  status: "pending" | "accepted" | "rejected";
+  outcome_event_id?: string;
+  outcome_tick?: number;
+  [additiveField: string]: unknown;
+}
+
+export interface ProposalResult {
+  proposal: ActionProposal;
+  duplicate: boolean;
+  [additiveField: string]: unknown;
+}
+
+export interface HealthData {
+  status: "ok";
+  protocol_version: typeof PROTOCOL_VERSION;
+  release_version: string;
+  release_status: "preview" | "stable" | "deprecated";
+  policy_mode: string;
+  async_jobs: boolean;
+  structured_generation: boolean;
+  features: string[];
+  [additiveField: string]: unknown;
 }
 
 export interface RinTransferSink {
@@ -66,11 +216,11 @@ export function createRinId(
 export class RinClient {
   constructor(baseUrl?: string, options?: RinClientOptions);
   readonly baseUrl: string;
-  health(): Promise<RinObject>;
-  negotiateCapabilities(requiredFeatures?: readonly string[]): Promise<RinObject>;
-  createSession(payload: RinObject): Promise<RinObject>;
+  health(): Promise<HealthData>;
+  negotiateCapabilities(requiredFeatures?: readonly string[]): Promise<HealthData>;
+  createSession(payload: CreateSessionRequest): Promise<MutationResult>;
   observe(payload: RinObject): Promise<RinObject>;
-  propose(payload: RinObject): Promise<RinObject>;
+  propose(payload: ProposeRequest): Promise<ProposalResult>;
   submitProposalJob(payload: RinObject): Promise<RinObject>;
   getProposalJob(jobId: string): Promise<RinObject>;
   cancelProposalJob(jobId: string): Promise<RinObject>;
@@ -78,7 +228,7 @@ export class RinClient {
   getGenerationJob(jobId: string): Promise<RinObject>;
   cancelGenerationJob(jobId: string): Promise<RinObject>;
   /** Report an outcome the game already applied or rejected. */
-  commit(payload: RinObject): Promise<RinObject>;
+  commit(payload: CommitRequest): Promise<MutationResult>;
   /** Atomically report outcomes produced from one original world revision. */
   commitBatch(payload: RinObject): Promise<RinObject>;
   setActorActivity(payload: RinObject): Promise<RinObject>;
