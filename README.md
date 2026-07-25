@@ -100,6 +100,9 @@ go run ./cmd/rin serve
 | `POST` | `/v1/world/arbitrate` | 对并行角色提案进行确定性冲突仲裁 |
 | `POST` | `/v1/scheduler/due` | 查询当前 tick 应思考的角色 |
 | `POST` | `/v1/session/get` | 读取会话状态 |
+| `POST` | `/v1/session/stats` | 读取生命周期与受管存储用量 |
+| `POST` | `/v1/session/archive` | 按 Binding 与 Head 前置条件冻结为只读 |
+| `POST` | `/v1/session/delete` | 删除已归档 Session 并保留最小 Tombstone |
 | `POST` | `/v1/session/snapshot` | 创建并原子保存快照 |
 | `POST` | `/v1/session/restore` | 校验并恢复快照 |
 | `POST` | `/v1/session/timeline` | 读取脱敏事件时间线 |

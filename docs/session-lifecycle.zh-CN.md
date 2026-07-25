@@ -47,11 +47,11 @@ Binding、Archive Receipt ID、冻结 Revision/Head，以及与完整 Session ID
 
 ## 持久删除
 
-File Store 删除使用每 Session Event 与 Artifact Lock。它先用持久发布语义把
-Session Directory 改名为内部 deleting 名称，同步 `sessions` Directory，写入并
-同步最小 Tombstone，删除已改名 Directory，再次同步父目录。启动时必须先完成
-被中断的删除，之后才能暴露 Store。Windows 使用 Write-through Rename；受支持
-POSIX 平台使用 Rename 加 Directory Sync。
+File Store 删除使用每 Session Event 与 Artifact Lock。它先把最小 Tombstone
+作为 Fail-closed 删除意图持久发布，再把 Session Directory 改名为内部 deleting
+名称，同步 `sessions` Directory，删除已改名 Directory 并再次同步父目录。启动时
+会根据 Tombstone 完成被中断的删除，之后才能暴露 Store。Windows 使用
+Write-through Rename；受支持 POSIX 平台使用 Rename 加 Directory Sync。
 
 Tombstone 不包含 Event、Snapshot、生成文本、Actor、Fact、Goal 或 Binding 值，
 只保留：
@@ -62,7 +62,7 @@ Tombstone 不包含 Event、Snapshot、生成文本、Actor、Fact、Goal 或 Bi
 - 删除时间；
 - 最终 Revision 与 Head Hash；
 - Binding 的 SHA-256 Digest；
-- Archive Receipt ID 与 Digest。
+- Archive Receipt ID（该 ID 由 Archive Request Digest 派生）。
 
 这些最小数据用于使删除重试确定，并阻止陈旧客户端复用已退役 Lineage 身份。
 如果这些 Identifier 也属于个人数据，Tombstone 需要单独的保留策略。

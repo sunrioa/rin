@@ -56,12 +56,12 @@ Wildcards, prefixes, empty IDs, and bulk deletion are not supported.
 ## Durable deletion
 
 File Store deletion uses the per-Session event and artifact locks. It first
-renames the Session directory to an internal deleting name with durable
-publication semantics, syncs the `sessions` directory, writes and syncs the
-minimal tombstone, removes the renamed directory, and syncs the parent again.
-Startup finishes an interrupted deletion before exposing the Store. Windows
-uses write-through rename; supported POSIX platforms use rename plus directory
-sync.
+durably publishes the minimal tombstone as a fail-closed deletion intent, then
+renames the Session directory to an internal deleting name, syncs the
+`sessions` directory, removes the renamed directory, and syncs the parent
+again. Startup sees the tombstone and finishes an interrupted deletion before
+exposing the Store. Windows uses write-through rename; supported POSIX
+platforms use rename plus directory sync.
 
 The tombstone contains no Event, Snapshot, generated text, Actor, Fact, Goal,
 or Binding values. It retains only:
@@ -72,7 +72,7 @@ or Binding values. It retains only:
 - deletion time;
 - final revision and head hash;
 - SHA-256 digest of the Binding;
-- archive receipt ID and digest.
+- archive receipt ID (it is derived from the archive request digest).
 
 This minimum makes deletion retries deterministic and prevents stale clients
 from reusing a retired lineage identity. Tombstones need a separately governed

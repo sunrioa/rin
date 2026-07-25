@@ -141,6 +141,62 @@ export interface CommitRequest {
   goal_updates?: GoalUpdateInput[];
 }
 
+export interface SessionRequest {
+  protocol_version: typeof PROTOCOL_VERSION;
+  session_id: string;
+}
+
+export interface ArchiveSessionRequest extends SessionRequest {
+  request_id: string;
+  expected_binding: RinBinding;
+  expected_revision: number;
+  expected_head_hash: string;
+}
+
+export interface DeleteSessionRequest extends ArchiveSessionRequest {
+  archive_receipt_id: string;
+  confirmation: string;
+}
+
+export interface SessionStats {
+  session_id: string;
+  lifecycle: "active" | "archived";
+  revision: number;
+  head_hash: string;
+  event_count: number;
+  bytes: {
+    event_log: number;
+    snapshots: number;
+    checkpoints: number;
+    indexes: number;
+    other: number;
+    total: number;
+  };
+  soft_limit_bytes: number;
+  hard_limit_bytes: number;
+  soft_limit_exceeded: boolean;
+  hard_limit_exceeded: boolean;
+  [additiveField: string]: unknown;
+}
+
+export interface ArchiveSessionResult {
+  session_id: string;
+  receipt_id: string;
+  revision: number;
+  head_hash: string;
+  archived_at: string;
+  duplicate: boolean;
+  [additiveField: string]: unknown;
+}
+
+export interface DeleteSessionResult {
+  session_id: string;
+  receipt_id: string;
+  deleted_at: string;
+  duplicate: boolean;
+  [additiveField: string]: unknown;
+}
+
 export interface MutationResult {
   session_id: string;
   revision: number;
@@ -303,6 +359,9 @@ export class RinClient {
   setActorActivity(payload: RinObject): Promise<RinObject>;
   arbitrate(payload: RinObject): Promise<RinObject>;
   state(payload: RinObject): Promise<RinObject>;
+  sessionStats(payload: SessionRequest): Promise<SessionStats>;
+  archiveSession(payload: ArchiveSessionRequest): Promise<ArchiveSessionResult>;
+  deleteSession(payload: DeleteSessionRequest): Promise<DeleteSessionResult>;
   snapshot(payload: RinObject): Promise<RinObject>;
   restore(payload: RinObject): Promise<RinObject>;
   /** Streams an NDJSON transfer into a caller-owned sink without closing it. */

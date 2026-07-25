@@ -110,6 +110,27 @@
       "profile": "transport"
     },
     {
+      "name": "session_stats",
+      "method": "POST",
+      "path": "/v1/session/stats",
+      "status": 200,
+      "profile": "transport"
+    },
+    {
+      "name": "archive_session",
+      "method": "POST",
+      "path": "/v1/session/archive",
+      "status": 200,
+      "profile": "transport"
+    },
+    {
+      "name": "delete_session",
+      "method": "POST",
+      "path": "/v1/session/delete",
+      "status": 200,
+      "profile": "transport"
+    },
+    {
       "name": "snapshot",
       "method": "POST",
       "path": "/v1/session/snapshot",

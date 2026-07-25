@@ -153,6 +153,71 @@ public sealed record CommitRequest(
     public IReadOnlyList<GoalUpdateInput>? GoalUpdates { get; init; }
 }
 
+public sealed record SessionRequest(
+    [property: JsonPropertyName("session_id")] string SessionId)
+{
+    [JsonPropertyName("protocol_version")]
+    public string ProtocolVersion { get; init; } = RinClient.ProtocolVersion;
+}
+
+public sealed record ArchiveSessionRequest(
+    [property: JsonPropertyName("session_id")] string SessionId,
+    [property: JsonPropertyName("request_id")] string RequestId,
+    [property: JsonPropertyName("expected_binding")] RinBinding ExpectedBinding,
+    [property: JsonPropertyName("expected_revision")] long ExpectedRevision,
+    [property: JsonPropertyName("expected_head_hash")] string ExpectedHeadHash)
+{
+    [JsonPropertyName("protocol_version")]
+    public string ProtocolVersion { get; init; } = RinClient.ProtocolVersion;
+}
+
+public sealed record DeleteSessionRequest(
+    [property: JsonPropertyName("session_id")] string SessionId,
+    [property: JsonPropertyName("request_id")] string RequestId,
+    [property: JsonPropertyName("expected_binding")] RinBinding ExpectedBinding,
+    [property: JsonPropertyName("expected_revision")] long ExpectedRevision,
+    [property: JsonPropertyName("expected_head_hash")] string ExpectedHeadHash,
+    [property: JsonPropertyName("archive_receipt_id")] string ArchiveReceiptId,
+    [property: JsonPropertyName("confirmation")] string Confirmation)
+{
+    [JsonPropertyName("protocol_version")]
+    public string ProtocolVersion { get; init; } = RinClient.ProtocolVersion;
+}
+
+public sealed record SessionStorageBytes(
+    [property: JsonPropertyName("event_log")] long EventLog,
+    [property: JsonPropertyName("snapshots")] long Snapshots,
+    [property: JsonPropertyName("checkpoints")] long Checkpoints,
+    [property: JsonPropertyName("indexes")] long Indexes,
+    [property: JsonPropertyName("other")] long Other,
+    [property: JsonPropertyName("total")] long Total);
+
+public sealed record SessionStats(
+    [property: JsonPropertyName("session_id")] string SessionId,
+    [property: JsonPropertyName("lifecycle")] string Lifecycle,
+    [property: JsonPropertyName("revision")] long Revision,
+    [property: JsonPropertyName("head_hash")] string HeadHash,
+    [property: JsonPropertyName("event_count")] long EventCount,
+    [property: JsonPropertyName("bytes")] SessionStorageBytes Bytes,
+    [property: JsonPropertyName("soft_limit_bytes")] long SoftLimitBytes,
+    [property: JsonPropertyName("hard_limit_bytes")] long HardLimitBytes,
+    [property: JsonPropertyName("soft_limit_exceeded")] bool SoftLimitExceeded,
+    [property: JsonPropertyName("hard_limit_exceeded")] bool HardLimitExceeded);
+
+public sealed record ArchiveSessionResult(
+    [property: JsonPropertyName("session_id")] string SessionId,
+    [property: JsonPropertyName("receipt_id")] string ReceiptId,
+    [property: JsonPropertyName("revision")] long Revision,
+    [property: JsonPropertyName("head_hash")] string HeadHash,
+    [property: JsonPropertyName("archived_at")] string ArchivedAt,
+    [property: JsonPropertyName("duplicate")] bool Duplicate);
+
+public sealed record DeleteSessionResult(
+    [property: JsonPropertyName("session_id")] string SessionId,
+    [property: JsonPropertyName("receipt_id")] string ReceiptId,
+    [property: JsonPropertyName("deleted_at")] string DeletedAt,
+    [property: JsonPropertyName("duplicate")] bool Duplicate);
+
 public sealed record MutationResult(
     [property: JsonPropertyName("session_id")] string SessionId,
     [property: JsonPropertyName("revision")] long Revision,

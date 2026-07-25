@@ -41,6 +41,11 @@ be evaluated through the Changelog and migration guides.
 - Event logs use `retain_forever`; the file store keeps the two newest valid
   checkpoints and two newest valid Snapshot files per Session. Backups and
   deletion policies must treat every retained artifact as sensitive.
+- Session deletion requires prior Archive plus trusted Binding, exact head,
+  Archive receipt, and full Session-ID confirmation. It retains a minimal
+  player-content-free tombstone for idempotent retry and permanent ID
+  retirement; external exports, game saves, backups, and provider copies are
+  outside Rin's deletion boundary.
 - API keys, sidecar tokens, and provider configuration are not protocol state
   and are never persisted.
 - Provider URLs reject userinfo, query strings, fragments, and automatic HTTP

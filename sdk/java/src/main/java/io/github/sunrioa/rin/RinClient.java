@@ -132,6 +132,18 @@ public final class RinClient {
         return post("/v1/session/get", payload, 200);
     }
 
+    public CompletableFuture<Map<String, Object>> sessionStats(Map<String, ?> payload) {
+        return post("/v1/session/stats", payload, 200);
+    }
+
+    public CompletableFuture<Map<String, Object>> archiveSession(Map<String, ?> payload) {
+        return post("/v1/session/archive", payload, 200);
+    }
+
+    public CompletableFuture<Map<String, Object>> deleteSession(Map<String, ?> payload) {
+        return post("/v1/session/delete", payload, 200);
+    }
+
     public CompletableFuture<Map<String, Object>> snapshot(Map<String, ?> payload) {
         return post("/v1/session/snapshot", payload, 200);
     }

@@ -126,6 +126,9 @@ additional persistence allowlist.
 | `POST` | `/v1/world/arbitrate` | Deterministically arbitrate conflicting parallel proposals |
 | `POST` | `/v1/scheduler/due` | Query actors due to think at the current tick |
 | `POST` | `/v1/session/get` | Read session state |
+| `POST` | `/v1/session/stats` | Read lifecycle and managed storage use |
+| `POST` | `/v1/session/archive` | Freeze read-only with Binding/head preconditions |
+| `POST` | `/v1/session/delete` | Delete an archived Session and retain a minimal tombstone |
 | `POST` | `/v1/session/snapshot` | Create and atomically save a snapshot |
 | `POST` | `/v1/session/restore` | Validate and restore a snapshot |
 | `POST` | `/v1/session/timeline` | Read the redacted event timeline |

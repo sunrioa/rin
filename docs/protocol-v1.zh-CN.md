@@ -677,6 +677,16 @@ Snapshot 文件和正文必须按事件日志同等敏感级别保护。完整 c
 一旦超过 16 MiB，就不能 inline 返回或 Restore。Session Transfer 会保留完整
 Event Log 和重建出的 Identifier History；Identifier History 绝不会被静默截断。
 
+## Session 生命周期
+
+`POST /v1/session/stats` 返回有界生命周期与 Store 管理的字节统计。
+`POST /v1/session/archive` 要求可信 Binding 及精确 Revision/Head 前置条件，并把
+Session 变为只读；读取与 Session Transfer Export 仍可用。
+`POST /v1/session/delete` 要求 Archive Receipt、相同前置条件与精确 Session-ID
+Confirmation；它会删除内容，并以最小 Tombstone 永久退役该 ID。三个 Route 都使用
+普通 Bearer 鉴权边界。完整前置条件、持久性、重试、备份和隐私语义见
+[Session 生命周期与数据治理](session-lifecycle.zh-CN.md)。
+
 ## 常见错误
 
 | HTTP | 错误码 | 含义 |
@@ -692,6 +702,8 @@ Event Log 和重建出的 Identifier History；Identifier History 绝不会被�
 | `409` | `request_id_conflict` | Request ID ambiguous，或已绑定其他类型/payload |
 | `409` | `event_exists` | Event ID 已在该 Session lineage 中保留 |
 | `409` | `binding_mismatch` | 可信 `expected_binding`、导入 Snapshot 或 existing Session 的 Binding 不一致 |
+| `409` | `session_archived` / `session_retired` | Session 只读，或其 ID 已永久退役 |
+| `409` | `archive_precondition_failed` / `delete_precondition_failed` | 生命周期 Binding、Head、Receipt 或 Confirmation 不匹配 |
 | `409` | `identifier_history_conflict` | Restore 的两份 History 含不兼容 verified identity |
 | `409` / `500` | `mutation_outcome_unknown` | 非 Proposal mutation 可能已持久化；保留它，并在任何其他 mutation 前只重试完全相同的请求 |
 | `409` | `state_changed` / `proposal_stale` | Proposal 生成或应用前仲裁的基础状态已改变 |

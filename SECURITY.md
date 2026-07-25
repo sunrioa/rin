@@ -32,6 +32,10 @@ Rin `0.6.0` 是 Preview、pre-1.0 软件。Preview 状态不会放宽本文的 F
 - 事件日志采用 `retain_forever`；File Store 默认保留每个 Session 最近 2 个
   有效 checkpoint 与最近 2 个有效 Snapshot 文件。备份与删除策略必须把所有
   保留 artifact 都视为敏感数据。
+- Session 删除必须先 Archive，并携带可信 Binding、精确 Head、Archive Receipt
+  与完整 Session-ID Confirmation。删除会保留不含玩家内容的最小 Tombstone，
+  以支持幂等重试并永久阻止 ID 复用；外部 Export、游戏存档、备份和供应商副本
+  不在 Rin 删除范围内。
 - API Key、Sidecar Token 和供应商配置不属于协议状态，不会持久化。
 - 供应商 URL 禁止 userinfo、query、fragment 和自动 HTTP 重定向；远程模型默认强制 HTTPS。
 - 官方游戏适配器同样禁止重定向；明文 Sidecar HTTP 只允许显式 loopback，远程 HTTPS 必须配置 Token。

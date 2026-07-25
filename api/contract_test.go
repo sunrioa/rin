@@ -32,8 +32,8 @@ func TestContractMetadataAndRoutesMatchGeneratedRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtimeRoutes := httpapi.ContractRoutes()
-	if len(openAPIRoutes) != 22 || len(runtimeRoutes) != len(openAPIRoutes) {
-		t.Fatalf("route count: OpenAPI=%d runtime=%d, want 22", len(openAPIRoutes), len(runtimeRoutes))
+	if len(openAPIRoutes) != 25 || len(runtimeRoutes) != len(openAPIRoutes) {
+		t.Fatalf("route count: OpenAPI=%d runtime=%d, want 25", len(openAPIRoutes), len(runtimeRoutes))
 	}
 	runtimeByKey := make(map[string]httpapi.ContractRoute, len(runtimeRoutes))
 	for _, route := range runtimeRoutes {
@@ -96,7 +96,8 @@ func TestOpenAPIReferencesInputsAndResponseEvolutionRules(t *testing.T) {
 		"ActionSpecInput", "CreateSessionRequest", "ObserveRequest", "ProposeRequest",
 		"GoalUpdateInput", "CommitRequest", "CommitItemInput", "BatchCommitRequest",
 		"ActorActivityUpdateInput", "SetActorActivityRequest", "ArbitrateRequest",
-		"SessionRequest", "RestoreRequest", "TimelineRequest", "ReplayRequest",
+		"SessionRequest", "ArchiveSessionRequest", "DeleteSessionRequest",
+		"RestoreRequest", "TimelineRequest", "ReplayRequest",
 		"DueAgentsRequest", "GenerationMessageInput", "GenerationRequest",
 	}
 	for _, name := range closedInputs {

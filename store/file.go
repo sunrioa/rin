@@ -117,7 +117,17 @@ func openFileWithPreflight(
 			return nil, errors.New("sessions path is not a directory")
 		}
 	}
+	tombstones := filepath.Join(absolute, "tombstones")
+	if err := os.Mkdir(tombstones, 0o700); err != nil &&
+		!errors.Is(err, os.ErrExist) {
+		_ = store.Close()
+		return nil, fmt.Errorf("create tombstones directory: %w", err)
+	}
 	if err := store.cleanupTemporaryFiles(); err != nil {
+		_ = store.Close()
+		return nil, err
+	}
+	if err := store.finishPendingDeletions(); err != nil {
 		_ = store.Close()
 		return nil, err
 	}
@@ -128,6 +138,10 @@ func openFileWithPreflight(
 	if err := store.syncDir(sessions); err != nil {
 		_ = store.Close()
 		return nil, fmt.Errorf("sync sessions directory: %w", err)
+	}
+	if err := store.syncDir(tombstones); err != nil {
+		_ = store.Close()
+		return nil, fmt.Errorf("sync tombstones directory: %w", err)
 	}
 	return store, nil
 }
@@ -188,6 +202,11 @@ func (s *File) Create(sessionID string, event protocol.EventRecord) error {
 		return err
 	}
 	defer done()
+	if _, err := os.Stat(s.tombstonePath(sessionID)); err == nil {
+		return rinruntime.ErrRetired
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	if err := s.rejectDurabilityUncertainty(sessionID); err != nil {
 		return err
 	}
@@ -277,6 +296,11 @@ func (s *File) Append(sessionID string, event protocol.EventRecord) error {
 	}
 	defer done()
 	if err := s.ensureSessionDurability(sessionID, directory); err != nil {
+		return err
+	}
+	if _, err := os.Stat(filepath.Join(directory, "archive.json")); err == nil {
+		return rinruntime.ErrConflict
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	if uncertain, exists := s.uncertainAppend(sessionID); exists {

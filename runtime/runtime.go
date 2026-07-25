@@ -15,6 +15,7 @@ var (
 	ErrNotDue       = errors.New("agent is not due")
 	ErrNoSafeAction = errors.New("no safe action")
 	ErrCorruptLog   = errors.New("corrupt event log")
+	ErrRetired      = errors.New("retired session")
 )
 
 const (
@@ -61,6 +62,54 @@ type Store interface {
 	Load(sessionID string) ([]protocol.EventRecord, error)
 	ListSessions() ([]string, error)
 	SaveSnapshot(sessionID string, snapshot protocol.Snapshot) error
+}
+
+type SessionLifecycle struct {
+	Archived           bool        `json:"archived"`
+	ArchiveRequestID   string      `json:"archive_request_id"`
+	ArchiveRequestHash string      `json:"archive_request_hash"`
+	ArchiveReceiptID   string      `json:"archive_receipt_id"`
+	ArchivedAt         string      `json:"archived_at"`
+	Anchor             EventAnchor `json:"anchor"`
+}
+
+type StoreSessionStats struct {
+	EventCount      uint64
+	EventLogBytes   uint64
+	SnapshotBytes   uint64
+	CheckpointBytes uint64
+	IndexBytes      uint64
+	OtherBytes      uint64
+}
+
+type ArchiveRecord struct {
+	SessionID   string      `json:"session_id"`
+	RequestID   string      `json:"request_id"`
+	RequestHash string      `json:"request_hash"`
+	ReceiptID   string      `json:"receipt_id"`
+	ArchivedAt  string      `json:"archived_at"`
+	Anchor      EventAnchor `json:"anchor"`
+}
+
+type DeleteRecord struct {
+	FormatVersion    string      `json:"format_version"`
+	SessionID        string      `json:"session_id"`
+	RequestID        string      `json:"request_id"`
+	RequestHash      string      `json:"request_hash"`
+	ReceiptID        string      `json:"receipt_id"`
+	DeletedAt        string      `json:"deleted_at"`
+	Anchor           EventAnchor `json:"anchor"`
+	BindingHash      string      `json:"binding_hash"`
+	ArchiveReceiptID string      `json:"archive_receipt_id"`
+}
+
+// LifecycleStore is an optional capability. Implementations must serialize
+// these methods with Create/Append/artifact operations for the same Session.
+type LifecycleStore interface {
+	Lifecycle(sessionID string) (SessionLifecycle, error)
+	Stats(sessionID string) (StoreSessionStats, error)
+	Archive(record ArchiveRecord) (ArchiveRecord, bool, error)
+	Delete(record DeleteRecord) (DeleteRecord, bool, error)
 }
 
 // EventAnchor identifies an immutable point in one Session event chain.

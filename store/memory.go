@@ -16,6 +16,8 @@ type Memory struct {
 	events      map[string][]protocol.EventRecord
 	snapshots   map[string][]protocol.Snapshot
 	checkpoints map[string][]rinruntime.Checkpoint
+	archives    map[string]rinruntime.ArchiveRecord
+	tombstones  map[string]rinruntime.DeleteRecord
 }
 
 func NewMemory() *Memory {
@@ -23,12 +25,17 @@ func NewMemory() *Memory {
 		events:      make(map[string][]protocol.EventRecord),
 		snapshots:   make(map[string][]protocol.Snapshot),
 		checkpoints: make(map[string][]rinruntime.Checkpoint),
+		archives:    make(map[string]rinruntime.ArchiveRecord),
+		tombstones:  make(map[string]rinruntime.DeleteRecord),
 	}
 }
 
 func (s *Memory) Create(sessionID string, event protocol.EventRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, retired := s.tombstones[sessionID]; retired {
+		return rinruntime.ErrRetired
+	}
 	if events, exists := s.events[sessionID]; exists {
 		if len(events) == 1 && rinruntime.EventRecordsExactlyEqual(events[0], event) {
 			return rinruntime.VerifyEventRecord(0, "", event)
@@ -45,6 +52,9 @@ func (s *Memory) Create(sessionID string, event protocol.EventRecord) error {
 func (s *Memory) Append(sessionID string, event protocol.EventRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, archived := s.archives[sessionID]; archived {
+		return rinruntime.ErrConflict
+	}
 	events, exists := s.events[sessionID]
 	if !exists {
 		return rinruntime.ErrNotFound

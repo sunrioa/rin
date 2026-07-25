@@ -125,6 +125,15 @@ class RinClient:
     def state(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return self._post("/v1/session/get", payload)
 
+    def session_stats(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return self._post("/v1/session/stats", payload)
+
+    def archive_session(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return self._post("/v1/session/archive", payload)
+
+    def delete_session(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return self._post("/v1/session/delete", payload)
+
     def snapshot(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return self._post("/v1/session/snapshot", payload)
 

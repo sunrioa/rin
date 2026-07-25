@@ -155,6 +155,33 @@ func (s *Server) getSession(response http.ResponseWriter, request *http.Request)
 	s.respond(response, request, result, err)
 }
 
+func (s *Server) sessionStats(response http.ResponseWriter, request *http.Request) {
+	var input protocol.SessionRequest
+	if !s.decode(response, request, &input) {
+		return
+	}
+	result, err := s.engine.SessionStats(input)
+	s.respond(response, request, result, err)
+}
+
+func (s *Server) archiveSession(response http.ResponseWriter, request *http.Request) {
+	var input protocol.ArchiveSessionRequest
+	if !s.decode(response, request, &input) {
+		return
+	}
+	result, err := s.engine.ArchiveSession(input)
+	s.respond(response, request, result, err)
+}
+
+func (s *Server) deleteSession(response http.ResponseWriter, request *http.Request) {
+	var input protocol.DeleteSessionRequest
+	if !s.decode(response, request, &input) {
+		return
+	}
+	result, err := s.engine.DeleteSession(input)
+	s.respond(response, request, result, err)
+}
+
 func (s *Server) snapshot(response http.ResponseWriter, request *http.Request) {
 	var input protocol.SessionRequest
 	if !s.decode(response, request, &input) {

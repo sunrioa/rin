@@ -57,6 +57,11 @@ func (s *File) BeginTransfer(
 	if err := s.rejectDurabilityUncertainty(manifest.SessionID); err != nil {
 		return nil, err
 	}
+	if _, err := os.Stat(s.tombstonePath(manifest.SessionID)); err == nil {
+		return nil, rinruntime.ErrRetired
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
 	if _, err := os.Stat(target); err == nil {
 		return nil, rinruntime.ErrConflict
 	} else if !errors.Is(err, os.ErrNotExist) {

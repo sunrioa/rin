@@ -333,6 +333,9 @@ export class RinClient {
   setActorActivity(payload) { return this.post("/v1/session/activity", payload); }
   arbitrate(payload) { return this.post("/v1/world/arbitrate", payload); }
   state(payload) { return this.post("/v1/session/get", payload); }
+  sessionStats(payload) { return this.post("/v1/session/stats", payload); }
+  archiveSession(payload) { return this.post("/v1/session/archive", payload); }
+  deleteSession(payload) { return this.post("/v1/session/delete", payload); }
   snapshot(payload) { return this.post("/v1/session/snapshot", payload); }
   restore(payload) { return this.post("/v1/session/restore", payload); }
   async exportSession(payload, sink) {

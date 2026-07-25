@@ -205,7 +205,8 @@ func (s *File) cleanupTemporaryFiles() error {
 	for _, entry := range entries {
 		if entry.IsDir() &&
 			(strings.HasPrefix(entry.Name(), ".session-") ||
-				strings.HasPrefix(entry.Name(), ".transfer-")) &&
+				strings.HasPrefix(entry.Name(), ".transfer-") ||
+				strings.HasPrefix(entry.Name(), ".deleting-")) &&
 			strings.HasSuffix(entry.Name(), ".tmp") {
 			if err := os.RemoveAll(filepath.Join(sessions, entry.Name())); err != nil {
 				return fmt.Errorf("remove abandoned session temporary directory: %w", err)

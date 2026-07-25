@@ -20,6 +20,8 @@ type managedSession struct {
 	identifiers        protocol.IdentifierHistory
 	uncertainMutations map[string]uncertainMutationAppend
 	lineageEpoch       uint64
+	archived           bool
+	archive            ArchiveRecord
 
 	checkpointMu      sync.Mutex
 	checkpointRunning bool
@@ -1319,6 +1321,13 @@ func (e *Engine) resolveMutationRetry(
 	if used {
 		return identity, true, true, nil
 	}
+	if session.archived {
+		return protocol.RequestIdentity{}, false, false, NewError(
+			"session_archived",
+			"session is archived and read-only",
+			ErrConflict,
+		)
+	}
 	if uncertain, found := session.uncertainMutations[requestID]; found {
 		if uncertain.event.Type != kind || uncertain.requestHash != requestHash {
 			return protocol.RequestIdentity{}, false, false, requestConflict(requestID)
@@ -1519,6 +1528,13 @@ func (e *Engine) createAndConfirm(
 	createErr := e.store.Create(sessionID, event)
 	if createErr == nil {
 		return candidate, identifiers, nil
+	}
+	if errors.Is(createErr, ErrRetired) {
+		return protocol.SessionState{}, protocol.IdentifierHistory{}, NewError(
+			"session_retired",
+			"session id was permanently retired",
+			ErrConflict,
+		)
 	}
 	events, loadErr := e.store.Load(sessionID)
 	if loadErr == nil && len(events) == 1 {

@@ -803,6 +803,18 @@ compact Snapshot exceeds 16 MiB it cannot be returned or restored inline.
 Session Transfer preserves the complete Event Log and reconstructed Identifier
 History without truncation; Identifier History is never silently truncated.
 
+## Session lifecycle
+
+`POST /v1/session/stats` reports bounded lifecycle and Store-managed byte
+counts. `POST /v1/session/archive` requires trusted Binding and exact
+revision/head preconditions and makes the Session read-only. Reads and Session
+Transfer export remain available. `POST /v1/session/delete` requires the
+archive receipt, the same preconditions, and an exact Session-ID confirmation;
+it removes content and permanently retires the ID with a minimal tombstone.
+All three routes use the normal Bearer authentication boundary. Full
+preconditions, durability, retry, backup, and privacy semantics are defined in
+[Session lifecycle and data governance](session-lifecycle.md).
+
 ## Common errors
 
 | HTTP | Code | Meaning |
@@ -818,6 +830,8 @@ History without truncation; Identifier History is never silently truncated.
 | `409` | `request_id_conflict` | Request ID is ambiguous or was already bound to another kind or payload |
 | `409` | `event_exists` | Event ID is already reserved in this Session lineage |
 | `409` | `binding_mismatch` | Trusted `expected_binding`, imported Snapshot, or existing Session binding differs |
+| `409` | `session_archived` / `session_retired` | Session is read-only or its ID was permanently retired |
+| `409` | `archive_precondition_failed` / `delete_precondition_failed` | Lifecycle Binding, head, receipt, or confirmation does not match |
 | `409` | `identifier_history_conflict` | Restore histories contain incompatible verified identities |
 | `409` / `500` | `mutation_outcome_unknown` | A non-Proposal mutation may be durable; retain it and retry only the exact request before any other mutation |
 | `409` | `state_changed` / `proposal_stale` | Base state changed during Proposal generation or pre-application Arbitration |

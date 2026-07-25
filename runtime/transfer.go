@@ -255,6 +255,13 @@ func (e *Engine) BeginTransferImport(
 	}
 	staged, err := transferStore.BeginTransfer(manifest)
 	if err != nil {
+		if errors.Is(err, ErrRetired) {
+			return nil, NewError(
+				"session_retired",
+				"session id was permanently retired",
+				ErrConflict,
+			)
+		}
 		if errors.Is(err, ErrConflict) {
 			return nil, NewError(
 				"session_exists",

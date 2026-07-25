@@ -489,6 +489,105 @@
         }
       }
     },
+    "/v1/session/stats": {
+      "post": {
+        "operationId": "session_stats",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/Session"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SessionStats"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/session/archive": {
+      "post": {
+        "operationId": "archive_session",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/ArchiveSession"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ArchiveSession"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v1/session/delete": {
+      "post": {
+        "operationId": "delete_session",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/DeleteSession"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/DeleteSession"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
     "/v1/session/snapshot": {
       "post": {
         "operationId": "snapshot",
@@ -871,6 +970,26 @@
           }
         }
       },
+      "ArchiveSession": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ArchiveSessionRequest"
+            }
+          }
+        }
+      },
+      "DeleteSession": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/DeleteSessionRequest"
+            }
+          }
+        }
+      },
       "Restore": {
         "required": true,
         "content": {
@@ -1001,6 +1120,36 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/SessionStateResponse"
+            }
+          }
+        }
+      },
+      "SessionStats": {
+        "description": "Bounded Session lifecycle and managed storage statistics.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SessionStatsResponse"
+            }
+          }
+        }
+      },
+      "ArchiveSession": {
+        "description": "Durable read-only Session archive receipt.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ArchiveSessionResponse"
+            }
+          }
+        }
+      },
+      "DeleteSession": {
+        "description": "Durable Session deletion tombstone receipt.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/DeleteSessionResponse"
             }
           }
         }
@@ -2089,6 +2238,230 @@
           },
           "session_id": {
             "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      },
+      "ArchiveSessionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "protocol_version",
+          "session_id",
+          "request_id",
+          "expected_binding",
+          "expected_revision",
+          "expected_head_hash"
+        ],
+        "properties": {
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "expected_binding": {
+            "$ref": "#/components/schemas/Binding"
+          },
+          "expected_revision": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          },
+          "expected_head_hash": {
+            "$ref": "#/components/schemas/SHA256"
+          }
+        }
+      },
+      "DeleteSessionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "protocol_version",
+          "session_id",
+          "request_id",
+          "expected_binding",
+          "expected_revision",
+          "expected_head_hash",
+          "archive_receipt_id",
+          "confirmation"
+        ],
+        "properties": {
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "expected_binding": {
+            "$ref": "#/components/schemas/Binding"
+          },
+          "expected_revision": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          },
+          "expected_head_hash": {
+            "$ref": "#/components/schemas/SHA256"
+          },
+          "archive_receipt_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "confirmation": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      },
+      "SessionStorageBytes": {
+        "type": "object",
+        "required": [
+          "event_log",
+          "snapshots",
+          "checkpoints",
+          "indexes",
+          "other",
+          "total"
+        ],
+        "properties": {
+          "event_log": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "snapshots": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "checkpoints": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "indexes": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "other": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "total": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          }
+        }
+      },
+      "SessionStats": {
+        "type": "object",
+        "required": [
+          "session_id",
+          "lifecycle",
+          "revision",
+          "head_hash",
+          "event_count",
+          "bytes",
+          "soft_limit_bytes",
+          "hard_limit_bytes",
+          "soft_limit_exceeded",
+          "hard_limit_exceeded"
+        ],
+        "properties": {
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "lifecycle": {
+            "type": "string",
+            "enum": [
+              "active",
+              "archived"
+            ]
+          },
+          "revision": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "head_hash": {
+            "$ref": "#/components/schemas/SHA256"
+          },
+          "event_count": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "bytes": {
+            "$ref": "#/components/schemas/SessionStorageBytes"
+          },
+          "soft_limit_bytes": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "hard_limit_bytes": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "soft_limit_exceeded": {
+            "type": "boolean"
+          },
+          "hard_limit_exceeded": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ArchiveSessionResult": {
+        "type": "object",
+        "required": [
+          "session_id",
+          "receipt_id",
+          "revision",
+          "head_hash",
+          "archived_at",
+          "duplicate"
+        ],
+        "properties": {
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "receipt_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "revision": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "head_hash": {
+            "$ref": "#/components/schemas/SHA256"
+          },
+          "archived_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "duplicate": {
+            "type": "boolean"
+          }
+        }
+      },
+      "DeleteSessionResult": {
+        "type": "object",
+        "required": [
+          "session_id",
+          "receipt_id",
+          "deleted_at",
+          "duplicate"
+        ],
+        "properties": {
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "receipt_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "deleted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "duplicate": {
+            "type": "boolean"
           }
         }
       },
@@ -3595,6 +3968,48 @@
             "properties": {
               "data": {
                 "$ref": "#/components/schemas/MutationResult"
+              }
+            }
+          }
+        ]
+      },
+      "SessionStatsResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessEnvelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/SessionStats"
+              }
+            }
+          }
+        ]
+      },
+      "ArchiveSessionResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessEnvelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/ArchiveSessionResult"
+              }
+            }
+          }
+        ]
+      },
+      "DeleteSessionResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessEnvelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/DeleteSessionResult"
               }
             }
           }

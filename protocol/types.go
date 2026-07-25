@@ -250,6 +250,64 @@ type SessionRequest struct {
 	SessionID       string `json:"session_id"`
 }
 
+type ArchiveSessionRequest struct {
+	ProtocolVersion  string  `json:"protocol_version"`
+	SessionID        string  `json:"session_id"`
+	RequestID        string  `json:"request_id"`
+	ExpectedBinding  Binding `json:"expected_binding"`
+	ExpectedRevision uint64  `json:"expected_revision"`
+	ExpectedHeadHash string  `json:"expected_head_hash"`
+}
+
+type DeleteSessionRequest struct {
+	ProtocolVersion  string  `json:"protocol_version"`
+	SessionID        string  `json:"session_id"`
+	RequestID        string  `json:"request_id"`
+	ExpectedBinding  Binding `json:"expected_binding"`
+	ExpectedRevision uint64  `json:"expected_revision"`
+	ExpectedHeadHash string  `json:"expected_head_hash"`
+	ArchiveReceiptID string  `json:"archive_receipt_id"`
+	Confirmation     string  `json:"confirmation"`
+}
+
+type SessionStorageBytes struct {
+	EventLog    uint64 `json:"event_log"`
+	Snapshots   uint64 `json:"snapshots"`
+	Checkpoints uint64 `json:"checkpoints"`
+	Indexes     uint64 `json:"indexes"`
+	Other       uint64 `json:"other"`
+	Total       uint64 `json:"total"`
+}
+
+type SessionStats struct {
+	SessionID         string              `json:"session_id"`
+	Lifecycle         string              `json:"lifecycle"`
+	Revision          uint64              `json:"revision"`
+	HeadHash          string              `json:"head_hash"`
+	EventCount        uint64              `json:"event_count"`
+	Bytes             SessionStorageBytes `json:"bytes"`
+	SoftLimitBytes    uint64              `json:"soft_limit_bytes"`
+	HardLimitBytes    uint64              `json:"hard_limit_bytes"`
+	SoftLimitExceeded bool                `json:"soft_limit_exceeded"`
+	HardLimitExceeded bool                `json:"hard_limit_exceeded"`
+}
+
+type ArchiveSessionResult struct {
+	SessionID  string `json:"session_id"`
+	ReceiptID  string `json:"receipt_id"`
+	Revision   uint64 `json:"revision"`
+	HeadHash   string `json:"head_hash"`
+	ArchivedAt string `json:"archived_at"`
+	Duplicate  bool   `json:"duplicate"`
+}
+
+type DeleteSessionResult struct {
+	SessionID string `json:"session_id"`
+	ReceiptID string `json:"receipt_id"`
+	DeletedAt string `json:"deleted_at"`
+	Duplicate bool   `json:"duplicate"`
+}
+
 type RestoreRequest struct {
 	ProtocolVersion string   `json:"protocol_version"`
 	SessionID       string   `json:"session_id"`

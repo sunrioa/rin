@@ -32,6 +32,28 @@ func (e *Engine) ensureLoaded(session *managedSession) error {
 	session.state = state
 	session.identifiers = identifiers
 	session.lineageEpoch = lineageEpoch
+	if lifecycle, ok := e.store.(LifecycleStore); ok {
+		status, lifecycleErr := lifecycle.Lifecycle(session.id)
+		if lifecycleErr != nil {
+			session.mu.Unlock()
+			return NewError(
+				"store_load_failed",
+				"could not load session lifecycle",
+				lifecycleErr,
+			)
+		}
+		session.archived = status.Archived
+		if status.Archived {
+			session.archive = ArchiveRecord{
+				SessionID:   session.id,
+				RequestID:   status.ArchiveRequestID,
+				RequestHash: status.ArchiveRequestHash,
+				ReceiptID:   status.ArchiveReceiptID,
+				ArchivedAt:  status.ArchivedAt,
+				Anchor:      status.Anchor,
+			}
+		}
+	}
 	session.loaded = true
 	if shouldRepairHeadCheckpoint(state.Revision, checkpointRevision) {
 		// Successful recovery is the migration path for pre-checkpoint data and

@@ -475,6 +475,58 @@ func ValidateSessionRequest(request SessionRequest) error {
 	return validateID("session_id", request.SessionID)
 }
 
+func ValidateArchiveSession(request ArchiveSessionRequest) error {
+	if err := validateVersion(request.ProtocolVersion); err != nil {
+		return err
+	}
+	if err := validateID("session_id", request.SessionID); err != nil {
+		return err
+	}
+	if err := validateID("request_id", request.RequestID); err != nil {
+		return err
+	}
+	if err := validateBinding("expected_binding", request.ExpectedBinding); err != nil {
+		return err
+	}
+	if request.ExpectedRevision == 0 ||
+		request.ExpectedRevision > uint64(MaxJSONSafeInteger) {
+		return &ValidationError{Field: "expected_revision", Message: "must be a positive JSON-safe integer"}
+	}
+	if !hashPattern.MatchString(request.ExpectedHeadHash) {
+		return &ValidationError{Field: "expected_head_hash", Message: "must be a lowercase SHA-256 hash"}
+	}
+	return nil
+}
+
+func ValidateDeleteSession(request DeleteSessionRequest) error {
+	if err := validateVersion(request.ProtocolVersion); err != nil {
+		return err
+	}
+	if err := validateID("session_id", request.SessionID); err != nil {
+		return err
+	}
+	if err := validateID("request_id", request.RequestID); err != nil {
+		return err
+	}
+	if err := validateBinding("expected_binding", request.ExpectedBinding); err != nil {
+		return err
+	}
+	if request.ExpectedRevision == 0 ||
+		request.ExpectedRevision > uint64(MaxJSONSafeInteger) {
+		return &ValidationError{Field: "expected_revision", Message: "must be a positive JSON-safe integer"}
+	}
+	if !hashPattern.MatchString(request.ExpectedHeadHash) {
+		return &ValidationError{Field: "expected_head_hash", Message: "must be a lowercase SHA-256 hash"}
+	}
+	if err := validateID("archive_receipt_id", request.ArchiveReceiptID); err != nil {
+		return err
+	}
+	if request.Confirmation != request.SessionID {
+		return &ValidationError{Field: "confirmation", Message: "must exactly equal session_id"}
+	}
+	return nil
+}
+
 func ValidateDueAgents(request DueAgentsRequest) error {
 	if err := validateVersion(request.ProtocolVersion); err != nil {
 		return err

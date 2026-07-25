@@ -148,6 +148,30 @@ public sealed class RinClient : IDisposable
     public Task<JsonElement> StateAsync(object payload, CancellationToken cancellationToken = default) =>
         PostAsync("/v1/session/get", payload, 200, cancellationToken);
 
+    public Task<JsonElement> SessionStatsAsync(object payload, CancellationToken cancellationToken = default) =>
+        PostAsync("/v1/session/stats", payload, 200, cancellationToken);
+
+    public Task<SessionStats> SessionStatsAsync(
+        SessionRequest payload,
+        CancellationToken cancellationToken = default) =>
+        PostTypedAsync<SessionStats>("/v1/session/stats", payload, 200, cancellationToken);
+
+    public Task<JsonElement> ArchiveSessionAsync(object payload, CancellationToken cancellationToken = default) =>
+        PostAsync("/v1/session/archive", payload, 200, cancellationToken);
+
+    public Task<ArchiveSessionResult> ArchiveSessionAsync(
+        ArchiveSessionRequest payload,
+        CancellationToken cancellationToken = default) =>
+        PostTypedAsync<ArchiveSessionResult>("/v1/session/archive", payload, 200, cancellationToken);
+
+    public Task<JsonElement> DeleteSessionAsync(object payload, CancellationToken cancellationToken = default) =>
+        PostAsync("/v1/session/delete", payload, 200, cancellationToken);
+
+    public Task<DeleteSessionResult> DeleteSessionAsync(
+        DeleteSessionRequest payload,
+        CancellationToken cancellationToken = default) =>
+        PostTypedAsync<DeleteSessionResult>("/v1/session/delete", payload, 200, cancellationToken);
+
     public Task<JsonElement> SnapshotAsync(object payload, CancellationToken cancellationToken = default) =>
         PostAsync("/v1/session/snapshot", payload, 200, cancellationToken);
 

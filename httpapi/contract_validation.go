@@ -40,6 +40,10 @@ func validateContractShape(
 		schemaName = "ArbitrateRequest"
 	case *protocol.SessionRequest:
 		schemaName = "SessionRequest"
+	case *protocol.ArchiveSessionRequest:
+		schemaName = "ArchiveSessionRequest"
+	case *protocol.DeleteSessionRequest:
+		schemaName = "DeleteSessionRequest"
 	case *protocol.RestoreRequest:
 		schemaName = "RestoreRequest"
 	case *protocol.TimelineRequest:
