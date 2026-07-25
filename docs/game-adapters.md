@@ -115,9 +115,26 @@ Native Ren'Py tests are offline unless `RIN_LIVE_TEST_ENABLED=1`, even if a deve
 
 ## Godot 4
 
-Add [the client](../examples/godot/rin_client.gd) as a node or autoload. `propose_with_fallback` awaits `HTTPRequest` signals and timer ticks, so it does not block rendering. The [NPC example](../examples/godot/example_npc.gd) shows the propose, game-application, and outcome-report sequence. Its storage methods are deliberate integration hooks, not an in-memory persistence implementation: replace `_load_authoritative_state`, initialization, Attempt, transaction, conversion, and acknowledgement hooks with the game's save system. Until the load hook reports either one valid state or a positively confirmed `not_found`, the example disables turns and performs no Rin request.
+The [reference directory](../examples/godot/README.md) is a runnable Godot
+4.7.1 project. Add `rin_client.gd` as a child Node and create one
+`RinWorkflow` from `rin_workflow.gd` per save slot. `RinClient` awaits
+`HTTPRequest` signals and timer ticks without blocking rendering.
+`RinWorkflow` stores bounded JSON under `user://rin/<slot>.json`, restores a
+stable run/Session/Create identity, sequence, protocol-tick high-water mark,
+complete Pending Turn/Observe, Job ID, and Outcome Outbox before network work.
+It persists terminal Commit-to-Observe conversion and ACK-before-eviction.
 
-Restore the run ID, stable Create request, operation sequence, protocol-tick high-water mark, complete Proposal Attempt, applied markers, and report Outbox as one authoritative game state before enabling play. The high-water mark prevents a reset engine frame counter from producing `tick_regressed` after restart. An I/O, parse, or schema error is not `not_found`; fail closed rather than minting a new identity. On a real `not_found`, persist the complete initialized state before publishing its new run ID.
+The built-in file Store is `advisory`: it flushes a temporary file and uses a
+same-directory target/backup rename protocol that is recoverable across the
+Windows replacement semantics too, but the two renames are not one atomic
+operation and cannot atomically include an arbitrary game-world effect.
+Replace the Store boundary with a game transaction or make the operation ID
+genuinely idempotent before declaring a stronger capability. I/O, parse,
+schema, backup, and replacement failures fail closed rather than minting a new
+identity. `shutdown()` propagates cancellation to an in-flight Proposal Job
+while leaving retained state recoverable.
+Only a positively confirmed `not_found` file state may initialize a new
+identity; malformed or unreadable existing state is never treated as absence.
 
 Every Restore must send `expected_binding` from the running game's trusted
 content manifest, not from the save. It must equal the saved Snapshot binding
@@ -130,7 +147,14 @@ at 16 MiB; the server request and bundled-client response defaults are 32 MiB.
 remain inline. Use Session Transfer through the
 JavaScript/C# priority SDKs for complete large-lineage migration.
 
-Godot owns navigation, animation, combat, inventory, and dialogue rendering. Helpers for activity, due actors, arbitration, batch commit, timeline, and replay are coroutines; call activity on simulation/region changes, not every frame. The adapter caps response bytes, disables redirects, and accepts plaintext HTTP only for an exact loopback host and valid port.
+Godot owns navigation, animation, combat, inventory, and dialogue rendering.
+The thin [NPC example](../examples/godot/example_npc.gd) only constructs
+game-owned requests, validates an allowlist, applies a display effect, and
+delegates workflow recovery. Helpers for activity, due actors, arbitration,
+batch commit, timeline, and replay are coroutines; call activity on simulation
+or region changes, not every frame. The adapter caps response bytes, disables
+redirects, and accepts plaintext HTTP only for an exact loopback host and valid
+port. Pinned headless parsing and restart tests run on Linux and Windows.
 
 ## Unity
 

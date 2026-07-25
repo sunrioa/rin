@@ -1,0 +1,10 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource path="res://example_npc.gd" type="Script" id="1"]
+[ext_resource path="res://rin_client.gd" type="Script" id="2"]
+
+[node name="RinNpcExample" type="Node"]
+script = ExtResource("1")
+
+[node name="RinClient" type="Node" parent="."]
+script = ExtResource("2")

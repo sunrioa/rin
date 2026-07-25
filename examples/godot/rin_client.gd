@@ -16,31 +16,29 @@ const AMBIGUOUS_PROPOSAL_ERRORS := [
 const MAX_SAFE_JSON_INTEGER := 9007199254740991
 
 @export var base_url := "http://127.0.0.1:7374"
-@export var token := ""
+@export var token_environment := "RIN_TOKEN"
 @export_range(1.0, 120.0, 0.5) var request_timeout_seconds := 5.0
 @export_range(1.0, 300.0, 0.5) var job_deadline_seconds := 25.0
 @export_range(0.05, 5.0, 0.05) var poll_interval_seconds := 0.1
 @export_range(1024, 33554432, 1024) var max_response_bytes := 33554432
-
+var token := ""
 
 func _ready() -> void:
 	base_url = base_url.strip_edges().trim_suffix("/")
+	if token.is_empty() and OS.has_environment(token_environment):
+		token = OS.get_environment(token_environment)
 	var error := _validate_endpoint()
 	if not error.is_empty():
 		push_error("Rin adapter disabled: " + error)
 
-
 func health() -> Dictionary:
 	return await _json_request(HTTPClient.METHOD_GET, "/health", {}, [200])
-
 
 func create_session(request: Dictionary) -> Dictionary:
 	return await _json_request(HTTPClient.METHOD_POST, "/v1/session/create", request, [200])
 
-
 func state(request: Dictionary) -> Dictionary:
 	return await _json_request(HTTPClient.METHOD_POST, "/v1/session/get", request, [200])
-
 
 func observe(request: Dictionary) -> Dictionary:
 	return await _json_request(HTTPClient.METHOD_POST, "/v1/session/observe", request, [200])
@@ -616,6 +614,8 @@ func _offline_result(
 
 
 func _validate_endpoint() -> String:
+	if token.length() > 4096 or token.contains("\r") or token.contains("\n"):
+		return "token is too large or contains a header delimiter"
 	if base_url.contains("@") or base_url.contains("?") or base_url.contains("#"):
 		return "base URL must not contain credentials, query, or fragment"
 	if base_url.begins_with("https://"):

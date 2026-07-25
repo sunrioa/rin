@@ -248,3 +248,40 @@ jobs:
         run: |
           luac5.1 -p examples/mods/luanti-rin-npc/init.lua examples/mods/luanti-rin-npc/state.lua
           luac5.4 -p examples/mods/luanti-rin-npc/init.lua examples/mods/luanti-rin-npc/state.lua
+
+  godot-reference:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            archive: Godot_v4.7.1-stable_linux.x86_64.zip
+            sha512: 4ccdab7a48eeccbe8819a2fc1f6262f8d72065d98601bcb3743fcbd7ebd39f373758a788ee3293a05ec5b2c48538266c437404312e372225cd2df273945a2de9
+          - os: windows-latest
+            archive: Godot_v4.7.1-stable_win64.exe.zip
+            sha512: a6b02c527c18ba9936e63562032701432b2dc57d98d6483ceaccb00fe14af16af5773ae8a55e7b4d614edf121c4d9e420d870f804edb1dac16362298a01ce6c4
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Download and verify Godot on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          curl -fL "https://github.com/godotengine/godot-builds/releases/download/4.7.1-stable/${{ matrix.archive }}" -o godot.zip
+          echo "${{ matrix.sha512 }}  godot.zip" | sha512sum -c -
+          unzip -q godot.zip -d godot
+          chmod +x godot/Godot_v4.7.1-stable_linux.x86_64
+          python tools/verify_godot.py --godot godot/Godot_v4.7.1-stable_linux.x86_64
+      - name: Download and verify Godot on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $url = "https://github.com/godotengine/godot-builds/releases/download/4.7.1-stable/${{ matrix.archive }}"
+          Invoke-WebRequest -Uri $url -OutFile godot.zip
+          $actual = (Get-FileHash godot.zip -Algorithm SHA512).Hash.ToLowerInvariant()
+          if ($actual -ne "${{ matrix.sha512 }}") { throw "Godot SHA-512 mismatch" }
+          Expand-Archive godot.zip -DestinationPath godot
+          python tools/verify_godot.py --godot godot/Godot_v4.7.1-stable_win64.exe

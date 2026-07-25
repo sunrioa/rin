@@ -149,6 +149,12 @@ Luanti 示例是完整服务器 Mod。它只在模块作用域调用
 检查、Freshness、终态降级转换及 ACK 后 Evict。由于 ModStorage 保存时机与
 任意游戏效果不能组成同步事务，其 Profile 仍为 `advisory`。
 
+Godot 4.7.1 参考是可直接运行的项目。可复用 Workflow 在 `user://` 保存稳定
+Save Slot Identity、完整 Pending Turn、Job ID、Tick High-water 与有界
+Outcome Outbox；221 行 NPC 宿主只保留游戏拥有的 Policy 与效果。CI 对官方
+Godot Binary 固定 SHA-512，并在 Linux 与 Windows 执行 Headless 解析和重启
+测试。
+
 ## 验证
 
 ```bash

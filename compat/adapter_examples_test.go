@@ -33,8 +33,13 @@ func TestEngineExamplesPreserveAsyncAuthorityBoundary(t *testing.T) {
 				"_same_protocol_id",
 				"_is_valid_action_spec",
 				"left_number >= 0.0",
+				`OS.get_environment(token_environment)`,
+				`token.contains("\r")`,
 			},
-			forbidden: []string{"OS.execute", "FileAccess.open", "Thread.wait_to_finish"},
+			forbidden: []string{
+				"OS.execute", "FileAccess.open", "Thread.wait_to_finish",
+				"@export var token :=",
+			},
 		},
 		{
 			name: "unity",
@@ -186,20 +191,6 @@ func TestEngineNpcExamplesPersistAuthoritativeReportsAtomically(t *testing.T) {
 		forbidden []string
 	}{
 		{
-			path: "../examples/godot/example_npc.gd",
-			required: []string{
-				"_applied_operations", "_report_outbox",
-				`"features": ["outcome-reporting-v1"]`,
-				"_flush_report_outbox", "_persist_authoritative_transaction",
-				"_persist_report_acknowledgement",
-				`"request_id": "commit." + operation_id`,
-				`"kind": "observe"`,
-				`"request_id": "reconcile." + operation_id`,
-				`"event_id": "fallback." + operation_id`,
-			},
-			forbidden: []string{"_outcome_outbox", "_flush_outcome_outbox", "_persist_operation_state"},
-		},
-		{
 			path: "../examples/unity/RinNpcExample.cs",
 			required: []string{
 				"appliedOperations", "reportOutbox",
@@ -243,37 +234,6 @@ func TestEngineNpcExamplesResumeDurableProposalAttempts(t *testing.T) {
 		persistMarker  string
 		submitMarker   string
 	}{
-		{
-			name:       "godot",
-			clientPath: "../examples/godot/rin_client.gd",
-			gamePath:   "../examples/godot/example_npc.gd",
-			clientRequired: []string{
-				"known_job_id: String",
-				"persist_job_id.call(job_id)",
-				`== "job_not_found"`,
-				`reason == "proposal_outcome_unknown" and not recovery_post_used`,
-				"recovery_post_used = true",
-			},
-			gameRequired: []string{
-				"_proposal_attempts",
-				`"request": stable_request.duplicate(true)`,
-				`"sequence": next_sequence`,
-				`"job_id": ""`,
-				"if resuming_attempt:",
-				"_operation_sequence = maxi(",
-				"_persist_proposal_job_id",
-				"not resuming_attempt",
-				"_proposal_attempts.erase(session_id)",
-				"_proposal_attempts[session_id] = proposal_attempt",
-				"Engine.get_physics_frames()",
-			},
-			gameForbidden: []string{
-				"_operation_sequence += 1",
-				"var _authoritative_tick :=",
-			},
-			persistMarker: "_persist_new_proposal_attempt(",
-			submitMarker:  "await rin.propose_with_fallback(",
-		},
 		{
 			name:       "unity",
 			clientPath: "../examples/unity/RinClient.cs",
@@ -358,48 +318,6 @@ func TestEngineNpcExamplesGateStartupOnAuthoritativeStateRecovery(t *testing.T) 
 		publishInitialization string
 	}{
 		{
-			name: "godot",
-			path: "../examples/godot/example_npc.gd",
-			required: []string{
-				"_authoritative_state_ready = _restore_authoritative_state()",
-				"if not _authoritative_state_ready:",
-				`if status == "loaded":`,
-				`if status != "not_found":`,
-				`return {"status": "error", "error": "restore hook not configured"}`,
-				`"schema_version": 2`,
-				`"run_id": new_run_id`,
-				`"operation_sequence": 0`,
-				`"create_request": _build_create_request(new_run_id)`,
-				`"proposal_attempts": {}`,
-				`"applied_operations": {}`,
-				`"report_outbox": {}`,
-				"_persist_authoritative_state_initialization(initialized_state)",
-				"_proposal_attempts = restored_attempts.duplicate(true)",
-				"_applied_operations = restored_applied.duplicate(true)",
-				"_report_outbox = restored_outbox.duplicate(true)",
-				"or restored_applied.has(attempt_operation_id)",
-				"or restored_outbox.has(attempt_operation_id)",
-				"or not restored_applied.has(operation_key)",
-				`!= "propose." + attempt_operation_id`,
-				`!= "commit." + operation_key`,
-				`!= "outcome." + operation_key`,
-				`not _is_valid_protocol_id(proposal_id)`,
-				`!= "reconcile." + operation_key`,
-				`!= str(request.get("event_id", ""))`,
-				`!= request_tick`,
-				`"fallback." + operation_key`,
-				"var request_tick := _read_nonnegative_protocol_tick(",
-				"var proposal_tick := _read_nonnegative_protocol_tick(",
-				"maxi(request_tick, proposal_tick)",
-				"number > 9007199254740991.0",
-			},
-			restoreCall:           "_restore_authoritative_state()",
-			firstOnlineOperation:  "await rin.create_session(",
-			initializeStart:       "var new_run_id :=",
-			persistInitialization: "_persist_authoritative_state_initialization(initialized_state)",
-			publishInitialization: "return _hydrate_authoritative_state(initialized_state)",
-		},
-		{
 			name: "unity",
 			path: "../examples/unity/RinNpcExample.cs",
 			required: []string{
@@ -483,69 +401,6 @@ func TestEngineNpcExamplesRestoreClockIdentityAndFreshnessInvariants(t *testing.
 		tickPublish     string
 		submitCall      string
 	}{
-		{
-			name: "godot",
-			path: "../examples/godot/example_npc.gd",
-			required: []string{
-				"const MAX_PROTOCOL_INTEGER := 9223372036854775807",
-				`"last_authoritative_tick": 0`,
-				"state.get(\"last_authoritative_tick\")",
-				"attempt_tick > restored_last_tick",
-				"request_tick > restored_last_tick",
-				"_last_authoritative_tick = restored_last_tick",
-				"var expected_create := _build_create_request(restored_run_id)",
-				"_semantic_values_equal(restored_create, expected_create)",
-				"func _build_propose_request(",
-				"_semantic_values_equal(request, expected_request)",
-				`str(attempt.get("fallback_action_id", "")) != "wait"`,
-				"func _semantic_values_equal(",
-				"left.size() != right.size()",
-				"_allocate_fresh_proposal_tick()",
-				"_last_authoritative_tick >= MAX_PROTOCOL_INTEGER",
-				"_last_authoritative_tick + 1",
-				"authoritative_tick <= _last_authoritative_tick",
-				`_read_nonnegative_protocol_tick(request.get("tick")) != authoritative_tick`,
-				"_operation_sequence_from_id(",
-				"attempt_sequence != restored_sequence",
-				"canonical_sequence != attempt_sequence",
-				"applied_sequence > restored_sequence",
-				"operation_sequence > restored_sequence",
-				"request.get(\"accepted\") != applied.get(\"accepted\")",
-				"request.get(\"outcome\") != applied.get(\"outcome\")",
-				`str(fallback.get("source", "")) != "godot-example"`,
-				`!= "Authoritative outcome: " + str(applied.get("outcome"))`,
-				`!= "Local fallback %s: %s" % [`,
-				"var previous_last_tick := _last_authoritative_tick",
-				"_last_authoritative_tick = occurrence_tick",
-				"_last_authoritative_tick = previous_last_tick",
-				"_commit_authoritative_game_transaction(operation_id, occurrence_tick)",
-				`str(retained.get("session_id", "")) != str(proposal.get("session_id", ""))`,
-				`str(retained.get("id", "")) != proposal_id`,
-				`str(retained.get("request_id", "")) != str(proposal.get("request_id", ""))`,
-				`str(retained.get("actor_id", "")) != str(proposal.get("actor_id", ""))`,
-				"response_tick != retained_tick",
-				`str(retained_action.get("id", "")) != str(response_action.get("id", ""))`,
-				`str(retained_action.get("kind", "")) != str(response_action.get("kind", ""))`,
-				"response_revision_base != retained_revision_base",
-				"retained_head_hash != response_head_hash",
-				"response_created != retained_created",
-				"response_world_base != retained_world_base",
-				"_semantic_values_equal(retained_action, response_action)",
-				"_semantic_values_equal(stable_action, response_action)",
-				"== retained_world_base",
-				"== retained_created",
-				"func _apply_planned_game_effect(",
-				"if not _authoritative_state_ready:",
-			},
-			forbidden: []string{
-				"func apply_planned_game_effect(",
-				"== int(proposal.get(\"created_revision\"",
-			},
-			persistCall:     "if not _persist_new_proposal_attempt(",
-			sequencePublish: "_operation_sequence = next_sequence",
-			tickPublish:     "_last_authoritative_tick = new_game_tick",
-			submitCall:      "await rin.propose_with_fallback(",
-		},
 		{
 			name: "unity",
 			path: "../examples/unity/RinNpcExample.cs",
@@ -686,33 +541,6 @@ func TestEngineExamplesValidateCanonicalRecoveryJobsAndSchedulerHeadroom(t *test
 		ordered   []string
 	}{
 		{
-			name: "godot-game",
-			path: "../examples/godot/example_npc.gd",
-			required: []string{
-				"const NPC_THINK_EVERY_TICKS := 5",
-				"_build_commit_report_entry(",
-				"_build_outcome_observe_request(",
-				"_build_fallback_observe_request(",
-				`"observer_ids": ["npc.mira"]`,
-				"not _semantic_values_equal(entry, expected_entry)",
-				"not _semantic_values_equal(applied, {",
-				"not _semantic_values_equal(attempt, expected_attempt)",
-				"and not _is_valid_protocol_id(attempt_job_id)",
-				"occurrence_tick > MAX_PROTOCOL_INTEGER - NPC_THINK_EVERY_TICKS",
-				`effective_planned["accepted"] = false`,
-				"_apply_planned_game_effect(effective_planned)",
-			},
-			forbidden: []string{
-				`str(attempt.get("job_id", ""))`,
-				`"observer_ids": [proposal["actor_id"]]`,
-			},
-			ordered: []string{
-				"var occurrence_tick := maxi(",
-				"occurrence_tick > MAX_PROTOCOL_INTEGER - NPC_THINK_EVERY_TICKS",
-				"_apply_planned_game_effect(effective_planned)",
-			},
-		},
-		{
 			name: "godot-client",
 			path: "../examples/godot/rin_client.gd",
 			required: []string{
@@ -806,6 +634,103 @@ func TestEngineExamplesValidateCanonicalRecoveryJobsAndSchedulerHeadroom(t *test
 				previous = index
 			}
 		})
+	}
+}
+
+func TestGodotReferenceDelegatesToPersistentWorkflow(t *testing.T) {
+	files := map[string][]string{
+		"../examples/godot/project.godot": {
+			`config/features=PackedStringArray("4.7")`,
+			`run/main_scene="res://main.tscn"`,
+		},
+		"../examples/godot/rin_workflow.gd": {
+			"const MAX_BYTES := 1024 * 1024",
+			"const MAX_OUTCOMES := 64",
+			`_path = "user://rin/%s.json" % slot`,
+			"Crypto.new().generate_random_bytes(16)",
+			`"attempt": null`,
+			`"outcomes": []`,
+			"func begin(",
+			"func resume()",
+			"func complete(",
+			"func drain_outbox()",
+			"func shutdown()",
+			"func _save_job(",
+			"TERMINAL_COMMIT_ERRORS",
+			`converted["kind"] = "observe"`,
+			"static func proposal_freshness(",
+			"static func _semantic_equal(",
+			"file.flush()",
+			"DirAccess.rename_absolute(temporary, _path)",
+			"_state = candidate",
+		},
+		"../examples/godot/tests/test_workflow.gd": {
+			"Session identity changed after restart",
+			"restart resubmitted instead of using Job",
+			"terminal fallback did not drain",
+			"failed file write published Pending Turn",
+			"malformed state was accepted",
+		},
+	}
+	for path, required := range files {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(payload)
+		for _, fragment := range required {
+			if !strings.Contains(text, fragment) {
+				t.Errorf("%s is missing Godot workflow contract %q", path, fragment)
+			}
+		}
+	}
+
+	workflowPayload, err := os.ReadFile("../examples/godot/rin_workflow.gd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := string(workflowPayload)
+	beginAt := strings.Index(workflow, "func begin(")
+	persistAt := strings.Index(workflow, "if not _persist(candidate):")
+	submitAt := strings.Index(workflow, "var result: Dictionary = await _client.propose_with_fallback(")
+	if beginAt < 0 || persistAt < 0 || submitAt < 0 ||
+		persistAt <= beginAt || persistAt >= submitAt {
+		t.Error("Godot Workflow must persist the complete Pending Turn before submission")
+	}
+	flushAt := strings.Index(workflow, "file.flush()")
+	backupAt := strings.LastIndex(workflow, "DirAccess.rename_absolute(_path, backup)")
+	replaceAt := strings.LastIndex(workflow, "if DirAccess.rename_absolute(temporary, _path) != OK:")
+	publishAt := strings.LastIndex(workflow, "_state = candidate")
+	if flushAt < 0 || backupAt <= flushAt || replaceAt <= backupAt || publishAt <= replaceAt {
+		t.Error("Godot Workflow must flush, back up, replace, then publish candidate state")
+	}
+
+	hostPayload, err := os.ReadFile("../examples/godot/example_npc.gd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := string(hostPayload)
+	for _, fragment := range []string{
+		"workflow.open(", "workflow.begin(", "workflow.resume()",
+		"workflow.complete(", "workflow.drain_outbox()",
+		`"features": ["outcome-reporting-v1"]`,
+		`"request_id": "commit." + operation_id`,
+		`"kind": "observe"`,
+	} {
+		if !strings.Contains(host, fragment) {
+			t.Errorf("Godot host is missing delegated integration %q", fragment)
+		}
+	}
+	for _, fragment := range []string{
+		"FileAccess.", "propose_with_fallback", "_proposal_attempts",
+		"_report_outbox", "PRODUCTION PERSISTENCE HOOK",
+	} {
+		if strings.Contains(host, fragment) {
+			t.Errorf("Godot host reimplements SDK/storage responsibility %q", fragment)
+		}
+	}
+	if lines := strings.Count(host, "\n") + 1; lines > 250 {
+		t.Errorf("Godot host grew to %d lines; want at most 250", lines)
 	}
 }
 

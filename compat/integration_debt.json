@@ -59,7 +59,12 @@
     },
     {
       "path": "examples/godot/example_npc.gd",
-      "max_lines": 1092,
+      "max_lines": 250,
+      "profile": "advisory"
+    },
+    {
+      "path": "examples/godot/rin_workflow.gd",
+      "max_lines": 500,
       "profile": "advisory"
     },
     {

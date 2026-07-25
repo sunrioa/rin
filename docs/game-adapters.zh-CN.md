@@ -121,20 +121,22 @@ Snapshot、普通结果字典，以及上文所述的普通稳定 Proposal Attem
 
 ## Godot 4
 
-将[客户端](../examples/godot/rin_client.gd)添加为节点或 autoload。
-`propose_with_fallback` 等待 `HTTPRequest` signal 和 timer tick，不会阻塞
-渲染。[NPC 示例](../examples/godot/example_npc.gd)展示提案、游戏应用和
-结果回报顺序。示例中的存储方法是有意保留的集成 Hook，并不是内存持久化
-实现；请用游戏存档系统替换 `_load_authoritative_state`、初始化、Attempt、
-事务、转换和确认 Hook。在加载 Hook 返回一个有效状态，或明确确认
-`not_found` 之前，示例会禁用 Turn，且不会向 Rin 发请求。
+[参考目录](../examples/godot/README.zh-CN.md)是可直接运行的 Godot 4.7.1
+项目。把 `rin_client.gd` 添加为子 Node，并为每个 Save Slot 从
+`rin_workflow.gd` 创建一个 `RinWorkflow`。`RinClient` 等待
+`HTTPRequest` Signal 与 Timer Tick，不阻塞渲染。`RinWorkflow` 把有界 JSON
+保存到 `user://rin/<slot>.json`，并在网络工作前恢复稳定 Run/Session/Create
+Identity、Sequence、协议 Tick High-water、完整 Pending Turn/Observe、Job
+ID 与 Outcome Outbox。终态 Commit-to-Observe 转换和 ACK 后 Evict 都会落盘。
 
-启用玩法前，必须把 run ID、稳定 Create 请求、操作序号、协议 tick 高水位、
-完整 Proposal Attempt、applied marker 和 report Outbox 作为同一个游戏权威
-状态恢复。tick 高水位可防止引擎帧计数在重启归零后产生
-`tick_regressed`。I/O、解析或 schema 错误不等于 `not_found`，此时必须
-fail closed，不能生成新身份；只有确实 `not_found` 时，才可先持久化完整
-初始化状态，再发布新 run ID。
+内置 File Store 的 Profile 是 `advisory`：它先 Flush 临时文件，再执行同目录
+Target/Backup 双重 Rename，因此也能从 Windows 的替换语义中恢复；但两次
+Rename 并非一个原子操作，也不能原子包含任意游戏世界效果。只有把 Store 边界
+替换成游戏事务，或让 Operation ID 对游戏效果真正幂等后，才能声明更强能力。
+I/O、解析、Schema、备份与替换失败都会 Fail Closed，不会生成新身份。
+`shutdown()` 会把取消传播给执行中的 Proposal Job，同时保留可恢复状态。
+只有存储确实 `not_found` 时才能初始化新身份；畸形或无法读取的既有状态绝不
+当作不存在。
 
 每次 Restore 都必须发送来自运行中游戏可信内容 manifest 的
 `expected_binding`，不得从存档读取。它必须等于存档 Snapshot 的 Binding；
@@ -146,10 +148,13 @@ inline Snapshot compact JSON 上限为 16 MiB；服务端请求和随附客户�
 Snapshot JSON 传输；完整大 lineage 迁移应使用 JavaScript/C# priority SDK 的
 Session Transfer。
 
-Godot 负责导航、动画、战斗、背包和对白渲染。Activity、到期角色、仲裁、
-批量提交、时间线和回放 helper 都是 coroutine；只在模拟或区域变化时更新
-Activity，不要每帧调用。适配器限制响应字节、禁用重定向，并只对精确的
-loopback 主机和合法端口接受明文 HTTP。
+Godot 负责导航、动画、战斗、背包和对白渲染。精简的
+[NPC 示例](../examples/godot/example_npc.gd)只构造游戏拥有的 Request、验证
+Allowlist、应用显示效果，并把恢复流程委托给 Workflow。Activity、到期角色、
+仲裁、批量提交、时间线和回放 Helper 都是 Coroutine；只在模拟或区域变化时
+更新 Activity，不要每帧调用。Adapter 限制响应字节、禁用重定向，并只对精确
+Loopback Host 与合法端口接受明文 HTTP。CI 在 Linux 和 Windows 运行固定版本
+的 Headless 解析与重启测试。
 
 ## Unity
 
