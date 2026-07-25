@@ -133,7 +133,7 @@ Generation 只保证传输、大小和顶层 JSON Object 合法。各游戏仍�
 
 Ren'Py、Godot 和 Unity 适配器只转换 JSON/HTTP 与各自的异步机制，不复制 Runtime 状态机。在线结果带 `committable=true`，表示游戏处理后可向 Sidecar 回报该 Proposal ID，而不是 Rin 授权执行。只有确定在线提交从未创建 Proposal（例如 Sidecar 已禁用或初始连接被拒绝）时，适配器才能从游戏本次候选列表选择 authored fallback，并标记 `committable=false`；提交、轮询、超时或取消结果尚未确认时必须 fail closed。游戏不得把本地 `offline.*` ID 发给 `/commit`。
 
-JavaScript、C#、Java、Lua 与 Godot 的 `WorkflowCoordinator` 负责这套通用 Pending Turn
+JavaScript、C#、Java、Lua、Godot 与 Unity 的 `WorkflowCoordinator` 负责这套通用 Pending Turn
 状态机，但不能凭空创造存储保证。应用前，它会强制检查接入声明的
 [宿主能力 Profile](host-capability-profiles.zh-CN.md)。稳定身份、持久化、
 动作校验、引擎线程调度与世界修改仍由宿主负责。

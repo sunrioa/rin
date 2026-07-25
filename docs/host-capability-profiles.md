@@ -90,10 +90,9 @@ validation.
 ## Current reference status
 
 The checked-in Fabric, BepInEx, Luanti, Godot, and Unity examples declare
-`advisory`. Fabric, BepInEx, Luanti, and Godot now have stable identity and
-restartable bounded workflow state; Unity still completes its dedicated
-persistence work in a later phase. Restart recovery alone does not establish a
-durable-before-network or atomic apply boundary.
+`advisory`. They now have stable identity and restartable bounded workflow
+state. Restart recovery alone does not establish a durable-before-network or
+atomic apply boundary.
 
 Fabric Saved Data is designed for cross-session persistence, but marking it
 dirty schedules later saving; that alone is not a durable-before-network

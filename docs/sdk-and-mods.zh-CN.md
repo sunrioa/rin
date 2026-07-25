@@ -151,9 +151,15 @@ Luanti 示例是完整服务器 Mod。它只在模块作用域调用
 
 Godot 4.7.1 参考是可直接运行的项目。可复用 Workflow 在 `user://` 保存稳定
 Save Slot Identity、完整 Pending Turn、Job ID、Tick High-water 与有界
-Outcome Outbox；221 行 NPC 宿主只保留游戏拥有的 Policy 与效果。CI 对官方
+Outcome Outbox；225 行 NPC 宿主只保留游戏拥有的 Policy 与效果。CI 对官方
 Godot Binary 固定 SHA-512，并在 Linux 与 Windows 执行 Headless 解析和重启
 测试。
+
+Unity 2021.3+ 参考是可导入的 UPM 包。Coroutine Workflow 在
+`Application.persistentDataPath` 维护可重启的 Pending Turn、Job、Freshness、
+Settlement 与 Outbox 状态；游戏侧示例只有 18 行。.NET Harness 会在 Linux
+与 Windows 使用 Unity API Stub 编译包并测试文件恢复，但不宣称执行了需要
+许可证的 Editor。
 
 ## 验证
 

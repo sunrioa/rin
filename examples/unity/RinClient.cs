@@ -21,19 +21,19 @@ public sealed class RinClient : MonoBehaviour
         "job_timeout",
         "job_id_persistence_failed",
     };
-
     [SerializeField] private string baseUrl = "http://127.0.0.1:7374";
-    [SerializeField] private string token = "";
+    [SerializeField] private string tokenEnvironment = "RIN_TOKEN";
     [SerializeField, Range(1, 120)] private int requestTimeoutSeconds = 5;
     [SerializeField, Range(1, 300)] private int jobDeadlineSeconds = 25;
     [SerializeField, Range(0.05f, 5f)] private float pollIntervalSeconds = 0.1f;
     [SerializeField] private int maxResponseBytes = 32 * 1024 * 1024;
-
+    private string token = "";
     public bool IsConfigured { get; private set; }
 
     private void Awake()
     {
         baseUrl = (baseUrl ?? "").Trim().TrimEnd('/');
+        token = Environment.GetEnvironmentVariable(tokenEnvironment) ?? "";
         IsConfigured = ValidateEndpoint(baseUrl, token);
         if (!IsConfigured)
         {

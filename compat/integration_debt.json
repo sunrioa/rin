@@ -79,7 +79,12 @@
     },
     {
       "path": "examples/unity/RinNpcExample.cs",
-      "max_lines": 1307,
+      "max_lines": 100,
+      "profile": "advisory"
+    },
+    {
+      "path": "examples/unity/RinUnityWorkflow.cs",
+      "max_lines": 1510,
       "profile": "advisory"
     }
   ]

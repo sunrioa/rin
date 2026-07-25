@@ -12,6 +12,8 @@ sdk/csharp/**/obj/
 examples/mods/bepinex-rin-npc/**/bin/
 examples/mods/bepinex-rin-npc/**/obj/
 examples/mods/bepinex-rin-npc/dist/
+tools/unity-harness/bin/
+tools/unity-harness/obj/
 sdk/python/**/*.egg-info/
 
 # Local-only maintainer documentation

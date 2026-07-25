@@ -158,14 +158,19 @@ Loopback Host 与合法端口接受明文 HTTP。CI 在 Linux 和 Windows 运行
 
 ## Unity
 
-将 [RinClient.cs](../examples/unity/RinClient.cs) 挂载到 GameObject。它使用
-`UnityWebRequest` coroutine 和有上限的流式下载处理器，不需要额外 JSON
-或网络包。[RinNpcExample.cs](../examples/unity/RinNpcExample.cs)展示同样的
-先应用、后回报流程及同样的启动恢复门禁。请把
-`LoadAuthoritativeState` 和各持久化方法接入游戏存档；未配置时示例会有意
-保持禁用，而不会把存储失败当作新周目。恢复的 Unity 状态必须包含上述同一
-run ID、稳定 Create 请求、序号、tick 高水位、Proposal Attempt、applied
-marker 和 Outcome Outbox。
+安装 [UPM 包](../examples/unity/README.zh-CN.md)，再把 `RinClient` 与
+`RinUnityWorkflow` 挂到一个跨场景保留的 GameObject。Client 使用
+`UnityWebRequest` Coroutine 和有上限的流式下载处理器；Workflow 提供启动
+恢复门禁，并在 `Application.persistentDataPath` 保存有界状态。18 行的
+[RinNpcExample.cs](../examples/unity/RinNpcExample.cs)只保留游戏事件委托。
+恢复状态包含上述同一 Run ID、稳定 Create 请求、序号、Tick 高水位、
+Proposal Attempt、Applied Marker 与 Outcome Outbox。
+
+File Store 会 Flush 临时文件，并在 Linux 与 Windows 使用可恢复的
+Target/Backup 双重 Rename。它仍是 `advisory`：这些操作无法原子包含任意
+Unity 世界效果。只有换成游戏存档事务，或让 Operation ID 对效果真正幂等后，
+才能声明更强 Profile。CI 会在 Linux 与 Windows 编译可导入包并执行重启/故障
+测试，但不会冒充需要许可证的 Unity Editor 运行。
 
 Unity 的 `JsonUtility` 适配器为 Activity、调度、仲裁、批量提交和时间线
 提供可序列化 DTO。由于 `JsonUtility` 无法表示以 Actor ID 为键的 map，

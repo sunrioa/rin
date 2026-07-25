@@ -285,3 +285,20 @@ jobs:
           if ($actual -ne "${{ matrix.sha512 }}") { throw "Godot SHA-512 mismatch" }
           Expand-Archive godot.zip -DestinationPath godot
           python tools/verify_godot.py --godot godot/Godot_v4.7.1-stable_win64.exe
+
+  unity-package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "6.0.x"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Compile Unity package and test restart recovery
+        run: python tools/verify_unity.py

@@ -158,7 +158,23 @@ port. Pinned headless parsing and restart tests run on Linux and Windows.
 
 ## Unity
 
-Attach [RinClient.cs](../examples/unity/RinClient.cs) to a GameObject. It uses `UnityWebRequest` coroutines and a capped streaming download handler; no JSON or networking package is required. [RinNpcExample.cs](../examples/unity/RinNpcExample.cs) shows the same apply-before-report flow and the same startup recovery gate. Wire its `LoadAuthoritativeState` and persistence methods to the game's save provider; the unconfigured example intentionally remains disabled instead of treating a storage failure as a new playthrough. A restored Unity state must carry the same run ID, stable Create request, sequence, tick high-water, Proposal Attempt, applied markers, and Outcome Outbox described above.
+Install the [UPM package](../examples/unity/README.md), then attach `RinClient`
+and `RinUnityWorkflow` to one persistent GameObject. The client uses
+`UnityWebRequest` coroutines and a capped streaming download handler; the
+Workflow supplies the startup recovery gate and bounded state under
+`Application.persistentDataPath`. The 18-line
+[RinNpcExample.cs](../examples/unity/RinNpcExample.cs) contains only game-owned
+event delegation. A restored state carries the same run ID, stable Create
+request, sequence, tick high-water, Proposal Attempt, applied markers, and
+Outcome Outbox described above.
+
+The file Store flushes a temporary file and uses a recoverable target/backup
+rename sequence on Linux and Windows. It remains `advisory`: those operations
+cannot atomically include an arbitrary Unity world effect. Replace this
+boundary with the game's transaction or make operation IDs idempotent before
+claiming a stronger profile. CI compiles the importable package and runs
+restart/fault tests on Linux and Windows; it does not claim a licensed Unity
+Editor run.
 
 Unity's `JsonUtility` adapter exposes serializable DTOs for activity, scheduling, arbitration, batch commit, and timeline. Since `JsonUtility` cannot represent actor-ID keyed maps, its Replay helper returns the verified Snapshot header; projects that need the complete replayed state should parse the same endpoint with their existing dictionary-capable JSON package. Games that use action parameter maps can likewise extend the serializable request classes without changing the wire protocol.
 

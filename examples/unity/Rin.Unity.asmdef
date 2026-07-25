@@ -1,0 +1,8 @@
+{
+  "name": "Rin.Unity",
+  "rootNamespace": "Rin.Unity",
+  "autoReferenced": true,
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "noEngineReferences": false
+}

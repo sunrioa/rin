@@ -206,7 +206,7 @@ initial connection was refused), and marks it `committable=false`. A submit,
 poll, timeout, or cancellation with an unconfirmed outcome fails closed; the
 game must not send a local `offline.*` ID to `/commit`.
 
-JavaScript, C#, Java, Lua, and Godot `WorkflowCoordinator` implementations own this
+JavaScript, C#, Java, Lua, Godot, and Unity `WorkflowCoordinator` implementations own this
 protocol-generic Pending Turn state machine, but they cannot create a storage
 guarantee. Before apply, they enforce the integration's declared
 [host capability profile](host-capability-profiles.md). The host still owns

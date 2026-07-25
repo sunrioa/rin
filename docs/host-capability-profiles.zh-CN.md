@@ -77,9 +77,8 @@ Coordinator 负责通用协议状态机。宿主负责稳定存储、权威 Appl
 
 ## 当前参考状态
 
-仓库中的 Fabric、BepInEx、Luanti、Godot 与 Unity 示例都声明为 `advisory`。
-Fabric、BepInEx、Luanti 与 Godot 现在已有稳定身份和可重启的有界流程状态；
-Unity 会在后续阶段完成自己的持久化改造。仅能在重启后恢复，并不能证明
+仓库中的 Fabric、BepInEx、Luanti、Godot 与 Unity 示例都声明为 `advisory`，
+且现在都已有稳定身份和可重启的有界流程状态。仅能在重启后恢复，并不能证明
 网络前持久或原子 Apply 边界。
 
 Fabric Saved Data 用于跨 Session 保存，但 Mark Dirty 只会安排后续保存，不能

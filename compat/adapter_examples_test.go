@@ -191,7 +191,7 @@ func TestEngineNpcExamplesPersistAuthoritativeReportsAtomically(t *testing.T) {
 		forbidden []string
 	}{
 		{
-			path: "../examples/unity/RinNpcExample.cs",
+			path: "../examples/unity/RinUnityWorkflow.cs",
 			required: []string{
 				"appliedOperations", "reportOutbox",
 				`features = new[] { "outcome-reporting-v1" }`,
@@ -237,7 +237,7 @@ func TestEngineNpcExamplesResumeDurableProposalAttempts(t *testing.T) {
 		{
 			name:       "unity",
 			clientPath: "../examples/unity/RinClient.cs",
-			gamePath:   "../examples/unity/RinNpcExample.cs",
+			gamePath:   "../examples/unity/RinUnityWorkflow.cs",
 			clientRequired: []string{
 				"string knownJobId",
 				"persistJobId(jobId)",
@@ -319,13 +319,12 @@ func TestEngineNpcExamplesGateStartupOnAuthoritativeStateRecovery(t *testing.T) 
 	}{
 		{
 			name: "unity",
-			path: "../examples/unity/RinNpcExample.cs",
+			path: "../examples/unity/RinUnityWorkflow.cs",
 			required: []string{
 				"authoritativeStateReady = RestoreAuthoritativeState();",
 				"if (!authoritativeStateReady)",
 				"AuthoritativeStateLoadStatus.Loaded",
 				"AuthoritativeStateLoadStatus.NotFound",
-				`AuthoritativeStateLoadResult.Failed("restore hook not configured")`,
 				"schemaVersion = 2",
 				"runId = newRunId",
 				"operationSequence = 0",
@@ -403,7 +402,7 @@ func TestEngineNpcExamplesRestoreClockIdentityAndFreshnessInvariants(t *testing.
 	}{
 		{
 			name: "unity",
-			path: "../examples/unity/RinNpcExample.cs",
+			path: "../examples/unity/RinUnityWorkflow.cs",
 			required: []string{
 				"private long lastAuthoritativeTick;",
 				"lastAuthoritativeTick = 0",
@@ -563,7 +562,7 @@ func TestEngineExamplesValidateCanonicalRecoveryJobsAndSchedulerHeadroom(t *test
 		},
 		{
 			name: "unity-game",
-			path: "../examples/unity/RinNpcExample.cs",
+			path: "../examples/unity/RinUnityWorkflow.cs",
 			required: []string{
 				"private const long NpcThinkEveryTicks = 5;",
 				"BuildCommitRequest(",
@@ -731,6 +730,68 @@ func TestGodotReferenceDelegatesToPersistentWorkflow(t *testing.T) {
 	}
 	if lines := strings.Count(host, "\n") + 1; lines > 250 {
 		t.Errorf("Godot host grew to %d lines; want at most 250", lines)
+	}
+}
+
+func TestUnityReferenceIsInstallableRestartableAndThin(t *testing.T) {
+	files := map[string][]string{
+		"../examples/unity/package.json": {
+			`"name": "io.github.sunrioa.rin.unity"`,
+			`"unity": "2021.3"`,
+		},
+		"../examples/unity/RinUnityWorkflow.cs": {
+			"Application.persistentDataPath",
+			"private const int MaxStateBytes = 1024 * 1024;",
+			"private const int MaxOutcomes = 64;",
+			"RecoverInterruptedReplacement()",
+			"stream.Flush(true)",
+			"File.Move(statePath, backup)",
+			"File.Move(temporary, statePath)",
+			"PersistCurrentState()",
+			"BuildTurnObserveRequest(",
+			"yield return rin.Observe(attempt.observe",
+			"isCanceled: () => shutdownRequested",
+		},
+		"../tools/unity-harness/Program.cs": {
+			"restart minted a new identity",
+			"backup recovery changed identity",
+			"write failure published a new identity",
+			"malformed state was accepted",
+		},
+		"../examples/unity/RinClient.cs": {
+			`tokenEnvironment = "RIN_TOKEN"`,
+			"Environment.GetEnvironmentVariable(tokenEnvironment)",
+		},
+	}
+	for path, required := range files {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(payload)
+		for _, fragment := range required {
+			if !strings.Contains(text, fragment) {
+				t.Errorf("%s is missing Unity package contract %q", path, fragment)
+			}
+		}
+	}
+	clientPayload, err := os.ReadFile("../examples/unity/RinClient.cs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(clientPayload), "[SerializeField] private string token =") {
+		t.Error("Unity client serializes a credential into scenes or prefabs")
+	}
+	hostPayload, err := os.ReadFile("../examples/unity/RinNpcExample.cs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := string(hostPayload)
+	if !strings.Contains(host, "workflow.RequestTurn()") {
+		t.Error("Unity host does not delegate its turn to RinUnityWorkflow")
+	}
+	if lines := strings.Count(host, "\n") + 1; lines > 100 {
+		t.Errorf("Unity host grew to %d lines; want at most 100", lines)
 	}
 }
 

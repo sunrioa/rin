@@ -173,9 +173,15 @@ timing and an arbitrary game effect do not form one synchronous transaction.
 
 The Godot 4.7.1 reference is a runnable project. Its reusable Workflow stores a
 stable save-slot identity, complete Pending Turn, Job ID, tick high-water, and
-bounded Outcome Outbox under `user://`, while the 221-line NPC host retains
+bounded Outcome Outbox under `user://`, while the 225-line NPC host retains
 only game-owned policy and effects. Official Godot binaries are SHA-512 pinned
 for headless parsing and restart tests on Linux and Windows.
+
+The Unity 2021.3+ reference is an importable UPM package. Its coroutine
+Workflow owns restartable Pending Turn, Job, freshness, settlement, and Outbox
+state under `Application.persistentDataPath`; the game-facing example is 18
+lines. A .NET harness compiles the package against Unity API stubs and exercises
+file recovery on Linux and Windows. This does not claim a licensed Editor run.
 
 ## Verification
 

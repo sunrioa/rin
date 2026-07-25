@@ -142,7 +142,7 @@ func TestPublicDocsUseOutcomeReportingSemantics(t *testing.T) {
 			"`rin_proposal_attempt(request_id)`",
 			"`rin_resume_proposal`",
 			"positively confirmed `not_found`",
-			"unconfigured example intentionally remains disabled",
+			"CI compiles the importable package",
 			"tick high-water",
 		},
 		"../docs/game-adapters.zh-CN.md": {
@@ -150,8 +150,8 @@ func TestPublicDocsUseOutcomeReportingSemantics(t *testing.T) {
 			"`rin_proposal_attempt(request_id)`",
 			"`rin_resume_proposal`",
 			"确实 `not_found`",
-			"未配置时示例会有意",
-			"tick 高水位",
+			"CI 会在 Linux",
+			"Tick 高水位",
 		},
 	}
 	for path, fragments := range required {
