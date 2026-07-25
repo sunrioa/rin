@@ -25,8 +25,43 @@ FORBIDDEN_PREFIXES = ("BepInEx.", "UnityEngine", "Il2Cpp")
 ZIP_TIME = (1980, 1, 1, 0, 0, 0)
 
 
+def github_escape(value: str) -> str:
+    return (
+        value.replace("%", "%25")
+        .replace("\r", "%0D")
+        .replace("\n", "%0A")
+    )
+
+
 def run(command: list[str]) -> None:
-    subprocess.run(command, cwd=PROJECT, check=True)
+    completed = subprocess.run(
+        command,
+        cwd=PROJECT,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    print(completed.stdout, end="")
+    if completed.returncode == 0:
+        return
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        detail = (
+            f"command={' '.join(command)}\n"
+            f"exit_code={completed.returncode}\n"
+            f"{completed.stdout}"
+        )
+        print(
+            "::error title=BepInEx package command failed::"
+            + github_escape(detail)
+        )
+    raise subprocess.CalledProcessError(completed.returncode, command)
+
+
+def validate_restored_packages(project: str) -> None:
+    assets = PROJECT / Path(project).parent / "obj" / "project.assets.json"
+    if not assets.is_file():
+        raise RuntimeError(f"restore did not create {assets}")
 
 
 def archive(variant: str, published: Path, destination: Path) -> None:
@@ -103,6 +138,7 @@ def main() -> None:
                 "-m:1",
             ]
         )
+        validate_restored_packages(project)
 
     with tempfile.TemporaryDirectory(prefix="rin-bepinex-package-") as temporary:
         stage = Path(temporary)

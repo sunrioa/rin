@@ -181,6 +181,7 @@ jobs:
   bepinex-plugin:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
     steps:
@@ -191,6 +192,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Test BepInEx packaging diagnostics
+        run: python -m unittest tools.test_package_bepinex
       - name: Build deterministic Mono and IL2CPP install packages
         run: python tools/package_bepinex.py
       - name: Restore BepInEx restart tests from lock files
