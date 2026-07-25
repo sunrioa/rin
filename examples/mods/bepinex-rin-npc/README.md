@@ -2,7 +2,12 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-A minimal plugin integration template for the Rin agent runtime.
+A plugin integration reference for the Rin agent runtime.
+
+**Host capability profile: `advisory`.** This generic sample has no
+game-specific save transaction or stable save identity, so its in-memory
+ordering is not a restart guarantee. See
+[Host capability profiles](../../../docs/host-capability-profiles.md).
 
 This source overlay targets BepInEx 6 on a modern Unity/.NET runtime.
 

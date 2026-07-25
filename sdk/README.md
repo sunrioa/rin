@@ -7,6 +7,11 @@ Thin, source-first clients for the `rin.protocol/v1` HTTP boundary.
 The SDKs remove transport boilerplate without moving game authority into the
 client library.
 
+SDK workflow helpers validate the integration's declared
+[host capability profile](../docs/host-capability-profiles.md). A client library
+cannot manufacture durability or a world transaction that the game does not
+provide.
+
 | Language | Runtime | JSON | Async guidance |
 | --- | --- | --- | --- |
 | Python | 3.9+ | standard library | call from a worker in real-time games |

@@ -16,6 +16,7 @@ Rin `0.6.0` 是 Preview、pre-1.0 软件。文档按公共接口组织，不以�
 | Ren'Py、Godot 与 Unity | [游戏适配器](game-adapters.zh-CN.md) | [Game adapters](game-adapters.md) |
 | 区域、任务与 NPC 动作 | [RPG 事件约定](rpg-events.zh-CN.md) | [RPG event conventions](rpg-events.md) |
 | 跨语言客户端与 Mod | [SDK 与 Mod 套件](sdk-and-mods.zh-CN.md) | [SDK and mod kits](sdk-and-mods.md) |
+| 宿主持久保证与能力分级 | [宿主能力分级](host-capability-profiles.zh-CN.md) | [Host capability profiles](host-capability-profiles.md) |
 | 安全与漏洞报告 | [安全](../SECURITY.md) | [Security](../SECURITY.en.md) |
 | 发布变化 | [变更日志](../CHANGELOG.zh-CN.md) | [Changelog](../CHANGELOG.md) |
 | 发布与 Client 兼容 | [兼容矩阵](compatibility.zh-CN.md) | [Compatibility matrix](compatibility.md) |

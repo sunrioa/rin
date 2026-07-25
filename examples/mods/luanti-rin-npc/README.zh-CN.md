@@ -2,7 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-面向 Rin 智能体运行时的最小服务端接入模板。
+面向 Rin 智能体运行时的服务端接入参考。
+
+**Host capability profile：`advisory`。** ModStorage Snapshot 取决于世界保存
+间隔，不能提供更强 Profile 所需的同步事务；当前示例本身也仍在内存。参见
+[宿主能力分级](../../../docs/host-capability-profiles.zh-CN.md)。
 
 该目录是完整的 Luanti 服务器 Mod。内置 `rin.lua` 是 `sdk/lua/rin.lua`
 的 Vendored Copy；仓库测试要求两份文件完全一致。

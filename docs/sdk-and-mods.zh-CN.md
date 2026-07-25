@@ -5,6 +5,12 @@
 轻量接入套件把游戏自有适配器连接到 Rin，不会把世界权威移入 Sidecar 或
 模型，同时消除重复的 HTTP、超时、Envelope 和 Job 轮询代码。
 
+每个接入都必须声明真实的
+[宿主能力 Profile](host-capability-profiles.zh-CN.md)。调用正确的 Rin Endpoint
+不会自动让宿主具备 Crash Safety；更强 Profile 要求网络前持久边界，以及按
+Operation ID 幂等的 Apply 或真实游戏事务。在各自的持久化改造完成前，仓库
+中的宿主示例都保持 `advisory`。
+
 本文描述 Rin `0.6.0` Preview。权威 Wire Schema 是
 [`api/openapi.json`](../api/openapi.json)。
 

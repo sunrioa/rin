@@ -2,7 +2,12 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-A minimal server-side integration template for the Rin agent runtime.
+A server-side integration reference for the Rin agent runtime.
+
+**Host capability profile: `advisory`.** ModStorage snapshots are tied to the
+world save interval and cannot provide the synchronous transaction required by
+the stronger profiles. The current sample is also in-memory. See
+[Host capability profiles](../../../docs/host-capability-profiles.md).
 
 This directory is a complete Luanti mod. The included `rin.lua` is a vendored
 copy of `sdk/lua/rin.lua`; the repository test requires both copies to match.

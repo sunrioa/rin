@@ -64,6 +64,10 @@ release checklist passes. See the [release guide](docs/release-guide.md).
 
 ### Hardened
 
+- Host integrations now declare an explicit `advisory`,
+  `idempotent-action`, or `transactional-action` capability profile. The
+  repository records non-increasing example-code budgets so protocol workflow
+  logic cannot silently grow further inside game adapters.
 - Inline Snapshot compact JSON is capped at 16 MiB; default request and bundled
   client response limits are 32 MiB. Oversized state is rejected, never
   truncated.

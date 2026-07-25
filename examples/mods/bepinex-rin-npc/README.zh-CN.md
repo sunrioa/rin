@@ -2,7 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-面向 Rin 智能体运行时的最小插件接入模板。
+面向 Rin 智能体运行时的插件接入参考。
+
+**Host capability profile：`advisory`。** 该通用示例没有具体游戏的存档事务
+或稳定 Save Identity，因此内存中的执行顺序不构成重启保证。参见
+[宿主能力分级](../../../docs/host-capability-profiles.zh-CN.md)。
 
 该源码覆盖层面向现代 Unity/.NET 运行时上的 BepInEx 6。
 

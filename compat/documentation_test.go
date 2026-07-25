@@ -21,6 +21,7 @@ func TestBilingualDocumentationPairs(t *testing.T) {
 		{"../docs/architecture.md", "../docs/architecture.zh-CN.md"},
 		{"../docs/compatibility.md", "../docs/compatibility.zh-CN.md"},
 		{"../docs/game-adapters.md", "../docs/game-adapters.zh-CN.md"},
+		{"../docs/host-capability-profiles.md", "../docs/host-capability-profiles.zh-CN.md"},
 		{"../docs/migration-v0.6.md", "../docs/migration-v0.6.zh-CN.md"},
 		{"../docs/model-policy.md", "../docs/model-policy.zh-CN.md"},
 		{"../docs/outcome-reporting.md", "../docs/outcome-reporting.zh-CN.md"},

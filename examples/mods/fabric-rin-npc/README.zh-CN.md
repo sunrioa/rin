@@ -2,7 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-面向 Rin 智能体运行时的最小服务端接入模板。
+面向 Rin 智能体运行时的服务端接入参考。
+
+**Host capability profile：`advisory`。** 当前内存流程状态与 Fabric Saved
+Data 的最终刷盘都不能证明网络前持久化或原子 Apply 边界。参见
+[宿主能力分级](../../../docs/host-capability-profiles.zh-CN.md)。
 
 该目录是源码覆盖层，不是固定版本的 Gradle 模板。从当前官方项目生成器
 开始，确保游戏、Loader、Mapping、API 和构建插件版本互相兼容。

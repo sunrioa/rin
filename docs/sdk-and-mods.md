@@ -6,6 +6,13 @@ Thin integration kits connect game-owned adapters to Rin without moving world
 authority into the sidecar or a model. They remove repetitive HTTP, timeout,
 envelope, and job-polling code.
 
+Every integration must declare its real
+[host capability profile](host-capability-profiles.md). Calling the correct
+Rin endpoints does not make a host crash-safe: stronger profiles require a
+durable-before-network boundary plus either operation-keyed idempotent apply or
+an actual game transaction. The checked-in host examples remain `advisory`
+until their dedicated persistence work is complete.
+
 This document describes Rin `0.6.0` Preview. The authoritative wire schema is
 [`api/openapi.json`](../api/openapi.json).
 

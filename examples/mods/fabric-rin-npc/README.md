@@ -2,7 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-A minimal server-side integration template for the Rin agent runtime.
+A server-side integration reference for the Rin agent runtime.
+
+**Host capability profile: `advisory`.** The current in-memory workflow state
+and Fabric's eventual Saved Data flush do not prove a durable-before-network or
+atomic apply boundary. See [Host capability profiles](../../../docs/host-capability-profiles.md).
 
 This directory is a source overlay, not a frozen Gradle template. Start from
 the current official project generator so the game, loader, mappings, API, and

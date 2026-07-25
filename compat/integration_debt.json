@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "description": "Non-increasing line budgets for host examples while workflow logic moves into SDKs.",
+  "files": [
+    {
+      "path": "examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/RinNpcMod.java",
+      "max_lines": 1046,
+      "profile": "advisory"
+    },
+    {
+      "path": "examples/mods/bepinex-rin-npc/Plugin.cs",
+      "max_lines": 1086,
+      "profile": "advisory"
+    },
+    {
+      "path": "examples/mods/luanti-rin-npc/init.lua",
+      "max_lines": 812,
+      "profile": "advisory"
+    },
+    {
+      "path": "examples/godot/example_npc.gd",
+      "max_lines": 1092,
+      "profile": "advisory"
+    },
+    {
+      "path": "examples/godot/rin_client.gd",
+      "max_lines": 643,
+      "profile": "advisory"
+    },
+    {
+      "path": "examples/unity/RinClient.cs",
+      "max_lines": 1554,
+      "profile": "advisory"
+    },
+    {
+      "path": "examples/unity/RinNpcExample.cs",
+      "max_lines": 1307,
+      "profile": "advisory"
+    }
+  ]
+}

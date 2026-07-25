@@ -54,6 +54,9 @@
 
 ### 加固
 
+- 宿主接入现在必须显式声明 `advisory`、`idempotent-action` 或
+  `transactional-action` 能力 Profile。仓库记录只减不增的示例代码预算，防止
+  协议流程逻辑继续静默膨胀到游戏 Adapter 中。
 - Inline Snapshot compact JSON 上限为 16 MiB；默认请求正文和随附客户端响应正文
   上限为 32 MiB。超限状态会被拒绝，绝不截断。
 - Snapshot 与 Checkpoint Hash 是 Checksum，不是签名或来源证明。Event Hash
