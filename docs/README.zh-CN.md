@@ -21,6 +21,7 @@ Rin `0.6.0` 是 Preview、pre-1.0 软件。文档按公共接口组织，不以�
 | 从更早 Revision 升级 | [v0.6 迁移](migration-v0.6.zh-CN.md) | [v0.6 migration](migration-v0.6.md) |
 | 已支持的可扩展 Session Transfer | [可扩展 Session Transfer](session-transfer.zh-CN.md) | [Scalable Session Transfer](session-transfer.md) |
 | Session 生命周期、配额、删除与隐私 | [Session 生命周期](session-lifecycle.zh-CN.md) | [Session lifecycle](session-lifecycle.md) |
+| 部署、Readiness、Diagnostics 与 Metrics | [部署与监控](operations.zh-CN.md) | [Deployment and monitoring](operations.md) |
 | 发布与不可变 Tag 流程 | [发布指南](release-guide.zh-CN.md) | [Release guide](release-guide.md) |
 | 已交付里程碑与 Preview 门禁 | [路线图](../ROADMAP.md) | [Roadmap](../ROADMAP.en.md) |
 | 仓库总览 | [项目说明](../README.md) | [README](../README.en.md) |

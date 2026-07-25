@@ -31,7 +31,7 @@ HTTP status, `api/openapi.json` wins and the prose is a documentation bug.
 | --- | --- | --- | --- |
 | Distribution | `0.6.0` Preview | Earlier numbered milestones may have no tag | Pin one commit or the verified `v0.6.0` tag |
 | Wire identifier | `rin.protocol/v1` | Existing v1 events remain replayable subject to documented legacy semantics | Send the exact identifier on every JSON request |
-| Routes | 20 operations across 18 paths described by OpenAPI | No implicit alias routes | Generate or implement against OpenAPI; use the route inventory only to check coverage |
+| Routes | 28 operations across 26 paths described by OpenAPI | No implicit alias routes | Generate or implement against OpenAPI; use the route inventory only to check coverage |
 | Request objects | Closed; unknown members are rejected | Older requests may become invalid when a newly required safety field is documented | Do not send speculative fields |
 | Response objects | May gain additive fields | Older tolerant clients can ignore fields they do not understand | Decode tolerantly; persist each Snapshot as opaque JSON and send that original JSON back on Restore instead of round-tripping it through a lossy typed model |
 | Integers | Exact JSON range `-9007199254740991` to `9007199254740991`; many fields are additionally non-negative | Values outside the range are rejected rather than rounded | Send JSON numbers, not quoted integers or JavaScript `BigInt` |

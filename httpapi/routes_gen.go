@@ -20,6 +20,9 @@ type ContractRoute struct {
 
 var generatedContractRoutes = [...]ContractRoute{
 	{OperationID: "health", Method: http.MethodGet, Path: "/health", SuccessStatus: http.StatusOK},
+	{OperationID: "ready", Method: http.MethodGet, Path: "/ready", SuccessStatus: http.StatusOK},
+	{OperationID: "metrics", Method: http.MethodGet, Path: "/metrics", SuccessStatus: http.StatusOK},
+	{OperationID: "diagnostics", Method: http.MethodGet, Path: "/v1/diagnostics", SuccessStatus: http.StatusOK},
 	{OperationID: "create_session", Method: http.MethodPost, Path: "/v1/session/create", SuccessStatus: http.StatusOK},
 	{OperationID: "observe", Method: http.MethodPost, Path: "/v1/session/observe", SuccessStatus: http.StatusOK},
 	{OperationID: "propose", Method: http.MethodPost, Path: "/v1/agent/propose", SuccessStatus: http.StatusOK},
@@ -71,6 +74,9 @@ func contractSuccessStatus(request *http.Request) int {
 func (s *Server) registerContractRoutes(mux *http.ServeMux) {
 	handlers := map[string]http.HandlerFunc{
 		"health":                s.health,
+		"ready":                 s.ready,
+		"metrics":               s.metrics,
+		"diagnostics":           s.diagnostics,
 		"create_session":        s.createSession,
 		"observe":               s.observe,
 		"propose":               s.propose,

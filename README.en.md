@@ -110,7 +110,10 @@ additional persistence allowlist.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/health` | Unauthenticated health check |
+| `GET` | `/health` | Unauthenticated, dependency-free liveness |
+| `GET` | `/ready` | Unauthenticated Store/worker readiness |
+| `GET` | `/metrics` | Authenticated dependency-free Prometheus metrics |
+| `GET` | `/v1/diagnostics` | Authenticated bounded operational state without player content |
 | `POST` | `/v1/session/create` | Create a session bound to a game-content version |
 | `POST` | `/v1/session/observe` | Submit events actually observed by one or more actors |
 | `POST` | `/v1/agent/propose` | Produce a character proposal from game-allowlisted actions |

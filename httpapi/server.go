@@ -4,14 +4,19 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"mime"
 	"net/http"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/sunrioa/rin/generation"
 	"github.com/sunrioa/rin/internal/jsonwire"
@@ -40,6 +45,32 @@ type Server struct {
 	generation   *generation.Manager
 	policyMode   string
 	handler      http.Handler
+	requests     requestMetrics
+}
+
+type requestMetrics struct {
+	total          atomic.Uint64
+	inFlight       atomic.Int64
+	responses4xx   atomic.Uint64
+	responses5xx   atomic.Uint64
+	durationMillis atomic.Uint64
+	fallbackIDs    atomic.Uint64
+}
+
+type requestDiagnostics struct {
+	Total                     uint64 `json:"total"`
+	InFlight                  uint64 `json:"in_flight"`
+	Responses4xx              uint64 `json:"responses_4xx"`
+	Responses5xx              uint64 `json:"responses_5xx"`
+	DurationMillisecondsTotal uint64 `json:"duration_milliseconds_total"`
+}
+
+type diagnosticsData struct {
+	Status       string                  `json:"status"`
+	Runtime      rinruntime.Diagnostics  `json:"runtime"`
+	ProposalJobs jobs.Diagnostics        `json:"proposal_jobs"`
+	Generation   *generation.Diagnostics `json:"generation,omitempty"`
+	Requests     requestDiagnostics      `json:"requests"`
 }
 
 func New(engine *rinruntime.Engine, options Options) *Server {
@@ -61,7 +92,7 @@ func New(engine *rinruntime.Engine, options Options) *Server {
 	}
 	mux := http.NewServeMux()
 	server.registerContractRoutes(mux)
-	server.handler = server.secure(server.authenticate(mux))
+	server.handler = server.secure(server.instrument(server.authenticate(mux)))
 	return server
 }
 
@@ -81,6 +112,149 @@ func (s *Server) health(response http.ResponseWriter, request *http.Request) {
 			"features":              protocol.SupportedFeatures(),
 		},
 	})
+}
+
+func (s *Server) ready(response http.ResponseWriter, request *http.Request) {
+	if err := s.readinessError(); err != nil {
+		s.writeError(
+			response,
+			http.StatusServiceUnavailable,
+			"not_ready",
+			"the Sidecar is not ready",
+			"",
+		)
+		return
+	}
+	s.write(response, contractSuccessStatus(request), protocol.APIResponse{
+		OK: true,
+		Data: map[string]string{
+			"status": "ready",
+		},
+	})
+}
+
+func (s *Server) diagnostics(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	if err := s.engine.Ready(); err != nil {
+		s.writeError(
+			response,
+			http.StatusInternalServerError,
+			"diagnostics_unavailable",
+			"Store diagnostics are unavailable",
+			"",
+		)
+		return
+	}
+	data := diagnosticsData{
+		Status:   "ready",
+		Runtime:  s.engine.Diagnostics(),
+		Requests: s.requestDiagnostics(),
+	}
+	if s.jobs != nil {
+		data.ProposalJobs = s.jobs.Diagnostics()
+	}
+	if s.generation != nil {
+		generationDiagnostics := s.generation.Diagnostics()
+		data.Generation = &generationDiagnostics
+	}
+	if err := s.readinessError(); err != nil {
+		data.Status = "degraded"
+	}
+	s.write(
+		response,
+		contractSuccessStatus(request),
+		protocol.APIResponse{OK: true, Data: data},
+	)
+}
+
+func (s *Server) metrics(response http.ResponseWriter, _ *http.Request) {
+	runtimeDiagnostics := s.engine.Diagnostics()
+	jobDiagnostics := jobs.Diagnostics{}
+	if s.jobs != nil {
+		jobDiagnostics = s.jobs.Diagnostics()
+	}
+	requestDiagnostics := s.requestDiagnostics()
+	response.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	response.WriteHeader(http.StatusOK)
+	_, _ = fmt.Fprintf(
+		response,
+		"# TYPE rin_http_requests_total counter\n"+
+			"rin_http_requests_total %d\n"+
+			"# TYPE rin_http_requests_in_flight gauge\n"+
+			"rin_http_requests_in_flight %d\n"+
+			"# TYPE rin_http_responses_4xx_total counter\n"+
+			"rin_http_responses_4xx_total %d\n"+
+			"# TYPE rin_http_responses_5xx_total counter\n"+
+			"rin_http_responses_5xx_total %d\n"+
+			"# TYPE rin_http_request_duration_milliseconds_total counter\n"+
+			"rin_http_request_duration_milliseconds_total %d\n"+
+			"# TYPE rin_sessions_known gauge\n"+
+			"rin_sessions_known %d\n"+
+			"# TYPE rin_sessions_unreadable_known gauge\n"+
+			"rin_sessions_unreadable_known %d\n"+
+			"# TYPE rin_uncertainty_barriers gauge\n"+
+			"rin_uncertainty_barriers %d\n"+
+			"# TYPE rin_checkpoint_failures_total counter\n"+
+			"rin_checkpoint_failures_total %d\n"+
+			"# TYPE rin_checkpoint_quota_skips_total counter\n"+
+			"rin_checkpoint_quota_skips_total %d\n"+
+			"# TYPE rin_proposal_queue_depth gauge\n"+
+			"rin_proposal_queue_depth %d\n"+
+			"# TYPE rin_proposal_queue_capacity gauge\n"+
+			"rin_proposal_queue_capacity %d\n"+
+			"# TYPE rin_proposal_jobs_retained gauge\n"+
+			"rin_proposal_jobs_retained %d\n",
+		requestDiagnostics.Total,
+		requestDiagnostics.InFlight,
+		requestDiagnostics.Responses4xx,
+		requestDiagnostics.Responses5xx,
+		requestDiagnostics.DurationMillisecondsTotal,
+		runtimeDiagnostics.KnownSessions,
+		runtimeDiagnostics.KnownCorruptSessions,
+		runtimeDiagnostics.PendingUncertaintyBarriers,
+		runtimeDiagnostics.CheckpointFailures,
+		runtimeDiagnostics.CheckpointQuotaSkips,
+		jobDiagnostics.QueueDepth,
+		jobDiagnostics.QueueCapacity,
+		jobDiagnostics.Retained,
+	)
+	if s.generation != nil {
+		generationDiagnostics := s.generation.Diagnostics()
+		providerOpen := 0
+		if generationDiagnostics.Provider.State != "closed" {
+			providerOpen = 1
+		}
+		_, _ = fmt.Fprintf(
+			response,
+			"# TYPE rin_generation_queue_depth gauge\n"+
+				"rin_generation_queue_depth %d\n"+
+				"# TYPE rin_generation_queue_capacity gauge\n"+
+				"rin_generation_queue_capacity %d\n"+
+				"# TYPE rin_generation_jobs_retained gauge\n"+
+				"rin_generation_jobs_retained %d\n"+
+				"# TYPE rin_provider_circuit_not_closed gauge\n"+
+				"rin_provider_circuit_not_closed %d\n",
+			generationDiagnostics.QueueDepth,
+			generationDiagnostics.QueueCapacity,
+			generationDiagnostics.Retained,
+			providerOpen,
+		)
+	}
+}
+
+func (s *Server) readinessError() error {
+	if err := s.engine.Ready(); err != nil {
+		return err
+	}
+	if s.jobs != nil && s.jobs.Diagnostics().Closed {
+		return jobs.ErrClosed
+	}
+	if s.generation != nil && s.generation.Diagnostics().Closed {
+		return generation.ErrClosed
+	}
+	return nil
 }
 
 func (s *Server) createSession(response http.ResponseWriter, request *http.Request) {
@@ -449,7 +623,9 @@ func (s *Server) write(response http.ResponseWriter, status int, value protocol.
 
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		if request.URL.Path == "/health" || s.token == "" {
+		if request.URL.Path == "/health" ||
+			request.URL.Path == "/ready" ||
+			s.token == "" {
 			next.ServeHTTP(response, request)
 			return
 		}
@@ -462,6 +638,123 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(response, request)
 	})
+}
+
+type observedResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *observedResponseWriter) WriteHeader(status int) {
+	if w.status != 0 {
+		return
+	}
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *observedResponseWriter) Write(payload []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(payload)
+}
+
+func (w *observedResponseWriter) Flush() {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func (w *observedResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
+func (s *Server) instrument(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		started := time.Now()
+		requestID := request.Header.Get("Rin-Request-ID")
+		if !validRequestCorrelationID(requestID) {
+			requestID = s.newRequestCorrelationID()
+		}
+		response.Header().Set("Rin-Request-ID", requestID)
+		s.requests.total.Add(1)
+		s.requests.inFlight.Add(1)
+		observed := &observedResponseWriter{ResponseWriter: response}
+		next.ServeHTTP(observed, request)
+		s.requests.inFlight.Add(-1)
+		status := observed.status
+		if status == 0 {
+			status = http.StatusOK
+		}
+		switch {
+		case status >= 500:
+			s.requests.responses5xx.Add(1)
+		case status >= 400:
+			s.requests.responses4xx.Add(1)
+		}
+		duration := time.Since(started)
+		s.requests.durationMillis.Add(uint64(duration.Milliseconds()))
+		s.logger.Info(
+			"http request",
+			"request_id", requestID,
+			"method", request.Method,
+			"route", request.Pattern,
+			"status", status,
+			"duration_ms", duration.Milliseconds(),
+		)
+	})
+}
+
+func validRequestCorrelationID(value string) bool {
+	if value == "" || len(value) > 96 {
+		return false
+	}
+	for _, character := range value {
+		switch {
+		case character >= 'a' && character <= 'z',
+			character >= 'A' && character <= 'Z',
+			character >= '0' && character <= '9',
+			character == '.',
+			character == '_',
+			character == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Server) newRequestCorrelationID() string {
+	var random [16]byte
+	if _, err := rand.Read(random[:]); err == nil {
+		return "req." + hex.EncodeToString(random[:])
+	}
+	return fmt.Sprintf("req.fallback.%d", s.requests.fallbackIDs.Add(1))
+}
+
+func (s *Server) requestDiagnostics() requestDiagnostics {
+	inFlight := s.requests.inFlight.Load()
+	if inFlight < 0 {
+		inFlight = 0
+	}
+	return requestDiagnostics{
+		Total:                     boundedMetric(s.requests.total.Load()),
+		InFlight:                  boundedMetric(uint64(inFlight)),
+		Responses4xx:              boundedMetric(s.requests.responses4xx.Load()),
+		Responses5xx:              boundedMetric(s.requests.responses5xx.Load()),
+		DurationMillisecondsTotal: boundedMetric(s.requests.durationMillis.Load()),
+	}
+}
+
+func boundedMetric(value uint64) uint64 {
+	if value > uint64(protocol.MaxJSONSafeInteger) {
+		return uint64(protocol.MaxJSONSafeInteger)
+	}
+	return value
 }
 
 func (s *Server) secure(next http.Handler) http.Handler {

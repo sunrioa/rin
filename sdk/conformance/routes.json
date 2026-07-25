@@ -12,6 +12,27 @@
       "profile": "transport"
     },
     {
+      "name": "ready",
+      "method": "GET",
+      "path": "/ready",
+      "status": 200,
+      "profile": "operational"
+    },
+    {
+      "name": "metrics",
+      "method": "GET",
+      "path": "/metrics",
+      "status": 200,
+      "profile": "operational"
+    },
+    {
+      "name": "diagnostics",
+      "method": "GET",
+      "path": "/v1/diagnostics",
+      "status": 200,
+      "profile": "operational"
+    },
+    {
       "name": "create_session",
       "method": "POST",
       "path": "/v1/session/create",

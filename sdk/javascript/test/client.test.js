@@ -344,6 +344,7 @@ test("all protocol routes use the expected method and bearer token", async () =>
       `${cases[index][0]} ${options.method} ${url.pathname.replace("job.fixture", "{job_id}")} ${status}`)
     .sort();
   const expectedNamedRoutes = manifest.operations
+    .filter(({ profile }) => profile !== "operational")
     .map(({ name, method, path, status }) => `${name} ${method} ${path} ${status}`)
     .sort();
   assert.deepEqual(observedRoutes, expectedNamedRoutes);

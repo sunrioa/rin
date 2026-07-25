@@ -37,6 +37,9 @@ release checklist passes. See the [release guide](docs/release-guide.md).
 - Authenticated Session stats, archive, and fail-closed deletion with permanent
   ID tombstones, plus configurable soft/hard managed-storage quotas. File Store
   lifecycle recovery is covered on Linux, macOS, and Windows.
+- Separate liveness/readiness probes, authenticated bounded diagnostics,
+  dependency-free Prometheus metrics, and content-free structured request
+  correlation.
 
 ### Changed
 

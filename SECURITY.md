@@ -12,7 +12,9 @@ Rin `0.6.0` 是 Preview、pre-1.0 软件。Preview 状态不会放宽本文的 F
 - 服务默认只监听 `127.0.0.1`。
 - 非 loopback 地址必须同时传入 `-allow-remote` 并设置 `RIN_TOKEN`。
 - Rin 不终止入站 TLS；远程部署必须放在受控网络和 TLS 反向代理之后。
-- 除 `/health` 外，配置 Token 后所有端点都使用 constant-time Bearer 校验。
+- 除不含内容的 `/health` 与 `/ready` Probe 外，配置 Token 后所有端点都使用
+  constant-time Bearer 校验。`/metrics` 与 `/v1/diagnostics` 仍需鉴权，不得作为
+  Reverse Proxy 的公网 Route。
 - JSON 请求正文与随附客户端响应正文默认限制为 32 MiB。完整 inline Snapshot
   compact JSON 另有 16 MiB 上限，以便为 envelope 与持久记录预留空间；超限
   时返回 `413 snapshot_too_large`，绝不会截断。大 lineage 使用经过相同
@@ -37,6 +39,9 @@ Rin `0.6.0` 是 Preview、pre-1.0 软件。Preview 状态不会放宽本文的 F
   以支持幂等重试并永久阻止 ID 复用；外部 Export、游戏存档、备份和供应商副本
   不在 Rin 删除范围内。
 - API Key、Sidecar Token 和供应商配置不属于协议状态，不会持久化。
+- Request Log 只包含有界 Correlation ID、HTTP Method、匹配后的 Route
+  Template、Status 与 Duration。运维 Diagnostics 只使用聚合计数和有界
+  Status/Error 分类，不包含玩家内容或每 Session Label。
 - 供应商 URL 禁止 userinfo、query、fragment 和自动 HTTP 重定向；远程模型默认强制 HTTPS。
 - 官方游戏适配器同样禁止重定向；明文 Sidecar HTTP 只允许显式 loopback，远程 HTTPS 必须配置 Token。
 

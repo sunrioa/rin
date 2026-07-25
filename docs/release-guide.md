@@ -37,7 +37,7 @@ make build VERSION=0.6.0
 The last command must print `0.6.0`. Also verify:
 
 - every local Markdown link resolves;
-- `api/openapi.json` parses as JSON and contains the same 22 route operations as
+- `api/openapi.json` parses as JSON and contains the same 28 route operations as
   `sdk/conformance/routes.json`;
 - English and Chinese release documents link to each other;
 - the migration checklist covers safe integers, required `accepted`, UTF-8,

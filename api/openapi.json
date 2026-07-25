@@ -4,7 +4,7 @@
   "info": {
     "title": "Rin HTTP API",
     "version": "0.6.0",
-    "description": "Authoritative preview wire contract for Rin Protocol v1. Bearer authentication is required only when the server is configured with a token; health is always unauthenticated."
+    "description": "Authoritative preview wire contract for Rin Protocol v1. Bearer authentication is required only when the server is configured with a token; liveness and readiness probes are always unauthenticated."
   },
   "x-rin-protocol-version": "rin.protocol/v1",
   "x-rin-release-status": "preview",
@@ -30,6 +30,52 @@
                 }
               }
             }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "operationId": "ready",
+        "x-rin-sdk-profile": "operational",
+        "security": [],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Ready"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "operationId": "metrics",
+        "x-rin-sdk-profile": "operational",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Metrics"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/diagnostics": {
+      "get": {
+        "operationId": "diagnostics",
+        "x-rin-sdk-profile": "operational",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Diagnostics"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
@@ -1074,6 +1120,36 @@
       }
     },
     "responses": {
+      "Ready": {
+        "description": "The Store is readable and configured worker managers are running.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ReadyResponse"
+            }
+          }
+        }
+      },
+      "Diagnostics": {
+        "description": "Bounded content-free operational diagnostics.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/DiagnosticsResponse"
+            }
+          }
+        }
+      },
+      "Metrics": {
+        "description": "Dependency-free Prometheus text exposition without player-content labels.",
+        "content": {
+          "text/plain": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "MutationResult": {
         "description": "Mutation result.",
         "content": {
@@ -3928,6 +4004,77 @@
           }
         }
       },
+      "ReadyData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "const": "ready"
+          }
+        }
+      },
+      "DiagnosticsData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "runtime",
+          "proposal_jobs",
+          "requests"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "degraded"
+            ]
+          },
+          "runtime": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "proposal_jobs": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "generation": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "requests": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "total",
+              "in_flight",
+              "responses_4xx",
+              "responses_5xx",
+              "duration_milliseconds_total"
+            ],
+            "properties": {
+              "total": {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              "in_flight": {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              "responses_4xx": {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              "responses_5xx": {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              "duration_milliseconds_total": {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              }
+            }
+          }
+        }
+      },
       "ErrorDetail": {
         "type": "object",
         "required": [
@@ -3987,6 +4134,34 @@
             "properties": {
               "data": {
                 "$ref": "#/components/schemas/HealthData"
+              }
+            }
+          }
+        ]
+      },
+      "ReadyResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessEnvelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/ReadyData"
+              }
+            }
+          }
+        ]
+      },
+      "DiagnosticsResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessEnvelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/DiagnosticsData"
               }
             }
           }

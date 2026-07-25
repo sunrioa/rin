@@ -29,7 +29,7 @@ pre-1.0 minor 版本可以进行不兼容变更，前提是在 Changelog 与迁�
 | --- | --- | --- | --- |
 | 分发版本 | `0.6.0` Preview | 更早编号里程碑可能没有 Tag | 固定一个 Commit 或已验证的 `v0.6.0` Tag |
 | Wire 标识 | `rin.protocol/v1` | 既有 v1 Event 按文档所述 Legacy 语义继续 Replay | 每个 JSON 请求都发送精确标识 |
-| 路由 | OpenAPI 描述的 18 个 Path、20 个 Operation | 不提供隐式别名路由 | 按 OpenAPI 生成或实现；Route Inventory 只核对覆盖 |
+| 路由 | OpenAPI 描述的 26 个 Path、28 个 Operation | 不提供隐式别名路由 | 按 OpenAPI 生成或实现；Route Inventory 只核对覆盖 |
 | 请求 Object | 封闭；未知成员会被拒绝 | 新增安全必填字段后，旧请求可能失效 | 不发送试探字段 |
 | 响应 Object | 可增加字段 | 旧宽容 Client 可忽略未知字段 | 宽容解码；把每个 Snapshot 作为不透明 JSON 保存，并在 Restore 时回传原始 JSON，不经由会丢字段的 Typed Model 往返转换 |
 | 整数 | JSON 精确范围 `-9007199254740991` 至 `9007199254740991`，许多字段还要求非负 | 超范围值会被拒绝，不会舍入 | 发送 JSON Number，不使用字符串整数或 JavaScript `BigInt` |

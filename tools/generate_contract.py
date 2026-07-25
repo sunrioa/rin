@@ -218,7 +218,7 @@ def contract_operations(contract: Contract) -> List[Operation]:
                     f"{route_key[0]} {path} must declare exactly one concrete 2xx response"
                 )
             sdk_profile = operation.get("x-rin-sdk-profile", "transport")
-            if sdk_profile not in ("transport", "streaming"):
+            if sdk_profile not in ("transport", "streaming", "operational"):
                 raise ContractError(
                     f"{route_key[0]} {path} has unsupported x-rin-sdk-profile "
                     f"{sdk_profile!r}"

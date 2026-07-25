@@ -84,7 +84,10 @@ go run ./cmd/rin serve
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
-| `GET` | `/health` | 无鉴权健康检查 |
+| `GET` | `/health` | 无鉴权、无依赖的 Liveness |
+| `GET` | `/ready` | 无鉴权的 Store/Worker Readiness |
+| `GET` | `/metrics` | 经过鉴权的无依赖 Prometheus Metrics |
+| `GET` | `/v1/diagnostics` | 经过鉴权且不含玩家内容的有界运维状态 |
 | `POST` | `/v1/session/create` | 创建绑定游戏内容版本的会话 |
 | `POST` | `/v1/session/observe` | 提交一个或多个角色确实观察到的事件 |
 | `POST` | `/v1/agent/propose` | 从游戏白名单动作中产生角色提案 |

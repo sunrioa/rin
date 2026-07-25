@@ -15,8 +15,10 @@ be evaluated through the Changelog and migration guides.
 - A non-loopback listener requires both `-allow-remote` and `RIN_TOKEN`.
 - Rin does not terminate inbound TLS. Remote deployments must place it
   behind a TLS reverse proxy on a controlled network.
-- Once a token is configured, every endpoint except `/health` uses
-  constant-time Bearer-token verification.
+- Once a token is configured, every endpoint except the content-free
+  `/health` and `/ready` probes uses constant-time Bearer-token verification.
+  `/metrics` and `/v1/diagnostics` remain authenticated and must not be exposed
+  as public reverse-proxy routes.
 - JSON request bodies and bundled-client response bodies are limited to
   32 MiB by default. Complete inline Snapshot compact JSON is separately
   capped at 16 MiB to leave envelope and durable-record headroom; it is
@@ -48,6 +50,10 @@ be evaluated through the Changelog and migration guides.
   outside Rin's deletion boundary.
 - API keys, sidecar tokens, and provider configuration are not protocol state
   and are never persisted.
+- Request logs contain only a bounded correlation ID, HTTP method, matched
+  route template, status, and duration. Operational diagnostics use aggregate
+  counts and bounded status/error classifications, never player content or
+  per-Session labels.
 - Provider URLs reject userinfo, query strings, fragments, and automatic HTTP
   redirects. Remote model endpoints require HTTPS by default.
 - Official game adapters also reject redirects. Plaintext sidecar HTTP is
