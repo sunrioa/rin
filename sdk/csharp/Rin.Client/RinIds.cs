@@ -22,4 +22,9 @@ public static class RinIds
         RandomNumberGenerator.Fill(random);
         return prefix + "." + Convert.ToHexString(random).ToLowerInvariant();
     }
+
+    internal static bool IsValid(string? value) =>
+        value is not null &&
+        value.Length <= 96 &&
+        PrefixPattern.IsMatch(value);
 }

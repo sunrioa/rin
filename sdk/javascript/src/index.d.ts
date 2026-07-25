@@ -2,6 +2,7 @@ export const SDK_VERSION: "0.6.0";
 export const PROTOCOL_VERSION: "rin.protocol/v1";
 export const DEFAULT_BASE_URL: string;
 export const DEFAULT_MAX_RESPONSE_BYTES: number;
+export const INLINE_SNAPSHOT_MAX_BYTES: number;
 export const TRANSFER_CONTROL_FRAME_MAX_BYTES: number;
 export const TRANSFER_EVENT_FRAME_MAX_BYTES: number;
 export const RIN_FEATURES: Readonly<{
@@ -195,6 +196,47 @@ export interface RinTransferSink {
   write(chunk: Uint8Array): void | Promise<void>;
 }
 
+export interface ProposalAttempt {
+  version: 1;
+  operation_id: string;
+  request: ProposeRequest;
+  job_id: string;
+}
+
+export interface ProposalAttemptStore {
+  loadProposalAttempt(): Promise<ProposalAttempt | null>;
+  /** Atomically creates the Attempt; returns false when one already exists. */
+  createProposalAttempt(attempt: ProposalAttempt): Promise<boolean>;
+  /** Updates only the matching Attempt when persisting its Job identity. */
+  saveProposalAttempt(attempt: ProposalAttempt): Promise<void>;
+  /**
+   * Must atomically run apply, persist the applied marker and Commit in the
+   * Outcome Outbox, and remove the matching Proposal Attempt.
+   */
+  settleProposalAttempt(input: {
+    attempt: ProposalAttempt;
+    proposal: ActionProposal;
+    commit: CommitRequest;
+    apply: () => void | Promise<void>;
+  }): Promise<void>;
+}
+
+export interface OutcomeOutboxEntry {
+  commit: CommitRequest;
+  [durableMetadata: string]: unknown;
+}
+
+export interface OutcomeOutboxStore {
+  listOutcomeReports(): Promise<OutcomeOutboxEntry[]>;
+  /** Must durably remove only the exact entry that Rin acknowledged. */
+  acknowledgeOutcome(entry: OutcomeOutboxEntry, result: MutationResult): Promise<void>;
+}
+
+export interface OpaqueSnapshotStore {
+  putSnapshot(key: string, snapshot: Uint8Array): Promise<void>;
+  getSnapshot(key: string): Promise<Uint8Array>;
+}
+
 export type RinTransferSource =
   | ReadableStream<Uint8Array>
   | AsyncIterable<Uint8Array>;
@@ -206,6 +248,33 @@ export class RinProtocolError extends RinError {}
 export class RinAPIError extends RinError {
   readonly status: number;
   readonly field: string;
+}
+
+export class ProposalAttemptCoordinator {
+  constructor(client: RinClient, store: ProposalAttemptStore);
+  begin(operationId: string, request: ProposeRequest): Promise<ProposalAttempt>;
+  resume(options?: RinPollingOptions): Promise<{
+    attempt: ProposalAttempt;
+    proposal: ActionProposal;
+    duplicate: boolean;
+  }>;
+  settle(
+    attempt: ProposalAttempt,
+    proposal: ActionProposal,
+    commit: CommitRequest,
+    apply: () => void | Promise<void>,
+  ): Promise<void>;
+}
+
+export class OutcomeOutbox {
+  constructor(client: RinClient, store: OutcomeOutboxStore);
+  drain(): Promise<number>;
+}
+
+export class OpaqueSnapshotPersistence {
+  constructor(store: OpaqueSnapshotStore);
+  save(key: string, snapshot: RinObject): Promise<void>;
+  load(key: string): Promise<RinObject>;
 }
 
 export function createRinId(

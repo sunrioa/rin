@@ -23,6 +23,18 @@ authoritative create/propose/commit path, including `CreateSessionRequest`,
 `ProposeRequest`, `ProposalResult`, `CommitRequest`, and `MutationResult`.
 Response types deliberately tolerate additive fields.
 
+For crash-safe game integration, `ProposalAttemptCoordinator` persists the
+complete request before submission and resumes the exact Job/request identity.
+Its store's `settleProposalAttempt` hook must atomically apply the game effect,
+write the applied marker and exact Commit to the authoritative Outcome Outbox,
+and remove the Attempt. `OutcomeOutbox.drain()` deletes nothing until Rin
+returns normal or explicit duplicate success. These are storage interfaces;
+the SDK intentionally supplies no unsafe in-memory production default.
+
+`OpaqueSnapshotPersistence` stores bounded UTF-8 JSON bytes and returns the
+complete object, including additive fields unknown to this SDK version. The
+injected store must protect Snapshot bytes like the Event Log.
+
 Run directly from this checkout:
 
 ```bash

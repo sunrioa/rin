@@ -62,6 +62,13 @@ fail closed；使用相同身份恢复，确认不存在在线 Proposal 前不�
 保存 Job ID。任何新 Turn 或 Fallback 之前都要先恢复这条记录；只有游戏结果、
 Applied Marker 与 Outcome Outbox 在同一个权威事务中落盘时才能清除。
 
+优先 JavaScript/TypeScript 与 C# SDK 为此生命周期提供
+`ProposalAttemptCoordinator`、可插拔 `OutcomeOutbox` 以及不透明 Snapshot
+持久化 helper。它们只定义持久存储契约，不提供容易误用于生产的内存默认实现。
+Settlement hook 就是事务边界：必须原子应用游戏效果、持久化 Applied Marker
+与完整 Commit，并删除 Attempt。Outbox Drain 只确认普通成功或 Rin 明确返回的
+exact-duplicate 成功；任何 Transport、未决或冲突错误都会保留项目。
+
 已确认 Sidecar Proposal Operation 内部的 Provider 失败可使用 Rin 的
 Deterministic Policy。Sidecar Submit/Poll/Cancel 结果未决是另一种状态，不能
 转换成 Fallback Action。
@@ -98,6 +105,8 @@ Request Schema 的权威，会拒绝封闭 Request Object 中的未知 Member；
   `expected_binding`，不能从导入 Snapshot 读取。
 - Snapshot 是按事件日志保护的可信、不透明状态；其 SHA-256 canonical checksum
   只能发现意外损坏，既不认证来源，也不能阻止能重算 checksum 的一方。
+- 优先 SDK 的不透明 Snapshot helper 保存完整有界 JSON Object，不经由可能丢失
+  字段的强类型 State 投影，因此新增 Member 能跨 Save/Load/Restore 周期保留。
 - 把生成对白当作显示数据。绝不能把它解析成控制台命令、反射目标、脚本名、
   Item ID 或文件路径。
 

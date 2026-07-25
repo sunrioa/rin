@@ -30,6 +30,18 @@ OpenAPI-aligned models and typed overloads cover the authoritative
 create/propose/commit path. `MutationResult` and `ProposalResult` retain
 additive response fields through `AdditiveFields`.
 
+`ProposalAttemptCoordinator` and `OutcomeOutbox` provide the same crash-safe
+authoritative workflow as the protocol guide. Implement
+`IProposalAttemptStore.SettleAsync` as one game transaction that applies the
+effect, writes the applied marker and exact Commit Outbox entry, and removes
+the Attempt. Implement `IOutcomeOutboxStore` with durable storage; entries are
+acknowledged only after normal or explicit duplicate Commit success. The SDK
+does not ship an in-memory production default.
+
+`OpaqueSnapshotPersistence` stores bounded JSON bytes through
+`IOpaqueSnapshotStore` and loads a complete `JsonElement`, preserving additive
+members unknown to this SDK version.
+
 Build the source project with:
 
 ```bash

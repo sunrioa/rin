@@ -71,6 +71,16 @@ then persist the Job ID immediately after `202`. Resume that record before any
 new turn or fallback. Clear it only in the same authoritative transaction that
 stores the game result, applied marker, and Outcome Outbox entry.
 
+The priority JavaScript/TypeScript and C# SDKs expose
+`ProposalAttemptCoordinator`, a pluggable `OutcomeOutbox`, and opaque Snapshot
+persistence helpers for this lifecycle. They deliberately define durable
+storage contracts instead of shipping an in-memory production default. The
+settlement hook is the transaction boundary: it must apply the game effect,
+persist the applied marker and exact Commit, and remove the Attempt atomically.
+Outbox drain acknowledges only a normal success or Rin's explicit exact-
+duplicate success; any transport, uncertainty, or conflict error leaves the
+entry intact.
+
 Provider failure inside a confirmed Sidecar Proposal operation can use Rin's
 deterministic Policy. Sidecar submit/poll/cancel uncertainty is different and
 must not be converted into a fallback action.
@@ -112,6 +122,9 @@ error envelope from an HTTP-200 terminal Job carrying `data.error`.
 - A Snapshot is trusted, opaque event-log-level state. Its SHA-256 canonical
   checksums detect accidental damage, but neither authenticate provenance nor
   stop a party that can recompute them.
+- Priority SDK opaque Snapshot helpers persist the complete bounded JSON object
+  rather than projecting through a lossy typed State model, so additive members
+  survive a save/load/Restore cycle.
 - Treat generated dialogue as display data. Never parse it as a console
   command, reflection target, script name, item ID, or filesystem path.
 

@@ -2,6 +2,7 @@ export const SDK_VERSION = "0.6.0";
 export const PROTOCOL_VERSION = "rin.protocol/v1";
 export const DEFAULT_BASE_URL = "http://127.0.0.1:7374";
 export const DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
+export const INLINE_SNAPSHOT_MAX_BYTES = 16 * 1024 * 1024;
 export const TRANSFER_CONTROL_FRAME_MAX_BYTES = 32 * 1024;
 export const TRANSFER_EVENT_FRAME_MAX_BYTES = 64 * 1024 * 1024 + TRANSFER_CONTROL_FRAME_MAX_BYTES;
 export const RIN_FEATURES = Object.freeze({
@@ -61,6 +62,203 @@ export function createRinId(prefix = "id", randomBytes = secureRandomBytes) {
     );
   }
   return `${prefix}.${Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")}`;
+}
+
+export class ProposalAttemptCoordinator {
+  constructor(client, store) {
+    if (!(client instanceof RinClient)) {
+      throw new RinConfigurationError("invalid_workflow", "client must be a RinClient");
+    }
+    requireMethods(store, [
+      "loadProposalAttempt",
+      "createProposalAttempt",
+      "saveProposalAttempt",
+      "settleProposalAttempt",
+    ], "Proposal Attempt store");
+    this.client = client;
+    this.store = store;
+  }
+
+  async begin(operationId, request) {
+    requireIdentifier("operation_id", operationId);
+    const stableRequest = cloneProtocolObject(request);
+    requireIdentifier("request_id", stableRequest.request_id);
+    requireIdentifier("session_id", stableRequest.session_id);
+    const attempt = {
+      version: 1,
+      operation_id: operationId,
+      request: stableRequest,
+      job_id: "",
+    };
+    if (await this.store.createProposalAttempt(attempt) !== true) {
+      throw new RinConfigurationError(
+        "proposal_attempt_pending",
+        "A Proposal Attempt is already pending",
+      );
+    }
+    return cloneProtocolObject(attempt);
+  }
+
+  async resume(options = {}) {
+    let attempt = validateProposalAttempt(await this.store.loadProposalAttempt());
+    let job;
+    if (attempt.job_id) {
+      try {
+        job = await this.client.waitForProposal(attempt.job_id, options);
+      } catch (error) {
+        if (!(error instanceof RinAPIError) || error.code !== "job_not_found") throw error;
+      }
+    }
+    if (!job) {
+      const submission = await this.client.submitProposalJob(attempt.request);
+      requireIdentifier("job_id", submission.job_id);
+      attempt = { ...attempt, job_id: submission.job_id };
+      await this.store.saveProposalAttempt(attempt);
+      job = await this.client.waitForProposal(attempt.job_id, options);
+    }
+    if (!isObject(job.proposal) ||
+        job.proposal.session_id !== attempt.request.session_id ||
+        job.proposal.request_id !== attempt.request.request_id) {
+      throw new RinProtocolError(
+        "invalid_job",
+        "Resolved Proposal does not match the durable Attempt",
+      );
+    }
+    return {
+      attempt: cloneProtocolObject(attempt),
+      proposal: cloneProtocolObject(job.proposal),
+      duplicate: job.duplicate === true,
+    };
+  }
+
+  async settle(attempt, proposal, commit, apply) {
+    const stableAttempt = validateProposalAttempt(attempt);
+    const stableProposal = cloneProtocolObject(proposal);
+    const stableCommit = cloneProtocolObject(commit);
+    if (typeof apply !== "function") {
+      throw new RinConfigurationError(
+        "invalid_workflow",
+        "apply must be an authoritative transaction callback",
+      );
+    }
+    if (stableProposal.session_id !== stableAttempt.request.session_id ||
+        stableProposal.request_id !== stableAttempt.request.request_id ||
+        stableCommit.session_id !== stableAttempt.request.session_id ||
+        stableCommit.proposal_id !== stableProposal.id) {
+      throw new RinConfigurationError(
+        "workflow_identity_mismatch",
+        "Attempt, Proposal, and Commit identities do not match",
+      );
+    }
+    requireIdentifier("request_id", stableCommit.request_id);
+    requireIdentifier("event_id", stableCommit.event_id);
+    await this.store.settleProposalAttempt({
+      attempt: stableAttempt,
+      proposal: stableProposal,
+      commit: stableCommit,
+      apply,
+    });
+  }
+}
+
+export class OutcomeOutbox {
+  constructor(client, store) {
+    if (!(client instanceof RinClient)) {
+      throw new RinConfigurationError("invalid_workflow", "client must be a RinClient");
+    }
+    requireMethods(store, ["listOutcomeReports", "acknowledgeOutcome"], "Outcome Outbox");
+    this.client = client;
+    this.store = store;
+    this.draining = false;
+  }
+
+  async drain() {
+    if (this.draining) {
+      throw new RinConfigurationError(
+        "outbox_busy",
+        "Outcome Outbox is already being drained",
+      );
+    }
+    this.draining = true;
+    let acknowledged = 0;
+    try {
+      const entries = await this.store.listOutcomeReports();
+      if (!Array.isArray(entries)) {
+        throw new RinConfigurationError(
+          "invalid_outbox",
+          "Outcome Outbox must return an array",
+        );
+      }
+      for (const entry of entries) {
+        if (!isObject(entry) || !isObject(entry.commit)) {
+          throw new RinConfigurationError(
+            "invalid_outbox",
+            "Outcome Outbox entry must contain a Commit",
+          );
+        }
+        const commit = cloneProtocolObject(entry.commit);
+        requireIdentifier("request_id", commit.request_id);
+        requireIdentifier("event_id", commit.event_id);
+        const result = await this.client.commit(commit);
+        await this.store.acknowledgeOutcome(entry, result);
+        acknowledged++;
+      }
+      return acknowledged;
+    } finally {
+      this.draining = false;
+    }
+  }
+}
+
+export class OpaqueSnapshotPersistence {
+  constructor(store) {
+    requireMethods(store, ["putSnapshot", "getSnapshot"], "Snapshot store");
+    this.store = store;
+  }
+
+  async save(key, snapshot) {
+    const encoded = new TextEncoder().encode(serializeRequest(snapshot));
+    if (encoded.byteLength > INLINE_SNAPSHOT_MAX_BYTES) {
+      throw new RinProtocolError(
+        "snapshot_too_large",
+        "Complete Snapshot exceeds the 16 MiB inline limit",
+      );
+    }
+    await this.store.putSnapshot(key, encoded.slice());
+  }
+
+  async load(key) {
+    const stored = await this.store.getSnapshot(key);
+    if (!(stored instanceof Uint8Array)) {
+      throw new RinConfigurationError(
+        "invalid_snapshot_store",
+        "Snapshot store must return Uint8Array",
+      );
+    }
+    if (stored.byteLength > INLINE_SNAPSHOT_MAX_BYTES) {
+      throw new RinProtocolError(
+        "snapshot_too_large",
+        "Stored Snapshot exceeds the 16 MiB inline limit",
+      );
+    }
+    let decoded;
+    try {
+      decoded = new TextDecoder("utf-8", { fatal: true }).decode(stored);
+    } catch (cause) {
+      throw new RinProtocolError("invalid_snapshot", "Stored Snapshot is not UTF-8", { cause });
+    }
+    let snapshot;
+    try {
+      snapshot = JSON.parse(decoded);
+    } catch (cause) {
+      throw new RinProtocolError("invalid_snapshot", "Stored Snapshot is not JSON", { cause });
+    }
+    if (!isObject(snapshot)) {
+      throw new RinProtocolError("invalid_snapshot", "Stored Snapshot must be an object");
+    }
+    validateRequestJSON(snapshot);
+    return snapshot;
+  }
 }
 
 export class RinClient {
@@ -388,6 +586,48 @@ function validateRequiredFeatures(features) {
     );
   }
   return [...new Set(features)];
+}
+
+function requireMethods(value, methods, label) {
+  if (!isObject(value) || methods.some((method) => typeof value[method] !== "function")) {
+    throw new RinConfigurationError(
+      "invalid_workflow_store",
+      `${label} must implement ${methods.join(", ")}`,
+    );
+  }
+}
+
+function requireIdentifier(field, value) {
+  if (!isProtocolIdentifier(value)) {
+    throw new RinConfigurationError(
+      "invalid_workflow",
+      `${field} must be a protocol identifier`,
+    );
+  }
+}
+
+function cloneProtocolObject(value) {
+  return JSON.parse(serializeRequest(value));
+}
+
+function validateProposalAttempt(value) {
+  if (!isObject(value) || value.version !== 1 || !isObject(value.request)) {
+    throw new RinConfigurationError(
+      "invalid_proposal_attempt",
+      "Durable Proposal Attempt is missing or malformed",
+    );
+  }
+  requireIdentifier("operation_id", value.operation_id);
+  requireIdentifier("request_id", value.request.request_id);
+  requireIdentifier("session_id", value.request.session_id);
+  if (typeof value.job_id !== "string" ||
+      (value.job_id.length !== 0 && !isProtocolIdentifier(value.job_id))) {
+    throw new RinConfigurationError(
+      "invalid_proposal_attempt",
+      "Durable Proposal Attempt job_id is malformed",
+    );
+  }
+  return cloneProtocolObject(value);
 }
 
 function serializeRequest(payload) {

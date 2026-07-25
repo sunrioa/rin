@@ -157,6 +157,95 @@ using (var typedProposalClient = new RinClient(
         "typed Proposal result discarded an additive field");
 }
 
+var workflowHandler = new RecordingHandler
+{
+    ResponseBodyFactory = request =>
+    {
+        var path = request.RequestUri?.AbsolutePath;
+        if (path == "/v1/jobs/propose")
+        {
+            return "{\"ok\":true,\"data\":{\"protocol_version\":\"rin.protocol/v1\"," +
+                "\"job_id\":\"job.workflow\",\"status\":\"queued\",\"duplicate\":false}}";
+        }
+        if (path == "/v1/jobs/job.workflow")
+        {
+            return "{\"ok\":true,\"data\":{\"protocol_version\":\"rin.protocol/v1\"," +
+                "\"job_id\":\"job.workflow\",\"session_id\":\"session.workflow\"," +
+                "\"request_id\":\"request.workflow\",\"status\":\"succeeded\"," +
+                "\"submitted_at\":\"2026-01-01T00:00:00Z\",\"duplicate\":false," +
+                "\"proposal\":{\"id\":\"proposal.workflow\"," +
+                "\"session_id\":\"session.workflow\",\"request_id\":\"request.workflow\"," +
+                "\"actor_id\":\"actor.workflow\",\"tick\":5,\"based_on_revision\":1," +
+                "\"based_on_head_hash\":\"\",\"created_revision\":2," +
+                "\"action\":{\"id\":\"talk\",\"kind\":\"dialogue\",\"description\":\"Talk\"}," +
+                "\"stance\":\"engage\",\"summary\":\"Talk\",\"rationale\":\"Useful\"," +
+                "\"status\":\"pending\"}}}";
+        }
+        return "{\"ok\":true,\"data\":{\"session_id\":\"session.workflow\"," +
+            "\"revision\":3,\"head_hash\":\"" + new string('a', 64) +
+            "\",\"duplicate\":true}}";
+    },
+};
+using (var workflowClient = new RinClient(new RinClientOptions(), workflowHandler))
+{
+    var workflowStore = new TestAuthoritativeStore();
+    var coordinator = new ProposalAttemptCoordinator(workflowClient, workflowStore);
+    var proposeRequest = new ProposeRequest(
+        "session.workflow",
+        "request.workflow",
+        "actor.workflow",
+        "Talk",
+        new[] { new ActionSpecInput("talk", "dialogue", "Talk") });
+    await coordinator.BeginAsync("operation.workflow", proposeRequest);
+    var resolved = await coordinator.ResumeAsync(
+        TimeSpan.FromMilliseconds(100),
+        TimeSpan.FromMilliseconds(10));
+    Require(
+        workflowStore.Attempt?.JobId == "job.workflow",
+        "Proposal job identity was not persisted before polling");
+    var applied = 0;
+    await coordinator.SettleAsync(
+        resolved.Attempt,
+        resolved.Proposal,
+        new CommitRequest(
+            "session.workflow",
+            "commit.workflow",
+            "proposal.workflow",
+            "event.workflow",
+            true),
+        _ =>
+        {
+            applied++;
+            return ValueTask.CompletedTask;
+        });
+    Require(applied == 1, "authoritative apply callback did not run");
+    Require(workflowStore.Attempt is null, "settled Proposal Attempt was retained");
+    Require(workflowStore.Outcomes.Count == 1, "settlement did not create Outbox entry");
+
+    var outbox = new OutcomeOutbox(workflowClient, workflowStore);
+    Require(await outbox.DrainAsync() == 1, "Outcome Outbox did not drain");
+    Require(workflowStore.Outcomes.Count == 0, "acknowledged Outcome was retained");
+}
+
+var opaqueStore = new TestOpaqueSnapshotStore();
+var opaquePersistence = new OpaqueSnapshotPersistence(opaqueStore);
+await opaquePersistence.SaveAsync(
+    "slot.workflow",
+    new Dictionary<string, object?>
+    {
+        ["protocol_version"] = RinClient.ProtocolVersion,
+        ["state_hash"] = new string('a', 64),
+        ["future_additive"] = new Dictionary<string, object?>
+        {
+            ["nested"] = new object?[] { "preserved", 7 },
+        },
+    });
+var opaqueSnapshot = await opaquePersistence.LoadAsync("slot.workflow");
+Require(
+    opaqueSnapshot.GetProperty("future_additive")
+        .GetProperty("nested")[0].GetString() == "preserved",
+    "opaque Snapshot persistence discarded an additive field");
+
 var handler = new RecordingHandler();
 using var client = new RinClient(new RinClientOptions { Token = "fixture" }, handler);
 var payload = new Dictionary<string, object?>
@@ -820,6 +909,91 @@ sealed class RecordingHandler : HttpMessageHandler
         if (DeclaredLength.HasValue) content.Headers.ContentLength = DeclaredLength.Value;
         return new HttpResponseMessage(status) { Content = content };
     }
+}
+
+sealed class TestAuthoritativeStore : IProposalAttemptStore, IOutcomeOutboxStore
+{
+    public ProposalAttempt? Attempt { get; private set; }
+
+    public List<OutcomeOutboxEntry> Outcomes { get; } = new();
+
+    public ValueTask<ProposalAttempt?> LoadAsync(
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(Attempt);
+
+    public ValueTask SaveAsync(
+        ProposalAttempt attempt,
+        CancellationToken cancellationToken = default)
+    {
+        Attempt = attempt;
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask<bool> CreateAsync(
+        ProposalAttempt attempt,
+        CancellationToken cancellationToken = default)
+    {
+        if (Attempt is not null)
+        {
+            return ValueTask.FromResult(false);
+        }
+        Attempt = attempt;
+        return ValueTask.FromResult(true);
+    }
+
+    public async ValueTask SettleAsync(
+        ProposalAttempt attempt,
+        ActionProposal proposal,
+        CommitRequest commit,
+        Func<CancellationToken, ValueTask> apply,
+        CancellationToken cancellationToken = default)
+    {
+        if (Attempt != attempt)
+        {
+            throw new InvalidOperationException(
+                "settlement did not use the stored Attempt");
+        }
+        await apply(cancellationToken);
+        Outcomes.Add(new OutcomeOutboxEntry("outcome.workflow", commit));
+        Attempt = null;
+    }
+
+    public ValueTask<IReadOnlyList<OutcomeOutboxEntry>> ListAsync(
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult<IReadOnlyList<OutcomeOutboxEntry>>(Outcomes.ToArray());
+
+    public ValueTask AcknowledgeAsync(
+        OutcomeOutboxEntry entry,
+        MutationResult result,
+        CancellationToken cancellationToken = default)
+    {
+        if (!result.Duplicate)
+        {
+            throw new InvalidOperationException(
+                "test expected an exact duplicate acknowledgement");
+        }
+        Outcomes.Remove(entry);
+        return ValueTask.CompletedTask;
+    }
+}
+
+sealed class TestOpaqueSnapshotStore : IOpaqueSnapshotStore
+{
+    private byte[] value = Array.Empty<byte>();
+
+    public ValueTask PutAsync(
+        string key,
+        byte[] snapshot,
+        CancellationToken cancellationToken = default)
+    {
+        value = snapshot.ToArray();
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask<byte[]> GetAsync(
+        string key,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(value.ToArray());
 }
 
 static class TransferFixture

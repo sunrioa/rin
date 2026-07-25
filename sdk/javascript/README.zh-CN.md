@@ -22,6 +22,16 @@ Outcome Reporting preset 时 Fail Closed。请用 `createRinId("request")` 与
 `CreateSessionRequest`、`ProposeRequest`、`ProposalResult`、
 `CommitRequest` 和 `MutationResult` 类型；响应类型会容忍未来新增字段。
 
+对于崩溃安全的游戏集成，`ProposalAttemptCoordinator` 会在提交前持久化完整
+Request，并恢复完全相同的 Job/Request 身份。其 Store 的
+`settleProposalAttempt` hook 必须在同一个权威事务中应用游戏效果、写入
+Applied Marker 与完整 Commit Outbox 项，并删除 Attempt。
+`OutcomeOutbox.drain()` 只有在 Rin 返回普通成功或明确 duplicate 成功后才删除
+项目。这些都是存储接口；SDK 不提供会误用于生产的内存默认实现。
+
+`OpaqueSnapshotPersistence` 保存有界 UTF-8 JSON 字节，并返回包含当前 SDK
+未知新增字段的完整对象。注入的 Store 必须按 Event Log 同等级别保护 Snapshot。
+
 从当前 Checkout 直接运行：
 
 ```bash

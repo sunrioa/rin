@@ -5,7 +5,10 @@ import test from "node:test";
 import {
   DEFAULT_MAX_RESPONSE_BYTES,
   FEATURE_PRESETS,
+  OpaqueSnapshotPersistence,
+  OutcomeOutbox,
   PROTOCOL_VERSION,
+  ProposalAttemptCoordinator,
   RinAPIError,
   RinClient,
   RinConfigurationError,
@@ -64,6 +67,146 @@ test("capability negotiation requires protocol and authoritative features", asyn
     client.negotiateCapabilities([]),
     (error) => error instanceof RinProtocolError && error.code === "protocol_mismatch",
   );
+});
+
+test("Proposal Attempt settles game effect and Outbox atomically", async () => {
+  let attempt = null;
+  const outbox = [];
+  let applied = 0;
+  const store = {
+    async loadProposalAttempt() { return attempt; },
+    async createProposalAttempt(value) {
+      if (attempt) return false;
+      attempt = structuredClone(value);
+      return true;
+    },
+    async saveProposalAttempt(value) { attempt = structuredClone(value); },
+    async settleProposalAttempt(input) {
+      assert.equal(input.attempt.operation_id, "operation.fixture");
+      await input.apply();
+      outbox.push({ key: "outcome.fixture", commit: structuredClone(input.commit) });
+      attempt = null;
+    },
+  };
+  let poll = 0;
+  const client = new RinClient(undefined, {
+    fetch: async (url) => {
+      const path = new URL(url).pathname;
+      if (path === "/v1/jobs/propose") {
+        return response(202, {
+          ok: true,
+          data: {
+            protocol_version: PROTOCOL_VERSION,
+            job_id: "job.fixture",
+            status: "queued",
+            duplicate: false,
+          },
+        });
+      }
+      poll++;
+      return response(200, {
+        ok: true,
+        data: proposalJob("succeeded", { proposal: proposal() }),
+      });
+    },
+    sleep: async () => {},
+  });
+  const coordinator = new ProposalAttemptCoordinator(client, store);
+  const request = {
+    protocol_version: PROTOCOL_VERSION,
+    session_id: "session.fixture",
+    request_id: "request.fixture",
+    actor_id: "actor.fixture",
+    intent: "Talk",
+    candidate_actions: [{ id: "talk", kind: "dialogue", description: "Talk" }],
+  };
+  await coordinator.begin("operation.fixture", request);
+  request.intent = "mutated after persistence";
+  assert.equal(attempt.request.intent, "Talk");
+  const resolved = await coordinator.resume({ deadlineMs: 50, intervalMs: 10 });
+  assert.equal(poll, 1);
+  assert.equal(attempt.job_id, "job.fixture");
+  await coordinator.settle(
+    resolved.attempt,
+    resolved.proposal,
+    {
+      protocol_version: PROTOCOL_VERSION,
+      session_id: "session.fixture",
+      request_id: "commit.fixture",
+      proposal_id: "proposal.fixture",
+      event_id: "event.fixture",
+      accepted: true,
+    },
+    async () => { applied++; },
+  );
+  assert.equal(applied, 1);
+  assert.equal(attempt, null);
+  assert.equal(outbox.length, 1);
+});
+
+test("Outcome Outbox acknowledges only confirmed exact Commit success", async () => {
+  const entries = [{
+    key: "outcome.fixture",
+    commit: {
+      protocol_version: PROTOCOL_VERSION,
+      session_id: "session.fixture",
+      request_id: "commit.fixture",
+      proposal_id: "proposal.fixture",
+      event_id: "event.fixture",
+      accepted: false,
+    },
+  }];
+  let fail = true;
+  const client = new RinClient(undefined, {
+    fetch: async () => fail
+      ? response(500, {
+        ok: false,
+        error: { code: "mutation_outcome_unknown", message: "Unknown" },
+      })
+      : response(200, {
+        ok: true,
+        data: {
+          session_id: "session.fixture",
+          revision: 3,
+          head_hash: "a".repeat(64),
+          duplicate: true,
+        },
+      }),
+  });
+  const store = {
+    async listOutcomeReports() { return entries.slice(); },
+    async acknowledgeOutcome(entry, result) {
+      assert.equal(result.duplicate, true);
+      entries.splice(entries.indexOf(entry), 1);
+    },
+  };
+  const outbox = new OutcomeOutbox(client, store);
+  await assert.rejects(
+    outbox.drain(),
+    (error) => error instanceof RinAPIError && error.code === "mutation_outcome_unknown",
+  );
+  assert.equal(entries.length, 1);
+  fail = false;
+  assert.equal(await outbox.drain(), 1);
+  assert.equal(entries.length, 0);
+});
+
+test("opaque Snapshot persistence retains additive fields and exact stored bytes", async () => {
+  let stored;
+  const persistence = new OpaqueSnapshotPersistence({
+    async putSnapshot(_key, value) { stored = value.slice(); },
+    async getSnapshot() { return stored.slice(); },
+  });
+  const snapshot = {
+    protocol_version: PROTOCOL_VERSION,
+    state_hash: "a".repeat(64),
+    future_additive: { nested: ["preserved", 7] },
+  };
+  await persistence.save("slot.fixture", snapshot);
+  const exact = new TextDecoder().decode(stored);
+  const restored = await persistence.load("slot.fixture");
+  assert.deepEqual(restored.future_additive, snapshot.future_additive);
+  assert.equal(JSON.stringify(restored), exact);
 });
 
 function response(status, envelope, headers = {}) {
