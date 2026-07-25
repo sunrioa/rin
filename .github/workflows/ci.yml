@@ -11,8 +11,8 @@ jobs:
   contract:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.9"
       - name: Verify OpenAPI-generated contract and release projections
@@ -26,7 +26,7 @@ jobs:
       matrix:
         go: ["1.24.x", "1.26.x"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go }}
@@ -44,7 +44,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26.x"
@@ -87,8 +87,8 @@ jobs:
       matrix:
         python: ["3.9", "3.x"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
       - name: Test Python SDK
@@ -102,10 +102,11 @@ jobs:
       matrix:
         node: ["18", "24"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node }}
+          package-manager-cache: false
       - name: Test JavaScript SDK
         working-directory: sdk/javascript
         run: node --test
@@ -116,14 +117,15 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26.x"
           cache: true
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "18"
+          package-manager-cache: false
       - name: Install the playable JavaScript slice
         working-directory: examples/terminal-story
         run: npm ci --ignore-scripts --offline
@@ -149,8 +151,8 @@ jobs:
       matrix:
         java: ["17", "25"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: ${{ matrix.java }}
@@ -167,9 +169,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: gradle/actions/wrapper-validation@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v6
+      - uses: gradle/actions/wrapper-validation@v6
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
@@ -185,11 +187,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "6.0.x"
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - name: Test BepInEx packaging diagnostics
@@ -209,7 +211,7 @@ jobs:
         run: >-
           dotnet exec
           RinNpc.Core.Tests/bin/Debug/net6.0/RinNpc.Core.Tests.dll
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: bepinex-${{ runner.os }}
           path: examples/mods/bepinex-rin-npc/dist/*.zip
@@ -225,8 +227,8 @@ jobs:
           - dotnet: "10.0.x"
             framework: "net10.0"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: ${{ matrix.dotnet }}
       - name: Build and test C# SDK
@@ -245,7 +247,7 @@ jobs:
   sdk-lua:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Update package index for Lua
         run: sudo apt-get update
       - name: Install Lua
@@ -276,8 +278,8 @@ jobs:
             sha512: a6b02c527c18ba9936e63562032701432b2dc57d98d6483ceaccb00fe14af16af5773ae8a55e7b4d614edf121c4d9e420d870f804edb1dac16362298a01ce6c4
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
       - name: Download and verify Godot on Linux
@@ -307,11 +309,11 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "6.0.x"
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
       - name: Compile Unity package and test restart recovery
