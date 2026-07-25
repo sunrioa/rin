@@ -61,6 +61,34 @@ public sealed class RinClient : IDisposable
     public Task<JsonElement> HealthAsync(CancellationToken cancellationToken = default) =>
         RequestAsync(HttpMethod.Get, "/health", null, 200, cancellationToken);
 
+    public async Task<RinCapabilities> NegotiateCapabilitiesAsync(
+        IEnumerable<string>? requiredFeatures = null,
+        CancellationToken cancellationToken = default)
+    {
+        var required = requiredFeatures?.ToArray() ??
+            RinFeatures.AuthoritativePreset.ToArray();
+        if (required.Any(string.IsNullOrEmpty))
+        {
+            throw new RinConfigurationException(
+                "invalid_features",
+                "Required features must be non-empty strings");
+        }
+        var capabilities = RinCapabilities.FromHealth(
+            await HealthAsync(cancellationToken).ConfigureAwait(false));
+        var missing = required
+            .Distinct(StringComparer.Ordinal)
+            .Where(feature => !capabilities.Features.Contains(feature))
+            .ToArray();
+        if (missing.Length != 0)
+        {
+            throw new RinConfigurationException(
+                "missing_features",
+                "Rin does not support required features: " +
+                string.Join(", ", missing));
+        }
+        return capabilities;
+    }
+
     public Task<JsonElement> CreateSessionAsync(object payload, CancellationToken cancellationToken = default) =>
         PostAsync("/v1/session/create", payload, 200, cancellationToken);
 

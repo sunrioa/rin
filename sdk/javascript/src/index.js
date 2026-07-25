@@ -4,6 +4,20 @@ export const DEFAULT_BASE_URL = "http://127.0.0.1:7374";
 export const DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 export const TRANSFER_CONTROL_FRAME_MAX_BYTES = 32 * 1024;
 export const TRANSFER_EVENT_FRAME_MAX_BYTES = 64 * 1024 * 1024 + TRANSFER_CONTROL_FRAME_MAX_BYTES;
+export const RIN_FEATURES = Object.freeze({
+  memoryArchive: "memory-archive-v1",
+  beliefConflicts: "belief-conflicts-v1",
+  goalCandidates: "goal-candidates-v1",
+  actorActivity: "actor-activity-v1",
+  arbitration: "arbitration-v1",
+  outcomeReporting: "outcome-reporting-v1",
+});
+export const FEATURE_PRESETS = Object.freeze({
+  authoritative: Object.freeze([
+    RIN_FEATURES.outcomeReporting,
+  ]),
+  full: Object.freeze(Object.values(RIN_FEATURES)),
+});
 
 const MAX_GENERATION_CONTENT_BYTES = 4 * 1024 * 1024;
 const PROTOCOL_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/;
@@ -27,6 +41,26 @@ export class RinAPIError extends RinError {
     this.status = Number(status) || 0;
     this.field = safeText(field, 160);
   }
+}
+
+export function createRinId(prefix = "id", randomBytes = secureRandomBytes) {
+  if (typeof prefix !== "string" || !PROTOCOL_IDENTIFIER.test(prefix) || prefix.length > 63) {
+    throw new RinConfigurationError(
+      "invalid_id_prefix",
+      "ID prefix must be a protocol identifier no longer than 63 characters",
+    );
+  }
+  if (typeof randomBytes !== "function") {
+    throw new RinConfigurationError("invalid_random_source", "randomBytes must be a function");
+  }
+  const bytes = randomBytes(16);
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength !== 16) {
+    throw new RinConfigurationError(
+      "invalid_random_source",
+      "randomBytes must return exactly 16 bytes",
+    );
+  }
+  return `${prefix}.${Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")}`;
 }
 
 export class RinClient {
@@ -59,6 +93,32 @@ export class RinClient {
   }
 
   health() { return this.request("GET", "/health"); }
+  async negotiateCapabilities(requiredFeatures = FEATURE_PRESETS.authoritative) {
+    const required = validateRequiredFeatures(requiredFeatures);
+    const health = await this.health();
+    if (health.protocol_version !== PROTOCOL_VERSION) {
+      throw new RinProtocolError(
+        "protocol_mismatch",
+        `Rin reports protocol ${safeText(health.protocol_version, 96) || "unknown"}`,
+      );
+    }
+    if (!Array.isArray(health.features) ||
+        health.features.some((feature) => typeof feature !== "string")) {
+      throw new RinProtocolError(
+        "invalid_health",
+        "Rin health features must be an array of strings",
+      );
+    }
+    const available = new Set(health.features);
+    const missing = required.filter((feature) => !available.has(feature));
+    if (missing.length !== 0) {
+      throw new RinConfigurationError(
+        "missing_features",
+        `Rin does not support required features: ${missing.join(", ")}`,
+      );
+    }
+    return health;
+  }
   createSession(payload) { return this.post("/v1/session/create", payload); }
   observe(payload) { return this.post("/v1/session/observe", payload); }
   propose(payload) { return this.post("/v1/agent/propose", payload); }
@@ -304,6 +364,30 @@ export class RinClient {
       clearTimeout(timer);
     }
   }
+}
+
+function secureRandomBytes(length) {
+  const crypto = globalThis.crypto;
+  if (!crypto || typeof crypto.getRandomValues !== "function") {
+    throw new RinConfigurationError(
+      "secure_random_unavailable",
+      "Web Crypto getRandomValues is required to create Rin IDs",
+    );
+  }
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return bytes;
+}
+
+function validateRequiredFeatures(features) {
+  if (!Array.isArray(features) ||
+      features.some((feature) => typeof feature !== "string" || feature.length === 0)) {
+    throw new RinConfigurationError(
+      "invalid_features",
+      "required features must be an array of non-empty strings",
+    );
+  }
+  return [...new Set(features)];
 }
 
 function serializeRequest(payload) {

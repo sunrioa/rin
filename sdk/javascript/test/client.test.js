@@ -4,11 +4,13 @@ import test from "node:test";
 
 import {
   DEFAULT_MAX_RESPONSE_BYTES,
+  FEATURE_PRESETS,
   PROTOCOL_VERSION,
   RinAPIError,
   RinClient,
   RinConfigurationError,
   RinProtocolError,
+  createRinId,
   SDK_VERSION,
 } from "../src/index.js";
 
@@ -16,6 +18,52 @@ test("default response limit matches the inline transport budget", () => {
   assert.equal(DEFAULT_MAX_RESPONSE_BYTES, 32 * 1024 * 1024);
   const client = new RinClient(undefined, { fetch: () => {} });
   assert.equal(client.maxResponseBytes, DEFAULT_MAX_RESPONSE_BYTES);
+});
+
+test("stable ID helper is protocol-safe and validates its entropy source", () => {
+  const value = createRinId("commit", (length) => {
+    assert.equal(length, 16);
+    return Uint8Array.from({ length }, (_, index) => index);
+  });
+  assert.equal(value, "commit.000102030405060708090a0b0c0d0e0f");
+  assert.match(value, /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/);
+  assert.throws(
+    () => createRinId("bad prefix", () => new Uint8Array(16)),
+    (error) => error instanceof RinConfigurationError && error.code === "invalid_id_prefix",
+  );
+  assert.throws(
+    () => createRinId("request", () => new Uint8Array(15)),
+    (error) => error instanceof RinConfigurationError && error.code === "invalid_random_source",
+  );
+});
+
+test("capability negotiation requires protocol and authoritative features", async () => {
+  let data = {
+    status: "ok",
+    protocol_version: PROTOCOL_VERSION,
+    release_version: SDK_VERSION,
+    release_status: "preview",
+    policy_mode: "deterministic",
+    async_jobs: true,
+    structured_generation: true,
+    features: [...FEATURE_PRESETS.full],
+  };
+  const client = new RinClient(undefined, {
+    fetch: async () => response(200, { ok: true, data }),
+  });
+  const health = await client.negotiateCapabilities();
+  assert.equal(health.protocol_version, PROTOCOL_VERSION);
+
+  data = { ...data, features: [] };
+  await assert.rejects(
+    client.negotiateCapabilities(),
+    (error) => error instanceof RinConfigurationError && error.code === "missing_features",
+  );
+  data = { ...data, protocol_version: "rin.protocol/future" };
+  await assert.rejects(
+    client.negotiateCapabilities([]),
+    (error) => error instanceof RinProtocolError && error.code === "protocol_mismatch",
+  );
 });
 
 function response(status, envelope, headers = {}) {

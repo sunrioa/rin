@@ -16,9 +16,15 @@ using var rin = new RinClient(new RinClientOptions
     Token = Environment.GetEnvironmentVariable("RIN_TOKEN") ?? "",
 });
 
-var health = await rin.HealthAsync();
-Console.WriteLine(health.GetProperty("status").GetString());
+var capabilities = await rin.NegotiateCapabilitiesAsync();
+Console.WriteLine(capabilities.ReleaseVersion);
 ```
+
+Capability negotiation fails closed unless the Runtime speaks
+`rin.protocol/v1` and supports the authoritative outcome-reporting preset.
+Create stable identities once with `RinIds.Create("request")` and
+`RinIds.Create("event")`, persist them with the operation, and reuse them for
+every exact retry.
 
 Build the source project with:
 

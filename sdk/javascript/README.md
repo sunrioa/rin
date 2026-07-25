@@ -9,8 +9,14 @@ The package includes TypeScript declarations.
 import { RinClient } from "@sunrioa/rin-sdk";
 
 const rin = new RinClient("http://127.0.0.1:7374");
-console.log(await rin.health());
+const capabilities = await rin.negotiateCapabilities();
+console.log(capabilities.release_version);
 ```
+
+`negotiateCapabilities()` fails closed unless the Runtime speaks
+`rin.protocol/v1` and supports the authoritative outcome-reporting preset.
+Use `createRinId("request")` and `createRinId("event")` once, persist the
+result with the operation, and reuse it for every exact retry.
 
 Run directly from this checkout:
 

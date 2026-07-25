@@ -7,6 +7,77 @@ Require(
     new RinClientOptions().MaxResponseBytes == 32 * 1024 * 1024,
     "default response limit does not match the inline transport budget");
 Require(RinClient.ClientVersion == "0.6.0", "client version projection is stale");
+var stableId = RinIds.Create("commit");
+Require(
+    stableId.StartsWith("commit.", StringComparison.Ordinal) &&
+    stableId.Length == "commit.".Length + 32,
+    "stable ID helper did not produce a protocol-safe identifier");
+try
+{
+    RinIds.Create("bad prefix");
+    throw new InvalidOperationException("invalid ID prefix was accepted");
+}
+catch (RinConfigurationException exception)
+{
+    Require(exception.Code == "invalid_id_prefix", "invalid ID prefix code changed");
+}
+
+var capabilityHandler = new RecordingHandler
+{
+    ResponseBodyFactory = _ => JsonSerializer.Serialize(new
+    {
+        ok = true,
+        data = new
+        {
+            status = "ok",
+            protocol_version = RinClient.ProtocolVersion,
+            release_version = RinClient.ClientVersion,
+            release_status = "preview",
+            policy_mode = "deterministic",
+            async_jobs = true,
+            structured_generation = true,
+            features = RinFeatures.FullPreset,
+        },
+    }),
+};
+using (var capabilityClient = new RinClient(new RinClientOptions(), capabilityHandler))
+{
+    var capabilities = await capabilityClient.NegotiateCapabilitiesAsync();
+    Require(
+        capabilities.Features.Contains(RinFeatures.OutcomeReporting),
+        "authoritative feature negotiation lost outcome reporting");
+}
+
+var missingFeatureHandler = new RecordingHandler
+{
+    ResponseBodyFactory = _ => JsonSerializer.Serialize(new
+    {
+        ok = true,
+        data = new
+        {
+            status = "ok",
+            protocol_version = RinClient.ProtocolVersion,
+            release_version = RinClient.ClientVersion,
+            release_status = "preview",
+            policy_mode = "deterministic",
+            async_jobs = true,
+            structured_generation = true,
+            features = Array.Empty<string>(),
+        },
+    }),
+};
+using (var missingFeatureClient = new RinClient(new RinClientOptions(), missingFeatureHandler))
+{
+    try
+    {
+        await missingFeatureClient.NegotiateCapabilitiesAsync();
+        throw new InvalidOperationException("missing authoritative feature was accepted");
+    }
+    catch (RinConfigurationException exception)
+    {
+        Require(exception.Code == "missing_features", "missing feature code changed");
+    }
+}
 
 var handler = new RecordingHandler();
 using var client = new RinClient(new RinClientOptions { Token = "fixture" }, handler);

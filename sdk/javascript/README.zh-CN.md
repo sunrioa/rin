@@ -9,8 +9,14 @@ TypeScript 声明。
 import { RinClient } from "@sunrioa/rin-sdk";
 
 const rin = new RinClient("http://127.0.0.1:7374");
-console.log(await rin.health());
+const capabilities = await rin.negotiateCapabilities();
+console.log(capabilities.release_version);
 ```
+
+`negotiateCapabilities()` 会在 Runtime 不是 `rin.protocol/v1` 或不支持权威
+Outcome Reporting preset 时 Fail Closed。请用 `createRinId("request")` 与
+`createRinId("event")` 生成一次 ID，将其随操作持久化，并在每次 exact retry
+中复用。
 
 从当前 Checkout 直接运行：
 

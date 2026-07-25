@@ -16,9 +16,14 @@ using var rin = new RinClient(new RinClientOptions
     Token = Environment.GetEnvironmentVariable("RIN_TOKEN") ?? "",
 });
 
-var health = await rin.HealthAsync();
-Console.WriteLine(health.GetProperty("status").GetString());
+var capabilities = await rin.NegotiateCapabilitiesAsync();
+Console.WriteLine(capabilities.ReleaseVersion);
 ```
+
+能力协商会在 Runtime 不是 `rin.protocol/v1` 或不支持权威 Outcome Reporting
+preset 时 Fail Closed。请通过 `RinIds.Create("request")` 和
+`RinIds.Create("event")` 生成一次稳定 ID，将其随操作持久化，并在每次 exact
+retry 中复用。
 
 构建并运行源码测试：
 

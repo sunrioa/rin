@@ -4,6 +4,18 @@ export const DEFAULT_BASE_URL: string;
 export const DEFAULT_MAX_RESPONSE_BYTES: number;
 export const TRANSFER_CONTROL_FRAME_MAX_BYTES: number;
 export const TRANSFER_EVENT_FRAME_MAX_BYTES: number;
+export const RIN_FEATURES: Readonly<{
+  memoryArchive: "memory-archive-v1";
+  beliefConflicts: "belief-conflicts-v1";
+  goalCandidates: "goal-candidates-v1";
+  actorActivity: "actor-activity-v1";
+  arbitration: "arbitration-v1";
+  outcomeReporting: "outcome-reporting-v1";
+}>;
+export const FEATURE_PRESETS: Readonly<{
+  authoritative: readonly ["outcome-reporting-v1"];
+  full: readonly string[];
+}>;
 
 export type RinObject = Record<string, unknown>;
 export type FetchImplementation = typeof globalThis.fetch;
@@ -46,10 +58,16 @@ export class RinAPIError extends RinError {
   readonly field: string;
 }
 
+export function createRinId(
+  prefix?: string,
+  randomBytes?: (length: number) => Uint8Array,
+): string;
+
 export class RinClient {
   constructor(baseUrl?: string, options?: RinClientOptions);
   readonly baseUrl: string;
   health(): Promise<RinObject>;
+  negotiateCapabilities(requiredFeatures?: readonly string[]): Promise<RinObject>;
   createSession(payload: RinObject): Promise<RinObject>;
   observe(payload: RinObject): Promise<RinObject>;
   propose(payload: RinObject): Promise<RinObject>;
