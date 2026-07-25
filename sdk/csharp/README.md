@@ -30,13 +30,15 @@ OpenAPI-aligned models and typed overloads cover the authoritative
 create/propose/commit path. `MutationResult` and `ProposalResult` retain
 additive response fields through `AdditiveFields`.
 
-`ProposalAttemptCoordinator` and `OutcomeOutbox` provide the same crash-safe
-authoritative workflow as the protocol guide. Implement
-`IProposalAttemptStore.SettleAsync` as one game transaction that applies the
-effect, writes the applied marker and exact Commit Outbox entry, and removes
-the Attempt. Implement `IOutcomeOutboxStore` with durable storage; entries are
+`WorkflowCoordinator` combines the compatible `ProposalAttemptCoordinator` and
+`OutcomeOutbox` primitives behind `BeginAsync`, `ResumePendingWorkAsync`,
+`ApplyAndEnqueueOutcomeAsync`, and `DrainOutboxAsync`. Supply an
+`IWorkflowStore` and validated `HostCapabilities`. An idempotent apply receives
+the stable operation ID; only `transactional-action` calls
+`IProposalAttemptStore.SettleAsync` as one game transaction. Entries are
 acknowledged only after normal or explicit duplicate Commit success. The SDK
-does not ship an in-memory production default.
+does not ship an in-memory production default. See
+[Host capability profiles](../../docs/host-capability-profiles.md).
 
 `OpaqueSnapshotPersistence` stores bounded JSON bytes through
 `IOpaqueSnapshotStore` and loads a complete `JsonElement`, preserving additive

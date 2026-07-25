@@ -24,6 +24,14 @@ rin.health().thenAccept(data -> System.out.println(data.get("status")));
 `CompletableFuture`; schedule any Minecraft or other engine mutation back on
 the owning game thread.
 
+`WorkflowCoordinator` owns the reusable Pending Turn, Job recovery, settlement,
+and Outcome Outbox state machine. Supply a persistent `WorkflowStore` and a
+validated `HostCapabilities` value. `idempotent-action` apply callbacks receive
+the stable operation ID; `transactional-action` delegates apply and enqueue to
+one host transaction. An `advisory` host cannot offer actions that require
+either stronger profile. See
+[Host capability profiles](../../docs/host-capability-profiles.md).
+
 Compile the SDK and its dependency-free smoke test with JDK 17:
 
 ```bash

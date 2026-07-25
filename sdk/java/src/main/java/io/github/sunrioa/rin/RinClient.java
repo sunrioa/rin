@@ -333,7 +333,7 @@ public final class RinClient {
                 isNonnegativeJsonSafeInteger(proposal.get("tick"));
     }
 
-    private static boolean isProtocolIdentifier(Object value) {
+    static boolean isProtocolIdentifier(Object value) {
         if (!(value instanceof String text) || text.isEmpty() || text.length() > 96) return false;
         char first = text.charAt(0);
         if (!isAsciiLetterOrDigit(first)) return false;
@@ -392,7 +392,7 @@ public final class RinClient {
                 content.getBytes(StandardCharsets.UTF_8).length <= MAX_GENERATION_CONTENT_BYTES;
     }
 
-    private static void validateRequestJson(Object value) {
+    static void validateRequestJson(Object value) {
         validateRequestJson(value, 0, new IdentityHashMap<>());
     }
 

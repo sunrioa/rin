@@ -77,15 +77,17 @@ then persist the Job ID immediately after `202`. Resume that record before any
 new turn or fallback. Clear it only in the same authoritative transaction that
 stores the game result, applied marker, and Outcome Outbox entry.
 
-The priority JavaScript/TypeScript and C# SDKs expose
-`ProposalAttemptCoordinator`, a pluggable `OutcomeOutbox`, and opaque Snapshot
-persistence helpers for this lifecycle. They deliberately define durable
-storage contracts instead of shipping an in-memory production default. The
-settlement hook is the transaction boundary: it must apply the game effect,
-persist the applied marker and exact Commit, and remove the Attempt atomically.
-Outbox drain acknowledges only a normal success or Rin's explicit exact-
-duplicate success; any transport, uncertainty, or conflict error leaves the
-entry intact.
+The JavaScript/TypeScript and C# SDKs retain their lower-level
+`ProposalAttemptCoordinator`, pluggable `OutcomeOutbox`, and opaque Snapshot
+persistence helpers. JavaScript/TypeScript, C#, and Java also expose a
+higher-level `WorkflowCoordinator` that validates the declared Host Capability
+Profile before applying an action. They deliberately define storage contracts
+instead of shipping an in-memory production default. A transactional settlement
+hook must apply the game effect, persist the applied marker and exact Commit,
+and remove the Pending Turn atomically. Idempotent hosts instead receive the
+stable operation ID before the Store completes the report transaction. Outbox
+drain acknowledges only a normal success or Rin's explicit exact-duplicate
+success; any transport, uncertainty, or conflict error leaves the entry intact.
 
 Provider failure inside a confirmed Sidecar Proposal operation can use Rin's
 deterministic Policy. Sidecar submit/poll/cancel uncertainty is different and

@@ -31,3 +31,9 @@ end)
 
 Callback 约定为 `(data, error)`。网络工作保持异步；只能从引擎拥有的线程
 应用白名单动作。
+
+可移植 Lua Client 有意只提供 Transport，因此声明为 `advisory`。不同 Lua
+宿主的调度、存储刷盘与事务行为差异很大；复制一份通用 Coordinator 会暗示
+SDK 无法兑现的保证。只有加入按 Operation ID 工作的持久 Bridge，并满足
+[宿主能力契约](../../docs/host-capability-profiles.zh-CN.md)后，具体宿主才能
+声明更强 Profile。

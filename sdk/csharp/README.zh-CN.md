@@ -29,11 +29,15 @@ retry 中复用。
 流程。`MutationResult` 与 `ProposalResult` 会通过 `AdditiveFields` 保留未来
 新增的响应字段。
 
-`ProposalAttemptCoordinator` 与 `OutcomeOutbox` 实现协议指南中的崩溃安全
-权威流程。请把 `IProposalAttemptStore.SettleAsync` 实现为一个游戏事务：
-应用效果、写入 Applied Marker 与完整 Commit Outbox 项，并删除 Attempt。
-`IOutcomeOutboxStore` 必须使用持久存储；只有普通成功或明确 duplicate Commit
-成功后才能确认项目。SDK 不提供会误用于生产的内存默认实现。
+`WorkflowCoordinator` 把兼容保留的 `ProposalAttemptCoordinator` 与
+`OutcomeOutbox` 组合为 `BeginAsync`、`ResumePendingWorkAsync`、
+`ApplyAndEnqueueOutcomeAsync` 和 `DrainOutboxAsync`。接入方提供
+`IWorkflowStore` 与已校验的 `HostCapabilities`。幂等 Apply 会收到稳定
+Operation ID；只有 `transactional-action` 才把
+`IProposalAttemptStore.SettleAsync` 当作一个游戏事务调用。只有普通成功或
+明确 duplicate Commit 成功后才能确认 Outbox 项。SDK 不提供会误用于生产的
+内存默认实现。参见
+[宿主能力分级](../../docs/host-capability-profiles.zh-CN.md)。
 
 `OpaqueSnapshotPersistence` 通过 `IOpaqueSnapshotStore` 保存有界 JSON 字节，
 并加载完整 `JsonElement`，保留当前 SDK 版本未知的新增 Member。

@@ -206,6 +206,13 @@ initial connection was refused), and marks it `committable=false`. A submit,
 poll, timeout, or cancellation with an unconfirmed outcome fails closed; the
 game must not send a local `offline.*` ID to `/commit`.
 
+JavaScript, C#, and Java `WorkflowCoordinator` implementations own this
+protocol-generic Pending Turn state machine, but they cannot create a storage
+guarantee. Before apply, they enforce the integration's declared
+[host capability profile](host-capability-profiles.md). The host still owns
+stable identity, persistence, action validation, engine-thread dispatch, and
+the world mutation.
+
 The Ren'Py worker registry, Godot `HTTPRequest`, and Unity coroutines exist
 only in process memory. A game save stores snapshots and plain results, never
 threads, futures, sockets, HTTP objects, or API tokens.

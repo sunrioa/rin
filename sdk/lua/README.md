@@ -31,3 +31,10 @@ end)
 
 The callback convention is `(data, error)`. Network work remains asynchronous;
 only apply allowlisted actions from the engine's owning thread.
+
+The portable Lua client deliberately remains transport-only and therefore
+declares `advisory`. Lua hosts differ in scheduling, storage flush, and
+transaction behavior; copy-pasting a generic coordinator would imply
+guarantees the SDK cannot enforce. A host may add an operation-keyed durable
+bridge and declare a stronger profile only after satisfying the
+[host capability contract](../../docs/host-capability-profiles.md).

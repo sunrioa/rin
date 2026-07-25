@@ -154,9 +154,24 @@ public sealed class ProposalAttemptCoordinator
         CancellationToken cancellationToken = default)
     {
         attempt = ValidateAttempt(attempt);
+        ArgumentNullException.ThrowIfNull(apply);
+        ValidateSettlement(attempt, proposal, commit);
+        return store.SettleAsync(
+            attempt,
+            proposal,
+            commit,
+            apply,
+            cancellationToken);
+    }
+
+    internal static void ValidateSettlement(
+        ProposalAttempt attempt,
+        ActionProposal proposal,
+        CommitRequest commit)
+    {
+        attempt = ValidateAttempt(attempt);
         ArgumentNullException.ThrowIfNull(proposal);
         ArgumentNullException.ThrowIfNull(commit);
-        ArgumentNullException.ThrowIfNull(apply);
         if (proposal.SessionId != attempt.Request.SessionId ||
             proposal.RequestId != attempt.Request.RequestId ||
             commit.SessionId != attempt.Request.SessionId ||
@@ -168,12 +183,6 @@ public sealed class ProposalAttemptCoordinator
         }
         RequireIdentifier("request_id", commit.RequestId);
         RequireIdentifier("event_id", commit.EventId);
-        return store.SettleAsync(
-            attempt,
-            proposal,
-            commit,
-            apply,
-            cancellationToken);
     }
 
     private static ProposalAttempt ValidateAttempt(ProposalAttempt? attempt)

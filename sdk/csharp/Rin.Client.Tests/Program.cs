@@ -227,6 +227,80 @@ using (var workflowClient = new RinClient(new RinClientOptions(), workflowHandle
     var outbox = new OutcomeOutbox(workflowClient, workflowStore);
     Require(await outbox.DrainAsync() == 1, "Outcome Outbox did not drain");
     Require(workflowStore.Outcomes.Count == 0, "acknowledged Outcome was retained");
+
+    try
+    {
+        _ = new HostCapabilities(
+            1,
+            HostProfile.TransactionalAction,
+            false,
+            false,
+            false,
+            false,
+            false).Validate();
+        throw new InvalidOperationException("inflated host capability claim was accepted");
+    }
+    catch (RinConfigurationException exception)
+    {
+        Require(
+            exception.Code == "invalid_host_capabilities",
+            "invalid host capability returned the wrong code");
+    }
+
+    var idempotentStore = new TestAuthoritativeStore();
+    var workflow = new WorkflowCoordinator(
+        workflowClient,
+        idempotentStore,
+        HostCapabilities.IdempotentAction());
+    var pendingTurn = await workflow.BeginAsync("operation.workflow", proposeRequest);
+    var appliedOperation = "";
+    await workflow.ApplyAndEnqueueOutcomeAsync(
+        pendingTurn,
+        resolved.Proposal,
+        new CommitRequest(
+            "session.workflow",
+            "commit.workflow",
+            "proposal.workflow",
+            "event.workflow",
+            true),
+        HostProfile.IdempotentAction,
+        (operationId, _) =>
+        {
+            appliedOperation = operationId;
+            return ValueTask.CompletedTask;
+        });
+    Require(
+        appliedOperation == "operation.workflow",
+        "idempotent apply did not receive the stable operation ID");
+    Require(idempotentStore.Attempt is null, "completed Pending Turn was retained");
+    Require(idempotentStore.Outcomes.Count == 1, "completed Pending Turn was not enqueued");
+    Require(await workflow.DrainOutboxAsync() == 1, "Workflow Outbox did not drain");
+
+    var failedRequest = proposeRequest with { RequestId = "request.failed" };
+    var failedTurn = await workflow.BeginAsync("operation.failed", failedRequest);
+    try
+    {
+        await workflow.ApplyAndEnqueueOutcomeAsync(
+            failedTurn,
+            resolved.Proposal with { RequestId = "request.failed" },
+            new CommitRequest(
+                "session.workflow",
+                "commit.failed",
+                "proposal.workflow",
+                "event.failed",
+                true),
+            HostProfile.IdempotentAction,
+            (_, _) => throw new InvalidOperationException("game save failed"));
+        throw new InvalidOperationException("failed apply was accepted");
+    }
+    catch (InvalidOperationException exception)
+    {
+        Require(exception.Message == "game save failed", "failed apply changed error");
+    }
+    Require(
+        idempotentStore.Attempt?.OperationId == "operation.failed",
+        "failed apply removed the Pending Turn");
+    Require(idempotentStore.Outcomes.Count == 0, "failed apply enqueued an Outcome");
 }
 
 var opaqueStore = new TestOpaqueSnapshotStore();
@@ -918,7 +992,7 @@ sealed class RecordingHandler : HttpMessageHandler
     }
 }
 
-sealed class TestAuthoritativeStore : IProposalAttemptStore, IOutcomeOutboxStore
+sealed class TestAuthoritativeStore : IWorkflowStore
 {
     public ProposalAttempt? Attempt { get; private set; }
 
@@ -963,6 +1037,22 @@ sealed class TestAuthoritativeStore : IProposalAttemptStore, IOutcomeOutboxStore
         await apply(cancellationToken);
         Outcomes.Add(new OutcomeOutboxEntry("outcome.workflow", commit));
         Attempt = null;
+    }
+
+    public ValueTask CompleteAsync(
+        ProposalAttempt attempt,
+        ActionProposal proposal,
+        CommitRequest commit,
+        CancellationToken cancellationToken = default)
+    {
+        if (Attempt != attempt)
+        {
+            throw new InvalidOperationException(
+                "completion did not use the stored Attempt");
+        }
+        Outcomes.Add(new OutcomeOutboxEntry("outcome.workflow", commit));
+        Attempt = null;
+        return ValueTask.CompletedTask;
     }
 
     public ValueTask<IReadOnlyList<OutcomeOutboxEntry>> ListAsync(

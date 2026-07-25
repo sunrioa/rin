@@ -261,12 +261,53 @@ export interface ProposalAttempt {
   job_id: string;
 }
 
-export interface ProposalAttemptStore {
+export type PendingTurn = ProposalAttempt;
+
+export type HostProfile =
+  | "advisory"
+  | "idempotent-action"
+  | "transactional-action";
+
+export const HOST_PROFILES: Readonly<{
+  advisory: "advisory";
+  idempotentAction: "idempotent-action";
+  transactionalAction: "transactional-action";
+}>;
+
+export interface HostCapabilityOptions {
+  version?: number;
+  profile?: HostProfile;
+  stableIdentity?: boolean;
+  durableBeforeNetwork?: boolean;
+  durableOutbox?: boolean;
+  idempotentApply?: boolean;
+  atomicApplyAndOutbox?: boolean;
+}
+
+export class HostCapabilities {
+  constructor(options?: HostCapabilityOptions);
+  readonly version: number;
+  readonly profile: HostProfile;
+  readonly stableIdentity: boolean;
+  readonly durableBeforeNetwork: boolean;
+  readonly durableOutbox: boolean;
+  readonly idempotentApply: boolean;
+  readonly atomicApplyAndOutbox: boolean;
+  require(requiredProfile: HostProfile): void;
+  static advisory(options?: HostCapabilityOptions): HostCapabilities;
+  static idempotentAction(options?: HostCapabilityOptions): HostCapabilities;
+  static transactionalAction(options?: HostCapabilityOptions): HostCapabilities;
+}
+
+export interface ProposalAttemptPersistence {
   loadProposalAttempt(): Promise<ProposalAttempt | null>;
   /** Atomically creates the Attempt; returns false when one already exists. */
   createProposalAttempt(attempt: ProposalAttempt): Promise<boolean>;
   /** Updates only the matching Attempt when persisting its Job identity. */
   saveProposalAttempt(attempt: ProposalAttempt): Promise<void>;
+}
+
+export interface ProposalAttemptStore extends ProposalAttemptPersistence {
   /**
    * Must atomically run apply, persist the applied marker and Commit in the
    * Outcome Outbox, and remove the matching Proposal Attempt.
@@ -276,6 +317,20 @@ export interface ProposalAttemptStore {
     proposal: ActionProposal;
     commit: CommitRequest;
     apply: () => void | Promise<void>;
+  }): Promise<void>;
+}
+
+export interface WorkflowStore extends ProposalAttemptPersistence, OutcomeOutboxStore {
+  settleProposalAttempt?(input: {
+    attempt: ProposalAttempt;
+    proposal: ActionProposal;
+    commit: CommitRequest;
+    apply: () => void | Promise<void>;
+  }): Promise<void>;
+  completeProposalAttempt?(input: {
+    attempt: ProposalAttempt;
+    proposal: ActionProposal;
+    commit: CommitRequest;
   }): Promise<void>;
 }
 
@@ -327,6 +382,25 @@ export class ProposalAttemptCoordinator {
 export class OutcomeOutbox {
   constructor(client: RinClient, store: OutcomeOutboxStore);
   drain(): Promise<number>;
+}
+
+export class WorkflowCoordinator {
+  constructor(client: RinClient, store: WorkflowStore, capabilities?: HostCapabilities);
+  readonly capabilities: HostCapabilities;
+  begin(operationId: string, request: ProposeRequest): Promise<ProposalAttempt>;
+  resumePendingWork(options?: RinPollingOptions): Promise<{
+    attempt: ProposalAttempt;
+    proposal: ActionProposal;
+    duplicate: boolean;
+  }>;
+  applyAndEnqueueOutcome(input: {
+    pendingTurn: ProposalAttempt;
+    proposal: ActionProposal;
+    commit: CommitRequest;
+    requiredProfile?: HostProfile;
+    apply(operationId: string): void | Promise<void>;
+  }): Promise<void>;
+  drainOutbox(): Promise<number>;
 }
 
 export class OpaqueSnapshotPersistence {

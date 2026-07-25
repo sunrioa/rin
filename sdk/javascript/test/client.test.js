@@ -5,6 +5,8 @@ import test from "node:test";
 import {
   DEFAULT_MAX_RESPONSE_BYTES,
   FEATURE_PRESETS,
+  HOST_PROFILES,
+  HostCapabilities,
   OpaqueSnapshotPersistence,
   OutcomeOutbox,
   PROTOCOL_VERSION,
@@ -13,6 +15,7 @@ import {
   RinClient,
   RinConfigurationError,
   RinProtocolError,
+  WorkflowCoordinator,
   createRinId,
   SDK_VERSION,
 } from "../src/index.js";
@@ -67,6 +70,142 @@ test("capability negotiation requires protocol and the safe baseline", async () 
   await assert.rejects(
     client.negotiateCapabilities([]),
     (error) => error instanceof RinProtocolError && error.code === "protocol_mismatch",
+  );
+});
+
+test("host capability profiles reject inflated durability claims", () => {
+  assert.throws(
+    () => new HostCapabilities({ profile: HOST_PROFILES.transactionalAction }),
+    (error) => error instanceof RinConfigurationError &&
+      error.code === "invalid_host_capabilities",
+  );
+  const advisory = HostCapabilities.advisory({ stableIdentity: true });
+  assert.throws(
+    () => advisory.require(HOST_PROFILES.idempotentAction),
+    (error) => error instanceof RinConfigurationError &&
+      error.code === "host_capability_insufficient",
+  );
+  HostCapabilities.transactionalAction().require(HOST_PROFILES.idempotentAction);
+});
+
+test("WorkflowCoordinator gives idempotent apply a stable operation ID", async () => {
+  let attempt = null;
+  const entries = [];
+  const store = {
+    async loadProposalAttempt() { return attempt; },
+    async createProposalAttempt(value) {
+      attempt = structuredClone(value);
+      return true;
+    },
+    async saveProposalAttempt(value) { attempt = structuredClone(value); },
+    async completeProposalAttempt(input) {
+      entries.push({ key: "outcome.workflow", commit: structuredClone(input.commit) });
+      attempt = null;
+    },
+    async listOutcomeReports() { return entries.slice(); },
+    async acknowledgeOutcome(entry) { entries.splice(entries.indexOf(entry), 1); },
+  };
+  const client = new RinClient(undefined, {
+    fetch: async () => response(200, {
+      ok: true,
+      data: {
+        session_id: "session.fixture",
+        revision: 3,
+        head_hash: "a".repeat(64),
+        duplicate: false,
+      },
+    }),
+  });
+  const workflow = new WorkflowCoordinator(
+    client,
+    store,
+    HostCapabilities.idempotentAction(),
+  );
+  const pending = await workflow.begin("operation.stable", {
+    protocol_version: PROTOCOL_VERSION,
+    session_id: "session.fixture",
+    request_id: "request.fixture",
+    actor_id: "actor.fixture",
+    intent: "Talk",
+    candidate_actions: [{ id: "talk", kind: "dialogue", description: "Talk" }],
+  });
+  let appliedOperation = "";
+  await workflow.applyAndEnqueueOutcome({
+    pendingTurn: pending,
+    proposal: proposal(),
+    commit: {
+      protocol_version: PROTOCOL_VERSION,
+      session_id: "session.fixture",
+      request_id: "commit.fixture",
+      proposal_id: "proposal.fixture",
+      event_id: "event.fixture",
+      accepted: true,
+    },
+    requiredProfile: HOST_PROFILES.idempotentAction,
+    async apply(operationId) { appliedOperation = operationId; },
+  });
+  assert.equal(appliedOperation, "operation.stable");
+  assert.equal(attempt, null);
+  assert.equal(entries.length, 1);
+  assert.equal(await workflow.drainOutbox(), 1);
+
+  const failed = await workflow.begin("operation.failed", {
+    protocol_version: PROTOCOL_VERSION,
+    session_id: "session.fixture",
+    request_id: "request.failed",
+    actor_id: "actor.fixture",
+    intent: "Talk",
+    candidate_actions: [{ id: "talk", kind: "dialogue", description: "Talk" }],
+  });
+  await assert.rejects(
+    workflow.applyAndEnqueueOutcome({
+      pendingTurn: failed,
+      proposal: proposal({ request_id: "request.failed" }),
+      commit: {
+        protocol_version: PROTOCOL_VERSION,
+        session_id: "session.fixture",
+        request_id: "commit.failed",
+        proposal_id: "proposal.fixture",
+        event_id: "event.failed",
+        accepted: true,
+      },
+      requiredProfile: HOST_PROFILES.idempotentAction,
+      async apply() { throw new Error("game save failed"); },
+    }),
+    /game save failed/,
+  );
+  assert.equal(attempt.operation_id, "operation.failed");
+  assert.equal(entries.length, 0);
+});
+
+test("WorkflowCoordinator rejects concurrent resume on one host instance", async () => {
+  let releaseLoad;
+  const loadGate = new Promise((resolve) => { releaseLoad = resolve; });
+  const store = {
+    async loadProposalAttempt() {
+      await loadGate;
+      return null;
+    },
+    async createProposalAttempt() { return true; },
+    async saveProposalAttempt() {},
+    async completeProposalAttempt() {},
+    async listOutcomeReports() { return []; },
+    async acknowledgeOutcome() {},
+  };
+  const workflow = new WorkflowCoordinator(
+    new RinClient(undefined, { fetch: async () => { throw new Error("unexpected"); } }),
+    store,
+  );
+  const first = workflow.resumePendingWork();
+  await assert.rejects(
+    workflow.resumePendingWork(),
+    (error) => error instanceof RinConfigurationError && error.code === "workflow_busy",
+  );
+  releaseLoad();
+  await assert.rejects(
+    first,
+    (error) => error instanceof RinConfigurationError &&
+      error.code === "invalid_proposal_attempt",
   );
 });
 

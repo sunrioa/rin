@@ -94,4 +94,3 @@ func TestExampleModsDeclareAdvisoryProfileUntilDurabilityIsProven(t *testing.T) 
 		}
 	}
 }
-

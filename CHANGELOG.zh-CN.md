@@ -12,6 +12,8 @@
 
 ### 新增
 
+- JavaScript、C# 与 Java 新增带版本的宿主能力校验和共享 Pending Turn
+  Workflow Coordinator。
 - 由游戏掌握权威的 Observation -> Proposal -> Apply/Reject -> Commit 生命周期；
   `outcome-reporting-v1` 支持延迟 Outcome 合并和游戏侧持久 Outbox 恢复。
 - 覆盖完整 lineage 的持久 Request/Event ID History，包括 exact retry 原始结果

@@ -13,6 +13,8 @@ release checklist passes. See the [release guide](docs/release-guide.md).
 
 ### Added
 
+- Versioned host-capability validation and shared Pending Turn workflow
+  coordinators for JavaScript, C#, and Java.
 - A game-authoritative Observation -> Proposal -> apply/reject -> Commit
   lifecycle, with `outcome-reporting-v1` for late outcome merging and durable
   game-side Outbox recovery.

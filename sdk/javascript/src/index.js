@@ -22,6 +22,11 @@ export const FEATURE_PRESETS = Object.freeze({
   ]),
   full: Object.freeze(Object.values(RIN_FEATURES)),
 });
+export const HOST_PROFILES = Object.freeze({
+  advisory: "advisory",
+  idempotentAction: "idempotent-action",
+  transactionalAction: "transactional-action",
+});
 
 const MAX_GENERATION_CONTENT_BYTES = 4 * 1024 * 1024;
 const PROTOCOL_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/;
@@ -65,6 +70,107 @@ export function createRinId(prefix = "id", randomBytes = secureRandomBytes) {
     );
   }
   return `${prefix}.${Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")}`;
+}
+
+export class HostCapabilities {
+  constructor({
+    version = 1,
+    profile = HOST_PROFILES.advisory,
+    stableIdentity = false,
+    durableBeforeNetwork = false,
+    durableOutbox = false,
+    idempotentApply = false,
+    atomicApplyAndOutbox = false,
+  } = {}) {
+    if (version !== 1 || !Object.values(HOST_PROFILES).includes(profile)) {
+      throw new RinConfigurationError(
+        "invalid_host_capabilities",
+        "Host capabilities have an unsupported version or profile",
+      );
+    }
+    for (const [name, value] of Object.entries({
+      stableIdentity,
+      durableBeforeNetwork,
+      durableOutbox,
+      idempotentApply,
+      atomicApplyAndOutbox,
+    })) {
+      if (typeof value !== "boolean") {
+        throw new RinConfigurationError(
+          "invalid_host_capabilities",
+          `${name} must be boolean`,
+        );
+      }
+    }
+    if (profile === HOST_PROFILES.idempotentAction &&
+        !(stableIdentity && durableBeforeNetwork && durableOutbox && idempotentApply)) {
+      throw new RinConfigurationError(
+        "invalid_host_capabilities",
+        "idempotent-action requires stable durable state, Outbox, and idempotent apply",
+      );
+    }
+    if (profile === HOST_PROFILES.transactionalAction &&
+        !(stableIdentity && durableBeforeNetwork && durableOutbox && atomicApplyAndOutbox)) {
+      throw new RinConfigurationError(
+        "invalid_host_capabilities",
+        "transactional-action requires stable durable state, Outbox, and atomic settlement",
+      );
+    }
+    this.version = version;
+    this.profile = profile;
+    this.stableIdentity = stableIdentity;
+    this.durableBeforeNetwork = durableBeforeNetwork;
+    this.durableOutbox = durableOutbox;
+    this.idempotentApply = idempotentApply;
+    this.atomicApplyAndOutbox = atomicApplyAndOutbox;
+    Object.freeze(this);
+  }
+
+  require(requiredProfile) {
+    if (!Object.values(HOST_PROFILES).includes(requiredProfile)) {
+      throw new RinConfigurationError(
+        "invalid_host_profile",
+        "Required host profile is unknown",
+      );
+    }
+    const rank = {
+      [HOST_PROFILES.advisory]: 0,
+      [HOST_PROFILES.idempotentAction]: 1,
+      [HOST_PROFILES.transactionalAction]: 2,
+    };
+    if (rank[this.profile] < rank[requiredProfile]) {
+      throw new RinConfigurationError(
+        "host_capability_insufficient",
+        `Action requires ${requiredProfile}, but host provides ${this.profile}`,
+      );
+    }
+  }
+
+  static advisory(options = {}) {
+    return new HostCapabilities({ ...options, profile: HOST_PROFILES.advisory });
+  }
+
+  static idempotentAction(options = {}) {
+    return new HostCapabilities({
+      ...options,
+      profile: HOST_PROFILES.idempotentAction,
+      stableIdentity: true,
+      durableBeforeNetwork: true,
+      durableOutbox: true,
+      idempotentApply: true,
+    });
+  }
+
+  static transactionalAction(options = {}) {
+    return new HostCapabilities({
+      ...options,
+      profile: HOST_PROFILES.transactionalAction,
+      stableIdentity: true,
+      durableBeforeNetwork: true,
+      durableOutbox: true,
+      atomicApplyAndOutbox: true,
+    });
+  }
 }
 
 export class ProposalAttemptCoordinator {
@@ -144,17 +250,7 @@ export class ProposalAttemptCoordinator {
         "apply must be an authoritative transaction callback",
       );
     }
-    if (stableProposal.session_id !== stableAttempt.request.session_id ||
-        stableProposal.request_id !== stableAttempt.request.request_id ||
-        stableCommit.session_id !== stableAttempt.request.session_id ||
-        stableCommit.proposal_id !== stableProposal.id) {
-      throw new RinConfigurationError(
-        "workflow_identity_mismatch",
-        "Attempt, Proposal, and Commit identities do not match",
-      );
-    }
-    requireIdentifier("request_id", stableCommit.request_id);
-    requireIdentifier("event_id", stableCommit.event_id);
+    validateWorkflowSettlement(stableAttempt, stableProposal, stableCommit);
     await this.store.settleProposalAttempt({
       attempt: stableAttempt,
       proposal: stableProposal,
@@ -210,6 +306,115 @@ export class OutcomeOutbox {
     } finally {
       this.draining = false;
     }
+  }
+}
+
+export class WorkflowCoordinator {
+  constructor(client, store, capabilities = HostCapabilities.advisory()) {
+    if (!(capabilities instanceof HostCapabilities)) {
+      throw new RinConfigurationError(
+        "invalid_host_capabilities",
+        "capabilities must be a validated HostCapabilities value",
+      );
+    }
+    requireMethods(store, [
+      "loadProposalAttempt",
+      "createProposalAttempt",
+      "saveProposalAttempt",
+      "listOutcomeReports",
+      "acknowledgeOutcome",
+    ], "Workflow store");
+    if (capabilities.profile === HOST_PROFILES.transactionalAction) {
+      requireMethods(store, ["settleProposalAttempt"], "transactional Workflow store");
+    } else {
+      requireMethods(store, ["completeProposalAttempt"], "Workflow store");
+    }
+    this.capabilities = capabilities;
+    this.store = store;
+    const attemptStore = capabilities.profile === HOST_PROFILES.transactionalAction
+      ? store
+      : {
+        loadProposalAttempt: (...args) => store.loadProposalAttempt(...args),
+        createProposalAttempt: (...args) => store.createProposalAttempt(...args),
+        saveProposalAttempt: (...args) => store.saveProposalAttempt(...args),
+        settleProposalAttempt: async () => {
+          throw new RinConfigurationError(
+            "host_capability_insufficient",
+            "Atomic settlement is unavailable for this host",
+          );
+        },
+      };
+    this.attempts = new ProposalAttemptCoordinator(client, attemptStore);
+    this.outbox = new OutcomeOutbox(client, store);
+    this.resuming = false;
+    this.settling = false;
+  }
+
+  begin(operationId, request) {
+    return this.attempts.begin(operationId, request);
+  }
+
+  async resumePendingWork(options = {}) {
+    if (this.resuming) {
+      throw new RinConfigurationError(
+        "workflow_busy",
+        "Pending work is already being resumed",
+      );
+    }
+    this.resuming = true;
+    try {
+      await this.outbox.drain();
+      return await this.attempts.resume(options);
+    } finally {
+      this.resuming = false;
+    }
+  }
+
+  async applyAndEnqueueOutcome({
+    pendingTurn,
+    proposal,
+    commit,
+    requiredProfile = HOST_PROFILES.advisory,
+    apply,
+  }) {
+    if (this.settling) {
+      throw new RinConfigurationError(
+        "workflow_busy",
+        "A Pending Turn is already being settled",
+      );
+    }
+    this.settling = true;
+    try {
+      this.capabilities.require(requiredProfile);
+      if (typeof apply !== "function") {
+        throw new RinConfigurationError(
+          "invalid_workflow",
+          "apply must be a host-owned callback",
+        );
+      }
+      if (this.capabilities.profile === HOST_PROFILES.transactionalAction) {
+        return await this.attempts.settle(
+          pendingTurn,
+          proposal,
+          commit,
+          () => apply(pendingTurn.operation_id),
+        );
+      }
+      const stableAttempt = validateProposalAttempt(pendingTurn);
+      validateWorkflowSettlement(stableAttempt, proposal, commit);
+      await apply(stableAttempt.operation_id);
+      await this.store.completeProposalAttempt({
+        attempt: stableAttempt,
+        proposal: cloneProtocolObject(proposal),
+        commit: cloneProtocolObject(commit),
+      });
+    } finally {
+      this.settling = false;
+    }
+  }
+
+  drainOutbox() {
+    return this.outbox.drain();
   }
 }
 
@@ -642,6 +847,22 @@ function validateProposalAttempt(value) {
     );
   }
   return cloneProtocolObject(value);
+}
+
+function validateWorkflowSettlement(attempt, proposal, commit) {
+  const stableProposal = cloneProtocolObject(proposal);
+  const stableCommit = cloneProtocolObject(commit);
+  if (stableProposal.session_id !== attempt.request.session_id ||
+      stableProposal.request_id !== attempt.request.request_id ||
+      stableCommit.session_id !== attempt.request.session_id ||
+      stableCommit.proposal_id !== stableProposal.id) {
+    throw new RinConfigurationError(
+      "workflow_identity_mismatch",
+      "Attempt, Proposal, and Commit identities do not match",
+    );
+  }
+  requireIdentifier("request_id", stableCommit.request_id);
+  requireIdentifier("event_id", stableCommit.event_id);
 }
 
 function serializeRequest(payload) {

@@ -23,13 +23,15 @@ authoritative create/propose/commit path, including `CreateSessionRequest`,
 `ProposeRequest`, `ProposalResult`, `CommitRequest`, and `MutationResult`.
 Response types deliberately tolerate additive fields.
 
-For crash-safe game integration, `ProposalAttemptCoordinator` persists the
-complete request before submission and resumes the exact Job/request identity.
-Its store's `settleProposalAttempt` hook must atomically apply the game effect,
-write the applied marker and exact Commit to the authoritative Outcome Outbox,
-and remove the Attempt. `OutcomeOutbox.drain()` deletes nothing until Rin
-returns normal or explicit duplicate success. These are storage interfaces;
-the SDK intentionally supplies no unsafe in-memory production default.
+`WorkflowCoordinator` combines the compatible `ProposalAttemptCoordinator` and
+`OutcomeOutbox` primitives behind `begin`, `resumePendingWork`,
+`applyAndEnqueueOutcome`, and `drainOutbox`. Supply a Workflow Store and a
+validated `HostCapabilities`. An idempotent apply receives the stable operation
+ID; only `transactional-action` invokes `settleProposalAttempt` as an atomic
+game transaction. Outbox draining deletes nothing until Rin returns normal or
+explicit duplicate success. The SDK intentionally supplies no unsafe
+in-memory production default. See
+[Host capability profiles](../../docs/host-capability-profiles.md).
 
 `OpaqueSnapshotPersistence` stores bounded UTF-8 JSON bytes and returns the
 complete object, including additive fields unknown to this SDK version. The

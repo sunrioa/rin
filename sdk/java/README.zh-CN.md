@@ -24,6 +24,13 @@ rin.health().thenAccept(data -> System.out.println(data.get("status")));
 `CompletableFuture`；Minecraft 或其他引擎状态修改必须重新安排到引擎
 拥有的游戏线程。
 
+`WorkflowCoordinator` 负责可复用的 Pending Turn、Job 恢复、结算与 Outcome
+Outbox 状态机。接入方提供持久 `WorkflowStore` 和已校验的
+`HostCapabilities`。`idempotent-action` Apply Callback 会收到稳定 Operation
+ID；`transactional-action` 会把 Apply 与入队交给同一个宿主事务。
+`advisory` 宿主不能提供要求更强 Profile 的动作。参见
+[宿主能力分级](../../docs/host-capability-profiles.zh-CN.md)。
+
 使用 JDK 17 编译 SDK 和无依赖 Smoke Test：
 
 ```bash
