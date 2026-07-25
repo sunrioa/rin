@@ -90,8 +90,8 @@ validation.
 ## Current reference status
 
 The checked-in Fabric, BepInEx, Luanti, Godot, and Unity examples declare
-`advisory`. Fabric and BepInEx now have stable identity and restartable bounded
-workflow state; the other references still complete their dedicated
+`advisory`. Fabric, BepInEx, and Luanti now have stable identity and restartable
+bounded workflow state; Godot and Unity still complete their dedicated
 persistence work in later phases. Restart recovery alone does not establish a
 durable-before-network or atomic apply boundary.
 
@@ -99,6 +99,10 @@ Fabric Saved Data is designed for cross-session persistence, but marking it
 dirty schedules later saving; that alone is not a durable-before-network
 barrier. Luanti ModStorage persistence is tied to `map_save_interval` and may
 use JSON or SQLite, so a setter is likewise not a synchronous crash boundary.
+The Luanti reference nevertheless persists its stable world/Session identity,
+Pending Turn, Job ID, logical tick floor, and bounded Outcome Outbox; its
+copy-on-write publication protects the running process from a rejected write,
+not from power loss before the next world save.
 BepInEx supports games with materially different Mono, IL2CPP, and target
 framework constraints; capability claims must be made by the game-specific
 plugin, not by BepInEx as a whole. The reference state file uses a

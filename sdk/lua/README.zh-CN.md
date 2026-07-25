@@ -32,8 +32,16 @@ end)
 Callback 约定为 `(data, error)`。网络工作保持异步；只能从引擎拥有的线程
 应用白名单动作。
 
-可移植 Lua Client 有意只提供 Transport，因此声明为 `advisory`。不同 Lua
-宿主的调度、存储刷盘与事务行为差异很大；复制一份通用 Coordinator 会暗示
-SDK 无法兑现的保证。只有加入按 Operation ID 工作的持久 Bridge，并满足
-[宿主能力契约](../../docs/host-capability-profiles.zh-CN.md)后，具体宿主才能
-声明更强 Profile。
+`rin.new_workflow(client, store)` 提供协议通用的 Pending Turn Coordinator。
+Store 需要实现 `load_attempt`、`create_attempt`、`save_attempt`、
+`complete_attempt`、`list_outcomes`、`replace_outcome` 与
+`acknowledge_outcome`。Coordinator 会在网络提交前持久化、恢复或安全重提
+缺失 Job、验证 Job/Proposal Identity、按 Key 串行化 Settle/Drain，并在 ACK
+前把 Commit 终态错误转换为保留的 Observe Fallback。游戏 Apply 前应立即调用
+`rin.proposal_freshness(state, proposal)`。
+
+SDK 定义顺序和校验，不定义宿主持久性。不同 Lua 宿主的调度、存储刷盘与事务
+行为不同，因此具体 Store 与 Apply Callback 决定声明的 Profile。只有按
+Operation ID 工作的持久 Bridge 满足
+[宿主能力契约](../../docs/host-capability-profiles.zh-CN.md)后，才能声明更强
+Profile。

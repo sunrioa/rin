@@ -143,7 +143,11 @@ Interop Hook，因为生成的 Assembly 不能跨游戏复用。
 
 Luanti 示例是完整服务器 Mod。它只在模块作用域调用
 `core.request_http_api()`，把返回 API 保持为 local，并要求
-`secure.http_mods = rin_npc_example`。
+`secure.http_mods = rin_npc_example`。其 ModStorage Adapter 会跨重启保留
+稳定 World/Session Identity、完整 Pending Turn、Job ID、单调 Tick 下限与
+有界 Outcome Outbox。Lua SDK Workflow 负责 Submit/Poll Recovery、Identity
+检查、Freshness、终态降级转换及 ACK 后 Evict。由于 ModStorage 保存时机与
+任意游戏效果不能组成同步事务，其 Profile 仍为 `advisory`。
 
 ## 验证
 
@@ -157,8 +161,9 @@ CI 执行 Go Format、Vet、Race Test，以及 Linux、macOS、Windows 上的 Ze
 Build 和 File Store/Sidecar 生命周期测试；这些平台测试覆盖持久化、重启与第二
 写者拒绝。CI 还会在 Python 3.9 与当前 Python 3 上运行 Python SDK/Ren'Py，在
 Node 18/24、Java 17/25、.NET 6/10 上运行相应 Client Test，并在 Lua 5.1/5.4
-下运行 Lua Client Test。固定版本的 Fabric 项目及其 Saved Data 重启测试，
-以及两个 BepInEx Backend、重启测试与安装包都会在 Linux 和 Windows 构建。
+下运行 Lua Client Test 与 Luanti 重启/写失败状态 Harness。固定版本的
+Fabric 项目及其 Saved Data 重启测试，以及两个 BepInEx Backend、重启测试
+与安装包都会在 Linux 和 Windows 构建。
 Contract Generator Check 防止 OpenAPI 与生成的
 Route/Version Projection 漂移。
 

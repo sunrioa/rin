@@ -164,7 +164,12 @@ BepInEx, Unity, or game interop assemblies.
 
 The Luanti example is a complete server mod. It calls
 `core.request_http_api()` at module scope, keeps the returned API local, and
-requires `secure.http_mods = rin_npc_example`.
+requires `secure.http_mods = rin_npc_example`. Its ModStorage adapter retains a
+stable world/Session identity, complete Pending Turn, Job ID, monotonic tick
+floor, and bounded Outcome Outbox across restart. The Lua SDK Workflow owns
+submit/poll recovery, identity checks, freshness, terminal fallback conversion,
+and ACK-before-eviction. The profile remains `advisory` because ModStorage save
+timing and an arbitrary game effect do not form one synchronous transaction.
 
 ## Verification
 
@@ -178,11 +183,12 @@ CI executes Go formatting, vet, race tests, plus zero-CGO builds and File
 Store/Sidecar lifecycle tests on Linux, macOS, and Windows. The platform tests
 cover persistence, restart, and rejection of a second writer. CI runs the
 Python SDK and Ren'Py adapter on Python 3.9 and the current Python 3 release,
+the Lua SDK and Luanti restart/write-failure state harness on Lua 5.1 and 5.4,
 JavaScript on Node 18 and 24, Java on 17 and 25, C# against .NET 6 and 10, and
-Lua on 5.1 and 5.4. The pinned Fabric project and its Saved Data restart test,
-plus both BepInEx backends, restart tests, and install packages, build on Linux
-and Windows. The contract generator check prevents drift
-from OpenAPI to generated route/version projections.
+the pinned Fabric project and its Saved Data restart test. Both BepInEx
+backends, restart tests, and install packages build on Linux and Windows. The
+contract generator check prevents drift from OpenAPI to generated route/version
+projections.
 
 The SDK tests invoke real client methods against local fake transports or HTTP
 test servers and assert method/path selection, a nonempty UTF-8 JSON body,

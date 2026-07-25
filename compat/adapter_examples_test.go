@@ -903,52 +903,76 @@ func TestFabricDelegatesWorkflowAndPersistsRestartState(t *testing.T) {
 }
 
 func TestLuantiExampleResumesDurableProposalAttempts(t *testing.T) {
-	const path = "../examples/mods/luanti-rin-npc/init.lua"
-	payload, err := os.ReadFile(path)
+	const initPath = "../examples/mods/luanti-rin-npc/init.lua"
+	initPayload, err := os.ReadFile(initPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := string(payload)
-	required := []string{
-		"local proposal_attempts = {}",
-		"persist_new_proposal_attempt",
-		"persist_proposal_job_id",
-		"resume_proposal_attempt",
-		"submit_proposal_attempt(name, attempt, false)",
-		`code == "proposal_outcome_unknown"`,
-		`confirm_error.code) == "job_not_found"`,
-		"proposal_attempts[resolved_attempt.name] = nil",
-		"proposal_attempts[resolved_attempt.name] = resolved_attempt",
-		"sequence = 0,",
-		"local operation_id = session_id .. \".\" .. turn",
-		"((entry and entry.sequence or 0) + 1)",
-		"entry.sequence = math.max(entry.sequence, turn)",
-		"mark_session_missing",
-		"proposal_job_matches_attempt",
-		"proposal_matches_attempt",
-		"math.max(game_tick(), attempt.request.tick, proposal.tick)",
+	const statePath = "../examples/mods/luanti-rin-npc/state.lua"
+	statePayload, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, fragment := range required {
-		if !strings.Contains(text, fragment) {
-			t.Errorf("%s is missing durable Proposal-attempt contract %q", path, fragment)
+	const sdkPath = "../sdk/lua/rin.lua"
+	sdkPayload, err := os.ReadFile(sdkPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initText, stateText, sdkText :=
+		string(initPayload), string(statePayload), string(sdkPayload)
+	initRequired := []string{
+		"workflow_state:stage_turn",
+		"workflow:begin(name, operation_id, propose)",
+		"workflow:resume(name",
+		"workflow:apply_and_enqueue",
+		"workflow:drain_outbox",
+		"mark_session_missing",
+		"rin.proposal_freshness",
+	}
+	for _, fragment := range initRequired {
+		if !strings.Contains(initText, fragment) {
+			t.Errorf("%s is missing durable workflow delegation %q", initPath, fragment)
 		}
 	}
-	persistAt := strings.Index(text, "if not persist_new_proposal_attempt(name, attempt)")
-	submitAt := strings.LastIndex(text, "submit_proposal_attempt(name, attempt, true)")
-	if persistAt < 0 || submitAt < 0 || persistAt >= submitAt {
-		t.Errorf("%s must persist the complete attempt before its first POST", path)
+	stageAt := strings.Index(initText, "workflow_state:stage_turn")
+	beginAt := strings.Index(initText, "workflow:begin(name, operation_id, propose)")
+	resumeAt := strings.LastIndex(initText, "resume(name)")
+	if stageAt < 0 || beginAt < 0 || resumeAt < 0 ||
+		stageAt >= beginAt || beginAt >= resumeAt {
+		t.Errorf("%s must stage Observe, persist Pending Turn, then resume network work", initPath)
 	}
-	sequenceAt := strings.Index(text, "entry.sequence = math.max(entry.sequence, turn)")
-	if sequenceAt < 0 || persistAt >= sequenceAt || sequenceAt >= submitAt {
-		t.Errorf("%s must persist the attempt before consuming its per-session sequence", path)
+	stateRequired := []string{
+		`local storage_key = "workflow_state_v1"`,
+		"maximum_bytes = 1024 * 1024",
+		"maximum_players = 128",
+		"maximum_outcomes = 64",
+		"function State:create_attempt",
+		"function State:save_attempt",
+		"function State:complete_attempt",
+		"function State:replace_outcome",
+		"function State:acknowledge_outcome",
+		"self.state = candidate",
 	}
-	if count := strings.Count(text, "mark_session_missing("); count < 8 {
-		t.Errorf("%s marks session_not_found in only %d paths; want at least 8", path, count)
+	for _, fragment := range stateRequired {
+		if !strings.Contains(stateText, fragment) {
+			t.Errorf("%s is missing durable state boundary %q", statePath, fragment)
+		}
 	}
-	if strings.Contains(text, "client:submit_proposal_job({") {
-		t.Errorf("%s submits an ephemeral request instead of the retained attempt", path)
+	sdkRequired := []string{
+		`code == "proposal_outcome_unknown"`,
+		`confirm_error.code == "job_not_found"`,
+		"self.store:save_attempt(key, updated)",
+		"self.store:replace_outcome(key, entry, converted)",
+		"self.store:acknowledge_outcome(key, entry)",
 	}
-	if strings.Contains(text, "local sequence =") {
-		t.Errorf("%s regressed to a collision-prone global turn sequence", path)
+	for _, fragment := range sdkRequired {
+		if !strings.Contains(sdkText, fragment) {
+			t.Errorf("%s is missing coordinator recovery contract %q", sdkPath, fragment)
+		}
+	}
+	persistJobAt := strings.Index(sdkText, "self.store:save_attempt(key, updated)")
+	getJobAt := strings.Index(sdkText, "self.client:get_proposal_job(job_id")
+	if persistJobAt < 0 || getJobAt < 0 || persistJobAt >= getJobAt {
+		t.Errorf("%s must persist the Job ID before its first GET", sdkPath)
 	}
 }

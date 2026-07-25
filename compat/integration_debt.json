@@ -49,7 +49,12 @@
     },
     {
       "path": "examples/mods/luanti-rin-npc/init.lua",
-      "max_lines": 812,
+      "max_lines": 500,
+      "profile": "advisory"
+    },
+    {
+      "path": "examples/mods/luanti-rin-npc/state.lua",
+      "max_lines": 400,
       "profile": "advisory"
     },
     {

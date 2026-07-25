@@ -32,9 +32,17 @@ end)
 The callback convention is `(data, error)`. Network work remains asynchronous;
 only apply allowlisted actions from the engine's owning thread.
 
-The portable Lua client deliberately remains transport-only and therefore
-declares `advisory`. Lua hosts differ in scheduling, storage flush, and
-transaction behavior; copy-pasting a generic coordinator would imply
-guarantees the SDK cannot enforce. A host may add an operation-keyed durable
-bridge and declare a stronger profile only after satisfying the
+`rin.new_workflow(client, store)` adds the protocol-generic Pending Turn
+coordinator. The Store supplies `load_attempt`, `create_attempt`,
+`save_attempt`, `complete_attempt`, `list_outcomes`, `replace_outcome`, and
+`acknowledge_outcome`. The coordinator persists before network submission,
+resumes or safely resubmits a missing Job, verifies Job/Proposal identity,
+serializes settle/drain operations per key, and converts terminal Commit errors
+to a retained Observe fallback before acknowledgement. Use
+`rin.proposal_freshness(state, proposal)` immediately before game apply.
+
+The SDK defines ordering and validation, not host durability. Lua hosts differ
+in scheduling, storage flush, and transaction behavior, so the concrete Store
+and apply callback determine the declared profile. An operation-keyed durable
+bridge may declare a stronger profile only after satisfying the
 [host capability contract](../../docs/host-capability-profiles.md).

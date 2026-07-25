@@ -5,11 +5,14 @@
 面向 Rin 智能体运行时的服务端接入参考。
 
 **Host capability profile：`advisory`。** ModStorage Snapshot 取决于世界保存
-间隔，不能提供更强 Profile 所需的同步事务；当前示例本身也仍在内存。参见
+间隔，不能提供更强 Profile 所需的同步事务。示例会持久化恢复状态，但不会把
+成功的 `set_string` 宣称为 Crash-durable，也不会声称它与游戏效果原子。参见
 [宿主能力分级](../../../docs/host-capability-profiles.zh-CN.md)。
 
 该目录是完整的 Luanti 服务器 Mod。内置 `rin.lua` 是 `sdk/lua/rin.lua`
-的 Vendored Copy；仓库测试要求两份文件完全一致。
+的 Vendored Copy；仓库测试要求两份文件完全一致。`state.lua` 是有界
+ModStorage Adapter，`init.lua` 只保留 Luanti Transport、Session Wiring、
+游戏拥有的动作 Policy 和 UI 行为。
 
 1. 把该目录复制到 Luanti `mods` 或世界 `worldmods` 目录。
 2. 在 `minetest.conf` 中把 `rin_npc_example` 加入 `secure.http_mods`。
@@ -24,23 +27,24 @@ Mod 只在模块作用域调用 `core.request_http_api()`，把返回 API 保持
 `wait` 和 `refuse` 映射到游戏拥有的固定效果，并在实际 Accept/Reject 时
 读取 Luanti 单调游戏 Tick。
 
-完整 Create Payload、Request ID 和 Seed 在所有重试间不变。只有 Rin 尚未
-生成在线 Proposal 的冷启动不可用场景，Mod 才运行一个明确编写的 Offline
-Fallback；已有 Proposal 后的 State 失败必须 Fail Closed。Outbox 仍有
-Entry 时禁止开始新 Turn。Mod 会在提交前保留完整 Propose Request，并在收到
-`202` 后立即保存 Job ID；未决 Attempt 会在下一次命令中用同一身份恢复，不
-增长 Turn Sequence，也不选择 Fallback。只有游戏效果、Applied Marker 与
-Outbox 在同一事务中落盘时才移除 Attempt；未决 Attempt 与 Outbox 都会阻止
-新 Turn。
+`state.lua` 会保存生成的 World Identity、每玩家 Session/Create Identity、
+单调逻辑 Tick 下限、Sequence、Pending Observe、完整 Pending Turn、Job ID
+与 Outcome Outbox。状态上限为 1 MiB、128 名玩家和 64 条 Outcome；载入时
+执行完整校验，并且只在 ModStorage 接受编码后的候选状态后，才以 Copy-on-write
+方式发布内存状态。玩家名经 Hash 写入 Session ID，避免规范化碰撞。
 
-本源码示例只在内存保存 Applied Operation 与 Outbox。每条 Commit 同时
-保存一个只含 Memory 与绝对 Fact 的安全 Observe 降级载荷；临时错误保留
-原 Commit，只有 `unknown_proposal` 等明确终态错误才原子转换。Durable
-ACK/Delete 成功后才能 Evict。用于持久世界前，应把所有标记 Hook 实现为
-可失败的权威游戏/ModStorage 事务，同时包住效果、Marker、两份报告载荷、
-保留的 Create/Propose Request、可选 Job ID 与 Sequence。示例会在效果
-Callback 抛错时移除 Marker/Outbox，但只有真实游戏事务才能回滚已部分写入
-的世界状态。
+Lua SDK Workflow 负责 Submit/Poll/Recovery、Job Identity 检查、终态无
+Proposal 处理、Freshness 与 Outbox Drain。首次请求前先保存 Pending Turn，
+首次 GET 前保存 Job ID。重启后的下一条命令复用同一 Request 和 Job；只有
+确认 Job 不存在时才允许一次 Resubmit。每条 Commit 都保留安全 Observe
+Fallback；临时报告错误保留原 Entry，明确的 Commit 终态错误会先持久转换为
+Observe 再重试。
+
+只有 Rin 尚未产生在线 Proposal 的冷启动不可用场景，Mod 才可能应用一条明确
+编写的 Offline Fallback；后续失败会 Fail Closed 或保留待办。由于 Luanti
+无法把任意世界修改与 ModStorage 合并为原子事务，进程若恰好在聊天效果与
+状态发布之间崩溃，该效果仍可能重复。使用事务数据库的生产游戏应在自己的
+权威事务内实现同一 Workflow Store Contract，之后才能声明更强 Profile。
 
 Luanti HTTP 实现会跟随重定向，而 Lua API 没有单请求关闭开关。因此示例
 只接受显式 loopback HTTP Origin，并拒绝 Authorization Header；没有更
@@ -49,3 +53,7 @@ Luanti HTTP 实现会跟随重定向，而 Lua API 没有单请求关闭开关�
 官方 HTTP API：https://docs.luanti.org/for-creators/api/http-api/
 
 官方 Lua API 源码：https://github.com/luanti-org/luanti/blob/master/doc/lua_api.md
+
+仓库会在 Lua 5.1 与 Lua 5.4 下执行 SDK 测试及重启/写失败状态 Harness。该
+Harness 忠实模拟 ModStorage 边界，但不能替代具体游戏的 Luanti Headless
+集成测试。

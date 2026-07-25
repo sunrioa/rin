@@ -414,14 +414,23 @@ func TestExampleModsPreserveGameAuthority(t *testing.T) {
 			path: "../examples/mods/luanti-rin-npc/init.lua",
 			required: []string{
 				"core.request_http_api", "local_origin", "allowed_actions",
-				"wait_for_proposal", "client:commit", "type(proposal.id)",
-				"applied_operations", "outcome_outbox", "flush_outcome_outbox",
-				"persist_authoritative_transaction", "PRODUCTION PERSISTENCE HOOK",
+				"rin.new_workflow", "workflow:begin", "workflow:resume",
+				"workflow:apply_and_enqueue", "workflow:drain_outbox",
+				"rin.proposal_freshness", "state_module.open",
 			},
 			forbidden: []string{
 				"secure.trusted_mods", "request.headers.Authorization =", "os.execute",
-				"proposal.proposal_id", "persist_operation_state",
+				"proposal.proposal_id", "wait_for_proposal", "client:commit",
 			},
+		},
+		{
+			path: "../examples/mods/luanti-rin-npc/state.lua",
+			required: []string{
+				"function State:create_attempt", "function State:save_attempt",
+				"function State:complete_attempt", "function State:list_outcomes",
+				"function State:replace_outcome", "function State:acknowledge_outcome",
+			},
+			forbidden: []string{"core."},
 		},
 	}
 	for _, test := range tests {

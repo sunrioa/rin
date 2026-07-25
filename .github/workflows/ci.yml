@@ -240,3 +240,11 @@ jobs:
         run: lua5.1 sdk/lua/test_client.lua
       - name: Test Lua SDK on Lua 5.4
         run: lua5.4 sdk/lua/test_client.lua
+      - name: Test Luanti restart state on Lua 5.1
+        run: lua5.1 examples/mods/luanti-rin-npc/test_state.lua
+      - name: Test Luanti restart state on Lua 5.4
+        run: lua5.4 examples/mods/luanti-rin-npc/test_state.lua
+      - name: Parse Luanti integration on both Lua versions
+        run: |
+          luac5.1 -p examples/mods/luanti-rin-npc/init.lua examples/mods/luanti-rin-npc/state.lua
+          luac5.4 -p examples/mods/luanti-rin-npc/init.lua examples/mods/luanti-rin-npc/state.lua

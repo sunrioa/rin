@@ -227,6 +227,178 @@ client:get_proposal_job(string.char(228, 189, 156, 228, 184, 154), function(data
     assert(not data and err.code == "invalid_identifier")
 end)
 
+local workflow_store = {
+    attempt = nil,
+    outcomes = {},
+    fallback_conversions = 0,
+}
+function workflow_store:load_attempt() return self.attempt end
+function workflow_store:create_attempt(_, attempt)
+    if self.attempt then return false end
+    self.attempt = attempt
+    return true
+end
+function workflow_store:save_attempt(_, attempt)
+    assert(self.attempt and self.attempt.operation_id == attempt.operation_id)
+    self.attempt = attempt
+    return true
+end
+function workflow_store:complete_attempt(_, attempt, outcome)
+    assert(self.attempt == attempt)
+    table.insert(self.outcomes, outcome)
+    self.attempt = nil
+    return true
+end
+function workflow_store:list_outcomes() return self.outcomes end
+function workflow_store:replace_outcome(_, original, converted)
+    assert(self.outcomes[1] == original)
+    self.outcomes[1] = converted
+    self.fallback_conversions = self.fallback_conversions + 1
+    return true
+end
+function workflow_store:acknowledge_outcome(_, entry)
+    assert(self.outcomes[1] == entry)
+    table.remove(self.outcomes, 1)
+    return true
+end
+
+local workflow_requests = 0
+local workflow_observes = 0
+local workflow_client = assert(rin.new({
+    http_fetch = function(request, callback)
+        workflow_requests = workflow_requests + 1
+        if request.url:match("/v1/jobs/propose$") then
+            callback({ status = 202, body = "queued", headers = {} })
+        elseif request.url:match("/v1/jobs/job%.workflow$") then
+            assert(workflow_store.attempt.job_id == "job.workflow")
+            callback({ status = 200, body = "succeeded", headers = {} })
+        elseif request.url:match("/v1/action/commit$") then
+            callback({ status = 409, body = "terminal-commit", headers = {} })
+        elseif request.url:match("/v1/session/observe$") then
+            workflow_observes = workflow_observes + 1
+            callback({ status = 200, body = "observed", headers = {} })
+        else
+            error("unexpected workflow route " .. request.url)
+        end
+    end,
+    json_encode = function() return "{}" end,
+    json_decode = function(body)
+        if body == "queued" then
+            return { ok = true, data = { job_id = "job.workflow" } }
+        end
+        if body == "succeeded" then
+            return {
+                ok = true,
+                data = {
+                    job_id = "job.workflow",
+                    session_id = "session.workflow",
+                    request_id = "request.workflow",
+                    status = "succeeded",
+                    proposal = {
+                        id = "proposal.workflow",
+                        session_id = "session.workflow",
+                        request_id = "request.workflow",
+                        actor_id = "actor.workflow",
+                        tick = 2,
+                    },
+                },
+            }
+        end
+        if body == "terminal-commit" then
+            return {
+                ok = false,
+                error = { code = "unknown_proposal", message = "evicted" },
+            }
+        end
+        return {
+            ok = true,
+            data = {
+                session_id = "session.workflow",
+                revision = 3,
+                head_hash = string.rep("a", 64),
+                duplicate = false,
+            },
+        }
+    end,
+}))
+local workflow = assert(rin.new_workflow(workflow_client, workflow_store))
+local workflow_attempt = assert(workflow:begin(
+    "player.fixture",
+    "operation.workflow",
+    {
+        protocol_version = rin.PROTOCOL_VERSION,
+        session_id = "session.workflow",
+        request_id = "request.workflow",
+        actor_id = "actor.workflow",
+        tick = 2,
+    }
+))
+assert(workflow_requests == 0, "Pending Turn was not persisted before network")
+local workflow_resolution
+workflow:resume("player.fixture", function(result, err)
+    assert(result and result.kind == "proposal" and not err)
+    workflow_resolution = result
+end)
+assert(workflow_resolution, "Proposal workflow did not resolve")
+local fallback_observe = {
+    protocol_version = rin.PROTOCOL_VERSION,
+    session_id = "session.workflow",
+    request_id = "observe.workflow",
+    event_id = "event.workflow",
+}
+local applied_operation
+workflow:apply_and_enqueue(
+    "player.fixture",
+    workflow_resolution.attempt,
+    {
+        key = "operation.workflow",
+        owner = "player.fixture",
+        kind = "commit",
+        request = {
+            protocol_version = rin.PROTOCOL_VERSION,
+            session_id = "session.workflow",
+            request_id = "commit.workflow",
+            proposal_id = "proposal.workflow",
+            event_id = "event.workflow",
+            accepted = true,
+        },
+        fallback_observe = fallback_observe,
+    },
+    function(operation_id) applied_operation = operation_id end,
+    function(ok, err) assert(ok and not err) end
+)
+assert(applied_operation == "operation.workflow", "Apply lost the stable operation identity")
+workflow:drain_outbox("player.fixture", function(count, err)
+    assert(count == 1 and not err)
+end)
+assert(workflow_store.fallback_conversions == 1, "fallback conversion was not persisted")
+assert(#workflow_store.outcomes == 0 and workflow_observes == 1)
+assert(
+    rin.proposal_freshness(
+        {
+            revision = 2,
+            proposals = { ["proposal.workflow"] = { status = "pending" } },
+        },
+        {
+            id = "proposal.workflow",
+            created_revision = 2,
+        }
+    ) == "fresh"
+)
+assert(
+    rin.proposal_freshness(
+        {
+            revision = "2",
+            proposals = { ["proposal.workflow"] = { status = 7 } },
+        },
+        {
+            id = "proposal.workflow",
+            created_revision = 2,
+        }
+    ) == "stale",
+    "malformed freshness fields were not fail-closed"
+)
+
 local function proposal(overrides)
     local value = {
         id = "proposal.fixture",

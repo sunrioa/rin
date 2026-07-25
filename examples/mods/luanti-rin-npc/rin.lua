@@ -539,4 +539,353 @@ function Client:wait_for_generation(job_id, options, callback)
     self:_wait_job(job_id, Client.get_generation_job, Client.cancel_generation_job, configured, callback, "generation")
 end
 
+local Workflow = {}
+Workflow.__index = Workflow
+
+local terminal_commit_errors = {
+    session_not_found = true,
+    unknown_proposal = true,
+    proposal_resolved = true,
+}
+
+local function workflow_error(code, message)
+    return failure(code, message)
+end
+
+local function valid_proposal_job(attempt, job)
+    return type(job) == "table" and
+        is_protocol_identifier(job.job_id) and job.job_id == attempt.job_id and
+        job.session_id == attempt.request.session_id and
+        job.request_id == attempt.request.request_id and
+        type(job.status) == "string"
+end
+
+local function valid_proposal(attempt, proposal)
+    return type(proposal) == "table" and
+        is_protocol_identifier(proposal.id) and
+        proposal.session_id == attempt.request.session_id and
+        proposal.request_id == attempt.request.request_id and
+        proposal.actor_id == attempt.request.actor_id and
+        is_nonnegative_json_safe_integer(proposal.tick)
+end
+
+local function valid_attempt(attempt)
+    return type(attempt) == "table" and attempt.version == 1 and
+        is_protocol_identifier(attempt.operation_id) and
+        type(attempt.request) == "table" and
+        is_protocol_identifier(attempt.request.session_id) and
+        is_protocol_identifier(attempt.request.request_id) and
+        is_protocol_identifier(attempt.request.actor_id) and
+        is_nonnegative_json_safe_integer(attempt.request.tick) and
+        type(attempt.job_id) == "string" and
+        (attempt.job_id == "" or is_protocol_identifier(attempt.job_id))
+end
+
+function rin.new_workflow(client, store)
+    if getmetatable(client) ~= Client or type(store) ~= "table" then
+        return nil, workflow_error("invalid_workflow", "Workflow requires a Rin Client and Store")
+    end
+    for _, method in ipairs({
+        "load_attempt", "create_attempt", "save_attempt", "complete_attempt",
+        "list_outcomes", "replace_outcome", "acknowledge_outcome",
+    }) do
+        if type(store[method]) ~= "function" then
+            return nil, workflow_error(
+                "invalid_workflow",
+                "Workflow Store is missing " .. method)
+        end
+    end
+    return setmetatable({
+        client = client,
+        store = store,
+        busy = {},
+        draining = {},
+        settling = {},
+    }, Workflow)
+end
+
+function Workflow:begin(key, operation_id, request)
+    if self.busy[key] or self.draining[key] or self.settling[key] or
+        not is_protocol_identifier(operation_id) or
+        type(request) ~= "table" or
+        not is_protocol_identifier(request.session_id) or
+        not is_protocol_identifier(request.request_id) or
+        not is_protocol_identifier(request.actor_id) or
+        not is_nonnegative_json_safe_integer(request.tick) then
+        return nil, workflow_error("invalid_workflow", "Pending Turn identity is invalid")
+    end
+    local attempt = {
+        version = 1,
+        operation_id = operation_id,
+        request = request,
+        job_id = "",
+    }
+    local ok, err = self.store:create_attempt(key, attempt)
+    if not ok then
+        return nil, err or workflow_error(
+            "proposal_attempt_pending",
+            "A Proposal Attempt is already pending")
+    end
+    return attempt
+end
+
+function Workflow:_clear_job_and_submit(key, attempt, may_resubmit, callback)
+    local updated = {
+        version = attempt.version,
+        operation_id = attempt.operation_id,
+        request = attempt.request,
+        job_id = "",
+    }
+    local ok, err = self.store:save_attempt(key, updated)
+    if not ok then callback(nil, err or workflow_error(
+        "proposal_attempt_persist_failed", "Could not clear the retained Job identity")); return end
+    self:_submit(key, updated, may_resubmit, callback)
+end
+
+function Workflow:_inspect(key, attempt, job, may_resubmit, callback)
+    if not valid_proposal_job(attempt, job) then
+        callback(nil, workflow_error(
+            "job_identity_mismatch", "Proposal Job does not match the Pending Turn"))
+        return
+    end
+    if job.status == "succeeded" then
+        if not valid_proposal(attempt, job.proposal) then
+            callback(nil, workflow_error(
+                "proposal_identity_mismatch", "Proposal does not match the Pending Turn"))
+            return
+        end
+        callback({ kind = "proposal", attempt = attempt, job = job }, nil)
+        return
+    end
+    if terminal_job_states[job.status] then
+        local detail = type(job.error) == "table" and job.error or {}
+        local code = tostring(detail.code or ("job_" .. job.status))
+        if code == "proposal_outcome_unknown" and may_resubmit then
+            self:_clear_job_and_submit(key, attempt, false, callback)
+            return
+        end
+        callback({
+            kind = "no_proposal",
+            attempt = attempt,
+            error = workflow_error(code, detail.message or "Proposal Job ended without a Proposal"),
+        }, nil)
+        return
+    end
+    if job.status ~= "queued" and job.status ~= "running" then
+        callback(nil, workflow_error("invalid_job", "Proposal Job has an unknown status"))
+        return
+    end
+    self.client:wait_for_proposal(attempt.job_id, nil, function(resolved, wait_error)
+        if not wait_error then
+            self:_inspect(key, attempt, resolved, may_resubmit, callback)
+            return
+        end
+        self.client:get_proposal_job(attempt.job_id, function(confirmed, confirm_error)
+            if confirm_error then
+                if confirm_error.code == "job_not_found" and may_resubmit then
+                    self:_clear_job_and_submit(key, attempt, false, callback)
+                else
+                    callback(nil, confirm_error)
+                end
+                return
+            end
+            self:_inspect(key, attempt, confirmed, may_resubmit, callback)
+        end)
+    end)
+end
+
+function Workflow:_submit(key, attempt, may_resubmit, callback)
+    self.client:submit_proposal_job(attempt.request, function(queued, submit_error)
+        if submit_error then callback(nil, submit_error); return end
+        local job_id = type(queued) == "table" and queued.job_id or nil
+        if not is_protocol_identifier(job_id) then
+            callback(nil, workflow_error("invalid_submission", "Rin returned an invalid Job identity"))
+            return
+        end
+        local updated = {
+            version = attempt.version,
+            operation_id = attempt.operation_id,
+            request = attempt.request,
+            job_id = job_id,
+        }
+        local ok, err = self.store:save_attempt(key, updated)
+        if not ok then
+            callback(nil, err or workflow_error(
+                "proposal_attempt_persist_failed", "Could not retain the Proposal Job identity"))
+            return
+        end
+        self.client:get_proposal_job(job_id, function(job, get_error)
+            if get_error then callback(nil, get_error); return end
+            self:_inspect(key, updated, job, may_resubmit, callback)
+        end)
+    end)
+end
+
+function Workflow:resume(key, callback)
+    if self.busy[key] or self.draining[key] or self.settling[key] then
+        callback(nil, workflow_error("workflow_busy", "Pending work is already being resumed"))
+        return
+    end
+    self.busy[key] = true
+    local function finish(result, err)
+        self.busy[key] = nil
+        callback(result, err)
+    end
+    local attempt, load_error = self.store:load_attempt(key)
+    if load_error or not valid_attempt(attempt) then
+        finish(nil, load_error or workflow_error(
+            "invalid_proposal_attempt", "Pending Turn is missing or malformed"))
+        return
+    end
+    if tostring(attempt.job_id or "") == "" then
+        self:_submit(key, attempt, true, finish)
+        return
+    end
+    self.client:get_proposal_job(attempt.job_id, function(job, get_error)
+        if get_error then
+            if get_error.code == "job_not_found" then
+                self:_clear_job_and_submit(key, attempt, false, finish)
+            else
+                finish(nil, get_error)
+            end
+            return
+        end
+        self:_inspect(key, attempt, job, true, finish)
+    end)
+end
+
+local function valid_outcome_entry(entry)
+    return type(entry) == "table" and is_protocol_identifier(entry.key) and
+        (entry.kind == "commit" or entry.kind == "observe") and
+        type(entry.request) == "table" and
+        is_protocol_identifier(entry.request.session_id) and
+        is_protocol_identifier(entry.request.request_id) and
+        is_protocol_identifier(entry.request.event_id)
+end
+
+function Workflow:drain_outbox(key, callback)
+    if self.busy[key] or self.draining[key] or self.settling[key] then
+        callback(nil, workflow_error("workflow_busy", "Outcome Outbox is already being drained"))
+        return
+    end
+    self.draining[key] = true
+    local finished = false
+    local function finish(result, err)
+        if finished then return end
+        finished = true
+        self.draining[key] = nil
+        callback(result, err)
+    end
+    local entries, list_error = self.store:list_outcomes(key)
+    if list_error or type(entries) ~= "table" then
+        finish(nil, list_error or workflow_error("invalid_outbox", "Outcome Outbox is invalid"))
+        return
+    end
+    local index, acknowledged = 1, 0
+    local function next_entry(err)
+        if err then finish(nil, err); return end
+        local entry = entries[index]
+        if not entry then finish(acknowledged, nil); return end
+        index = index + 1
+        if not valid_outcome_entry(entry) then
+            finish(nil, workflow_error("invalid_outbox", "Outcome Outbox entry is malformed"))
+            return
+        end
+        local function acknowledge(_, report_error)
+            if report_error then
+                if entry.kind ~= "commit" or
+                    not terminal_commit_errors[tostring(report_error.code)] or
+                    type(entry.fallback_observe) ~= "table" then
+                    next_entry(report_error)
+                    return
+                end
+                local converted = {
+                    key = entry.key,
+                    owner = entry.owner,
+                    kind = "observe",
+                    request = entry.fallback_observe,
+                    fallback_observe = entry.fallback_observe,
+                }
+                if not valid_outcome_entry(converted) then
+                    next_entry(workflow_error("invalid_outbox", "Outcome fallback is malformed"))
+                    return
+                end
+                local replaced, replace_error =
+                    self.store:replace_outcome(key, entry, converted)
+                if not replaced then
+                    next_entry(replace_error or workflow_error(
+                        "outbox_conversion_failed", "Could not persist Outcome fallback"))
+                    return
+                end
+                entry = converted
+                self.client:observe(entry.request, acknowledge)
+                return
+            end
+            local removed, remove_error = self.store:acknowledge_outcome(key, entry)
+            if not removed then
+                next_entry(remove_error or workflow_error(
+                    "outbox_ack_failed", "Could not persist Outcome acknowledgement"))
+                return
+            end
+            acknowledged = acknowledged + 1
+            next_entry(nil)
+        end
+        if entry.kind == "observe" then
+            self.client:observe(entry.request, acknowledge)
+        else
+            self.client:commit(entry.request, acknowledge)
+        end
+    end
+    next_entry(nil)
+end
+
+function Workflow:apply_and_enqueue(key, attempt, outcome, apply, callback)
+    if self.busy[key] or self.draining[key] or self.settling[key] then
+        callback(nil, workflow_error("workflow_busy", "Pending Turn is already being settled"))
+        return
+    end
+    if not valid_attempt(attempt) or type(apply) ~= "function" or
+        not valid_outcome_entry(outcome) or outcome.key ~= attempt.operation_id or
+        outcome.request.session_id ~= attempt.request.session_id then
+        callback(nil, workflow_error("invalid_workflow", "Outcome settlement is invalid"))
+        return
+    end
+    self.settling[key] = true
+    local function finish(result, err)
+        self.settling[key] = nil
+        callback(result, err)
+    end
+    local applied, apply_error = pcall(apply, attempt.operation_id)
+    if not applied then
+        finish(nil, workflow_error("game_apply_failed", tostring(apply_error)))
+        return
+    end
+    local completed, complete_error =
+        self.store:complete_attempt(key, attempt, outcome)
+    if not completed then
+        finish(nil, complete_error or workflow_error(
+            "workflow_persist_failed", "Could not persist completed Pending Turn"))
+        return
+    end
+    finish(true, nil)
+end
+
+function rin.proposal_freshness(state, proposal)
+    if type(state) ~= "table" or type(proposal) ~= "table" or
+        type(state.proposals) ~= "table" or
+        type(state.proposals[proposal.id]) ~= "table" or
+        state.proposals[proposal.id].status ~= "pending" then
+        return "stale"
+    end
+    if proposal.based_on_world_revision ~= nil then
+        return is_nonnegative_json_safe_integer(proposal.based_on_world_revision) and
+            is_nonnegative_json_safe_integer(state.world_revision) and
+            proposal.based_on_world_revision == state.world_revision and
+            proposal.based_on_world_revision > 0 and "fresh" or "stale"
+    end
+    return is_nonnegative_json_safe_integer(proposal.created_revision) and
+        is_nonnegative_json_safe_integer(state.revision) and
+        proposal.created_revision == state.revision and "fresh" or "stale"
+end
+
 return rin

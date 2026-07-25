@@ -42,6 +42,16 @@ func TestPrioritySDKsExposeCapabilityGatedWorkflowCoordinators(t *testing.T) {
 				"completePendingTurn",
 			},
 		},
+		{
+			path: "../sdk/lua/rin.lua",
+			required: []string{
+				"function rin.new_workflow",
+				"function Workflow:resume",
+				"function Workflow:apply_and_enqueue",
+				"function Workflow:drain_outbox",
+				"self.store:complete_attempt",
+			},
+		},
 	}
 	for _, test := range tests {
 		payload, err := os.ReadFile(test.path)
@@ -56,22 +66,37 @@ func TestPrioritySDKsExposeCapabilityGatedWorkflowCoordinators(t *testing.T) {
 	}
 }
 
-func TestPortableLuaSDKDoesNotOverclaimWorkflowDurability(t *testing.T) {
-	for _, path := range []string{
-		"../sdk/lua/README.md",
-		"../sdk/lua/README.zh-CN.md",
-	} {
-		payload, err := os.ReadFile(path)
+func TestPortableLuaWorkflowDoesNotOverclaimHostDurability(t *testing.T) {
+	tests := []struct {
+		path     string
+		required []string
+	}{
+		{
+			path: "../sdk/lua/README.md",
+			required: []string{
+				"`rin.new_workflow(client, store)`",
+				"The SDK defines ordering and validation, not host durability.",
+				"host-capability-profiles",
+			},
+		},
+		{
+			path: "../sdk/lua/README.zh-CN.md",
+			required: []string{
+				"`rin.new_workflow(client, store)`",
+				"SDK 定义顺序和校验，不定义宿主持久性。",
+				"host-capability-profiles",
+			},
+		},
+	}
+	for _, test := range tests {
+		payload, err := os.ReadFile(test.path)
 		if err != nil {
 			t.Fatal(err)
 		}
 		text := string(payload)
-		for _, fragment := range []string{
-			"`advisory`",
-			"host-capability-profiles",
-		} {
+		for _, fragment := range test.required {
 			if !strings.Contains(text, fragment) {
-				t.Errorf("%s is missing honest Lua capability wording %q", path, fragment)
+				t.Errorf("%s is missing honest Lua capability wording %q", test.path, fragment)
 			}
 		}
 	}
