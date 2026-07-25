@@ -571,7 +571,17 @@ def projection_rules(contract: Contract) -> Iterable[Projection]:
             f'    public const string ProtocolVersion = "{protocol}";',
         ),
         Projection(
-            "examples/mods/bepinex-rin-npc/Plugin.cs",
+            "examples/mods/bepinex-rin-npc/Directory.Build.props",
+            r"(?m)^(\s*<Version>)[^<]+(</Version>)$",
+            rf"\g<1>{version}\g<2>",
+        ),
+        Projection(
+            "examples/mods/bepinex-rin-npc/RinNpc.Mono/Plugin.cs",
+            r'(?m)^\s*public const string PluginVersion = "[^"]+";$',
+            f'    public const string PluginVersion = "{version}";',
+        ),
+        Projection(
+            "examples/mods/bepinex-rin-npc/RinNpc.IL2CPP/Plugin.cs",
             r'(?m)^\s*public const string PluginVersion = "[^"]+";$',
             f'    public const string PluginVersion = "{version}";',
         ),

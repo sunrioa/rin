@@ -1,56 +1,86 @@
-# BepInEx Rin NPC example
+# BepInEx Rin NPC reference
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-A plugin integration reference for the Rin agent runtime.
+This is a buildable BepInEx 6 reference, split by Unity backend.
 
-**Host capability profile: `advisory`.** This generic sample has no
-game-specific save transaction or stable save identity, so its in-memory
-ordering is not a restart guarantee. See
-[Host capability profiles](../../../docs/host-capability-profiles.md).
+**Host capability profile: `advisory`.** The example persists stable identity,
+Pending Turn, Job ID, and Outcome Outbox state, but a generic BepInEx plugin
+cannot atomically combine an arbitrary game's save mutation with that file.
+See [Host capability profiles](../../../docs/host-capability-profiles.md).
 
-This source overlay targets BepInEx 6 on a modern Unity/.NET runtime.
+## Choose exactly one backend
 
-1. Create a plugin from the official BepInEx plugin template for the target
-   game's backend and framework version.
-2. Add a project reference to `sdk/csharp/Rin.Client/Rin.Client.csproj`, or
-   copy its compiled assembly into the plugin's reference directory.
-3. Add `Plugin.cs`, start Rin, and build the plugin into `BepInEx/plugins`.
-4. Configure only `BaseUrl` in the generated BepInEx config. Supply a remote
-   bearer token through the `RIN_TOKEN` process environment variable.
-5. Press F8 for the isolated demo turn, or call `RequestNpcTurn` from the
-   target game's actual dialogue or interaction hook.
+| Backend | Project | Target | What is included |
+| --- | --- | --- | --- |
+| Unity Mono | `RinNpc.Mono` | `netstandard2.0` | Loadable plugin, F8 demo, Unity main-thread queue |
+| Unity IL2CPP | `RinNpc.IL2CPP` | `net6.0` | Loadable transport plugin; game-specific hook required |
 
-`Update` only drains a bounded main-thread queue and detects the optional demo
-key. HTTP runs asynchronously. The plugin opts into `outcome-reporting-v1` and
-re-reads Session immediately before apply. The proposal must still be
-`pending`, with a matching world revision (or creation revision for a
-non-world proposal); otherwise the game rejects it without an effect. The
-plugin validates `talk`, `wait`, or `refuse`, invokes `NpcActionReady` on
-Unity's main thread, and captures `Time.frameCount` at the actual accept/reject.
-A real game-specific plugin should map those IDs to its own NPC APIs.
+Both projects pin BepInEx `6.0.0-be.785`. Do not install both variants. IL2CPP
+interop assemblies are generated for a particular game, so this repository
+does not pretend a generic `UnityEngine` reference is sufficient. A real
+IL2CPP adapter must set `Plugin.ApplyDialogue` to a delegate that marshals onto
+the game's owning thread, then call `RequestNpcTurnAsync` from its interaction
+hook.
 
-The complete Create payload, request ID, and seed remain unchanged across
-retries. If Rin is unavailable before any online proposal exists, the plugin
-may run one explicit game-authored fallback. State failures after an online
-proposal fail closed. Before submitting, the plugin retains the complete
-Propose request and, after `202`, its Job ID. An unresolved attempt is resumed
-on the next interaction without advancing the sequence or choosing a fallback;
-it is removed only in the game transaction that stores the effect, applied
-marker, and Outbox entry. Either a retained attempt or an Outbox entry blocks
-every new turn.
+## Build and install
 
-This source-only sample stores applied operations and Outbox entries in memory.
-Each Commit also stores a safe Observe fallback containing only memory and an
-absolute fact. Temporary errors retain the exact Commit; only explicit terminal
-errors such as `unknown_proposal` atomically convert it to Observe. Durable
-ACK/delete must succeed before eviction. Replace the marked hooks with one
-fallible game-save transaction covering the effect, marker, both report
-payloads, retained Create/Propose requests, optional Job ID, and
-session/sequence state. In particular, an `NpcActionReady`
-subscriber exception must roll the transaction back and leave no accepted
-marker or Outbox entry; only the target game's real transaction can also undo a
-subscriber's partial world mutation.
+With the .NET 6 SDK:
 
-Official plugin tutorial: https://docs.bepinex.dev/articles/dev_guide/plugin_tutorial/index.html
-Configuration guide: https://docs.bepinex.dev/articles/dev_guide/plugin_tutorial/4_configuration.html
+```bash
+dotnet restore RinNpc.Mono/RinNpc.Mono.csproj --locked-mode
+dotnet build RinNpc.Mono/RinNpc.Mono.csproj -c Release --no-restore
+
+dotnet restore RinNpc.IL2CPP/RinNpc.IL2CPP.csproj --locked-mode
+dotnet build RinNpc.IL2CPP/RinNpc.IL2CPP.csproj -c Release --no-restore
+```
+
+From the repository root, build deterministic install ZIPs on Linux, macOS,
+or Windows:
+
+```bash
+python tools/package_bepinex.py
+```
+
+Extract the ZIP for the correct backend into the game root. It creates
+`BepInEx/plugins/RinNpc`. The Mono bundle includes the `System.Text.Json`
+runtime dependencies needed by older Unity Mono installations; the IL2CPP
+bundle relies on its .NET 6 runtime. Neither bundle copies BepInEx, Unity, nor
+game-specific interop assemblies.
+
+Start the game once, then configure:
+
+- `Connection.BaseUrl`: defaults to loopback Rin.
+- `Identity.ProductIdentity`: stable per game; never use an executable path.
+- `Identity.SaveIdentity`: stable per save/profile. Replace the demo value
+  before production use.
+- `Example.EnableF8Demo`: Mono-only isolated demonstration.
+
+Pass a remote Rin bearer token only through `RIN_TOKEN`; do not put it in the
+BepInEx config or game save. Remote origins require HTTPS.
+
+## Recovery and authority
+
+`RinNpc.Core` owns Create/Observe/Proposal Job recovery, freshness checks,
+allowlisting, outcome construction, and Outbox drain. The backend wrappers only
+own lifecycle, configuration, tick capture, logging, and main-thread apply.
+At this revision the Mono wrapper is 106 lines and the IL2CPP wrapper is 88;
+the reusable runtime is 228 lines. The larger state-store file is persistence
+infrastructure rather than workflow code copied into each game.
+The state file is bounded to 2 MB and the Outbox to 32 entries. Its name is a
+SHA-256-derived Windows-safe filename under
+`BepInEx/config/rin-npc-example`.
+
+The complete Pending Turn is persisted before network submission and its Job
+ID immediately after `202`. A restart resumes the same operation and stable
+Session. Applying an action stores the exact Commit plus a safe absolute-fact
+Observe fallback. Temporary failures retain the Commit; only explicit terminal
+errors such as `unknown_proposal` persist the conversion before sending
+Observe.
+
+File replacement is crash-resistant ordering, not a claim of a durable game
+transaction. A process or power failure can still occur between the game
+effect and state-file replacement. A production adapter should either make the
+effect idempotent by operation ID or implement a game-specific transactional
+store before declaring a stronger profile. Do not run two plugin instances
+against the same state file.

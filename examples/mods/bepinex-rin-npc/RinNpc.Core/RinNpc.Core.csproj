@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net6.0</TargetFrameworks>
+    <AssemblyName>RinNpc.Core</AssemblyName>
+    <RootNamespace>RinNpcExample</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../../sdk/csharp/Rin.Client/Rin.Client.csproj" />
+  </ItemGroup>
+</Project>

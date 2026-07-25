@@ -1,13 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <RinTargetFramework Condition="'$(RinTargetFramework)' == ''">net6.0</RinTargetFramework>
-    <TargetFramework>$(RinTargetFramework)</TargetFramework>
+    <TargetFrameworks Condition="'$(RinTargetFramework)' == ''">net6.0;netstandard2.0</TargetFrameworks>
+    <TargetFramework Condition="'$(RinTargetFramework)' != ''">$(RinTargetFramework)</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <PackageId>Rin.Game.Client</PackageId>
     <Version>0.6.0</Version>
-    <Description>Dependency-free .NET client for the Rin agent runtime.</Description>
+    <Description>Asynchronous .NET client for the Rin agent runtime.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <PackageReference Include="System.Text.Json" Version="8.0.6" />
+    <Compile Remove="SessionTransfer.cs" />
+  </ItemGroup>
 </Project>

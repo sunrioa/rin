@@ -22,7 +22,7 @@ This document describes Rin `0.6.0` Preview. The authoritative wire schema is
 | --- | --- | --- | --- | --- |
 | Python | 3.9 | synchronous | standard library | Ren'Py, tools, servers |
 | JavaScript | Node 18 / Fetch host | Promise | built in | Electron, web bridges, Node |
-| C# | .NET 6 | Task | `System.Text.Json` | BepInEx 6, modern .NET games |
+| C# | .NET Standard 2.0 / .NET 6 | Task | `System.Text.Json` | BepInEx 6 Mono / IL2CPP, modern .NET games |
 | Java | 17 | `CompletableFuture` | injected `JsonCodec` | Fabric, JVM servers |
 | Lua | 5.1 | callback | injected codec and transport | Luanti, embedded Lua engines |
 
@@ -30,7 +30,8 @@ Every implementation exposes the 20-route inventory generated into
 [`sdk/conformance/routes.json`](../sdk/conformance/routes.json) from OpenAPI.
 That inventory checks coverage; it is not a second wire contract or behavior
 proof. Python and
-JavaScript have no runtime dependencies. C# uses only framework APIs. Java
+JavaScript have no runtime dependencies. C# uses framework APIs on .NET 6;
+its .NET Standard 2.0 compatibility target pins `System.Text.Json`. Java
 reuses the host's JSON library through a two-method codec. Lua injects all
 host-specific services because Lua engines expose incompatible HTTP and JSON
 APIs.
@@ -43,7 +44,7 @@ sdk/
   <language>/        source, language README, tests, optional quickstart
 examples/mods/
   fabric-rin-npc/    pinned, buildable Fabric server Mod
-  bepinex-rin-npc/   BepInEx 6 source overlay
+  bepinex-rin-npc/   pinned BepInEx 6 Mono and IL2CPP projects
   luanti-rin-npc/    complete server mod with vendored Lua SDK
 ```
 
@@ -152,10 +153,14 @@ world/session identity and bounded workflow state in Saved Data, and schedules
 host work with `MinecraftServer.execute`. It remains `advisory` because
 `markDirty()` is eventual rather than a durable transaction boundary.
 
-The BepInEx overlay targets BepInEx 6 and .NET 6. It makes no HTTP request per
-frame: `Update` drains a bounded queue and optionally detects the F8 demo key.
-Subscribe to `NpcActionReady` and translate the three sample IDs through the
-target game's supported APIs.
+The BepInEx reference pins `6.0.0-be.785` and separates Unity Mono
+(`netstandard2.0`) from IL2CPP (`net6.0`). Shared Core code persists a stable
+save identity, Pending Turn, Job ID, and bounded Outcome Outbox. Mono provides
+a bounded Unity main-thread queue and optional F8 demo. IL2CPP deliberately
+requires a game-specific interop hook because generated assemblies are not
+portable between games. `python tools/package_bepinex.py` builds deterministic
+Windows-safe install ZIPs and rejects packages that accidentally contain
+BepInEx, Unity, or game interop assemblies.
 
 The Luanti example is a complete server mod. It calls
 `core.request_http_api()` at module scope, keeps the returned API local, and
@@ -174,8 +179,9 @@ Store/Sidecar lifecycle tests on Linux, macOS, and Windows. The platform tests
 cover persistence, restart, and rejection of a second writer. CI runs the
 Python SDK and Ren'Py adapter on Python 3.9 and the current Python 3 release,
 JavaScript on Node 18 and 24, Java on 17 and 25, C# against .NET 6 and 10, and
-Lua on 5.1 and 5.4. The pinned Fabric project and its Saved Data restart test
-also build on Linux and Windows. The contract generator check prevents drift
+Lua on 5.1 and 5.4. The pinned Fabric project and its Saved Data restart test,
+plus both BepInEx backends, restart tests, and install packages, build on Linux
+and Windows. The contract generator check prevents drift
 from OpenAPI to generated route/version projections.
 
 The SDK tests invoke real client methods against local fake transports or HTTP

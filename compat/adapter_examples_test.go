@@ -811,11 +811,11 @@ func TestEngineExamplesValidateCanonicalRecoveryJobsAndSchedulerHeadroom(t *test
 
 func TestModExamplesOptIntoOutcomeReporting(t *testing.T) {
 	tests := map[string]string{
-		"../examples/mods/bepinex-rin-npc/Plugin.cs":                                                 "outcome-reporting-v1",
+		"../examples/mods/bepinex-rin-npc/RinNpc.Core/RinNpcRuntime.cs":                                   "RinFeatures.OutcomeReporting",
 		"../examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/RinNpcRequests.java": "outcome-reporting-v1",
-		"../examples/mods/luanti-rin-npc/init.lua":                                                   "outcome-reporting-v1",
-		"../examples/basic/main.go":                                                                  "FeatureOutcomeReporting",
-		"../examples/recovery/main.go":                                                               "FeatureOutcomeReporting",
+		"../examples/mods/luanti-rin-npc/init.lua":                                                        "outcome-reporting-v1",
+		"../examples/basic/main.go":                                                                       "FeatureOutcomeReporting",
+		"../examples/recovery/main.go":                                                                    "FeatureOutcomeReporting",
 	}
 	for path, marker := range tests {
 		payload, err := os.ReadFile(path)
@@ -828,160 +828,46 @@ func TestModExamplesOptIntoOutcomeReporting(t *testing.T) {
 	}
 }
 
-func TestManagedModExamplesPersistAndValidateProposalAttempts(t *testing.T) {
-	tests := []struct {
-		name                 string
-		path                 string
-		required             []string
-		attemptPersistMarker string
-		submitMarker         string
-		jobPersistMarker     string
-		getMarker            string
-		repostStart          string
-		repostEnd            string
-		terminalStart        string
-		terminalEnd          string
-		terminalExclusion    string
-		safeFallbackMarker   string
-		fallbackCallMarker   string
-		transactionStart     string
-		transactionEnd       string
-		appliedMarker        string
-		outboxMarker         string
-		effectMarker         string
-		clearMarker          string
-	}{
-		{
-			name: "bepinex",
-			path: "../examples/mods/bepinex-rin-npc/Plugin.cs",
-			required: []string{
-				"ProposalAttempt? proposalAttempt",
-				"RetainNewProposalAttempt",
-				"attempt.ProposeRequest",
-				"PersistProposalJobId(attempt, jobId)",
-				"GetProposalJobAsync(jobId)",
-				"ValidateJobIdentity(attempt, jobId, currentJob)",
-				"ValidateProposalIdentity",
-				"attempt.ProposeTick",
-				"var occurrenceTick = Math.Max(",
-				"InvalidateSessionIfNotFound",
-				"proposalAttempt = null",
-				"string.IsNullOrWhiteSpace(proposalId)",
-			},
-			attemptPersistMarker: "proposalAttempt = retained;",
-			submitMarker:         "rin.SubmitProposalJobAsync(",
-			jobPersistMarker:     "PersistProposalJobId(attempt, jobId);",
-			getMarker:            "rin.GetProposalJobAsync(jobId)",
-			repostStart:          "private static bool ShouldRepostProposal",
-			repostEnd:            "private static bool IsConfirmedSafeTerminal",
-			terminalStart:        "private static bool IsConfirmedSafeTerminal",
-			terminalEnd:          "private static RinApiException UnknownProposalOutcome",
-			terminalExclusion:    "!AmbiguousProposalErrors.Contains(exception.Code)",
-			safeFallbackMarker:   "when (IsConfirmedSafeTerminal(exception))",
-			fallbackCallMarker:   "ProposalResolution.AuthoredFallback(exception.Code)",
-			transactionStart:     "private bool PersistAuthoritativeTransaction(",
-			transactionEnd:       "private bool PersistOutboxConversion(",
-			appliedMarker:        "appliedOperations[operationId] = result;",
-			outboxMarker:         "outcomeOutbox[operationId] = pending;",
-			effectMarker:         "applyGameState();",
-			clearMarker:          "proposalAttempt = null",
+func TestBepInExDelegatesWorkflowAndSeparatesBackends(t *testing.T) {
+	files := map[string][]string{
+		"../examples/mods/bepinex-rin-npc/RinNpc.Core/RinNpcRuntime.cs": {
+			"WorkflowCoordinator", "ProposalFreshness.Evaluate",
+			"BeginAsync", "ApplyAndEnqueueOutcomeWithFallbackAsync",
+			"HostProfile.Advisory",
+		},
+		"../examples/mods/bepinex-rin-npc/RinNpc.Core/BepInExWorkflowState.cs": {
+			"IWorkflowFallbackStore", "StageTurnContext", "ReplaceWithFallbackAsync",
+			"Flush(flushToDisk: true)", "MaxOutcomes",
+		},
+		"../examples/mods/bepinex-rin-npc/RinNpc.Mono/Plugin.cs": {
+			"BaseUnityPlugin", "ConcurrentQueue<Action>", "ProductIdentity",
+			"shutdown.Token",
+		},
+		"../examples/mods/bepinex-rin-npc/RinNpc.IL2CPP/Plugin.cs": {
+			"BasePlugin", "ApplyDialogue", "ProductIdentity", "override bool Unload",
+		},
+		"../examples/mods/bepinex-rin-npc/RinNpc.Mono/RinNpc.Mono.csproj": {
+			"netstandard2.0", "BepInEx.Unity.Mono", "6.0.0-be.785",
+		},
+		"../examples/mods/bepinex-rin-npc/RinNpc.IL2CPP/RinNpc.IL2CPP.csproj": {
+			"net6.0", "BepInEx.Unity.IL2CPP", "6.0.0-be.785",
 		},
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			payload, err := os.ReadFile(test.path)
-			if err != nil {
-				t.Fatal(err)
+	for path, required := range files {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(payload)
+		for _, marker := range required {
+			if !strings.Contains(text, marker) {
+				t.Errorf("%s is missing integration boundary %q", path, marker)
 			}
-			text := string(payload)
-			for _, required := range test.required {
-				if !strings.Contains(text, required) {
-					t.Errorf(
-						"%s is missing retained Proposal contract %q",
-						test.path,
-						required,
-					)
-				}
-			}
-
-			assertBefore := func(earlier, later, contract string) {
-				t.Helper()
-				earlierAt := strings.Index(text, earlier)
-				laterAt := strings.Index(text, later)
-				if earlierAt < 0 || laterAt < 0 || earlierAt >= laterAt {
-					t.Errorf("%s does not preserve %s", test.path, contract)
-				}
-			}
-			section := func(start, end string) string {
-				t.Helper()
-				startAt := strings.Index(text, start)
-				if startAt < 0 {
-					t.Errorf("%s is missing section start %q", test.path, start)
-					return ""
-				}
-				endAt := strings.Index(text[startAt+len(start):], end)
-				if endAt < 0 {
-					t.Errorf("%s is missing section end %q", test.path, end)
-					return ""
-				}
-				return text[startAt : startAt+len(start)+endAt]
-			}
-
-			assertBefore(
-				test.attemptPersistMarker,
-				test.submitMarker,
-				"durable Proposal Attempt before its first POST",
-			)
-			assertBefore(
-				test.jobPersistMarker,
-				test.getMarker,
-				"durable Job ID before its first GET",
-			)
-
-			repostSection := section(test.repostStart, test.repostEnd)
-			if !strings.Contains(repostSection, `"proposal_outcome_unknown"`) {
-				t.Errorf("%s does not route proposal_outcome_unknown through same-request recovery", test.path)
-			}
-			terminalSection := section(test.terminalStart, test.terminalEnd)
-			if !strings.Contains(terminalSection, test.terminalExclusion) {
-				t.Errorf("%s can reinterpret an ambiguous Proposal result as fallback-safe", test.path)
-			}
-			if !strings.Contains(text, test.safeFallbackMarker) {
-				t.Errorf("%s does not gate authored fallback on a confirmed safe terminal result", test.path)
-			}
-			if count := strings.Count(text, test.fallbackCallMarker); count != 1 {
-				t.Errorf(
-					"%s has %d authored-fallback call sites; want one guarded terminal path",
-					test.path,
-					count,
-				)
-			}
-
-			transactionSection := section(test.transactionStart, test.transactionEnd)
-			if !strings.Contains(transactionSection, test.clearMarker) {
-				t.Errorf("%s clears its Proposal Attempt outside the authoritative transaction", test.path)
-			}
-			transactionIndex := func(marker string) int {
-				t.Helper()
-				position := strings.Index(transactionSection, marker)
-				if position < 0 {
-					t.Errorf("%s authoritative transaction is missing %q", test.path, marker)
-				}
-				return position
-			}
-			appliedAt := transactionIndex(test.appliedMarker)
-			outboxAt := transactionIndex(test.outboxMarker)
-			effectAt := transactionIndex(test.effectMarker)
-			clearAt := transactionIndex(test.clearMarker)
-			if appliedAt < 0 || outboxAt < appliedAt || effectAt < outboxAt || clearAt < effectAt {
-				t.Errorf(
-					"%s does not atomically stage marker/outbox before effect and clear the attempt afterward",
-					test.path,
-				)
-			}
-		})
+		}
 	}
-
+	if _, err := os.Stat("../examples/mods/bepinex-rin-npc/Plugin.cs"); !os.IsNotExist(err) {
+		t.Error("obsolete monolithic BepInEx source overlay still exists")
+	}
 }
 
 func TestFabricDelegatesWorkflowAndPersistsRestartState(t *testing.T) {

@@ -167,6 +167,40 @@ jobs:
         working-directory: examples/mods/fabric-rin-npc
         run: ./gradlew clean build --no-daemon
 
+  bepinex-plugin:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "6.0.x"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build deterministic Mono and IL2CPP install packages
+        run: python tools/package_bepinex.py
+      - name: Restore BepInEx restart tests from lock files
+        working-directory: examples/mods/bepinex-rin-npc
+        run: dotnet restore RinNpc.Core.Tests/RinNpc.Core.Tests.csproj --locked-mode
+      - name: Test stable identity, restart, and Outcome recovery
+        working-directory: examples/mods/bepinex-rin-npc
+        run: >-
+          dotnet build RinNpc.Core.Tests/RinNpc.Core.Tests.csproj --no-restore
+          --nologo -m:1 -p:UseSharedCompilation=false -p:BuildInParallel=false
+      - name: Execute BepInEx restart tests
+        working-directory: examples/mods/bepinex-rin-npc
+        run: >-
+          dotnet exec
+          RinNpc.Core.Tests/bin/Debug/net6.0/RinNpc.Core.Tests.dll
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bepinex-${{ runner.os }}
+          path: examples/mods/bepinex-rin-npc/dist/*.zip
+          if-no-files-found: error
+
   sdk-csharp:
     runs-on: ubuntu-latest
     strategy:
@@ -188,6 +222,11 @@ jobs:
             --nologo
           dotnet exec \
             sdk/csharp/Rin.Client.Tests/bin/Debug/${{ matrix.framework }}/Rin.Client.Tests.dll
+      - name: Build legacy Unity compatibility target
+        if: matrix.framework == 'net6.0'
+        run: >-
+          dotnet build sdk/csharp/Rin.Client/Rin.Client.csproj
+          -p:RinTargetFramework=netstandard2.0 --nologo
 
   sdk-lua:
     runs-on: ubuntu-latest

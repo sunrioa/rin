@@ -28,8 +28,23 @@
       "profile": "advisory"
     },
     {
-      "path": "examples/mods/bepinex-rin-npc/Plugin.cs",
-      "max_lines": 1086,
+      "path": "examples/mods/bepinex-rin-npc/RinNpc.Core/RinNpcRuntime.cs",
+      "max_lines": 230,
+      "profile": "advisory"
+    },
+    {
+      "path": "examples/mods/bepinex-rin-npc/RinNpc.Core/BepInExWorkflowState.cs",
+      "max_lines": 400,
+      "profile": "advisory"
+    },
+    {
+      "path": "examples/mods/bepinex-rin-npc/RinNpc.Mono/Plugin.cs",
+      "max_lines": 110,
+      "profile": "advisory"
+    },
+    {
+      "path": "examples/mods/bepinex-rin-npc/RinNpc.IL2CPP/Plugin.cs",
+      "max_lines": 100,
       "profile": "advisory"
     },
     {

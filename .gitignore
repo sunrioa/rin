@@ -9,6 +9,9 @@ __pycache__/
 *.log
 sdk/csharp/**/bin/
 sdk/csharp/**/obj/
+examples/mods/bepinex-rin-npc/**/bin/
+examples/mods/bepinex-rin-npc/**/obj/
+examples/mods/bepinex-rin-npc/dist/
 sdk/python/**/*.egg-info/
 
 # Local-only maintainer documentation

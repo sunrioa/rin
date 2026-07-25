@@ -35,7 +35,7 @@ public sealed class OpaqueSnapshotPersistence
         T snapshot,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(snapshot);
+        if (snapshot is null) throw new ArgumentNullException(nameof(snapshot));
         byte[] encoded;
         try
         {

@@ -12,6 +12,10 @@ Require(
     stableId.StartsWith("commit.", StringComparison.Ordinal) &&
     stableId.Length == "commit.".Length + 32,
     "stable ID helper did not produce a protocol-safe identifier");
+Require(
+    RinIds.IsValid("a" + new string('b', 95)) &&
+    !RinIds.IsValid("a" + new string('b', 96)),
+    "protocol identifier validation does not enforce the 96-character boundary");
 try
 {
     RinIds.Create("bad prefix");
@@ -157,6 +161,26 @@ using (var typedProposalClient = new RinClient(
     Require(
         result.AdditiveFields?.ContainsKey("future") == true,
         "typed Proposal result discarded an additive field");
+    using var freshState = JsonDocument.Parse(
+        "{\"revision\":2,\"proposals\":{\"proposal.fixture\":{\"status\":\"pending\"}}}");
+    Require(
+        ProposalFreshness.Evaluate(freshState.RootElement, result.Proposal) ==
+        ProposalFreshnessDecision.Fresh,
+        "fresh Session Proposal was rejected");
+    using var malformedState = JsonDocument.Parse(
+        "{\"revision\":\"2\",\"proposals\":{\"proposal.fixture\":{\"status\":7}}}");
+    Require(
+        ProposalFreshness.Evaluate(malformedState.RootElement, result.Proposal) ==
+        ProposalFreshnessDecision.Stale,
+        "malformed freshness fields were not fail-closed");
+    using var worldState = JsonDocument.Parse(
+        "{\"world_revision\":4,\"proposals\":{\"proposal.fixture\":{\"status\":\"pending\"}}}");
+    Require(
+        ProposalFreshness.Evaluate(
+            worldState.RootElement,
+            result.Proposal with { BasedOnWorldRevision = 4 }) ==
+        ProposalFreshnessDecision.Fresh,
+        "fresh world Proposal was rejected");
 }
 
 var workflowHandler = new RecordingHandler
@@ -301,6 +325,74 @@ using (var workflowClient = new RinClient(new RinClientOptions(), workflowHandle
         idempotentStore.Attempt?.OperationId == "operation.failed",
         "failed apply removed the Pending Turn");
     Require(idempotentStore.Outcomes.Count == 0, "failed apply enqueued an Outcome");
+
+    var invalidFallbackStore = new TestAuthoritativeStore();
+    var invalidFallbackWorkflow = new WorkflowCoordinator(
+        workflowClient,
+        invalidFallbackStore,
+        HostCapabilities.Advisory());
+    var invalidFallbackRequest = proposeRequest with { RequestId = "request.invalid" };
+    var invalidFallbackTurn = await invalidFallbackWorkflow.BeginAsync(
+        "operation.invalid",
+        invalidFallbackRequest);
+    var invalidFallbackApplied = false;
+    try
+    {
+        await invalidFallbackWorkflow.ApplyAndEnqueueOutcomeWithFallbackAsync(
+            invalidFallbackTurn,
+            resolved.Proposal with { RequestId = "request.invalid" },
+            new CommitRequest(
+                "session.workflow",
+                "commit.invalid",
+                "proposal.workflow",
+                "event.invalid",
+                true),
+            new
+            {
+                session_id = "session.workflow",
+                request_id = "observe.invalid",
+            },
+            HostProfile.Advisory,
+            (_, _) =>
+            {
+                invalidFallbackApplied = true;
+                return ValueTask.CompletedTask;
+            });
+        throw new InvalidOperationException("invalid Outcome fallback was accepted");
+    }
+    catch (RinConfigurationException exception)
+    {
+        Require(exception.Code == "invalid_outbox", "invalid fallback code changed");
+    }
+    Require(!invalidFallbackApplied, "invalid fallback was rejected after game apply");
+    Require(
+        invalidFallbackStore.Attempt?.OperationId == invalidFallbackTurn.OperationId,
+        "invalid fallback removed the Pending Turn");
+}
+
+var fallbackHandler = new TerminalFallbackHandler();
+using (var fallbackClient = new RinClient(new RinClientOptions(), fallbackHandler))
+{
+    var fallbackStore = new TestAuthoritativeStore();
+    fallbackStore.Outcomes.Add(new OutcomeOutboxEntry(
+        "outcome.fallback",
+        new CommitRequest(
+            "session.workflow",
+            "commit.fallback",
+            "proposal.fallback",
+            "event.fallback",
+            true),
+        new
+        {
+            session_id = "session.workflow",
+            request_id = "observe.fallback",
+            event_id = "event.fallback",
+        }));
+    var fallbackOutbox = new OutcomeOutbox(fallbackClient, fallbackStore);
+    Require(await fallbackOutbox.DrainAsync() == 1, "fallback Outcome did not drain");
+    Require(fallbackHandler.ObserveCount == 1, "terminal Commit did not send Observe");
+    Require(fallbackStore.FallbackConversions == 1, "fallback was not persisted first");
+    Require(fallbackStore.Outcomes.Count == 0, "fallback Observe was not acknowledged");
 }
 
 var opaqueStore = new TestOpaqueSnapshotStore();
@@ -992,11 +1084,36 @@ sealed class RecordingHandler : HttpMessageHandler
     }
 }
 
-sealed class TestAuthoritativeStore : IWorkflowStore
+sealed class TerminalFallbackHandler : HttpMessageHandler
+{
+    public int ObserveCount { get; private set; }
+
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        var commit = request.RequestUri?.AbsolutePath == "/v1/action/commit";
+        if (!commit) ObserveCount++;
+        var body = commit
+            ? "{\"ok\":false,\"error\":{\"code\":\"unknown_proposal\"," +
+                "\"message\":\"proposal was evicted\"}}"
+            : "{\"ok\":true,\"data\":{\"session_id\":\"session.workflow\"," +
+                "\"revision\":4,\"head_hash\":\"" + new string('b', 64) +
+                "\",\"duplicate\":true}}";
+        return Task.FromResult(new HttpResponseMessage(
+            commit ? HttpStatusCode.Conflict : HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        });
+    }
+}
+
+sealed class TestAuthoritativeStore : IWorkflowFallbackStore
 {
     public ProposalAttempt? Attempt { get; private set; }
 
     public List<OutcomeOutboxEntry> Outcomes { get; } = new();
+    public int FallbackConversions { get; private set; }
 
     public ValueTask<ProposalAttempt?> LoadAsync(
         CancellationToken cancellationToken = default) =>
@@ -1055,6 +1172,24 @@ sealed class TestAuthoritativeStore : IWorkflowStore
         return ValueTask.CompletedTask;
     }
 
+    public ValueTask CompleteWithFallbackAsync(
+        ProposalAttempt attempt,
+        ActionProposal proposal,
+        CommitRequest commit,
+        object fallbackObserve,
+        CancellationToken cancellationToken = default)
+    {
+        if (Attempt != attempt)
+        {
+            throw new InvalidOperationException(
+                "fallback completion did not use the stored Attempt");
+        }
+        Outcomes.Add(
+            new OutcomeOutboxEntry("outcome.workflow", commit, fallbackObserve));
+        Attempt = null;
+        return ValueTask.CompletedTask;
+    }
+
     public ValueTask<IReadOnlyList<OutcomeOutboxEntry>> ListAsync(
         CancellationToken cancellationToken = default) =>
         ValueTask.FromResult<IReadOnlyList<OutcomeOutboxEntry>>(Outcomes.ToArray());
@@ -1071,6 +1206,18 @@ sealed class TestAuthoritativeStore : IWorkflowStore
         }
         Outcomes.Remove(entry);
         return ValueTask.CompletedTask;
+    }
+
+    public ValueTask<OutcomeOutboxEntry> ReplaceWithFallbackAsync(
+        OutcomeOutboxEntry entry,
+        CancellationToken cancellationToken = default)
+    {
+        var index = Outcomes.IndexOf(entry);
+        if (index < 0) throw new InvalidOperationException("fallback entry changed");
+        var converted = entry.AsDegradedObserve();
+        Outcomes[index] = converted;
+        FallbackConversions++;
+        return ValueTask.FromResult(converted);
     }
 }
 

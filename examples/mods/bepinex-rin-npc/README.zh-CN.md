@@ -1,51 +1,76 @@
-# BepInEx Rin NPC 示例
+# BepInEx Rin NPC 参考接入
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-面向 Rin 智能体运行时的插件接入参考。
+这是一个可真实构建的 BepInEx 6 参考项目，并按 Unity Backend 分开。
 
-**Host capability profile：`advisory`。** 该通用示例没有具体游戏的存档事务
-或稳定 Save Identity，因此内存中的执行顺序不构成重启保证。参见
+**Host capability profile：`advisory`。** 示例会持久化稳定身份、Pending
+Turn、Job ID 与 Outcome Outbox，但通用 BepInEx 插件无法把任意游戏的存档
+修改与该状态文件合并为同一个原子事务。参见
 [宿主能力分级](../../../docs/host-capability-profiles.zh-CN.md)。
 
-该源码覆盖层面向现代 Unity/.NET 运行时上的 BepInEx 6。
+## 只选择一个 Backend
 
-1. 使用官方 BepInEx Plugin Template，为目标游戏的 Backend 和 Framework
-   版本创建插件。
-2. 添加对 `sdk/csharp/Rin.Client/Rin.Client.csproj` 的项目引用，或把编译
-   后 Assembly 复制到插件引用目录。
-3. 添加 `Plugin.cs`，启动 Rin，并把插件构建到 `BepInEx/plugins`。
-4. 只在生成的 BepInEx Config 中配置 `BaseUrl`。远程 Bearer Token 通过
-   `RIN_TOKEN` 进程环境变量提供。
-5. 按 F8 运行隔离 Demo Turn，或从目标游戏真实对白/交互 Hook 调用
-   `RequestNpcTurn`。
+| Backend | 项目 | Target | 包含内容 |
+| --- | --- | --- | --- |
+| Unity Mono | `RinNpc.Mono` | `netstandard2.0` | 可加载插件、F8 演示、Unity 主线程队列 |
+| Unity IL2CPP | `RinNpc.IL2CPP` | `net6.0` | 可加载 Transport 插件；必须提供游戏专用 Hook |
 
-`Update` 只排空有界主线程队列并检测可选 Demo Key；HTTP 异步运行。插件
-启用 `outcome-reporting-v1`，并在应用前重新读取 Session。Proposal 必须仍
-是 `pending`，而且 World Revision（非世界 Proposal 则为创建 Revision）
-仍然匹配，否则游戏不执行效果而报告 Rejected。插件验证 `talk`、`wait`
-或 `refuse`，在 Unity 主线程调用 `NpcActionReady`，并在实际 Accept/Reject
-时读取 `Time.frameCount`。真实游戏插件应把这些 ID 映射到自己的 NPC API。
+两个项目都固定 BepInEx `6.0.0-be.785`，不能同时安装。IL2CPP Interop
+Assembly 由具体游戏生成，因此仓库不会假装一个通用 `UnityEngine` 引用足够。
+真实 IL2CPP Adapter 必须把 `Plugin.ApplyDialogue` 设置为能切回游戏所有者
+线程的 Delegate，并从交互 Hook 调用 `RequestNpcTurnAsync`。
 
-完整 Create Payload、Request ID 和 Seed 在所有重试间保持不变。只有 Rin
-尚未生成在线 Proposal 的冷启动不可用场景，插件才执行一个明确由游戏编写
-的 Fallback；在线 Proposal 后的 State 失败必须 Fail Closed。只要 Outbox
-仍有 Entry，就禁止开始新 Turn。插件会在提交前保留完整 Propose Request，
-并在收到 `202` 后立即保存 Job ID；未决 Attempt 会在下一次交互中用同一
-身份恢复，不增长 Sequence，也不选择 Fallback。只有游戏效果、Applied
-Marker 与 Outbox 在同一事务中落盘时才移除 Attempt；未决 Attempt 或 Outbox
-都会阻止所有新 Turn。
+## 构建与安装
 
-本源码示例只在内存保存 Applied Operation 与 Outbox。每条 Commit 也保存
-一个只含 Memory 与绝对 Fact 的安全 Observe 降级载荷；临时错误保留原
-Commit，只有 `unknown_proposal` 等明确终态错误才原子转换。Durable
-ACK/Delete 成功后才能 Evict。生产接入应把标记 Hook 替换为可失败的游戏
-保存事务，同时包住效果、Marker、两份报告载荷、保留的 Create/Propose
-Request、可选 Job ID 以及 Session/Sequence 状态。
-尤其是 `NpcActionReady` Subscriber 抛错时必须回滚，不能留下 Accepted
-Marker 或 Outbox；只有目标游戏的真实事务还能撤销 Subscriber 已部分写入
-的世界状态。
+使用 .NET 6 SDK：
 
-官方插件教程：https://docs.bepinex.dev/articles/dev_guide/plugin_tutorial/index.html
+```bash
+dotnet restore RinNpc.Mono/RinNpc.Mono.csproj --locked-mode
+dotnet build RinNpc.Mono/RinNpc.Mono.csproj -c Release --no-restore
 
-配置指南：https://docs.bepinex.dev/articles/dev_guide/plugin_tutorial/4_configuration.html
+dotnet restore RinNpc.IL2CPP/RinNpc.IL2CPP.csproj --locked-mode
+dotnet build RinNpc.IL2CPP/RinNpc.IL2CPP.csproj -c Release --no-restore
+```
+
+从仓库根目录在 Linux、macOS 或 Windows 生成确定性安装 ZIP：
+
+```bash
+python tools/package_bepinex.py
+```
+
+把正确 Backend 的 ZIP 解压到游戏根目录，它会生成
+`BepInEx/plugins/RinNpc`。Mono 包含旧 Unity Mono 所需的
+`System.Text.Json` Runtime 依赖；IL2CPP 包使用其 .NET 6 Runtime。两个包
+都不会复制 BepInEx、Unity 或游戏专用 Interop Assembly。
+
+首次启动后配置：
+
+- `Connection.BaseUrl`：默认连接本机 Rin。
+- `Identity.ProductIdentity`：每个游戏稳定不变，不能使用可执行文件路径。
+- `Identity.SaveIdentity`：每个存档/Profile 稳定不变；生产接入必须替换
+  Demo 值。
+- `Example.EnableF8Demo`：仅 Mono 的隔离演示。
+
+远程 Rin Bearer Token 只能通过 `RIN_TOKEN` 提供，不能写入 BepInEx Config
+或游戏存档；远程 Origin 必须使用 HTTPS。
+
+## 恢复与权威边界
+
+`RinNpc.Core` 统一负责 Create/Observe、Proposal Job 恢复、Freshness、
+Allowlist、Outcome 构造与 Outbox Drain。Backend Wrapper 只负责生命周期、
+配置、Tick、日志和主线程 Apply。当前 Mono Wrapper 为 106 行、IL2CPP
+Wrapper 为 88 行，共享 Runtime 为 228 行；更大的状态 Store 文件属于持久化
+基础设施，不是复制到每个游戏的 Workflow。状态文件最大 2 MB，Outbox 最多 32 条；
+文件名由 SHA-256 派生，可安全用于 Windows，位置为
+`BepInEx/config/rin-npc-example`。
+
+网络提交前先保存完整 Pending Turn，收到 `202` 后立即保存 Job ID；重启会
+恢复同一 Operation 与稳定 Session。动作应用后保存精确 Commit 及安全的绝对
+事实 Observe Fallback。临时错误保留 Commit；只有 `unknown_proposal` 等明确
+终态错误会先持久化转换，再发送 Observe。
+
+文件替换只能保证抗崩溃的执行顺序，不代表游戏事务已经持久化。进程或断电仍
+可能发生在游戏效果与状态文件替换之间。生产 Adapter 应让效果按 Operation
+ID 幂等，或实现游戏专用事务 Store 后才能声明更强 Profile。不要让两个插件
+实例同时操作同一状态文件。

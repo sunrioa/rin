@@ -1,4 +1,9 @@
 using System.Text.Json;
+#if NETSTANDARD2_0
+using FeatureSet = System.Collections.Generic.IReadOnlyCollection<string>;
+#else
+using FeatureSet = System.Collections.Generic.IReadOnlySet<string>;
+#endif
 
 namespace Rin.Client;
 
@@ -35,8 +40,8 @@ public sealed record RinCapabilities(
     string PolicyMode,
     bool AsyncJobs,
     bool StructuredGeneration,
-    IReadOnlySet<string> Features,
-    IReadOnlySet<string> RecommendedFeatures)
+    FeatureSet Features,
+    FeatureSet RecommendedFeatures)
 {
     internal static RinCapabilities FromHealth(JsonElement health)
     {
@@ -61,7 +66,7 @@ public sealed record RinCapabilities(
                 {
                     throw new InvalidOperationException();
                 }
-                features.Add(value);
+                features.Add(value!);
             }
             var recommendedFeatures = new HashSet<string>(StringComparer.Ordinal);
             foreach (var feature in health.GetProperty("recommended_features").EnumerateArray())
@@ -71,7 +76,7 @@ public sealed record RinCapabilities(
                 {
                     throw new InvalidOperationException();
                 }
-                recommendedFeatures.Add(value);
+                recommendedFeatures.Add(value!);
             }
             if (recommendedFeatures.Count == 0)
             {
@@ -109,6 +114,6 @@ public sealed record RinCapabilities(
         {
             throw new InvalidOperationException();
         }
-        return result;
+        return result!;
     }
 }

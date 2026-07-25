@@ -328,20 +328,24 @@ func TestCSharpJobStatusUsesRawJSONStrings(t *testing.T) {
 	}
 }
 
-func TestCSharpCIMatrixPreservesTheDefaultTarget(t *testing.T) {
-	for _, path := range []string{
-		"../sdk/csharp/Rin.Client/Rin.Client.csproj",
-		"../sdk/csharp/Rin.Client.Tests/Rin.Client.Tests.csproj",
-	} {
+func TestCSharpCIMatrixPreservesSupportedTargets(t *testing.T) {
+	projects := map[string][]string{
+		"../sdk/csharp/Rin.Client/Rin.Client.csproj": {
+			`<TargetFrameworks Condition="'$(RinTargetFramework)' == ''">net6.0;netstandard2.0</TargetFrameworks>`,
+			`<TargetFramework Condition="'$(RinTargetFramework)' != ''">$(RinTargetFramework)</TargetFramework>`,
+		},
+		"../sdk/csharp/Rin.Client.Tests/Rin.Client.Tests.csproj": {
+			`<RinTargetFramework Condition="'$(RinTargetFramework)' == ''">net6.0</RinTargetFramework>`,
+			`<TargetFramework>$(RinTargetFramework)</TargetFramework>`,
+		},
+	}
+	for path, requiredMarkers := range projects {
 		payload, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
 		text := string(payload)
-		for _, required := range []string{
-			`<RinTargetFramework Condition="'$(RinTargetFramework)' == ''">net6.0</RinTargetFramework>`,
-			`<TargetFramework>$(RinTargetFramework)</TargetFramework>`,
-		} {
+		for _, required := range requiredMarkers {
 			if !strings.Contains(text, required) {
 				t.Errorf("%s is missing conditional target marker %q", path, required)
 			}
@@ -357,6 +361,7 @@ func TestCSharpCIMatrixPreservesTheDefaultTarget(t *testing.T) {
 		`framework: "net10.0"`,
 		`-p:RinTargetFramework=${{ matrix.framework }}`,
 		`sdk/csharp/Rin.Client.Tests/bin/Debug/${{ matrix.framework }}/Rin.Client.Tests.dll`,
+		`-p:RinTargetFramework=netstandard2.0`,
 	} {
 		if !strings.Contains(string(workflow), required) {
 			t.Errorf("C# CI matrix is missing %q", required)
@@ -384,16 +389,25 @@ func TestExampleModsPreserveGameAuthority(t *testing.T) {
 			},
 		},
 		{
-			path: "../examples/mods/bepinex-rin-npc/Plugin.cs",
+			path: "../examples/mods/bepinex-rin-npc/RinNpc.Core/RinNpcRuntime.cs",
 			required: []string{
-				"AllowedActions", "WaitForProposalAsync", "mainThread.Enqueue",
-				"CommitAsync", "NpcActionReady", `RequiredString(proposal, "id")`,
-				"appliedOperations", "outcomeOutbox", "FlushOutcomeOutboxAsync",
-				"PersistAuthoritativeTransaction", "PRODUCTION PERSISTENCE HOOK",
+				"AllowedActions", "WorkflowCoordinator", "ProposalFreshness.Evaluate",
+				"host.ApplyDialogueAsync", "HostProfile.Advisory",
+				"ApplyAndEnqueueOutcomeWithFallbackAsync",
 			},
 			forbidden: []string{
-				"Config.Bind(\"Connection\", \"Token\"", ".Result", ".Wait()",
-				`RequiredString(proposal, "proposal_id")`, "PersistOperationState",
+				"Process.Start", ".Result", ".Wait()", "WaitForProposalAsync",
+				"CommitAsync",
+			},
+		},
+		{
+			path: "../examples/mods/bepinex-rin-npc/RinNpc.Mono/Plugin.cs",
+			required: []string{
+				"mainThread.Enqueue", "ApplyDialogueAsync",
+				`Environment.GetEnvironmentVariable("RIN_TOKEN")`,
+			},
+			forbidden: []string{
+				`Config.Bind("Connection", "Token"`, ".Result", ".Wait()",
 			},
 		},
 		{

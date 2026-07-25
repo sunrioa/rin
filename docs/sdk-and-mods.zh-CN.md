@@ -20,14 +20,15 @@ Operation ID 幂等的 Apply 或真实游戏事务。在各自的持久化改造
 | --- | --- | --- | --- | --- |
 | Python | 3.9 | 同步 | 标准库 | Ren'Py、工具、服务器 |
 | JavaScript | Node 18 / Fetch 宿主 | Promise | 内置 | Electron、Web Bridge、Node |
-| C# | .NET 6 | Task | `System.Text.Json` | BepInEx 6、现代 .NET 游戏 |
+| C# | .NET Standard 2.0 / .NET 6 | Task | `System.Text.Json` | BepInEx 6 Mono / IL2CPP、现代 .NET 游戏 |
 | Java | 17 | `CompletableFuture` | 注入 `JsonCodec` | Fabric、JVM 服务器 |
 | Lua | 5.1 | Callback | 注入 Codec 和 Transport | Luanti、嵌入式 Lua 引擎 |
 
 每套实现暴露由 OpenAPI 生成到
 [`sdk/conformance/routes.json`](../sdk/conformance/routes.json) 的 20 Route
 Inventory。该清单只核对覆盖，不是第二份 Wire Contract，也不是行为证明。
-Python 和 JavaScript 没有运行时依赖；C# 只使用 Framework API；
+Python 和 JavaScript 没有运行时依赖；C# 在 .NET 6 使用 Framework API，
+其 .NET Standard 2.0 兼容 Target 固定 `System.Text.Json`；
 Java 通过两个方法的 Codec 复用宿主 JSON 库；Lua 注入全部宿主服务，因为
 不同 Lua 引擎的 HTTP 和 JSON API 不兼容。
 
@@ -39,7 +40,7 @@ sdk/
   <language>/        源码、语言 README、测试、可选快速开始
 examples/mods/
   fabric-rin-npc/    固定版本、可构建的 Fabric 服务端 Mod
-  bepinex-rin-npc/   BepInEx 6 源码覆盖层
+  bepinex-rin-npc/   固定版本的 BepInEx 6 Mono 与 IL2CPP 项目
   luanti-rin-npc/    内置 Lua SDK 的完整服务器 Mod
 ```
 
@@ -132,9 +133,13 @@ Fabric 参考是固定 Minecraft 1.21.1 与 Java 21 的完整 Gradle 项目；�
 的流程状态，并用 `MinecraftServer.execute` 调度宿主工作。由于
 `markDirty()` 是最终存盘而非持久事务边界，它仍保持 `advisory`。
 
-BepInEx 覆盖层面向 BepInEx 6 和 .NET 6。它不会每帧发送 HTTP：
-`Update` 只排空有上限的队列并可选检测 F8 演示按键。订阅
-`NpcActionReady`，再通过目标游戏支持的 API 转换三个示例 ID。
+BepInEx 参考固定 `6.0.0-be.785`，并把 Unity Mono
+（`netstandard2.0`）与 IL2CPP（`net6.0`）分开。共享 Core 持久化稳定
+Save Identity、Pending Turn、Job ID 与有上限的 Outcome Outbox。Mono
+提供有上限的 Unity 主线程队列和可选 F8 演示；IL2CPP 明确要求游戏专用
+Interop Hook，因为生成的 Assembly 不能跨游戏复用。
+`python tools/package_bepinex.py` 会生成确定性、Windows-safe 的安装 ZIP，
+并拒绝意外包含 BepInEx、Unity 或游戏 Interop Assembly 的包。
 
 Luanti 示例是完整服务器 Mod。它只在模块作用域调用
 `core.request_http_api()`，把返回 API 保持为 local，并要求
@@ -152,8 +157,9 @@ CI 执行 Go Format、Vet、Race Test，以及 Linux、macOS、Windows 上的 Ze
 Build 和 File Store/Sidecar 生命周期测试；这些平台测试覆盖持久化、重启与第二
 写者拒绝。CI 还会在 Python 3.9 与当前 Python 3 上运行 Python SDK/Ren'Py，在
 Node 18/24、Java 17/25、.NET 6/10 上运行相应 Client Test，并在 Lua 5.1/5.4
-下运行 Lua Client Test。固定版本的 Fabric 项目及其 Saved Data 重启测试还会
-在 Linux 与 Windows 构建。Contract Generator Check 防止 OpenAPI 与生成的
+下运行 Lua Client Test。固定版本的 Fabric 项目及其 Saved Data 重启测试，
+以及两个 BepInEx Backend、重启测试与安装包都会在 Linux 和 Windows 构建。
+Contract Generator Check 防止 OpenAPI 与生成的
 Route/Version Projection 漂移。
 
 SDK Test 会通过本地 Fake Transport 或 HTTP Test Server 真实调用 Client Method，

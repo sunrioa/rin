@@ -2,10 +2,12 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-面向 .NET 6+ 的无第三方依赖异步客户端。
+面向 .NET 6+ 的异步客户端，并提供适用于 Unity Mono 等宿主的
+.NET Standard 2.0 兼容构建。
 
-`Rin.Client` 只使用 `HttpClient` 和 `System.Text.Json`。在插件或游戏生命周期
-内复用一个 Client。
+`Rin.Client` 使用 `HttpClient` 和 `System.Text.Json`。.NET 6 构建无需额外
+Package Runtime；.NET Standard 2.0 构建会固定 `System.Text.Json` 及其运行时
+依赖。在插件或游戏生命周期内复用一个 Client。
 
 ```csharp
 using Rin.Client;
@@ -31,7 +33,10 @@ retry 中复用。
 
 `WorkflowCoordinator` 把兼容保留的 `ProposalAttemptCoordinator` 与
 `OutcomeOutbox` 组合为 `BeginAsync`、`ResumePendingWorkAsync`、
-`ApplyAndEnqueueOutcomeAsync` 和 `DrainOutboxAsync`。接入方提供
+`ApplyAndEnqueueOutcomeAsync` 和 `DrainOutboxAsync`。实现
+`IWorkflowFallbackStore` 的 Store 还可以使用
+`ApplyAndEnqueueOutcomeWithFallbackAsync`；终态 Commit 错误只有在安全
+Observe 转换已经持久化后才会降级。接入方提供
 `IWorkflowStore` 与已校验的 `HostCapabilities`。幂等 Apply 会收到稳定
 Operation ID；只有 `transactional-action` 才把
 `IProposalAttemptStore.SettleAsync` 当作一个游戏事务调用。只有普通成功或
@@ -46,12 +51,16 @@ Operation ID；只有 `transactional-action` 才把
 
 ```bash
 dotnet run --project sdk/csharp/Rin.Client.Tests/Rin.Client.Tests.csproj
+dotnet build sdk/csharp/Rin.Client/Rin.Client.csproj \
+  -p:RinTargetFramework=netstandard2.0
 ```
 
 Unity 和 BepInEx 调用方必须在渲染循环外 `await`，验证结果后再切回 Unity
 主线程操作 GameObject。
 
-Session Transfer 使用调用方拥有的 stream，不会缓冲完整 lineage：
+Session Transfer 只在 .NET 6+ Target 提供。.NET Standard 2.0 兼容构建会
+明确排除该功能，因为旧 Unity Stream API 无法提供相同的有界异步契约。
+它使用调用方拥有的 stream，不会缓冲完整 lineage：
 
 ```csharp
 var request = new

@@ -32,6 +32,20 @@ public interface IWorkflowStore : IProposalAttemptStore, IOutcomeOutboxStore
         CancellationToken cancellationToken = default);
 }
 
+public interface IWorkflowFallbackStore : IWorkflowStore, IOutcomeFallbackStore
+{
+    /// <summary>
+    /// After apply, atomically persists the exact Commit and a safe
+    /// absolute-fact Observe fallback, then removes the Pending Turn.
+    /// </summary>
+    ValueTask CompleteWithFallbackAsync(
+        ProposalAttempt attempt,
+        ActionProposal proposal,
+        CommitRequest commit,
+        object fallbackObserve,
+        CancellationToken cancellationToken = default);
+}
+
 public sealed class WorkflowCoordinator
 {
     private readonly HostCapabilities capabilities;
@@ -46,7 +60,7 @@ public sealed class WorkflowCoordinator
         IWorkflowStore store,
         HostCapabilities? capabilities = null)
     {
-        ArgumentNullException.ThrowIfNull(client);
+        Guard.NotNull(client, nameof(client));
         this.store = store ?? throw new ArgumentNullException(nameof(store));
         this.capabilities = (capabilities ?? HostCapabilities.Advisory()).Validate();
         attempts = new ProposalAttemptCoordinator(client, store);
@@ -98,8 +112,8 @@ public sealed class WorkflowCoordinator
         Func<string, CancellationToken, ValueTask> apply,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(pendingTurn);
-        ArgumentNullException.ThrowIfNull(apply);
+        Guard.NotNull(pendingTurn, nameof(pendingTurn));
+        Guard.NotNull(apply, nameof(apply));
         if (Interlocked.Exchange(ref settling, 1) != 0)
         {
             throw new RinConfigurationException(
@@ -127,6 +141,56 @@ public sealed class WorkflowCoordinator
                 attempt,
                 proposal,
                 commit,
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            Volatile.Write(ref settling, 0);
+        }
+    }
+
+    public async ValueTask ApplyAndEnqueueOutcomeWithFallbackAsync(
+        PendingTurn pendingTurn,
+        ActionProposal proposal,
+        CommitRequest commit,
+        object fallbackObserve,
+        HostProfile requiredProfile,
+        Func<string, CancellationToken, ValueTask> apply,
+        CancellationToken cancellationToken = default)
+    {
+        Guard.NotNull(fallbackObserve, nameof(fallbackObserve));
+        var safeFallback = OutcomeOutboxEntry.ValidateFallback(fallbackObserve);
+        if (store is not IWorkflowFallbackStore fallbackStore)
+        {
+            throw new RinConfigurationException(
+                "outcome_fallback_unsupported",
+                "Workflow Store cannot persist safe Outcome fallbacks");
+        }
+        Guard.NotNull(pendingTurn, nameof(pendingTurn));
+        Guard.NotNull(apply, nameof(apply));
+        if (Interlocked.Exchange(ref settling, 1) != 0)
+        {
+            throw new RinConfigurationException(
+                "workflow_busy",
+                "A Pending Turn is already being settled");
+        }
+        try
+        {
+            capabilities.Require(requiredProfile);
+            var attempt = pendingTurn.ToAttempt();
+            ProposalAttemptCoordinator.ValidateSettlement(attempt, proposal, commit);
+            if (capabilities.Profile == HostProfile.TransactionalAction)
+            {
+                throw new RinConfigurationException(
+                    "outcome_fallback_unsupported",
+                    "Transactional stores must define fallback settlement in their transaction");
+            }
+            await apply(attempt.OperationId, cancellationToken).ConfigureAwait(false);
+            await fallbackStore.CompleteWithFallbackAsync(
+                attempt,
+                proposal,
+                commit,
+                safeFallback,
                 cancellationToken).ConfigureAwait(false);
         }
         finally

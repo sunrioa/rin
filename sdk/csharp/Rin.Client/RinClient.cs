@@ -178,13 +178,14 @@ public sealed class RinClient : IDisposable
     public Task<JsonElement> RestoreAsync(object payload, CancellationToken cancellationToken = default) =>
         PostAsync("/v1/session/restore", payload, 200, cancellationToken);
 
+#if !NETSTANDARD2_0
     /// <summary>Streams one Session Transfer into a caller-owned destination.</summary>
     public async Task<JsonElement> ExportSessionAsync(
         object payload,
         Stream destination,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(payload);
+        Guard.NotNull(payload, nameof(payload));
         ArgumentNullException.ThrowIfNull(destination);
         if (!destination.CanWrite)
         {
@@ -301,6 +302,7 @@ public sealed class RinClient : IDisposable
         }
         return DecodeEnvelope(raw, (int)response.StatusCode, 200);
     }
+#endif
 
     public Task<JsonElement> TimelineAsync(object payload, CancellationToken cancellationToken = default) =>
         PostAsync("/v1/session/timeline", payload, 200, cancellationToken);
@@ -618,7 +620,8 @@ public sealed class RinClient : IDisposable
                     return;
                 }
                 if (!value.TryGetDouble(out var doubleValue) ||
-                    !double.IsFinite(doubleValue))
+                    double.IsNaN(doubleValue) ||
+                    double.IsInfinity(doubleValue))
                 {
                     throw new RinProtocolException("invalid_request", "Rin payload contains a non-finite JSON number");
                 }
@@ -646,7 +649,7 @@ public sealed class RinClient : IDisposable
 
     private Task<JsonElement> PostAsync(string path, object payload, int expectedStatus, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(payload);
+        Guard.NotNull(payload, nameof(payload));
         return RequestAsync(HttpMethod.Post, path, payload, expectedStatus, cancellationToken);
     }
 
@@ -750,7 +753,9 @@ public sealed class RinClient : IDisposable
         int expectedStatus,
         CancellationToken cancellationToken)
     {
-        if (!path.StartsWith("/", StringComparison.Ordinal) || path.Contains("//", StringComparison.Ordinal) || path.Contains("..", StringComparison.Ordinal))
+        if (!path.StartsWith("/", StringComparison.Ordinal) ||
+            path.IndexOf("//", StringComparison.Ordinal) >= 0 ||
+            path.IndexOf("..", StringComparison.Ordinal) >= 0)
         {
             throw new RinConfigurationException("invalid_path", "Rin request path is invalid");
         }
@@ -800,12 +805,22 @@ public sealed class RinClient : IDisposable
 
     private async Task<byte[]> ReadBoundedAsync(HttpContent content, CancellationToken cancellationToken)
     {
+#if NETSTANDARD2_0
+        using var stream = await content.ReadAsStreamAsync().ConfigureAwait(false);
+#else
         await using var stream = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+#endif
         using var output = new MemoryStream();
         var buffer = new byte[8192];
         while (true)
         {
-            var count = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false);
+#if NETSTANDARD2_0
+            var count = await stream.ReadAsync(
+                buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
+#else
+            var count = await stream.ReadAsync(
+                buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false);
+#endif
             if (count == 0) break;
             if (output.Length + count > maxResponseBytes)
             {
@@ -937,7 +952,7 @@ public sealed class RinClient : IDisposable
 
     private static string PathId(string? value)
     {
-        if (string.IsNullOrEmpty(value) || value.Length > 96 || value.Any(character =>
+        if (value is null || value.Length == 0 || value.Length > 96 || value.Any(character =>
                 !((character >= 'a' && character <= 'z') ||
                   (character >= 'A' && character <= 'Z') ||
                   (character >= '0' && character <= '9') ||
@@ -945,6 +960,6 @@ public sealed class RinClient : IDisposable
         {
             throw new RinConfigurationException("invalid_identifier", "Rin path identifier is invalid");
         }
-        return Uri.EscapeDataString(value);
+        return Uri.EscapeDataString(value!);
     }
 }

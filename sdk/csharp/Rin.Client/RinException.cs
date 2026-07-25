@@ -13,9 +13,11 @@ public class RinException : Exception
     internal static string SafeText(string? value, int maximum, string fallback = "")
     {
         var cleaned = string.Join(" ", (value ?? string.Empty)
-            .Replace("\0", string.Empty, StringComparison.Ordinal)
+            .Replace("\0", string.Empty)
             .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-        return cleaned.Length == 0 ? fallback : cleaned[..Math.Min(cleaned.Length, maximum)];
+        return cleaned.Length == 0
+            ? fallback
+            : cleaned.Substring(0, Math.Min(cleaned.Length, maximum));
     }
 }
 

@@ -45,7 +45,7 @@ public sealed class RinBinding
 
     private static string ValidateText(string? value, int maximum, string name)
     {
-        if (string.IsNullOrEmpty(value) ||
+        if (value is null || value.Length == 0 ||
             value.Length > maximum ||
             value.IndexOfAny(new[] { '\0', '\r', '\n' }) >= 0)
         {
@@ -53,7 +53,7 @@ public sealed class RinBinding
                 "invalid_binding",
                 "Expected Binding " + name + " is invalid");
         }
-        return value;
+        return value!;
     }
 
     private static bool IsAsciiLetterOrDigit(char value) =>
