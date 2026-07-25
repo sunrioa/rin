@@ -52,6 +52,9 @@ release checklist passes. See the [release guide](docs/release-guide.md).
 - `rin.reducer-projection/v2` reconstructs Proposal presentation from
   game-authored action descriptions and uses fair bounded memory-summary
   sampling. It does not rewrite authoritative event bytes.
+- Bounded recalled-memory tags now influence deterministic allowlisted action
+  selection below Goal preferences, making offline recall behaviorally useful
+  without exposing private memory text.
 - The bundled File Store lazily loads Sessions, uses a revision index and
   derived checkpoints, retains the event log indefinitely, and supports only
   local filesystems with the documented locking and sync guarantees.

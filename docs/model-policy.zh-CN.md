@@ -122,6 +122,12 @@ export RIN_MODEL="local-model"
 8. 前述任一步失败时使用确定性 Policy，`policy_source=deterministic-fallback`。
 9. Engine 再检查当前 revision/head hash；变化则 Job 为 `stale`。
 
+离线确定性 Policy 只会对游戏白名单中的 Action 评分。活动 Goal 的偏好权重最高；
+Request Tag 与有界召回记忆的 Tag 可以继续偏好 `kind` 或 `id` 相同的 Action，并
+对近期重复动作降权。召回上限以外的记忆不能影响选择，多条相同 Tag 的记忆不会
+叠加放大分数，本地 Boundary Guard 始终优先。这样既能让离线记忆产生玩家可见
+影响，又不会把私有记忆文本复制进 Proposal。
+
 模型只决定建议哪个允许动作，以及哪些已提供的 Memory/Goal ID 参与了选择。私有 Goal、
 Boundary、Memory、Belief、Trait、Intent 和近期上下文文本可以影响选择，但绝不能复制到
 输出；严格 Schema 会拒绝 `summary` 与 `rationale` 字段。Rin 的运行时重建是最终信息流

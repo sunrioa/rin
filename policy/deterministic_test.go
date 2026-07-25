@@ -29,6 +29,67 @@ func TestDeterministicPolicyUsesGoalAndMemory(t *testing.T) {
 	}
 }
 
+func TestDeterministicPolicyLetsRecalledMemoryInfluenceAction(t *testing.T) {
+	input := policyInput()
+	input.Actor.Goals = nil
+	input.Request.Tags = nil
+	input.Request.CandidateActions = []protocol.ActionSpec{
+		{ID: "offer.coffee", Kind: "coffee", Description: "Offer coffee."},
+		{ID: "offer.tea", Kind: "tea", Description: "Offer tea."},
+	}
+	input.Actor.Memories = []protocol.Memory{{
+		ID: "memory.preference", EventID: "event.preference", Tick: 4,
+		Summary: "The player chose tea.", Tags: []string{"tea"}, Importance: 4,
+	}}
+
+	draft, err := (policy.Deterministic{}).Propose(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if draft.ActionID != "offer.tea" {
+		t.Fatalf("recalled preference did not influence the allowlisted action: %+v", draft)
+	}
+	if len(draft.RecalledMemoryIDs) != 1 || draft.RecalledMemoryIDs[0] != "memory.preference" {
+		t.Fatalf("unexpected recall evidence: %+v", draft)
+	}
+}
+
+func TestDeterministicPolicyDoesNotScoreUnrecalledMemory(t *testing.T) {
+	input := policyInput()
+	input.Actor.Goals = nil
+	input.Request.Tags = nil
+	input.Request.CandidateActions = []protocol.ActionSpec{
+		{ID: "offer.coffee", Kind: "coffee", Description: "Offer coffee."},
+		{ID: "offer.tea", Kind: "tea", Description: "Offer tea."},
+	}
+	input.Actor.Memories = []protocol.Memory{
+		{
+			ID: "memory.important", EventID: "event.important", Tick: 5,
+			Summary: "A recent event.", Tags: []string{"weather"}, Importance: 5,
+		},
+		{
+			ID: "memory.preference", EventID: "event.preference", Tick: 1,
+			Summary: "The player chose tea.", Tags: []string{"tea"}, Importance: 1,
+		},
+	}
+
+	draft, err := (policy.Deterministic{MemoryLimit: 1}).Propose(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(draft.RecalledMemoryIDs) != 1 || draft.RecalledMemoryIDs[0] != "memory.important" {
+		t.Fatalf("unexpected bounded recall: %+v", draft)
+	}
+	input.Actor.Memories = input.Actor.Memories[:1]
+	withoutUnrecalled, err := (policy.Deterministic{MemoryLimit: 1}).Propose(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if draft.ActionID != withoutUnrecalled.ActionID {
+		t.Fatalf("an unrecalled memory changed the action: with=%+v without=%+v", draft, withoutUnrecalled)
+	}
+}
+
 func TestDeterministicPolicyProtectsBoundary(t *testing.T) {
 	for _, test := range []struct {
 		name   string

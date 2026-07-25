@@ -147,6 +147,14 @@ Non-loopback HTTP is rejected by default. Set
 9. The engine rechecks revision and head hash. If either changed, the job is
    `stale`.
 
+The offline deterministic policy scores only allowlisted actions. Active Goal
+preferences have the strongest weight; request tags and tags on the bounded
+recalled-memory set can then prefer an action with a matching `kind` or `id`;
+recent repetition is penalized. A memory outside the recall limit cannot
+influence selection, duplicate matching memories do not amplify the score, and
+the local Boundary guard always takes precedence. This makes offline recall
+player-visible without copying private memory text into a Proposal.
+
 The model decides only which allowed action to recommend and which supplied
 memory/goal IDs informed that choice. Private goal, boundary, memory, belief,
 trait, intent, and recent-context text may influence selection but must never

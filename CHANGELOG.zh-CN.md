@@ -45,6 +45,8 @@
   `expected_binding`，并同时匹配导入 Snapshot 和任何已存在的目标 Session。
 - `rin.reducer-projection/v2` 使用游戏编写的 Action Description 重建 Proposal
   展示文本，并采用公平的有界 Memory Summary 取样；它不会改写权威事件字节。
+- 有界召回 Memory 的 Tag 现在会在 Goal 偏好之后影响确定性白名单 Action 选择，
+  让离线记忆产生行为价值，同时不暴露私有 Memory 文本。
 - 随附 File Store 改为 Lazy Load Session，使用 Revision Index 和派生
   Checkpoint，永久保留事件日志，并且只支持具有文档所述锁与同步语义的本地文件系统。
 

@@ -47,7 +47,7 @@ func (p Deterministic) Propose(ctx context.Context, input rinruntime.PolicyConte
 			return rinruntime.ProposalDraft{}, rinruntime.ErrNoSafeAction
 		}
 	} else {
-		selected = selectAction(input, goal)
+		selected = selectAction(input, goal, memories)
 	}
 
 	stance := selected.Kind
@@ -115,7 +115,7 @@ func selectGoal(goals []protocol.Goal) *protocol.Goal {
 	return &active[0]
 }
 
-func selectAction(input rinruntime.PolicyContext, goal *protocol.Goal) protocol.ActionSpec {
+func selectAction(input rinruntime.PolicyContext, goal *protocol.Goal, memories []protocol.Memory) protocol.ActionSpec {
 	type scoredAction struct {
 		action protocol.ActionSpec
 		score  int64
@@ -131,6 +131,12 @@ func selectAction(input rinruntime.PolicyContext, goal *protocol.Goal) protocol.
 	for _, tag := range input.Request.Tags {
 		tags[tag] = struct{}{}
 	}
+	memoryTags := make(map[string]struct{})
+	for _, memory := range memories {
+		for _, tag := range memory.Tags {
+			memoryTags[tag] = struct{}{}
+		}
+	}
 	scored := make([]scoredAction, 0, len(input.Request.CandidateActions))
 	for _, action := range input.Request.CandidateActions {
 		var score int64
@@ -142,6 +148,15 @@ func selectAction(input rinruntime.PolicyContext, goal *protocol.Goal) protocol.
 		}
 		if _, exists := tags[action.Kind]; exists {
 			score += 20
+		}
+		// Game-authored tags are the safe bridge between recalled private
+		// context and an allowlisted action. A match is deliberately weaker
+		// than an active Goal preference and is counted once, so duplicate
+		// memories cannot amplify an action without bound.
+		if _, exists := memoryTags[action.ID]; exists {
+			score += 30
+		} else if _, exists := memoryTags[action.Kind]; exists {
+			score += 30
 		}
 		for index := len(input.Actor.RecentActions) - 1; index >= 0 && index >= len(input.Actor.RecentActions)-4; index-- {
 			if input.Actor.RecentActions[index].Action.ID == action.ID {
