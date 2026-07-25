@@ -209,6 +209,22 @@ func validateActor(field string, actor ActorSeed) error {
 }
 
 func ValidateCreateSession(request CreateSessionRequest) error {
+	if err := ValidateCreateSessionHistory(request); err != nil {
+		return err
+	}
+	if !HasFeature(request.Features, FeatureOutcomeReporting) {
+		return &ValidationError{
+			Field:   "features",
+			Message: "must include outcome-reporting-v1 for a new session",
+		}
+	}
+	return nil
+}
+
+// ValidateCreateSessionHistory validates a persisted v1 genesis request
+// without applying the stricter baseline for newly created Sessions. It exists
+// only so pre-baseline histories and their exact retries remain replayable.
+func ValidateCreateSessionHistory(request CreateSessionRequest) error {
 	if err := validateVersion(request.ProtocolVersion); err != nil {
 		return err
 	}

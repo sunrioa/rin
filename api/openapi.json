@@ -1895,6 +1895,7 @@
             "$ref": "#/components/schemas/JSONSafeSignedInteger"
           },
           "features": {
+            "description": "Fresh Session creation must include outcome-reporting-v1. The field remains optional in the wire shape only so an exact retry of a pre-baseline durable Create can be reconciled.",
             "type": "array",
             "uniqueItems": true,
             "maxItems": 6,
@@ -3972,7 +3973,8 @@
           "policy_mode",
           "async_jobs",
           "structured_generation",
-          "features"
+          "features",
+          "recommended_features"
         ],
         "properties": {
           "status": {
@@ -3998,6 +4000,13 @@
           },
           "features": {
             "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "recommended_features": {
+            "type": "array",
+            "minItems": 1,
             "items": {
               "type": "string"
             }

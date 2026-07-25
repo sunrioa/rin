@@ -14,6 +14,7 @@ export const RIN_FEATURES: Readonly<{
   outcomeReporting: "outcome-reporting-v1";
 }>;
 export const FEATURE_PRESETS: Readonly<{
+  safeBaseline: readonly ["outcome-reporting-v1"];
   authoritative: readonly ["outcome-reporting-v1"];
   full: readonly string[];
 }>;
@@ -245,6 +246,7 @@ export interface HealthData {
   async_jobs: boolean;
   structured_generation: boolean;
   features: string[];
+  recommended_features: string[];
   [additiveField: string]: unknown;
 }
 

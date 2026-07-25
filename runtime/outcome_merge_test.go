@@ -3,6 +3,7 @@ package runtime_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -12,9 +13,86 @@ import (
 	"github.com/sunrioa/rin/store"
 )
 
+func TestSafeBaselineBlocksNewLegacySessionsButPreservesExactRetry(t *testing.T) {
+	eventStore := store.NewMemory()
+	legacy := newLegacyEngine(t, eventStore, policy.Deterministic{})
+	const sessionID = "session.legacy-exact-retry"
+	create := createRequest(sessionID)
+	create.Features = nil
+	created, err := legacy.CreateSession(create)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reopened := newEngine(t, eventStore, policy.Deterministic{})
+	retry, err := reopened.CreateSession(create)
+	if err != nil {
+		t.Fatalf("legacy exact retry became invalid: %v", err)
+	}
+	if !retry.Duplicate || retry.Revision != created.Revision {
+		t.Fatalf("legacy exact retry result: %+v", retry)
+	}
+
+	freshStore := store.NewMemory()
+	fresh := newEngine(t, freshStore, policy.Deterministic{})
+	freshCreate := createRequest("session.legacy-fresh-rejected")
+	freshCreate.Features = nil
+	if _, err := fresh.CreateSession(freshCreate); rinruntime.ErrorCode(err) != "invalid_request" {
+		t.Fatalf("fresh legacy Create error = %v", err)
+	}
+	if sessions, err := freshStore.ListSessions(); err != nil || len(sessions) != 0 {
+		t.Fatalf("rejected legacy Create published storage: %v %v", sessions, err)
+	}
+
+	snapshot, err := legacy.Snapshot(sessionRequest(sessionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoreTarget := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	if _, err := restoreTarget.Restore(protocol.RestoreRequest{
+		ProtocolVersion: protocol.Version,
+		RequestID:       "restore.legacy-fresh-rejected",
+		SessionID:       sessionID,
+		ExpectedBinding: snapshot.State.Binding,
+		Snapshot:        snapshot,
+	}); rinruntime.ErrorCode(err) != "legacy_semantics_forbidden" {
+		t.Fatalf("fresh legacy Restore error = %v", err)
+	}
+}
+
+func TestSafeBaselineSupportsEveryOptionalFeatureCombination(t *testing.T) {
+	optional := []string{
+		protocol.FeatureMemoryArchive,
+		protocol.FeatureBeliefConflicts,
+		protocol.FeatureGoalCandidates,
+		protocol.FeatureActorActivity,
+		protocol.FeatureArbitration,
+	}
+	for mask := 0; mask < 1<<len(optional); mask++ {
+		sessionID := fmt.Sprintf("session.safe-profile.%02d", mask)
+		create := createRequest(sessionID)
+		for index, feature := range optional {
+			if mask&(1<<index) != 0 {
+				create.Features = append(create.Features, feature)
+			}
+		}
+		engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+		if _, err := engine.CreateSession(create); err != nil {
+			t.Fatalf("mask %02d Create: %v", mask, err)
+		}
+		state, err := engine.State(sessionRequest(sessionID))
+		if err != nil {
+			t.Fatalf("mask %02d State: %v", mask, err)
+		}
+		if err := protocol.ValidateSessionState(state); err != nil {
+			t.Fatalf("mask %02d state: %v", mask, err)
+		}
+	}
+}
+
 func TestSessionsWithoutOutcomeFeaturePreserveLegacyReplaySemantics(t *testing.T) {
 	eventStore := store.NewMemory()
-	engine := newEngine(t, eventStore, policy.Deterministic{})
+	engine := newLegacyEngine(t, eventStore, policy.Deterministic{})
 	const sessionID = "session.legacy-outcome-semantics"
 	create := createRequest(sessionID)
 	create.Features = []string{protocol.FeatureBeliefConflicts}

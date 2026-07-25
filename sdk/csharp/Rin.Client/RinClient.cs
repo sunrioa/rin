@@ -66,7 +66,7 @@ public sealed class RinClient : IDisposable
         CancellationToken cancellationToken = default)
     {
         var required = requiredFeatures?.ToArray() ??
-            RinFeatures.AuthoritativePreset.ToArray();
+            RinFeatures.SafeBaselinePreset.ToArray();
         if (required.Any(string.IsNullOrEmpty))
         {
             throw new RinConfigurationException(

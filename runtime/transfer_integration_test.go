@@ -345,6 +345,7 @@ func createTransferSession(
 			ContentVersion: "1",
 			ContentHash:    strings.Repeat("a", 64),
 		},
+		Features: protocol.RecommendedFeatures(),
 		Actors: []protocol.ActorSeed{{
 			ID: "npc.transfer", Kind: "npc", DisplayName: "Transfer",
 			ThinkEveryTicks: 1, Enabled: true,

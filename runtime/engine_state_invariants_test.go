@@ -109,6 +109,12 @@ func (p invariantPolicy) Propose(ctx context.Context, input PolicyContext) (Prop
 }
 
 func invariantCreate(sessionID string, features []string, goals []protocol.Goal) protocol.CreateSessionRequest {
+	if !protocol.HasFeature(features, protocol.FeatureOutcomeReporting) {
+		features = append(
+			append([]string(nil), features...),
+			protocol.FeatureOutcomeReporting,
+		)
+	}
 	return protocol.CreateSessionRequest{
 		ProtocolVersion: protocol.Version,
 		RequestID:       "create." + sessionID,

@@ -67,9 +67,10 @@ Unknown members still count toward the complete 16 MiB inline Snapshot limit.
 | `actor-activity-v1` | Persisted region and awake/dormant state | Activity endpoint is rejected |
 | `arbitration-v1` | World revision, advisory multi-Proposal arbitration, and atomic Batch Commit | Legacy per-Proposal coordination |
 
-New integrations should normally include `outcome-reporting-v1`. Enable the
-other Features only when the game persists and implements their corresponding
-contract.
+Every new integration must include the `outcome-reporting-v1` safe baseline.
+Enable the other Features only when the game persists and implements their
+corresponding contract. See the
+[Session semantic baseline](semantic-baseline.md).
 
 ## Provider and Generation boundary
 

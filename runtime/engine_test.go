@@ -146,7 +146,7 @@ func TestOutcomeFeatureRejectsAmbiguousCommitUpdates(t *testing.T) {
 }
 
 func TestLegacyCommitPreservesRepeatedGoalUpdateBehavior(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newLegacyEngine(t, store.NewMemory(), policy.Deterministic{})
 	const sessionID = "session.legacy-repeated-goal-update"
 	create := createRequest(sessionID)
 	create.Features = nil
@@ -186,7 +186,7 @@ func TestLegacyCommitPreservesRepeatedGoalUpdateBehavior(t *testing.T) {
 }
 
 func TestLegacyStateRejectsInjectedOutcomeOccurrenceMetadata(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newLegacyEngine(t, store.NewMemory(), policy.Deterministic{})
 	const sessionID = "session.legacy-metadata-gate"
 	create := createRequest(sessionID)
 	create.Features = nil
@@ -1029,6 +1029,23 @@ func TestPolicyWaitDoesNotBlockObservations(t *testing.T) {
 func newEngine(t *testing.T, eventStore rinruntime.Store, selectedPolicy rinruntime.Policy) *rinruntime.Engine {
 	t.Helper()
 	engine, err := rinruntime.Open(eventStore, selectedPolicy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return engine
+}
+
+func newLegacyEngine(
+	t *testing.T,
+	eventStore rinruntime.Store,
+	selectedPolicy rinruntime.Policy,
+) *rinruntime.Engine {
+	t.Helper()
+	engine, err := rinruntime.OpenWithOptions(
+		eventStore,
+		selectedPolicy,
+		rinruntime.EngineOptions{AllowLegacySessionCreation: true},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -52,6 +52,7 @@ type Engine struct {
 	now                   func() time.Time
 	sessionSoftLimitBytes uint64
 	sessionHardLimitBytes uint64
+	allowLegacyCreation   bool
 	checkpointFailures    atomic.Uint64
 	checkpointQuotaSkips  atomic.Uint64
 }
@@ -63,6 +64,9 @@ func Open(store Store, policy Policy) (*Engine, error) {
 type EngineOptions struct {
 	SessionSoftLimitBytes uint64
 	SessionHardLimitBytes uint64
+	// AllowLegacySessionCreation is for controlled migration and compatibility
+	// verification. Normal Sidecars must leave it false.
+	AllowLegacySessionCreation bool
 }
 
 func OpenWithOptions(
@@ -92,6 +96,7 @@ func OpenWithOptions(
 		now:                   time.Now,
 		sessionSoftLimitBytes: options.SessionSoftLimitBytes,
 		sessionHardLimitBytes: options.SessionHardLimitBytes,
+		allowLegacyCreation:   options.AllowLegacySessionCreation,
 	}
 	ids, err := store.ListSessions()
 	if err != nil {
@@ -126,7 +131,7 @@ func (e *Engine) VerifyAll() error {
 }
 
 func (e *Engine) CreateSession(request protocol.CreateSessionRequest) (protocol.MutationResult, error) {
-	if err := protocol.ValidateCreateSession(request); err != nil {
+	if err := protocol.ValidateCreateSessionHistory(request); err != nil {
 		return protocol.MutationResult{}, validationError(err)
 	}
 	requestHash, err := requestDigest(request)
@@ -185,6 +190,11 @@ func (e *Engine) CreateSession(request protocol.CreateSessionRequest) (protocol.
 			return mutationResultFromIdentity(existing.state.SessionID, identity, true), nil
 		}
 		return protocol.MutationResult{}, NewError("session_exists", "session already exists", ErrConflict)
+	}
+	if !e.allowLegacyCreation {
+		if err := protocol.ValidateCreateSession(request); err != nil {
+			return protocol.MutationResult{}, validationError(err)
+		}
 	}
 	payload := createdPayload{Request: request, RequestHash: requestHash}
 	event, err := newEvent(protocol.SessionState{}, EventSessionCreated, request.RequestID, payload, e.now())
@@ -561,8 +571,8 @@ func (e *Engine) Commit(request protocol.CommitRequest) (protocol.MutationResult
 			return protocol.MutationResult{}, NewFieldError("tick_regressed", "commit tick is older than its proposal", "tick", ErrConflict)
 		}
 	} else {
-		// Preserve pre-feature event-log and API semantics for existing
-		// sessions. New integrations opt in through outcome-reporting-v1.
+		// Preserve pre-baseline Event Log semantics for existing Sessions.
+		// Fresh Session creation can no longer select this branch.
 		worldRevisionMismatch := proposal.BasedOnWorldRevision > 0 &&
 			proposal.BasedOnWorldRevision != session.state.WorldRevision
 		legacyRevisionMismatch := proposal.BasedOnWorldRevision == 0 &&
@@ -1043,6 +1053,17 @@ func (e *Engine) Restore(request protocol.RestoreRequest) (protocol.MutationResu
 		), nil
 	}
 	if !exists {
+		if !protocol.HasFeature(
+			request.Snapshot.State.Features,
+			protocol.FeatureOutcomeReporting,
+		) {
+			return protocol.MutationResult{}, NewFieldError(
+				"legacy_semantics_forbidden",
+				"a fresh Restore must use the authoritative Session baseline",
+				"snapshot.state.features",
+				ErrConflict,
+			)
+		}
 		if _, mergeErr := mergeIdentifierHistories(newIdentifierHistory(true), importedIdentifiers); mergeErr != nil {
 			return protocol.MutationResult{}, NewError(
 				"identifier_history_conflict",

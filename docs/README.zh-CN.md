@@ -10,6 +10,7 @@ Rin `0.6.0` 是 Preview、pre-1.0 软件。文档按公共接口组织，不以�
 | 权威 HTTP Wire Schema | [`api/openapi.json`](../api/openapi.json) | [`api/openapi.json`](../api/openapi.json) |
 | 架构、存储与权威边界 | [架构](architecture.zh-CN.md) | [Architecture](architecture.md) |
 | Proposal、应用与结果事务 | [动作结果记账](outcome-reporting.zh-CN.md) | [Action outcome reporting](outcome-reporting.md) |
+| 安全 Session 语义与 Optional Feature Matrix | [Session 语义基线](semantic-baseline.zh-CN.md) | [Session semantic baseline](semantic-baseline.md) |
 | HTTP 与状态契约 | [协议 v1](protocol-v1.zh-CN.md) | [Protocol v1](protocol-v1.md) |
 | 在线模型配置 | [模型策略](model-policy.zh-CN.md) | [Model policy](model-policy.md) |
 | Ren'Py、Godot 与 Unity | [游戏适配器](game-adapters.zh-CN.md) | [Game adapters](game-adapters.md) |

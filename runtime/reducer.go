@@ -111,7 +111,7 @@ func applyCreated(state protocol.SessionState, event protocol.EventRecord) (prot
 		return protocol.SessionState{}, fmt.Errorf("%w: decode create payload: %v", ErrCorruptLog, err)
 	}
 	request := payload.Request
-	if err := protocol.ValidateCreateSession(request); err != nil {
+	if err := protocol.ValidateCreateSessionHistory(request); err != nil {
 		return protocol.SessionState{}, fmt.Errorf("%w: invalid create payload: %v", ErrCorruptLog, err)
 	}
 	actors := make(map[string]protocol.ActorState, len(request.Actors))

@@ -64,8 +64,9 @@ Snapshot 前向兼容是 Client Storage 保证，不是 Server Round-trip 保证
 | `actor-activity-v1` | 持久 Region 与 Awake/Dormant 状态 | Activity Endpoint 被拒绝 |
 | `arbitration-v1` | World Revision、建议性多 Proposal 仲裁和原子 Batch Commit | Legacy 单 Proposal 协调 |
 
-新接入通常应启用 `outcome-reporting-v1`。其他 Feature 只应在游戏已经实现并持久化
-对应契约时启用。
+每个新接入都必须包含 `outcome-reporting-v1` 安全基线。其他 Feature 只应在
+游戏已经实现并持久化对应契约时启用。详见
+[Session 语义基线](semantic-baseline.zh-CN.md)。
 
 ## Provider 与 Generation 边界
 

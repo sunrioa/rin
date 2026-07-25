@@ -110,6 +110,7 @@ func (s *Server) health(response http.ResponseWriter, request *http.Request) {
 			"policy_mode":     s.policyMode, "async_jobs": s.jobs != nil,
 			"structured_generation": s.generation != nil,
 			"features":              protocol.SupportedFeatures(),
+			"recommended_features":  protocol.RecommendedFeatures(),
 		},
 	})
 }

@@ -14,6 +14,9 @@ export const RIN_FEATURES = Object.freeze({
   outcomeReporting: "outcome-reporting-v1",
 });
 export const FEATURE_PRESETS = Object.freeze({
+  safeBaseline: Object.freeze([
+    RIN_FEATURES.outcomeReporting,
+  ]),
   authoritative: Object.freeze([
     RIN_FEATURES.outcomeReporting,
   ]),
@@ -291,7 +294,7 @@ export class RinClient {
   }
 
   health() { return this.request("GET", "/health"); }
-  async negotiateCapabilities(requiredFeatures = FEATURE_PRESETS.authoritative) {
+  async negotiateCapabilities(requiredFeatures = FEATURE_PRESETS.safeBaseline) {
     const required = validateRequiredFeatures(requiredFeatures);
     const health = await this.health();
     if (health.protocol_version !== PROTOCOL_VERSION) {
@@ -305,6 +308,14 @@ export class RinClient {
       throw new RinProtocolError(
         "invalid_health",
         "Rin health features must be an array of strings",
+      );
+    }
+    if (!Array.isArray(health.recommended_features) ||
+        health.recommended_features.some((feature) => typeof feature !== "string") ||
+        health.recommended_features.length === 0) {
+      throw new RinProtocolError(
+        "invalid_health",
+        "Rin health recommended_features must be a non-empty array of strings",
       );
     }
     const available = new Set(health.features);

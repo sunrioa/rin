@@ -34,7 +34,11 @@ func TestCreateValidationRejectsInvalidBoundaryAndProtocol(t *testing.T) {
 
 func TestCreateValidationNegotiatesKnownFeatures(t *testing.T) {
 	request := validCreate()
-	request.Features = []string{protocol.FeatureMemoryArchive, protocol.FeatureBeliefConflicts}
+	request.Features = []string{
+		protocol.FeatureOutcomeReporting,
+		protocol.FeatureMemoryArchive,
+		protocol.FeatureBeliefConflicts,
+	}
 	if err := protocol.ValidateCreateSession(request); err != nil {
 		t.Fatalf("known features should validate: %v", err)
 	}
@@ -42,9 +46,29 @@ func TestCreateValidationNegotiatesKnownFeatures(t *testing.T) {
 	if err := protocol.ValidateCreateSession(request); err == nil {
 		t.Fatal("unknown feature should fail")
 	}
-	request.Features = []string{protocol.FeatureMemoryArchive, protocol.FeatureMemoryArchive}
+	request.Features = []string{
+		protocol.FeatureOutcomeReporting,
+		protocol.FeatureMemoryArchive,
+		protocol.FeatureMemoryArchive,
+	}
 	if err := protocol.ValidateCreateSession(request); err == nil {
 		t.Fatal("duplicate feature should fail")
+	}
+}
+
+func TestNewSessionRequiresSafeSemanticBaseline(t *testing.T) {
+	request := validCreate()
+	request.Features = nil
+	err := protocol.ValidateCreateSession(request)
+	if err == nil {
+		t.Fatal("new Session silently selected legacy transaction semantics")
+	}
+	validation, ok := err.(*protocol.ValidationError)
+	if !ok || validation.Field != "features" {
+		t.Fatalf("baseline validation error = %v", err)
+	}
+	if err := protocol.ValidateCreateSessionHistory(request); err != nil {
+		t.Fatalf("legacy history became unreplayable: %v", err)
 	}
 }
 
@@ -207,6 +231,7 @@ func validCreate() protocol.CreateSessionRequest {
 		RequestID:       "create.test",
 		SessionID:       "session.test",
 		Binding:         protocol.Binding{GameID: "game.test", ContentID: "base", ContentVersion: "1", ContentHash: "hash"},
+		Features:        protocol.RecommendedFeatures(),
 		Actors: []protocol.ActorSeed{{
 			ID: "npc.test", Kind: "npc", DisplayName: "Test", ThinkEveryTicks: 1, Enabled: true,
 			Boundaries: []protocol.Boundary{{ID: "boundary.test", Description: "A boundary", TriggerTags: []string{"private"}, Response: "refuse"}},

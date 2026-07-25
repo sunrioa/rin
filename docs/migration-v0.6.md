@@ -73,9 +73,11 @@ without `outcome-reporting-v1` intentionally retains its historical fresh-head
 Commit and arrival-order reducer behavior. Restoring it does not silently opt it
 into new semantics.
 
-If a game needs the apply-then-report lifecycle, start a new Session lineage
-whose Create request includes `outcome-reporting-v1`, then migrate authoritative
-game facts through game-owned logic. Do not manufacture or rewrite Rin history.
+Every new lineage now requires `outcome-reporting-v1`. Migrate authoritative
+game facts through game-owned logic into a distinct baseline Session. A fresh
+Restore of a legacy Snapshot is rejected; use replay/Restore only on its
+existing lineage, or Session Transfer to move that unchanged lineage. Do not
+manufacture or rewrite Rin history.
 
 ### New apply-then-report lifecycle
 

@@ -932,6 +932,7 @@ func TestFileStoreCreateParentFenceFailureIsRetriedByLoad(t *testing.T) {
 		Binding: protocol.Binding{
 			GameID: "game.test", ContentID: "base", ContentVersion: "1", ContentHash: "hash",
 		},
+		Features: protocol.RecommendedFeatures(),
 		Actors: []protocol.ActorSeed{{
 			ID: "npc.one", Kind: "npc", DisplayName: "One",
 			ThinkEveryTicks: 1, Enabled: true,
@@ -1754,6 +1755,7 @@ func createStep5Session(t *testing.T, engine *rinruntime.Engine, sessionID strin
 		Binding: protocol.Binding{
 			GameID: "game.test", ContentID: "base", ContentVersion: "1", ContentHash: "hash",
 		},
+		Features: protocol.RecommendedFeatures(),
 		Actors: []protocol.ActorSeed{{
 			ID: "npc.one", Kind: "npc", DisplayName: "One",
 			ThinkEveryTicks: 1, Enabled: true,

@@ -307,6 +307,7 @@ func fileCreateRequest() protocol.CreateSessionRequest {
 		RequestID:       "create.file",
 		SessionID:       "session.file",
 		Binding:         protocol.Binding{GameID: "game.test", ContentID: "base", ContentVersion: "1", ContentHash: "hash"},
+		Features:        protocol.RecommendedFeatures(),
 		Actors: []protocol.ActorSeed{{
 			ID: "npc.one", Kind: "npc", DisplayName: "One", ThinkEveryTicks: 1, Enabled: true,
 			Goals: []protocol.Goal{{ID: "goal.one", Description: "Wait", Priority: 1, TargetProgress: 1, Status: "active"}},

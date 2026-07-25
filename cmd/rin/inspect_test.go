@@ -25,7 +25,8 @@ func TestRunInspectPrintsVerifiedRedactedSummary(t *testing.T) {
 	}
 	_, err = engine.CreateSession(protocol.CreateSessionRequest{
 		ProtocolVersion: protocol.Version, RequestID: "create.inspect", SessionID: "session.inspect",
-		Binding: protocol.Binding{GameID: "game.inspect", ContentID: "base", ContentVersion: "1", ContentHash: "hash"},
+		Binding:  protocol.Binding{GameID: "game.inspect", ContentID: "base", ContentVersion: "1", ContentHash: "hash"},
+		Features: protocol.RecommendedFeatures(),
 		Actors: []protocol.ActorSeed{{
 			ID: "npc.inspect", Kind: "npc", DisplayName: "Inspector",
 			ThinkEveryTicks: 1, Enabled: true,
@@ -78,6 +79,7 @@ func TestInspectTimelineReadsOnlyRequestedTail(t *testing.T) {
 		Binding: protocol.Binding{
 			GameID: "game.inspect", ContentID: "base", ContentVersion: "1", ContentHash: "hash",
 		},
+		Features: protocol.RecommendedFeatures(),
 		Actors: []protocol.ActorSeed{{
 			ID: "npc.inspect", Kind: "npc", DisplayName: "Inspector",
 			ThinkEveryTicks: 1, Enabled: true,

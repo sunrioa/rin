@@ -37,6 +37,7 @@ var capabilityHandler = new RecordingHandler
             async_jobs = true,
             structured_generation = true,
             features = RinFeatures.FullPreset,
+            recommended_features = RinFeatures.SafeBaselinePreset,
         },
     }),
 };
@@ -63,6 +64,7 @@ var missingFeatureHandler = new RecordingHandler
             async_jobs = true,
             structured_generation = true,
             features = Array.Empty<string>(),
+            recommended_features = RinFeatures.SafeBaselinePreset,
         },
     }),
 };

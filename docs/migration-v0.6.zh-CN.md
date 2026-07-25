@@ -67,9 +67,10 @@ Operation 失败。不能把每个 HTTP `200` Job 响应都当作 Proposal 或 G
 `outcome-reporting-v1` 的既有 Session 会有意保留历史 Fresh-head Commit 与
 按到达顺序 Reducer 行为；Restore 不会静默切换到新语义。
 
-游戏若需要“先 Apply、后记账”，应创建一个在 Create Request 中启用
-`outcome-reporting-v1` 的新 Session Lineage，再通过游戏自身逻辑迁移权威世界
-Fact。不得伪造或改写 Rin History。
+每个新 Lineage 现在都必须包含 `outcome-reporting-v1`。应通过游戏自身逻辑把
+权威 World Fact 迁移到不同的 Baseline Session。Fresh Restore Legacy Snapshot
+会被拒绝；Replay/Restore 只用于其 Existing Lineage，或用 Session Transfer
+原样移动该 Lineage。不得伪造或改写 Rin History。
 
 ### 新的先处理、后记账生命周期
 

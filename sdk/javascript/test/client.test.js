@@ -40,7 +40,7 @@ test("stable ID helper is protocol-safe and validates its entropy source", () =>
   );
 });
 
-test("capability negotiation requires protocol and authoritative features", async () => {
+test("capability negotiation requires protocol and the safe baseline", async () => {
   let data = {
     status: "ok",
     protocol_version: PROTOCOL_VERSION,
@@ -50,6 +50,7 @@ test("capability negotiation requires protocol and authoritative features", asyn
     async_jobs: true,
     structured_generation: true,
     features: [...FEATURE_PRESETS.full],
+    recommended_features: [...FEATURE_PRESETS.safeBaseline],
   };
   const client = new RinClient(undefined, {
     fetch: async () => response(200, { ok: true, data }),

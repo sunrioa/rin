@@ -33,6 +33,12 @@ func SupportedFeatures() []string {
 	return result
 }
 
+// RecommendedFeatures is the single safe semantic baseline for every newly
+// created Session. Other Features remain optional capabilities.
+func RecommendedFeatures() []string {
+	return []string{FeatureOutcomeReporting}
+}
+
 func IsSupportedFeature(feature string) bool {
 	_, exists := supportedFeatures[feature]
 	return exists

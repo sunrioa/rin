@@ -46,9 +46,9 @@ Rin separates character reasoning from game-world facts:
 - If a model is unavailable, Rin falls back to a deterministic policy and
   identifies the source with `policy_source`.
 
-The apply-then-report lifecycle and late-outcome merge require new Sessions to
-request `outcome-reporting-v1`. Sessions without that Feature retain the
-legacy pre-commit/staleness behavior for replay compatibility.
+Every new Session must request the `outcome-reporting-v1` safe baseline.
+Pre-baseline histories without it retain legacy pre-commit/staleness behavior
+for replay and exact-retry compatibility.
 
 - Ren'Py, Godot 4, and Unity adapters preserve the same
   observe/propose/commit authority boundary.

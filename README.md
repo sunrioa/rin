@@ -32,9 +32,9 @@ Rin 将“角色思考”和“游戏世界事实”拆开：
 - 在线模型通过异步 Job 预取，慢请求、取消和状态过期不会冻结游戏主线程。
 - 通用结构化 Generation Job 让剧情、任务描述和受限对白也经过 Sidecar，而不是让游戏保存供应商 Key。
 - 模型不可用时自动回退确定性 Policy，并用 `policy_source` 标明来源。
-- “游戏先处理、再回报”以及延迟结果合并要求新 Session 显式请求
-  `outcome-reporting-v1`；未启用的 Session 为保持重放兼容，继续使用旧版
-  Commit/stale 语义。
+- 每个新 Session 都必须显式请求 `outcome-reporting-v1` 安全基线；未启用它的
+  旧 History 为保持 Replay 与 Exact Retry 兼容，继续使用旧版 Commit/stale
+  语义。
 - Ren'Py、Godot 4 和 Unity 适配器保持同一套 observe / propose / commit 权威边界。
 - Python、JavaScript、C#、Java、Lua SDK 与 Fabric、BepInEx、Luanti 示例 Mod 提供快速接入层。
 - 可选分层记忆、冲突认知、候选小目标、区域休眠和确定性多角色仲裁均由 Session feature 显式启用。

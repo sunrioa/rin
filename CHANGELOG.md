@@ -43,8 +43,9 @@ release checklist passes. See the [release guide](docs/release-guide.md).
 
 ### Changed
 
-- New Sessions should opt into `outcome-reporting-v1`. Existing Sessions
-  without it retain their historical reducer and Commit semantics.
+- New Sessions must use the `outcome-reporting-v1` safe baseline. Existing
+  histories and exact Create retries without it retain their historical
+  reducer and Commit semantics.
 - Restore now requires `expected_binding` from the running game's trusted
   content manifest. It must match both the imported Snapshot and any existing
   target Session.

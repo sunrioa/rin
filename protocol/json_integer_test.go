@@ -14,6 +14,7 @@ func TestRequestJSONSafeIntegerBoundaries(t *testing.T) {
 		Binding: Binding{
 			GameID: "game.test", ContentID: "base", ContentVersion: "1", ContentHash: "hash",
 		},
+		Features: RecommendedFeatures(),
 		Actors: []ActorSeed{{
 			ID: "npc.test", Kind: "npc", DisplayName: "Test", ThinkEveryTicks: 1, Enabled: true,
 		}},

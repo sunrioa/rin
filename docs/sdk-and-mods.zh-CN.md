@@ -43,8 +43,8 @@ Revision 或已验证 Release Tag Vendor 完整 Client 目录。不要只复制�
 
 ## 接入生命周期
 
-以下“先应用、再回报”步骤要求创建 Session 时请求
-`outcome-reporting-v1`；否则 Runtime 会有意保留旧版 Commit 与重放行为。
+每个新建 Session 都必须请求 `outcome-reporting-v1` 安全基线。只有
+Pre-baseline History 保留旧版 Commit 与 Replay 行为。
 
 1. 捕获一个有界、由游戏拥有的事件并调用 `observe`。
 2. 只向 Rin 提供游戏能够安全实现的候选动作。

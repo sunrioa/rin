@@ -74,6 +74,7 @@ func TestProposalJobCancelWaitsForPersistedProposal(t *testing.T) {
 		Binding: protocol.Binding{
 			GameID: "game.jobs", ContentID: "base", ContentVersion: "1", ContentHash: "hash",
 		},
+		Features: protocol.RecommendedFeatures(),
 		Actors: []protocol.ActorSeed{{
 			ID: "npc.jobs", Kind: "npc", DisplayName: "Jobs NPC", Enabled: true, ThinkEveryTicks: 1,
 			Goals: []protocol.Goal{{
@@ -136,6 +137,7 @@ func TestProposalJobExposesUnknownOutcomeAndSameRequestRecovers(t *testing.T) {
 		Binding: protocol.Binding{
 			GameID: "game.jobs", ContentID: "base", ContentVersion: "1", ContentHash: "hash",
 		},
+		Features: protocol.RecommendedFeatures(),
 		Actors: []protocol.ActorSeed{{
 			ID: "npc.jobs", Kind: "npc", DisplayName: "Jobs NPC", Enabled: true, ThinkEveryTicks: 1,
 			Goals: []protocol.Goal{{
@@ -408,7 +410,8 @@ func jobEngine(t *testing.T, selectedPolicy rinruntime.Policy, sessionID string)
 	}
 	_, err = engine.CreateSession(protocol.CreateSessionRequest{
 		ProtocolVersion: protocol.Version, RequestID: "create." + sessionID, SessionID: sessionID,
-		Binding: protocol.Binding{GameID: "game.jobs", ContentID: "base", ContentVersion: "1", ContentHash: "hash"},
+		Binding:  protocol.Binding{GameID: "game.jobs", ContentID: "base", ContentVersion: "1", ContentHash: "hash"},
+		Features: protocol.RecommendedFeatures(),
 		Actors: []protocol.ActorSeed{{
 			ID: "npc.jobs", Kind: "npc", DisplayName: "Jobs NPC", Enabled: true, ThinkEveryTicks: 1,
 			Goals: []protocol.Goal{{ID: "goal.jobs", Description: "Respond", Priority: 1, PreferredActions: []string{"talk"}, TargetProgress: 2, Status: "active"}},

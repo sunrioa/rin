@@ -47,9 +47,8 @@ generated conformance inventory.
 
 ## Integration lifecycle
 
-The apply-then-report steps below require the created Session to request
-`outcome-reporting-v1`; otherwise the runtime intentionally preserves legacy
-Commit and replay behavior.
+Every newly created Session must request the `outcome-reporting-v1` safe
+baseline. Only pre-baseline histories retain legacy Commit and replay behavior.
 
 1. Capture a bounded game-owned event and call `observe`.
 2. Give Rin only candidate actions the game can safely implement.

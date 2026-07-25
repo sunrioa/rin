@@ -433,6 +433,7 @@ func TestActorSeedsRequireUniqueBoundaryAndGoalIDs(t *testing.T) {
 		RequestID:       "create.unique",
 		SessionID:       "session.unique",
 		Binding:         invariantTestBinding(),
+		Features:        RecommendedFeatures(),
 		Actors: []ActorSeed{{
 			ID: "npc.test", Kind: "npc", DisplayName: "Test",
 			ThinkEveryTicks: 1, Enabled: true,

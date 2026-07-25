@@ -3,11 +3,11 @@
 [English](outcome-reporting.md) | [简体中文](outcome-reporting.zh-CN.md)
 
 This document defines the Proposal, game application, and Commit transaction
-semantics for `rin.protocol/v1`. New sessions must include
-`outcome-reporting-v1` in `CreateSessionRequest.features` to opt in. Sessions
-without that feature keep the historical commit-as-fresh-head checks and
-clamped, arrival-ordered reducer behavior so existing event logs replay
-unchanged.
+semantics for `rin.protocol/v1`. New Sessions must include the
+`outcome-reporting-v1` safe baseline in `CreateSessionRequest.features`;
+omission is rejected. Pre-baseline histories without it keep the historical
+commit-as-fresh-head checks and clamped, arrival-ordered reducer behavior so
+existing Event Logs replay unchanged.
 
 Rin `0.6.0` is Preview. Required fields and wire shapes are authoritative in
 [`api/openapi.json`](../api/openapi.json).

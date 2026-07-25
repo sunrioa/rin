@@ -86,6 +86,7 @@ func TestOpenAPIRequiredLegalZeroValuesReachHandlers(t *testing.T) {
 			"content_hash":"hash"
 		},
 		"seed":0,
+		"features":["outcome-reporting-v1"],
 		"actors":[{
 			"id":"actor.zero",
 			"kind":"npc",

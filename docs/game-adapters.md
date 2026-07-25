@@ -38,8 +38,9 @@ transaction that applies or rejects the returned Proposal and stores the
 applied marker plus Outcome Outbox entry. Both an unresolved Proposal Attempt
 and a nonempty Outcome Outbox block new turns.
 
-For new Sessions, request `outcome-reporting-v1`; only then does Commit record
-an already handled outcome rather than use the legacy pre-commit semantics.
+Every new Session must request the `outcome-reporting-v1` safe baseline, so
+Commit records an already handled outcome rather than legacy pre-commit
+semantics.
 The game should apply or reject the action and write a local Outcome Outbox
 entry in one authoritative transaction, then report from that Outbox to Rin.
 On a network failure, retry only the same `request_id` and never apply the

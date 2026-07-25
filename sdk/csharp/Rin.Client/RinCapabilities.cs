@@ -11,8 +11,11 @@ public static class RinFeatures
     public const string Arbitration = "arbitration-v1";
     public const string OutcomeReporting = "outcome-reporting-v1";
 
-    public static IReadOnlyList<string> AuthoritativePreset { get; } =
+    public static IReadOnlyList<string> SafeBaselinePreset { get; } =
         Array.AsReadOnly(new[] { OutcomeReporting });
+
+    public static IReadOnlyList<string> AuthoritativePreset { get; } =
+        SafeBaselinePreset;
 
     public static IReadOnlyList<string> FullPreset { get; } = Array.AsReadOnly(new[]
     {
@@ -32,7 +35,8 @@ public sealed record RinCapabilities(
     string PolicyMode,
     bool AsyncJobs,
     bool StructuredGeneration,
-    IReadOnlySet<string> Features)
+    IReadOnlySet<string> Features,
+    IReadOnlySet<string> RecommendedFeatures)
 {
     internal static RinCapabilities FromHealth(JsonElement health)
     {
@@ -59,6 +63,20 @@ public sealed record RinCapabilities(
                 }
                 features.Add(value);
             }
+            var recommendedFeatures = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var feature in health.GetProperty("recommended_features").EnumerateArray())
+            {
+                var value = feature.GetString();
+                if (string.IsNullOrEmpty(value))
+                {
+                    throw new InvalidOperationException();
+                }
+                recommendedFeatures.Add(value);
+            }
+            if (recommendedFeatures.Count == 0)
+            {
+                throw new InvalidOperationException();
+            }
 
             return new RinCapabilities(
                 protocolVersion,
@@ -67,7 +85,8 @@ public sealed record RinCapabilities(
                 RequiredString(health, "policy_mode"),
                 health.GetProperty("async_jobs").GetBoolean(),
                 health.GetProperty("structured_generation").GetBoolean(),
-                features);
+                features,
+                recommendedFeatures);
         }
         catch (RinProtocolException)
         {

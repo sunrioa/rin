@@ -156,7 +156,8 @@ fallback 越过它。
 
 Binding 防止另一版本剧情或 Mod 的状态被静默恢复到当前游戏。
 
-`features` 是新会话显式选择的兼容开关，可用值由 `/health` 的 `features` 返回：
+`features` 包含 Session 语义基线与 Optional Capability。`/health` 的
+`features` 返回全部支持值，`recommended_features` 返回新 Session 的强制基线：
 
 - `memory-archive-v1`：将超出详细窗口的记忆压缩为确定性分层摘要；
 - `belief-conflicts-v1`：保留角色私有的互相矛盾说法及来源；
@@ -166,9 +167,11 @@ Binding 防止另一版本剧情或 Mod 的状态被静默恢复到当前游戏�
 - `outcome-reporting-v1`：让游戏成为结果的唯一权威，允许延迟回报，并按游戏
   发生时间合并 Fact、Goal、记忆、动作和调度。
 
-未启用某 Feature 的旧 Session 保持对应的历史 reducer 行为与重放结果；
-`outcome-reporting-v1` 尤其不会自动加入已有事件日志。启用 Feature 后返回状态
-可能增加可选发生时间元数据；JSON 解码器必须忽略不认识的字段。
+每个 Fresh Create 都必须包含 `outcome-reporting-v1`，省略会返回
+`400 invalid_request`；其他五个 Feature 仍是 Optional Capability。Legacy
+History 保留对应的历史 Reducer 行为与 Replay 结果，已有 Event Log 绝不会被
+自动注入 `outcome-reporting-v1`。完整组合与迁移 Matrix 见
+[Session 语义基线](semantic-baseline.zh-CN.md)。
 
 ## 提交观察
 
@@ -703,6 +706,7 @@ Confirmation；它会删除内容，并以最小 Tombstone 永久退役该 ID。
 | `409` | `event_exists` | Event ID 已在该 Session lineage 中保留 |
 | `409` | `binding_mismatch` | 可信 `expected_binding`、导入 Snapshot 或 existing Session 的 Binding 不一致 |
 | `409` | `session_archived` / `session_retired` | Session 只读，或其 ID 已永久退役 |
+| `409` | `legacy_semantics_forbidden` | Fresh Restore 试图从 Pre-baseline Snapshot 建立新 Lineage |
 | `409` | `archive_precondition_failed` / `delete_precondition_failed` | 生命周期 Binding、Head、Receipt 或 Confirmation 不匹配 |
 | `409` | `identifier_history_conflict` | Restore 的两份 History 含不兼容 verified identity |
 | `409` / `500` | `mutation_outcome_unknown` | 非 Proposal mutation 可能已持久化；保留它，并在任何其他 mutation 前只重试完全相同的请求 |

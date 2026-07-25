@@ -179,8 +179,9 @@ overtake it.
 The binding prevents state from another story or mod version from being
 silently restored into the current game.
 
-`features` contains compatibility switches explicitly selected for a new
-session. `/health` returns the supported values:
+`features` contains the Session semantic baseline plus optional capabilities.
+`/health` returns all supported values in `features` and the mandatory new
+Session baseline in `recommended_features`:
 
 - `memory-archive-v1`: compress memories outside the detailed window into
   deterministic hierarchical summaries;
@@ -195,11 +196,12 @@ session. `/health` returns the supported values:
   reports, and merge Facts, Goals, memories, actions, and scheduling by game
   occurrence time.
 
-Legacy sessions that omit a feature keep the corresponding historical reducer
-behavior and replay result. In particular, `outcome-reporting-v1` is never
-enabled automatically for an existing event log. Feature-enabled returned
-state may include optional occurrence metadata; tolerant JSON decoders must
-ignore fields they do not recognize.
+Every fresh Create must include `outcome-reporting-v1`; omitting it returns
+`400 invalid_request`. The other five Features remain optional capabilities.
+Legacy histories keep their corresponding historical reducer behavior and
+replay result, and `outcome-reporting-v1` is never injected into an existing
+Event Log. See [Session semantic baseline](semantic-baseline.md) for the full
+combination and migration matrix.
 
 ## Observe
 
@@ -831,6 +833,7 @@ preconditions, durability, retry, backup, and privacy semantics are defined in
 | `409` | `event_exists` | Event ID is already reserved in this Session lineage |
 | `409` | `binding_mismatch` | Trusted `expected_binding`, imported Snapshot, or existing Session binding differs |
 | `409` | `session_archived` / `session_retired` | Session is read-only or its ID was permanently retired |
+| `409` | `legacy_semantics_forbidden` | A fresh Restore attempted to establish a new lineage from a pre-baseline Snapshot |
 | `409` | `archive_precondition_failed` / `delete_precondition_failed` | Lifecycle Binding, head, receipt, or confirmation does not match |
 | `409` | `identifier_history_conflict` | Restore histories contain incompatible verified identities |
 | `409` / `500` | `mutation_outcome_unknown` | A non-Proposal mutation may be durable; retain it and retry only the exact request before any other mutation |

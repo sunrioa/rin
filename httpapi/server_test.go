@@ -793,6 +793,7 @@ func apiCreateRequest() protocol.CreateSessionRequest {
 		RequestID:       "create.http",
 		SessionID:       "session.http",
 		Binding:         protocol.Binding{GameID: "game.http", ContentID: "base", ContentVersion: "1", ContentHash: "hash"},
+		Features:        protocol.RecommendedFeatures(),
 		Actors: []protocol.ActorSeed{{
 			ID: "npc.http", Kind: "npc", DisplayName: "HTTP NPC", ThinkEveryTicks: 1, Enabled: true,
 			Boundaries: []protocol.Boundary{{ID: "boundary.private", Description: "Keep private data private.", TriggerTags: []string{"private"}, Response: "refuse"}},

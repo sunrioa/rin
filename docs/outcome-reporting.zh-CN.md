@@ -3,9 +3,9 @@
 [English](outcome-reporting.md) | [简体中文](outcome-reporting.zh-CN.md)
 
 本文定义 `rin.protocol/v1` 的 Proposal、游戏应用与 Commit 事务语义。新 Session
-必须在 `CreateSessionRequest.features` 中加入 `outcome-reporting-v1` 才会启用；
-未启用的 Session 保持历史上的 head 新鲜度检查、逐步截断和按到达顺序合并，
-从而让旧事件日志继续得到相同的重放结果。
+必须在 `CreateSessionRequest.features` 中加入 `outcome-reporting-v1` 安全基线；
+省略会被拒绝。未启用它的旧 History 保持历史 Head 新鲜度检查、逐步截断和按
+到达顺序合并，从而让既有 Event Log 继续得到相同 Replay 结果。
 
 Rin `0.6.0` 是 Preview。必填字段与 Wire Shape 以
 [`api/openapi.json`](../api/openapi.json) 为准。

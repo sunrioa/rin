@@ -39,8 +39,8 @@
 
 ### 变化
 
-- 新 Session 应启用 `outcome-reporting-v1`；未启用的既有 Session 继续保持历史
-  Reducer 与 Commit 语义。
+- 新 Session 必须使用 `outcome-reporting-v1` 安全基线；未启用它的既有
+  History 与 Exact Create Retry 继续保持历史 Reducer 与 Commit 语义。
 - Restore 现在必须提供来自运行中游戏可信内容 Manifest 的
   `expected_binding`，并同时匹配导入 Snapshot 和任何已存在的目标 Session。
 - `rin.reducer-projection/v2` 使用游戏编写的 Action Description 重建 Proposal

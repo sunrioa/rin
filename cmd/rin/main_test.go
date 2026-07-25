@@ -53,7 +53,8 @@ func TestSidecarProcessPersistsAndReleasesDataDirectoryLock(t *testing.T) {
 			ContentVersion: "1",
 			ContentHash:    strings.Repeat("a", 64),
 		},
-		Seed: 1,
+		Seed:     1,
+		Features: protocol.RecommendedFeatures(),
 		Actors: []protocol.ActorSeed{{
 			ID: "npc.windows-smoke", Kind: "npc", DisplayName: "Windows Smoke",
 			ThinkEveryTicks: 1, Enabled: true,

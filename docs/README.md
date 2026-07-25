@@ -11,6 +11,7 @@ releases do not carry a post-1.0 stability guarantee.
 | Authoritative HTTP wire schema | [`api/openapi.json`](../api/openapi.json) | [`api/openapi.json`](../api/openapi.json) |
 | Architecture, storage, and authority boundary | [Architecture](architecture.md) | [架构](architecture.zh-CN.md) |
 | Proposal, application, and outcome transactions | [Action outcome reporting](outcome-reporting.md) | [动作结果记账](outcome-reporting.zh-CN.md) |
+| Safe Session semantics and optional Feature matrix | [Session semantic baseline](semantic-baseline.md) | [Session 语义基线](semantic-baseline.zh-CN.md) |
 | HTTP and state contract | [Protocol v1](protocol-v1.md) | [协议 v1](protocol-v1.zh-CN.md) |
 | Online-model configuration | [Model policy](model-policy.md) | [模型策略](model-policy.zh-CN.md) |
 | Ren'Py, Godot, and Unity | [Game adapters](game-adapters.md) | [游戏适配器](game-adapters.zh-CN.md) |
