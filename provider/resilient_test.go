@@ -70,6 +70,31 @@ func TestResilientRetriesThenSucceeds(t *testing.T) {
 	}
 }
 
+func TestResilientDiagnosticsExposeCircuitState(t *testing.T) {
+	client := &fakeClient{fn: func(
+		_ context.Context,
+		_ CompletionRequest,
+		_ int,
+	) (CompletionResponse, error) {
+		return CompletionResponse{}, &Error{Kind: "temporary", Retryable: true}
+	}}
+	resilient := newTestResilient(
+		t,
+		client,
+		ResilienceConfig{MaxAttempts: 1, FailureThreshold: 1},
+	)
+	if diagnostics := resilient.Diagnostics(); diagnostics.State != "closed" {
+		t.Fatalf("initial diagnostics: %+v", diagnostics)
+	}
+	_, _ = resilient.Complete(context.Background(), CompletionRequest{})
+	diagnostics := resilient.Diagnostics()
+	if diagnostics.State != "open" ||
+		diagnostics.ConsecutiveFailures != 1 ||
+		diagnostics.OpenUntil == "" {
+		t.Fatalf("open diagnostics: %+v", diagnostics)
+	}
+}
+
 func TestNonRetryableAvailabilityDisposition(t *testing.T) {
 	t.Run("local preflight is neutral while closed", func(t *testing.T) {
 		client := &fakeClient{fn: func(_ context.Context, _ CompletionRequest, call int) (CompletionResponse, error) {

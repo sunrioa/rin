@@ -31,6 +31,31 @@ type Resilient struct {
 	now                 func() time.Time
 }
 
+type CircuitDiagnostics struct {
+	State               string `json:"state"`
+	ConsecutiveFailures int    `json:"consecutive_failures"`
+	OpenUntil           string `json:"open_until,omitempty"`
+}
+
+func (r *Resilient) Diagnostics() CircuitDiagnostics {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state := "closed"
+	if r.halfOpen {
+		state = "half_open"
+	} else if !r.openUntil.IsZero() {
+		state = "open"
+	}
+	result := CircuitDiagnostics{
+		State:               state,
+		ConsecutiveFailures: r.consecutiveFailures,
+	}
+	if !r.openUntil.IsZero() {
+		result.OpenUntil = r.openUntil.UTC().Format(time.RFC3339Nano)
+	}
+	return result
+}
+
 type circuitPermit struct {
 	generation uint64
 	halfOpen   bool

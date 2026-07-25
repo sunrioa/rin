@@ -67,6 +67,44 @@ type cacheEntry struct {
 	createdAt time.Time
 }
 
+type Diagnostics struct {
+	Workers       int                         `json:"workers"`
+	QueueDepth    int                         `json:"queue_depth"`
+	QueueCapacity int                         `json:"queue_capacity"`
+	Retained      int                         `json:"retained"`
+	MaxRetained   int                         `json:"max_retained"`
+	CacheEntries  int                         `json:"cache_entries"`
+	ByStatus      map[string]int              `json:"by_status"`
+	Closed        bool                        `json:"closed"`
+	Provider      provider.CircuitDiagnostics `json:"provider"`
+}
+
+func (m *Manager) Diagnostics() Diagnostics {
+	m.mu.Lock()
+	byStatus := make(map[string]int)
+	for _, state := range m.jobs {
+		byStatus[state.public.Status]++
+	}
+	result := Diagnostics{
+		Workers:       m.config.Workers,
+		QueueDepth:    len(m.queue),
+		QueueCapacity: cap(m.queue),
+		Retained:      len(m.jobs),
+		MaxRetained:   m.config.MaxJobs,
+		CacheEntries:  len(m.cache),
+		ByStatus:      byStatus,
+		Closed:        m.closed,
+		Provider:      provider.CircuitDiagnostics{State: "unavailable"},
+	}
+	m.mu.Unlock()
+	if diagnostics, ok := m.client.(interface {
+		Diagnostics() provider.CircuitDiagnostics
+	}); ok {
+		result.Provider = diagnostics.Diagnostics()
+	}
+	return result
+}
+
 var genericJSONObjectSchema = json.RawMessage(`{"type":"object","additionalProperties":true}`)
 
 func New(client provider.Client, config Config) (*Manager, error) {

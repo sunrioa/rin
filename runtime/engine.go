@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sunrioa/rin/protocol"
@@ -27,6 +28,7 @@ type managedSession struct {
 	checkpointMu      sync.Mutex
 	checkpointRunning bool
 	checkpointPending *checkpointCapture
+	lastLoadErrorCode string
 }
 
 type uncertainMutationAppend struct {
@@ -50,6 +52,8 @@ type Engine struct {
 	now                   func() time.Time
 	sessionSoftLimitBytes uint64
 	sessionHardLimitBytes uint64
+	checkpointFailures    atomic.Uint64
+	checkpointQuotaSkips  atomic.Uint64
 }
 
 func Open(store Store, policy Policy) (*Engine, error) {

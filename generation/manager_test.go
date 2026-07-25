@@ -47,6 +47,13 @@ func TestGenerationJobSucceedsIsIdempotentAndCaches(t *testing.T) {
 	if err != nil || cachedJob.Result == nil || !cachedJob.Result.CacheHit || client.callCount() != 1 {
 		t.Fatalf("unexpected cached job: %+v calls=%d err=%v", cachedJob, client.callCount(), err)
 	}
+	diagnostics := manager.Diagnostics()
+	if diagnostics.Retained != 2 ||
+		diagnostics.ByStatus["succeeded"] != 2 ||
+		diagnostics.CacheEntries != 1 ||
+		diagnostics.Provider.State != "unavailable" {
+		t.Fatalf("unexpected diagnostics: %+v", diagnostics)
+	}
 
 	changed := request
 	changed.MaxTokens++

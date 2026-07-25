@@ -22,10 +22,12 @@ func (e *Engine) ensureLoaded(session *managedSession) error {
 		// A failed lazy load remains retryable. The Session descriptor stays
 		// present, so callers can never mistake a damaged durable Session for an
 		// unused identifier.
+		session.lastLoadErrorCode = ErrorCode(err)
 		session.mu.Unlock()
 		return err
 	}
 	if state.SessionID == "" || state.SessionID != session.id {
+		session.lastLoadErrorCode = "replay_failed"
 		session.mu.Unlock()
 		return NewError(
 			"replay_failed",
@@ -39,6 +41,7 @@ func (e *Engine) ensureLoaded(session *managedSession) error {
 	if lifecycle, ok := e.store.(LifecycleStore); ok {
 		status, lifecycleErr := lifecycle.Lifecycle(session.id)
 		if lifecycleErr != nil {
+			session.lastLoadErrorCode = "store_load_failed"
 			session.mu.Unlock()
 			return NewError(
 				"store_load_failed",
@@ -58,6 +61,7 @@ func (e *Engine) ensureLoaded(session *managedSession) error {
 			}
 		}
 	}
+	session.lastLoadErrorCode = ""
 	session.loaded = true
 	if shouldRepairHeadCheckpoint(state.Revision, checkpointRevision) {
 		// Successful recovery is the migration path for pre-checkpoint data and
@@ -537,13 +541,25 @@ func (e *Engine) runCheckpointWorker(
 			// A checkpoint is only a derived cache. A failure here must never
 			// reverse a mutation whose event is already durable and published.
 			encoded, encodeErr := json.Marshal(checkpoint)
-			if encodeErr == nil &&
-				e.checkSessionQuota(
-					capture.state.SessionID,
-					uint64(len(encoded)),
-				) == nil {
-				_ = checkpoints.SaveCheckpoint(capture.state.SessionID, checkpoint)
+			if encodeErr != nil {
+				e.checkpointFailures.Add(1)
+			} else if quotaErr := e.checkSessionQuota(
+				capture.state.SessionID,
+				uint64(len(encoded)),
+			); quotaErr != nil {
+				if ErrorCode(quotaErr) == "session_quota_exceeded" {
+					e.checkpointQuotaSkips.Add(1)
+				} else {
+					e.checkpointFailures.Add(1)
+				}
+			} else if saveErr := checkpoints.SaveCheckpoint(
+				capture.state.SessionID,
+				checkpoint,
+			); saveErr != nil {
+				e.checkpointFailures.Add(1)
 			}
+		} else {
+			e.checkpointFailures.Add(1)
 		}
 
 		session.checkpointMu.Lock()

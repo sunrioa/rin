@@ -31,6 +31,13 @@ func TestProposalJobSucceedsAndIsIdempotent(t *testing.T) {
 	if result.Status != "succeeded" || result.Proposal == nil || result.Proposal.PolicySource != "deterministic" {
 		t.Fatalf("unexpected job result: %+v", result)
 	}
+	diagnostics := manager.Diagnostics()
+	if diagnostics.Retained != 1 ||
+		diagnostics.ByStatus["succeeded"] != 1 ||
+		diagnostics.QueueCapacity != 4 ||
+		diagnostics.Closed {
+		t.Fatalf("unexpected diagnostics: %+v", diagnostics)
+	}
 }
 
 func TestProposalJobCancellation(t *testing.T) {

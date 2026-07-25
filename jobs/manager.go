@@ -53,6 +53,34 @@ type jobState struct {
 	completedAt time.Time
 }
 
+type Diagnostics struct {
+	Workers       int            `json:"workers"`
+	QueueDepth    int            `json:"queue_depth"`
+	QueueCapacity int            `json:"queue_capacity"`
+	Retained      int            `json:"retained"`
+	MaxRetained   int            `json:"max_retained"`
+	ByStatus      map[string]int `json:"by_status"`
+	Closed        bool           `json:"closed"`
+}
+
+func (m *Manager) Diagnostics() Diagnostics {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	byStatus := make(map[string]int)
+	for _, state := range m.jobs {
+		byStatus[state.public.Status]++
+	}
+	return Diagnostics{
+		Workers:       m.config.Workers,
+		QueueDepth:    len(m.queue),
+		QueueCapacity: cap(m.queue),
+		Retained:      len(m.jobs),
+		MaxRetained:   m.config.MaxJobs,
+		ByStatus:      byStatus,
+		Closed:        m.closed,
+	}
+}
+
 func New(engine *rinruntime.Engine, config Config) (*Manager, error) {
 	if engine == nil {
 		return nil, errors.New("job manager engine is required")

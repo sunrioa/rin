@@ -97,8 +97,18 @@ func TestLazyLoadFailureIsIsolatedAndRetryable(t *testing.T) {
 	if _, err := engine.State(sessionRequest(failingID)); err == nil {
 		t.Fatal("injected first lazy load failure was ignored")
 	}
+	failedDiagnostics := engine.Diagnostics()
+	if failedDiagnostics.KnownCorruptSessions != 1 ||
+		failedDiagnostics.LoadErrorsByCode["store_load_failed"] != 1 {
+		t.Fatalf("lazy load failure was not diagnosed: %+v", failedDiagnostics)
+	}
 	if _, err := engine.State(sessionRequest(failingID)); err != nil {
 		t.Fatalf("failed lazy load was permanently cached: %v", err)
+	}
+	recoveredDiagnostics := engine.Diagnostics()
+	if recoveredDiagnostics.KnownCorruptSessions != 0 ||
+		recoveredDiagnostics.LoadedSessions != 2 {
+		t.Fatalf("recovered lazy load remained unhealthy: %+v", recoveredDiagnostics)
 	}
 }
 
