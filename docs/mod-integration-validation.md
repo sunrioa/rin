@@ -115,7 +115,7 @@ versions, OS and filesystem, complete Mod list, source of the save identity,
 test/crash point, expected and actual result, relevant sanitized logs, and
 remaining Pending Turn/Attempt/Outbox counts.
 
-Only promote a host capability after this evidence is reviewed. Call an
+Only promote host durability after this evidence is reviewed. Call an
 operation `idempotent` only after the same operation ID has been repeated
 without repeating its game effect. Call it `transactional` only when the game
 effect, operation marker, and durable outcome are committed by one real

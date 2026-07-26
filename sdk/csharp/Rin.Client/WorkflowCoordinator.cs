@@ -48,7 +48,7 @@ public interface IWorkflowFallbackStore : IWorkflowStore, IOutcomeFallbackStore
 
 public sealed class WorkflowCoordinator
 {
-    private readonly HostCapabilities capabilities;
+    private readonly HostDurability durability;
     private readonly IWorkflowStore store;
     private readonly ProposalAttemptCoordinator attempts;
     private readonly OutcomeOutbox outbox;
@@ -58,16 +58,16 @@ public sealed class WorkflowCoordinator
     public WorkflowCoordinator(
         RinClient client,
         IWorkflowStore store,
-        HostCapabilities? capabilities = null)
+        HostDurability? durability = null)
     {
         Guard.NotNull(client, nameof(client));
         this.store = store ?? throw new ArgumentNullException(nameof(store));
-        this.capabilities = (capabilities ?? HostCapabilities.Advisory()).Validate();
+        this.durability = (durability ?? HostDurability.Advisory()).Validate();
         attempts = new ProposalAttemptCoordinator(client, store);
         outbox = new OutcomeOutbox(client, store);
     }
 
-    public HostCapabilities Capabilities => capabilities;
+    public HostDurability Durability => durability;
 
     public async ValueTask<PendingTurn> BeginAsync(
         string operationId,
@@ -108,7 +108,7 @@ public sealed class WorkflowCoordinator
         PendingTurn pendingTurn,
         ActionProposal proposal,
         CommitRequest commit,
-        HostProfile requiredProfile,
+        HostDurabilityProfile requiredDurability,
         Func<string, CancellationToken, ValueTask> apply,
         CancellationToken cancellationToken = default)
     {
@@ -122,10 +122,10 @@ public sealed class WorkflowCoordinator
         }
         try
         {
-            capabilities.Require(requiredProfile);
+            durability.Require(requiredDurability);
             var attempt = pendingTurn.ToAttempt();
             ProposalAttemptCoordinator.ValidateSettlement(attempt, proposal, commit);
-            if (capabilities.Profile == HostProfile.TransactionalAction)
+            if (durability.Profile == HostDurabilityProfile.TransactionalAction)
             {
                 await attempts.SettleAsync(
                     attempt,
@@ -154,7 +154,7 @@ public sealed class WorkflowCoordinator
         ActionProposal proposal,
         CommitRequest commit,
         object fallbackObserve,
-        HostProfile requiredProfile,
+        HostDurabilityProfile requiredDurability,
         Func<string, CancellationToken, ValueTask> apply,
         CancellationToken cancellationToken = default)
     {
@@ -176,10 +176,10 @@ public sealed class WorkflowCoordinator
         }
         try
         {
-            capabilities.Require(requiredProfile);
+            durability.Require(requiredDurability);
             var attempt = pendingTurn.ToAttempt();
             ProposalAttemptCoordinator.ValidateSettlement(attempt, proposal, commit);
-            if (capabilities.Profile == HostProfile.TransactionalAction)
+            if (durability.Profile == HostDurabilityProfile.TransactionalAction)
             {
                 throw new RinConfigurationException(
                     "outcome_fallback_unsupported",

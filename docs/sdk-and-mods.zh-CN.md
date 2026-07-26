@@ -6,7 +6,7 @@
 模型，同时消除重复的 HTTP、超时、Envelope 和 Job 轮询代码。
 
 每个接入都必须声明真实的
-[宿主能力 Profile](host-capability-profiles.zh-CN.md)。调用正确的 Rin Endpoint
+[宿主持久 Profile](host-durability.zh-CN.md)。调用正确的 Rin Endpoint
 不会自动让宿主具备 Crash Safety；更强 Profile 要求网络前持久边界，以及按
 Operation ID 幂等的 Apply 或真实游戏事务。仓库中的宿主示例已经持久化稳定
 Identity 与有界恢复状态，但其存储无法与任意游戏世界效果形成 Crash-atomic
@@ -86,7 +86,7 @@ Applied Marker 与 Outcome Outbox 在同一个权威事务中落盘时才能清�
 JavaScript/TypeScript 与 C# SDK 保留底层的
 `ProposalAttemptCoordinator`、可插拔 `OutcomeOutbox` 以及不透明 Snapshot
 持久化 Helper；JavaScript/TypeScript、C# 与 Java 还提供更高层的
-`WorkflowCoordinator`，在应用动作前校验声明的宿主能力 Profile。它们只定义
+`WorkflowCoordinator`，在应用动作前校验声明的宿主持久 Profile。它们只定义
 存储契约，不提供容易误用于生产的内存默认实现。
 Transactional Settlement Hook 必须原子应用游戏效果、持久化 Applied Marker
 与完整 Commit，并删除 Pending Turn。幂等宿主会先收到稳定 Operation ID，再由

@@ -45,7 +45,7 @@ public sealed class RinNpcRuntime : IDisposable
         workflow = new WorkflowCoordinator(
             client,
             store,
-            HostCapabilities.Advisory(stableIdentity: true));
+            HostDurability.Advisory(stableIdentity: true));
     }
 
     public async Task RequestTurnAsync(
@@ -169,7 +169,7 @@ public sealed class RinNpcRuntime : IDisposable
                 resolved.Proposal,
                 commit,
                 fallbackObserve,
-                HostProfile.Advisory,
+                HostDurabilityProfile.Advisory,
                 async (_, token) =>
                 {
                     if (allowed && (actionId == "offer_quest" || actionId == "advance_quest"))

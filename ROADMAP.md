@@ -75,6 +75,7 @@
 - [x] 自包含 JSON Schema 2020-12 参数/结果校验与确定性 Descriptor Digest
 - [x] 并发安全 Capability Registry、精确版本、动态撤销和执行前 TOCTOU 复验
 - [x] 明确区分 Capability Discovery、每轮游戏授权、执行生命周期和持久保证
+- [x] 跨 SDK 将旧 `HostCapabilities` 清理为准确的 `HostDurability`，不保留别名
 - [x] Schema Fuzz、Registry Race、过期 Epoch/Digest/撤销和状态转换测试
 - [ ] 将 Host Contract 接入跨语言 SDK、通用脚手架和真实引擎 Adapter
 

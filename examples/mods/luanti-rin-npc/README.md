@@ -4,11 +4,11 @@
 
 A server-side integration reference for the Rin agent runtime.
 
-**Host capability profile: `advisory`.** ModStorage snapshots are tied to the
+**Host durability profile: `advisory`.** ModStorage snapshots are tied to the
 world save interval and cannot provide the synchronous transaction required by
 the stronger profiles. This sample persists recovery state, but does not claim
 that a successful `set_string` is crash-durable or atomic with a game effect. See
-[Host capability profiles](../../../docs/host-capability-profiles.md).
+[Host durability profiles](../../../docs/host-durability.md).
 
 This directory is a complete Luanti mod. The included `rin.lua` is a vendored
 copy of `sdk/lua/rin.lua`; the repository test requires both copies to match.

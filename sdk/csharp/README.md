@@ -38,12 +38,12 @@ additive response fields through `AdditiveFields`.
 `IWorkflowFallbackStore` can use
 `ApplyAndEnqueueOutcomeWithFallbackAsync`; terminal Commit errors are converted
 to the pre-recorded safe Observe only after that conversion is durable. Supply an
-`IWorkflowStore` and validated `HostCapabilities`. An idempotent apply receives
+`IWorkflowStore` and validated `HostDurability`. An idempotent apply receives
 the stable operation ID; only `transactional-action` calls
 `IProposalAttemptStore.SettleAsync` as one game transaction. Entries are
 acknowledged only after normal or explicit duplicate Commit success. The SDK
 does not ship an in-memory production default. See
-[Host capability profiles](../../docs/host-capability-profiles.md).
+[Host durability profiles](../../docs/host-durability.md).
 
 `OpaqueSnapshotPersistence` stores bounded JSON bytes through
 `IOpaqueSnapshotStore` and loads a complete `JsonElement`, preserving additive

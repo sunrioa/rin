@@ -25,11 +25,11 @@ Outcome Reporting preset 时 Fail Closed。请用 `createRinId("request")` 与
 `WorkflowCoordinator` 把兼容保留的 `ProposalAttemptCoordinator` 与
 `OutcomeOutbox` 组合为 `begin`、`resumePendingWork`、
 `applyAndEnqueueOutcome` 和 `drainOutbox`。接入方提供 Workflow Store 与已
-校验的 `HostCapabilities`。幂等 Apply 会收到稳定 Operation ID；只有
+校验的 `HostDurability`。幂等 Apply 会收到稳定 Operation ID；只有
 `transactional-action` 才把 `settleProposalAttempt` 当作原子游戏事务调用。
 Outbox 只有在 Rin 返回普通成功或明确 duplicate 成功后才删除项目。SDK
 不提供会误用于生产的内存默认实现。参见
-[宿主能力分级](../../docs/host-capability-profiles.zh-CN.md)。
+[宿主持久保证分级](../../docs/host-durability.zh-CN.md)。
 
 `OpaqueSnapshotPersistence` 保存有界 UTF-8 JSON 字节，并返回包含当前 SDK
 未知新增字段的完整对象。注入的 Store 必须按 Event Log 同等级别保护 Snapshot。

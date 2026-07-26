@@ -191,7 +191,7 @@ public sealed class BepInExWorkflowState : IWorkflowFallbackStore
         Func<CancellationToken, ValueTask> apply,
         CancellationToken cancellationToken = default) =>
         throw new RinConfigurationException(
-            "host_capability_insufficient",
+            "host_durability_insufficient",
             "Generic BepInEx storage cannot atomically apply a game effect");
 
     public ValueTask CompleteAsync(

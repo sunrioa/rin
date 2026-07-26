@@ -145,7 +145,7 @@ Ren'Py、Godot 和 Unity 适配器只转换 JSON/HTTP 与各自的异步机制�
 
 JavaScript、C#、Java、Lua、Godot 与 Unity 的 `WorkflowCoordinator` 负责这套通用 Pending Turn
 状态机，但不能凭空创造存储保证。应用前，它会强制检查接入声明的
-[宿主能力 Profile](host-capability-profiles.zh-CN.md)。稳定身份、持久化、
+[宿主持久 Profile](host-durability.zh-CN.md)。稳定身份、持久化、
 动作校验、引擎线程调度与世界修改仍由宿主负责。
 
 Ren'Py worker registry、Godot `HTTPRequest` 和 Unity coroutine 都只存在于进程内。游戏存档保存 Snapshot 与普通结果，不保存线程、Future、Socket、HTTP 对象或 API Token。

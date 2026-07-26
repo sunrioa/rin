@@ -23,7 +23,7 @@ persists the turn before the first request and the Job ID before polling.
 Terminal Commit errors are persisted as safe Observe fallbacks before retry,
 and an ACK is persisted before eviction.
 
-**Host capability profile: `advisory`.** After `FileAccess.flush()`, a
+**Host durability profile: `advisory`.** After `FileAccess.flush()`, a
 same-directory target/backup rename protocol makes interrupted replacement
 recoverable with Windows-safe paths. The two renames are not one atomic
 operation, and Godot does not make an arbitrary game-world effect part of that

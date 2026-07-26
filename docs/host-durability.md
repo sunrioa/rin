@@ -1,6 +1,6 @@
-# Host capability profiles
+# Host durability profiles
 
-[English](host-capability-profiles.md) | [简体中文](host-capability-profiles.zh-CN.md)
+[English](host-durability.md) | [简体中文](host-durability.zh-CN.md)
 
 Rin coordinates a distributed workflow across a game process and the Sidecar,
 but only the game owns world state. An integration must declare one of the
@@ -21,7 +21,7 @@ This document describes Rin `0.6.0` Preview. It does not change the
 
 An integration may use different profiles for different actions. For example,
 dialogue can be `advisory` while a quest engine with an operation-keyed command
-can be `idempotent-action`. Capability negotiation must fail closed: an action
+can be `idempotent-action`. Durability validation must fail closed: an action
 that requires a stronger profile must not be offered when the host cannot
 provide it.
 
@@ -31,12 +31,12 @@ writing a marker after mutating the world is not an atomic transaction. Such
 hosts remain `advisory` unless they expose either a documented synchronous
 durability boundary or an operation-keyed idempotent apply API.
 
-## Versioned capability record
+## Versioned durability record
 
 SDKs and adapters use this logical record:
 
 ```text
-HostCapabilities {
+HostDurability {
   version: 1
   profile: advisory | idempotent-action | transactional-action
   stable_identity: boolean
@@ -57,8 +57,8 @@ The SDK validates combinations instead of trusting the profile label:
 - `atomic_apply_and_outbox` and `idempotent_apply` are mutually independent;
   a host may truthfully support both.
 
-Capabilities are local host facts. They are not sent to the model and do not
-grant authority. Candidate action allowlists remain game-authored.
+Durability fields are local host facts. They are not sent to the model and do
+not grant authority. Candidate action allowlists remain game-authored.
 
 ## Stable identity
 
@@ -107,7 +107,7 @@ target/backup rename protocol under `user://`. This handles Windows replacement
 semantics, but the two renames and an arbitrary Scene Tree/world effect cannot
 form one atomic transaction.
 BepInEx supports games with materially different Mono, IL2CPP, and target
-framework constraints; capability claims must be made by the game-specific
+framework constraints; durability claims must be made by the game-specific
 plugin, not by BepInEx as a whole. The reference state file uses a
 flush-and-replace sequence, but cannot atomically include an arbitrary game's
 effect and must not be promoted beyond `advisory` on that basis.

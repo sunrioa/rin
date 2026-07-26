@@ -254,28 +254,28 @@ using (var workflowClient = new RinClient(new RinClientOptions(), workflowHandle
 
     try
     {
-        _ = new HostCapabilities(
+        _ = new HostDurability(
             1,
-            HostProfile.TransactionalAction,
+            HostDurabilityProfile.TransactionalAction,
             false,
             false,
             false,
             false,
             false).Validate();
-        throw new InvalidOperationException("inflated host capability claim was accepted");
+        throw new InvalidOperationException("inflated host durability claim was accepted");
     }
     catch (RinConfigurationException exception)
     {
         Require(
-            exception.Code == "invalid_host_capabilities",
-            "invalid host capability returned the wrong code");
+            exception.Code == "invalid_host_durability",
+            "invalid host durability returned the wrong code");
     }
 
     var idempotentStore = new TestAuthoritativeStore();
     var workflow = new WorkflowCoordinator(
         workflowClient,
         idempotentStore,
-        HostCapabilities.IdempotentAction());
+        HostDurability.IdempotentAction());
     var pendingTurn = await workflow.BeginAsync("operation.workflow", proposeRequest);
     var appliedOperation = "";
     await workflow.ApplyAndEnqueueOutcomeAsync(
@@ -287,7 +287,7 @@ using (var workflowClient = new RinClient(new RinClientOptions(), workflowHandle
             "proposal.workflow",
             "event.workflow",
             true),
-        HostProfile.IdempotentAction,
+        HostDurabilityProfile.IdempotentAction,
         (operationId, _) =>
         {
             appliedOperation = operationId;
@@ -313,7 +313,7 @@ using (var workflowClient = new RinClient(new RinClientOptions(), workflowHandle
                 "proposal.workflow",
                 "event.failed",
                 true),
-            HostProfile.IdempotentAction,
+            HostDurabilityProfile.IdempotentAction,
             (_, _) => throw new InvalidOperationException("game save failed"));
         throw new InvalidOperationException("failed apply was accepted");
     }
@@ -330,7 +330,7 @@ using (var workflowClient = new RinClient(new RinClientOptions(), workflowHandle
     var invalidFallbackWorkflow = new WorkflowCoordinator(
         workflowClient,
         invalidFallbackStore,
-        HostCapabilities.Advisory());
+        HostDurability.Advisory());
     var invalidFallbackRequest = proposeRequest with { RequestId = "request.invalid" };
     var invalidFallbackTurn = await invalidFallbackWorkflow.BeginAsync(
         "operation.invalid",
@@ -352,7 +352,7 @@ using (var workflowClient = new RinClient(new RinClientOptions(), workflowHandle
                 session_id = "session.workflow",
                 request_id = "observe.invalid",
             },
-            HostProfile.Advisory,
+            HostDurabilityProfile.Advisory,
             (_, _) =>
             {
                 invalidFallbackApplied = true;

@@ -81,6 +81,8 @@ unchecked item is not a supported feature.
   revocation, and final time-of-check/time-of-use validation
 - [x] Separate capability discovery, per-decision game authorization, execution
   lifecycle, and persistence guarantees
+- [x] Replace the old cross-SDK `HostCapabilities` model with the accurately
+  named `HostDurability`, without compatibility aliases
 - [x] Schema fuzz, registry race, stale epoch/digest/revocation, and state
   transition tests
 - [ ] Integrate the Host Contract into cross-language SDKs, generic scaffolds,

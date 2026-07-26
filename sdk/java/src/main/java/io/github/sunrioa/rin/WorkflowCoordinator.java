@@ -16,7 +16,7 @@ public final class WorkflowCoordinator {
             Set.of("session_not_found", "unknown_proposal", "proposal_resolved");
     private final RinClient client;
     private final WorkflowStore store;
-    private final HostCapabilities capabilities;
+    private final HostDurability durability;
     private final AtomicBoolean draining = new AtomicBoolean();
     private final AtomicBoolean resuming = new AtomicBoolean();
     private final AtomicBoolean settling = new AtomicBoolean();
@@ -24,18 +24,18 @@ public final class WorkflowCoordinator {
     public WorkflowCoordinator(
             RinClient client,
             WorkflowStore store,
-            HostCapabilities capabilities) {
+            HostDurability durability) {
         this.client = Objects.requireNonNull(client, "client");
         this.store = Objects.requireNonNull(store, "store");
-        this.capabilities = Objects.requireNonNull(capabilities, "capabilities");
+        this.durability = Objects.requireNonNull(durability, "durability");
     }
 
     public WorkflowCoordinator(RinClient client, WorkflowStore store) {
-        this(client, store, HostCapabilities.advisory());
+        this(client, store, HostDurability.advisory());
     }
 
-    public HostCapabilities capabilities() {
-        return capabilities;
+    public HostDurability durability() {
+        return durability;
     }
 
     public CompletableFuture<PendingTurn> begin(
@@ -90,7 +90,7 @@ public final class WorkflowCoordinator {
             PendingTurn pendingTurn,
             Map<String, ?> proposal,
             Map<String, ?> commit,
-            HostProfile requiredProfile,
+            HostDurabilityProfile requiredDurability,
             Function<String, CompletionStage<Void>> apply) {
         Objects.requireNonNull(pendingTurn, "pendingTurn");
         Objects.requireNonNull(apply, "apply");
@@ -102,12 +102,12 @@ public final class WorkflowCoordinator {
         }
         CompletionStage<Void> completion;
         try {
-            capabilities.require(requiredProfile);
+            durability.require(requiredDurability);
             Map<String, Object> stableProposal = PendingTurn.copyObject(proposal);
             Map<String, Object> stableCommit = PendingTurn.copyObject(commit);
             validateSettlement(pendingTurn, stableProposal, stableCommit);
 
-            if (capabilities.profile() == HostProfile.TRANSACTIONAL_ACTION) {
+            if (durability.profile() == HostDurabilityProfile.TRANSACTIONAL_ACTION) {
                 completion = store.settleTransactional(
                         pendingTurn,
                         stableProposal,

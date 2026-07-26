@@ -26,14 +26,14 @@ the owning game thread.
 
 `WorkflowCoordinator` owns the reusable Pending Turn, Job recovery, settlement,
 and Outcome Outbox state machine. Supply a persistent `WorkflowStore` and a
-validated `HostCapabilities` value. `idempotent-action` apply callbacks receive
+validated `HostDurability` value. `idempotent-action` apply callbacks receive
 the stable operation ID; `transactional-action` delegates apply and enqueue to
 one host transaction. Stores may retain a pre-recorded absolute-fact Observe
 fallback for terminal Commit conflicts; transport uncertainty preserves the
 exact Commit. `ProposalFreshness.evaluate` performs the shared final
 pending/revision check. An `advisory` host cannot offer actions that require
 either stronger profile. See
-[Host capability profiles](../../docs/host-capability-profiles.md).
+[Host durability profiles](../../docs/host-durability.md).
 
 Compile the SDK and its dependency-free smoke test with JDK 17:
 

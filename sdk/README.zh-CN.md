@@ -7,7 +7,7 @@
 这些 SDK 消除传输样板代码，不会把游戏权威移动到客户端库。
 
 SDK Workflow Helper 会校验接入声明的
-[宿主能力 Profile](../docs/host-capability-profiles.zh-CN.md)。客户端库不能凭空
+[宿主持久 Profile](../docs/host-durability.zh-CN.md)。客户端库不能凭空
 创造游戏没有提供的持久性或世界事务。
 
 | 语言 | 运行时 | JSON | 异步建议 |

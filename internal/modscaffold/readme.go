@@ -17,7 +17,7 @@ complete %s Rin SDK source used by Rin %s and pins the host dependencies listed
 in [rin-scaffold.json](rin-scaffold.json).
 
 > Build or harness success is not proof of stability in a real game. This
-> scaffold declares only the Rin "advisory" capability profile. Complete
+> scaffold declares only the Rin "advisory" durability profile. Complete
 > the game-specific integration and real-host validation before release.
 
 ## Project
@@ -85,7 +85,7 @@ macOS/Linux:
 4. Keep an explicit action allowlist. Validate authority and freshness, then
    apply accepted actions on the game's owning thread.
 5. Preserve Pending Turn, applied-operation markers, and the Outcome Outbox in
-   the authoritative save boundary. Do not claim a stronger capability profile
+   the authoritative save boundary. Do not claim a stronger durability profile
    without crash evidence.
 6. Start and stop the Rin Sidecar with the game or document an external service
    lifecycle. Keep "RIN_TOKEN" out of saves, logs, and generated files.

@@ -5,8 +5,8 @@ import test from "node:test";
 import {
   DEFAULT_MAX_RESPONSE_BYTES,
   FEATURE_PRESETS,
-  HOST_PROFILES,
-  HostCapabilities,
+  HOST_DURABILITY_PROFILES,
+  HostDurability,
   OpaqueSnapshotPersistence,
   OutcomeOutbox,
   PROTOCOL_VERSION,
@@ -73,19 +73,19 @@ test("capability negotiation requires protocol and the safe baseline", async () 
   );
 });
 
-test("host capability profiles reject inflated durability claims", () => {
+test("host durability profiles reject inflated durability claims", () => {
   assert.throws(
-    () => new HostCapabilities({ profile: HOST_PROFILES.transactionalAction }),
+    () => new HostDurability({ profile: HOST_DURABILITY_PROFILES.transactionalAction }),
     (error) => error instanceof RinConfigurationError &&
-      error.code === "invalid_host_capabilities",
+      error.code === "invalid_host_durability",
   );
-  const advisory = HostCapabilities.advisory({ stableIdentity: true });
+  const advisory = HostDurability.advisory({ stableIdentity: true });
   assert.throws(
-    () => advisory.require(HOST_PROFILES.idempotentAction),
+    () => advisory.require(HOST_DURABILITY_PROFILES.idempotentAction),
     (error) => error instanceof RinConfigurationError &&
-      error.code === "host_capability_insufficient",
+      error.code === "host_durability_insufficient",
   );
-  HostCapabilities.transactionalAction().require(HOST_PROFILES.idempotentAction);
+  HostDurability.transactionalAction().require(HOST_DURABILITY_PROFILES.idempotentAction);
 });
 
 test("WorkflowCoordinator gives idempotent apply a stable operation ID", async () => {
@@ -119,7 +119,7 @@ test("WorkflowCoordinator gives idempotent apply a stable operation ID", async (
   const workflow = new WorkflowCoordinator(
     client,
     store,
-    HostCapabilities.idempotentAction(),
+    HostDurability.idempotentAction(),
   );
   const pending = await workflow.begin("operation.stable", {
     protocol_version: PROTOCOL_VERSION,
@@ -141,7 +141,7 @@ test("WorkflowCoordinator gives idempotent apply a stable operation ID", async (
       event_id: "event.fixture",
       accepted: true,
     },
-    requiredProfile: HOST_PROFILES.idempotentAction,
+    requiredDurability: HOST_DURABILITY_PROFILES.idempotentAction,
     async apply(operationId) { appliedOperation = operationId; },
   });
   assert.equal(appliedOperation, "operation.stable");
@@ -169,7 +169,7 @@ test("WorkflowCoordinator gives idempotent apply a stable operation ID", async (
         event_id: "event.failed",
         accepted: true,
       },
-      requiredProfile: HOST_PROFILES.idempotentAction,
+      requiredDurability: HOST_DURABILITY_PROFILES.idempotentAction,
       async apply() { throw new Error("game save failed"); },
     }),
     /game save failed/,

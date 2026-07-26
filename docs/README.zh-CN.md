@@ -19,7 +19,7 @@ Rin `0.6.0` 是 Preview、pre-1.0 软件。文档按公共接口组织，不以�
 | 跨语言客户端与 Mod | [SDK 与 Mod 套件](sdk-and-mods.zh-CN.md) | [SDK and mod kits](sdk-and-mods.md) |
 | 离线 Mod 项目生成器 | [Mod 脚手架](mod-scaffolding.zh-CN.md) | [Mod scaffolding](mod-scaffolding.md) |
 | 真实游戏稳定性与崩溃验收 | [真实宿主 Mod 验收](mod-integration-validation.zh-CN.md) | [Real-host mod validation](mod-integration-validation.md) |
-| 宿主持久保证与能力分级 | [宿主能力分级](host-capability-profiles.zh-CN.md) | [Host capability profiles](host-capability-profiles.md) |
+| 宿主持久保证与分级 | [宿主持久保证分级](host-durability.zh-CN.md) | [Host durability profiles](host-durability.md) |
 | 安全与漏洞报告 | [安全](../SECURITY.md) | [Security](../SECURITY.en.md) |
 | 发布变化 | [变更日志](../CHANGELOG.zh-CN.md) | [Changelog](../CHANGELOG.md) |
 | 发布与 Client 兼容 | [兼容矩阵](compatibility.zh-CN.md) | [Compatibility matrix](compatibility.md) |

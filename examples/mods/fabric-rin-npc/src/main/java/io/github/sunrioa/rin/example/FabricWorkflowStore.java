@@ -54,7 +54,7 @@ final class FabricWorkflowStore implements WorkflowStore {
             Map<String, Object> commit,
             Function<String, CompletionStage<Void>> apply) {
         return CompletableFuture.failedFuture(new RinConfigurationException(
-                "host_capability_insufficient",
+                "host_durability_insufficient",
                 "Fabric Saved Data does not provide an atomic game-effect transaction"));
     }
 

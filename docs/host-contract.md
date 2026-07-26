@@ -89,7 +89,8 @@ validator instead of maintaining a partial schema engine.
 
 ## Durability is a separate axis
 
-The existing host capability profiles describe crash/retry durability only:
+The existing [host durability profiles](host-durability.md) describe
+crash/retry durability only:
 
 - `advisory`: no world-mutation recovery claim;
 - `idempotent-action`: durable pending work/outbox and idempotent application;

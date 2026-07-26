@@ -43,5 +43,5 @@ Store 需要实现 `load_attempt`、`create_attempt`、`save_attempt`、
 SDK 定义顺序和校验，不定义宿主持久性。不同 Lua 宿主的调度、存储刷盘与事务
 行为不同，因此具体 Store 与 Apply Callback 决定声明的 Profile。只有按
 Operation ID 工作的持久 Bridge 满足
-[宿主能力契约](../../docs/host-capability-profiles.zh-CN.md)后，才能声明更强
+[宿主持久契约](../../docs/host-durability.zh-CN.md)后，才能声明更强
 Profile。

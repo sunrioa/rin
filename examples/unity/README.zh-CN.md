@@ -13,7 +13,7 @@
 与最多 64 条报告。Flush 临时文件后使用可恢复的 Target/Backup 双重 Rename，
 不依赖 Windows 不可靠的覆盖式 Rename。
 
-能力仍为 `advisory`：示例效果可在进程内回滚，但一般 Unity 世界/存档变更无法
+持久保证仍为 `advisory`：示例效果可在进程内回滚，但一般 Unity 世界/存档变更无法
 与此 Sidecar 状态文件原子提交。生产游戏应让 Operation ID 对效果真正幂等，
 或把该边界替换为游戏存档事务。
 

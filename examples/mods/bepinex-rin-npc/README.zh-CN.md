@@ -5,10 +5,10 @@
 这是一个可真实构建的参考项目，面向上游尚未正式发布的 Bleeding-edge
 BepInEx 6，并按 Unity Backend 分开。
 
-**Host capability profile：`advisory`。** 示例会持久化稳定身份、Pending
+**Host durability profile：`advisory`。** 示例会持久化稳定身份、Pending
 Turn、Job ID 与 Outcome Outbox，但通用 BepInEx 插件无法把任意游戏的存档
 修改与该状态文件合并为同一个原子事务。参见
-[宿主能力分级](../../../docs/host-capability-profiles.zh-CN.md)。
+[宿主持久保证分级](../../../docs/host-durability.zh-CN.md)。
 
 ## 只选择一个 Backend
 

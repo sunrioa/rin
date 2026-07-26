@@ -24,6 +24,10 @@
   `THIRD-PARTY-NOTICES.md`。
 - Capability Discovery 明确不等于动作授权：模型只能选择由游戏
   `ActionOffer` 预先绑定参数和目标的候选。
+- JavaScript、C#、Java、内嵌脚手架资产与参考 Mod 中容易误导的
+  `HostCapabilities`/`HostProfile` 已替换为
+  `HostDurability`/`HostDurabilityProfile`。旧名称、错误码和文档路径被直接
+  删除，不保留兼容 Alias。
 
 ## [0.6.0] - 2026-07-24 - Preview
 
@@ -32,7 +36,7 @@
 
 ### 新增
 
-- JavaScript、C# 与 Java 新增带版本的宿主能力校验和共享 Pending Turn
+- JavaScript、C# 与 Java 新增带版本的宿主持久保证校验和共享 Pending Turn
   Workflow Coordinator。
 - 固定版本、可安装的 Fabric 1.21.1 服务端 Mod，具备稳定 Saved Data 身份、
   可重启 Pending Turn/Outbox 状态及 Linux/Windows 构建。
@@ -82,7 +86,7 @@
 ### 加固
 
 - 宿主接入现在必须显式声明 `advisory`、`idempotent-action` 或
-  `transactional-action` 能力 Profile。仓库记录只减不增的示例代码预算，防止
+  `transactional-action` 持久保证 Profile。仓库记录只减不增的示例代码预算，防止
   协议流程逻辑继续静默膨胀到游戏 Adapter 中。
 - Java 统一处理 Proposal Freshness 和终态 Commit 到安全 Observe 的恢复；
   Fabric 适配器仍如实保持 `advisory`，因为 Saved Data Dirty Mark 不是同步

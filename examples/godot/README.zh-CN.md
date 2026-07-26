@@ -20,7 +20,7 @@ Turn/Observe、Job ID 和最多 64 条 Outcome 会跨场景及进程重启恢复
 Coordinator 在首次请求前保存 Turn、轮询前保存 Job ID；Commit 终态错误会先
 持久转换为安全 Observe Fallback，ACK 也必须先持久化才能 Evict。
 
-**Host capability profile：`advisory`。** `FileAccess.flush()` 后使用同目录
+**Host durability profile：`advisory`。** `FileAccess.flush()` 后使用同目录
 Target/Backup 双重 Rename，使中断替换可恢复并兼容 Windows 路径；但两次
 Rename 不是一个原子操作，Godot 也无法把任意游戏世界效果纳入该文件事务。
 进程若在效果 Callback 与状态替换之间崩溃，效果仍可能重复。只有使用真正幂等

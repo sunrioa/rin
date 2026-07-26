@@ -8,7 +8,7 @@ The SDKs remove transport boilerplate without moving game authority into the
 client library.
 
 SDK workflow helpers validate the integration's declared
-[host capability profile](../docs/host-capability-profiles.md). A client library
+[host durability profile](../docs/host-durability.md). A client library
 cannot manufacture durability or a world transaction that the game does not
 provide.
 

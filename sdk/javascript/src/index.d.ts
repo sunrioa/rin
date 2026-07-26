@@ -263,20 +263,20 @@ export interface ProposalAttempt {
 
 export type PendingTurn = ProposalAttempt;
 
-export type HostProfile =
+export type HostDurabilityProfile =
   | "advisory"
   | "idempotent-action"
   | "transactional-action";
 
-export const HOST_PROFILES: Readonly<{
+export const HOST_DURABILITY_PROFILES: Readonly<{
   advisory: "advisory";
   idempotentAction: "idempotent-action";
   transactionalAction: "transactional-action";
 }>;
 
-export interface HostCapabilityOptions {
+export interface HostDurabilityOptions {
   version?: number;
-  profile?: HostProfile;
+  profile?: HostDurabilityProfile;
   stableIdentity?: boolean;
   durableBeforeNetwork?: boolean;
   durableOutbox?: boolean;
@@ -284,19 +284,19 @@ export interface HostCapabilityOptions {
   atomicApplyAndOutbox?: boolean;
 }
 
-export class HostCapabilities {
-  constructor(options?: HostCapabilityOptions);
+export class HostDurability {
+  constructor(options?: HostDurabilityOptions);
   readonly version: number;
-  readonly profile: HostProfile;
+  readonly profile: HostDurabilityProfile;
   readonly stableIdentity: boolean;
   readonly durableBeforeNetwork: boolean;
   readonly durableOutbox: boolean;
   readonly idempotentApply: boolean;
   readonly atomicApplyAndOutbox: boolean;
-  require(requiredProfile: HostProfile): void;
-  static advisory(options?: HostCapabilityOptions): HostCapabilities;
-  static idempotentAction(options?: HostCapabilityOptions): HostCapabilities;
-  static transactionalAction(options?: HostCapabilityOptions): HostCapabilities;
+  require(requiredDurability: HostDurabilityProfile): void;
+  static advisory(options?: HostDurabilityOptions): HostDurability;
+  static idempotentAction(options?: HostDurabilityOptions): HostDurability;
+  static transactionalAction(options?: HostDurabilityOptions): HostDurability;
 }
 
 export interface ProposalAttemptPersistence {
@@ -385,8 +385,8 @@ export class OutcomeOutbox {
 }
 
 export class WorkflowCoordinator {
-  constructor(client: RinClient, store: WorkflowStore, capabilities?: HostCapabilities);
-  readonly capabilities: HostCapabilities;
+  constructor(client: RinClient, store: WorkflowStore, durability?: HostDurability);
+  readonly durability: HostDurability;
   begin(operationId: string, request: ProposeRequest): Promise<ProposalAttempt>;
   resumePendingWork(options?: RinPollingOptions): Promise<{
     attempt: ProposalAttempt;
@@ -397,7 +397,7 @@ export class WorkflowCoordinator {
     pendingTurn: ProposalAttempt;
     proposal: ActionProposal;
     commit: CommitRequest;
-    requiredProfile?: HostProfile;
+    requiredDurability?: HostDurabilityProfile;
     apply(operationId: string): void | Promise<void>;
   }): Promise<void>;
   drainOutbox(): Promise<number>;

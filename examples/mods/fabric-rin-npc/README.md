@@ -29,7 +29,7 @@ second SDK JAR.
 
 ## Safety and recovery model
 
-**Host capability profile: `advisory` with stable identity.** The Mod stores a
+**Host durability profile: `advisory` with stable identity.** The Mod stores a
 generated world UUID, stable sequence, exact Create/Observe/Propose requests,
 Pending Turn/Job identity, and a bounded Outcome Outbox in overworld Saved
 Data. Restarting the same save resumes retained work instead of creating a new
@@ -43,7 +43,7 @@ with Outbox persistence. This reference therefore offers only reversible
 chat/wait/refuse actions and truthfully remains `advisory`. Item grants, quest
 changes, and world edits require a proven idempotent or transactional host
 boundary described in
-[Host capability profiles](../../../docs/host-capability-profiles.md).
+[Host durability profiles](../../../docs/host-durability.md).
 
 Immediately before settlement, the Mod reloads Rin Session state and the Java
 SDK checks that the Proposal remains pending at the expected revision.

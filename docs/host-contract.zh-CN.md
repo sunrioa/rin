@@ -72,7 +72,7 @@ Descriptor Digest。Schema 校验复用维护成熟的
 
 ## Durability 是独立维度
 
-已有宿主能力 Profile 只描述崩溃/重试持久保证：
+已有[宿主持久保证分级](host-durability.zh-CN.md)只描述崩溃/重试持久保证：
 
 - `advisory`：不承诺世界修改恢复；
 - `idempotent-action`：持久 Pending Work/Outbox，并且应用可幂等；

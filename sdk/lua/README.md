@@ -45,4 +45,4 @@ The SDK defines ordering and validation, not host durability. Lua hosts differ
 in scheduling, storage flush, and transaction behavior, so the concrete Store
 and apply callback determine the declared profile. An operation-keyed durable
 bridge may declare a stronger profile only after satisfying the
-[host capability contract](../../docs/host-capability-profiles.md).
+[host durability contract](../../docs/host-durability.md).

@@ -101,6 +101,6 @@ Rin `0.6.0` 是 Preview 软件。编译通过、模拟引擎 API 和面向重启
 文件系统、完整 Mod List、Save Identity 来源、测试/崩溃点、预期和实际结果、相关的
 脱敏日志，以及剩余 Pending Turn/Attempt/Outbox 数量。
 
-只有这些证据完成审查后才能提升宿主能力等级。只有同一个 Operation ID 重复执行且
+只有这些证据完成审查后才能提升宿主持久等级。只有同一个 Operation ID 重复执行且
 游戏效果不重复，才可称为 `idempotent`；只有游戏效果、Operation Marker 与持久
 Outcome 由同一个真实事务提交，才可称为 `transactional`。

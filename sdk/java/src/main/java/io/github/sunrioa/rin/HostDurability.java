@@ -1,42 +1,42 @@
 package io.github.sunrioa.rin;
 
-public record HostCapabilities(
+public record HostDurability(
         int version,
-        HostProfile profile,
+        HostDurabilityProfile profile,
         boolean stableIdentity,
         boolean durableBeforeNetwork,
         boolean durableOutbox,
         boolean idempotentApply,
         boolean atomicApplyAndOutbox) {
 
-    public HostCapabilities {
+    public HostDurability {
         if (version != 1 || profile == null) {
             throw new RinConfigurationException(
-                    "invalid_host_capabilities",
-                    "Host capabilities have an unsupported version");
+                    "invalid_host_durability",
+                    "Host durability has an unsupported version");
         }
-        if (profile == HostProfile.IDEMPOTENT_ACTION &&
+        if (profile == HostDurabilityProfile.IDEMPOTENT_ACTION &&
                 !(stableIdentity && durableBeforeNetwork && durableOutbox && idempotentApply)) {
             throw new RinConfigurationException(
-                    "invalid_host_capabilities",
+                    "invalid_host_durability",
                     "idempotent-action requires stable durable state, Outbox, and idempotent apply");
         }
-        if (profile == HostProfile.TRANSACTIONAL_ACTION &&
+        if (profile == HostDurabilityProfile.TRANSACTIONAL_ACTION &&
                 !(stableIdentity && durableBeforeNetwork && durableOutbox && atomicApplyAndOutbox)) {
             throw new RinConfigurationException(
-                    "invalid_host_capabilities",
+                    "invalid_host_durability",
                     "transactional-action requires stable durable state, Outbox, and atomic settlement");
         }
     }
 
-    public static HostCapabilities advisory() {
+    public static HostDurability advisory() {
         return advisory(false);
     }
 
-    public static HostCapabilities advisory(boolean stableIdentity) {
-        return new HostCapabilities(
+    public static HostDurability advisory(boolean stableIdentity) {
+        return new HostDurability(
                 1,
-                HostProfile.ADVISORY,
+                HostDurabilityProfile.ADVISORY,
                 stableIdentity,
                 false,
                 false,
@@ -44,10 +44,10 @@ public record HostCapabilities(
                 false);
     }
 
-    public static HostCapabilities idempotentAction() {
-        return new HostCapabilities(
+    public static HostDurability idempotentAction() {
+        return new HostDurability(
                 1,
-                HostProfile.IDEMPOTENT_ACTION,
+                HostDurabilityProfile.IDEMPOTENT_ACTION,
                 true,
                 true,
                 true,
@@ -55,10 +55,10 @@ public record HostCapabilities(
                 false);
     }
 
-    public static HostCapabilities transactionalAction(boolean idempotentApply) {
-        return new HostCapabilities(
+    public static HostDurability transactionalAction(boolean idempotentApply) {
+        return new HostDurability(
                 1,
-                HostProfile.TRANSACTIONAL_ACTION,
+                HostDurabilityProfile.TRANSACTIONAL_ACTION,
                 true,
                 true,
                 true,
@@ -66,16 +66,16 @@ public record HostCapabilities(
                 true);
     }
 
-    public void require(HostProfile requiredProfile) {
-        if (requiredProfile == null) {
+    public void require(HostDurabilityProfile requiredDurability) {
+        if (requiredDurability == null) {
             throw new RinConfigurationException(
-                    "invalid_host_profile",
-                    "Required host profile is unknown");
+                    "invalid_host_durability_profile",
+                    "Required host durability profile is unknown");
         }
-        if (profile.rank() < requiredProfile.rank()) {
+        if (profile.rank() < requiredDurability.rank()) {
             throw new RinConfigurationException(
-                    "host_capability_insufficient",
-                    "Action requires " + requiredProfile.label() +
+                    "host_durability_insufficient",
+                    "Action requires " + requiredDurability.label() +
                             ", but host provides " + profile.label());
         }
     }

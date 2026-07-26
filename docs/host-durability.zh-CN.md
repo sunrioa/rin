@@ -1,6 +1,6 @@
-# 宿主能力分级
+# 宿主持久保证分级
 
-[English](host-capability-profiles.md) | [简体中文](host-capability-profiles.zh-CN.md)
+[English](host-durability.md) | [简体中文](host-durability.zh-CN.md)
 
 Rin 协调游戏进程与 Sidecar 之间的分布式流程，但世界状态只归游戏所有。每个
 接入必须按动作类别声明下列一种 Profile。Profile 描述宿主真实的持久化与应用
@@ -17,7 +17,7 @@ Rin 协调游戏进程与 Sidecar 之间的分布式流程，但世界状态只�
 | `transactional-action` | 网络提交前，完整 Pending Turn 已持久化。一个宿主事务原子完成效果应用、Applied Operation 记录、精确 Outcome 入队与 Pending Turn 删除。Outbox 已持久化。 | 能参与同一权威事务的持久游戏效果；这是 Rin 最强的流程 Profile。 |
 
 同一接入可以对不同动作使用不同 Profile。例如，对白可以是 `advisory`，而接收
-Operation Key 的任务系统可以是 `idempotent-action`。能力协商必须 Fail
+Operation Key 的任务系统可以是 `idempotent-action`。持久保证校验必须 Fail
 Closed：宿主无法提供动作所需的 Profile 时，不得把该动作加入候选列表。
 
 调用 `setDirty()`、Save Slot 写入 API 或键值 Setter，本身不能证明下一次 HTTP
@@ -25,12 +25,12 @@ Closed：宿主无法提供动作所需的 Profile 时，不得把该动作加�
 提供有文档的同步持久边界或按 Operation ID 幂等的应用 API，否则只能声明
 `advisory`。
 
-## 带版本的能力记录
+## 带版本的持久保证记录
 
 SDK 与 Adapter 使用以下逻辑记录：
 
 ```text
-HostCapabilities {
+HostDurability {
   version: 1
   profile: advisory | idempotent-action | transactional-action
   stable_identity: boolean
@@ -50,8 +50,8 @@ SDK 会校验字段组合，而不是相信 Profile 标签：
 - `atomic_apply_and_outbox` 与 `idempotent_apply` 相互独立，宿主可以同时诚实
   支持两者。
 
-Capability 是宿主本地事实，不发送给模型，也不授予执行权。候选动作白名单仍由
-游戏编写。
+Durability 字段是宿主本地事实，不发送给模型，也不授予执行权。候选动作白名单
+仍由游戏编写。
 
 ## 稳定身份
 
@@ -87,7 +87,7 @@ Fabric Saved Data 用于跨 Session 保存，但 Mark Dirty 只会安排后续�
 稳定 World/Session Identity、Pending Turn、Job ID、逻辑 Tick 下限与有界
 Outcome Outbox；其 Copy-on-write 发布只能防止运行进程采用被拒绝的写入，
 不能防止下一次世界保存前断电。BepInEx 覆盖约束差异
-很大的 Mono、IL2CPP 与 Target Framework；能力声明必须来自具体游戏 Plugin，
+很大的 Mono、IL2CPP 与 Target Framework；持久保证声明必须来自具体游戏 Plugin，
 不能由 BepInEx 整体代替。参考状态文件使用 Flush + Replace 顺序，但无法把
 任意游戏效果纳入同一个原子事务，因此不能据此提升到 `advisory` 以上。
 Godot 在 `user://` 下先 Flush 临时文件，再执行可恢复的同目录 Target/Backup

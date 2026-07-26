@@ -22,7 +22,7 @@ export const FEATURE_PRESETS = Object.freeze({
   ]),
   full: Object.freeze(Object.values(RIN_FEATURES)),
 });
-export const HOST_PROFILES = Object.freeze({
+export const HOST_DURABILITY_PROFILES = Object.freeze({
   advisory: "advisory",
   idempotentAction: "idempotent-action",
   transactionalAction: "transactional-action",
@@ -72,20 +72,20 @@ export function createRinId(prefix = "id", randomBytes = secureRandomBytes) {
   return `${prefix}.${Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")}`;
 }
 
-export class HostCapabilities {
+export class HostDurability {
   constructor({
     version = 1,
-    profile = HOST_PROFILES.advisory,
+    profile = HOST_DURABILITY_PROFILES.advisory,
     stableIdentity = false,
     durableBeforeNetwork = false,
     durableOutbox = false,
     idempotentApply = false,
     atomicApplyAndOutbox = false,
   } = {}) {
-    if (version !== 1 || !Object.values(HOST_PROFILES).includes(profile)) {
+    if (version !== 1 || !Object.values(HOST_DURABILITY_PROFILES).includes(profile)) {
       throw new RinConfigurationError(
-        "invalid_host_capabilities",
-        "Host capabilities have an unsupported version or profile",
+        "invalid_host_durability",
+        "Host durability has an unsupported version or profile",
       );
     }
     for (const [name, value] of Object.entries({
@@ -97,22 +97,22 @@ export class HostCapabilities {
     })) {
       if (typeof value !== "boolean") {
         throw new RinConfigurationError(
-          "invalid_host_capabilities",
+          "invalid_host_durability",
           `${name} must be boolean`,
         );
       }
     }
-    if (profile === HOST_PROFILES.idempotentAction &&
+    if (profile === HOST_DURABILITY_PROFILES.idempotentAction &&
         !(stableIdentity && durableBeforeNetwork && durableOutbox && idempotentApply)) {
       throw new RinConfigurationError(
-        "invalid_host_capabilities",
+        "invalid_host_durability",
         "idempotent-action requires stable durable state, Outbox, and idempotent apply",
       );
     }
-    if (profile === HOST_PROFILES.transactionalAction &&
+    if (profile === HOST_DURABILITY_PROFILES.transactionalAction &&
         !(stableIdentity && durableBeforeNetwork && durableOutbox && atomicApplyAndOutbox)) {
       throw new RinConfigurationError(
-        "invalid_host_capabilities",
+        "invalid_host_durability",
         "transactional-action requires stable durable state, Outbox, and atomic settlement",
       );
     }
@@ -126,34 +126,34 @@ export class HostCapabilities {
     Object.freeze(this);
   }
 
-  require(requiredProfile) {
-    if (!Object.values(HOST_PROFILES).includes(requiredProfile)) {
+  require(requiredDurability) {
+    if (!Object.values(HOST_DURABILITY_PROFILES).includes(requiredDurability)) {
       throw new RinConfigurationError(
-        "invalid_host_profile",
-        "Required host profile is unknown",
+        "invalid_host_durability_profile",
+        "Required host durability profile is unknown",
       );
     }
     const rank = {
-      [HOST_PROFILES.advisory]: 0,
-      [HOST_PROFILES.idempotentAction]: 1,
-      [HOST_PROFILES.transactionalAction]: 2,
+      [HOST_DURABILITY_PROFILES.advisory]: 0,
+      [HOST_DURABILITY_PROFILES.idempotentAction]: 1,
+      [HOST_DURABILITY_PROFILES.transactionalAction]: 2,
     };
-    if (rank[this.profile] < rank[requiredProfile]) {
+    if (rank[this.profile] < rank[requiredDurability]) {
       throw new RinConfigurationError(
-        "host_capability_insufficient",
-        `Action requires ${requiredProfile}, but host provides ${this.profile}`,
+        "host_durability_insufficient",
+        `Action requires ${requiredDurability}, but host provides ${this.profile}`,
       );
     }
   }
 
   static advisory(options = {}) {
-    return new HostCapabilities({ ...options, profile: HOST_PROFILES.advisory });
+    return new HostDurability({ ...options, profile: HOST_DURABILITY_PROFILES.advisory });
   }
 
   static idempotentAction(options = {}) {
-    return new HostCapabilities({
+    return new HostDurability({
       ...options,
-      profile: HOST_PROFILES.idempotentAction,
+      profile: HOST_DURABILITY_PROFILES.idempotentAction,
       stableIdentity: true,
       durableBeforeNetwork: true,
       durableOutbox: true,
@@ -162,9 +162,9 @@ export class HostCapabilities {
   }
 
   static transactionalAction(options = {}) {
-    return new HostCapabilities({
+    return new HostDurability({
       ...options,
-      profile: HOST_PROFILES.transactionalAction,
+      profile: HOST_DURABILITY_PROFILES.transactionalAction,
       stableIdentity: true,
       durableBeforeNetwork: true,
       durableOutbox: true,
@@ -310,11 +310,11 @@ export class OutcomeOutbox {
 }
 
 export class WorkflowCoordinator {
-  constructor(client, store, capabilities = HostCapabilities.advisory()) {
-    if (!(capabilities instanceof HostCapabilities)) {
+  constructor(client, store, durability = HostDurability.advisory()) {
+    if (!(durability instanceof HostDurability)) {
       throw new RinConfigurationError(
-        "invalid_host_capabilities",
-        "capabilities must be a validated HostCapabilities value",
+        "invalid_host_durability",
+        "durability must be a validated HostDurability value",
       );
     }
     requireMethods(store, [
@@ -324,14 +324,14 @@ export class WorkflowCoordinator {
       "listOutcomeReports",
       "acknowledgeOutcome",
     ], "Workflow store");
-    if (capabilities.profile === HOST_PROFILES.transactionalAction) {
+    if (durability.profile === HOST_DURABILITY_PROFILES.transactionalAction) {
       requireMethods(store, ["settleProposalAttempt"], "transactional Workflow store");
     } else {
       requireMethods(store, ["completeProposalAttempt"], "Workflow store");
     }
-    this.capabilities = capabilities;
+    this.durability = durability;
     this.store = store;
-    const attemptStore = capabilities.profile === HOST_PROFILES.transactionalAction
+    const attemptStore = durability.profile === HOST_DURABILITY_PROFILES.transactionalAction
       ? store
       : {
         loadProposalAttempt: (...args) => store.loadProposalAttempt(...args),
@@ -339,7 +339,7 @@ export class WorkflowCoordinator {
         saveProposalAttempt: (...args) => store.saveProposalAttempt(...args),
         settleProposalAttempt: async () => {
           throw new RinConfigurationError(
-            "host_capability_insufficient",
+            "host_durability_insufficient",
             "Atomic settlement is unavailable for this host",
           );
         },
@@ -374,7 +374,7 @@ export class WorkflowCoordinator {
     pendingTurn,
     proposal,
     commit,
-    requiredProfile = HOST_PROFILES.advisory,
+    requiredDurability = HOST_DURABILITY_PROFILES.advisory,
     apply,
   }) {
     if (this.settling) {
@@ -385,14 +385,14 @@ export class WorkflowCoordinator {
     }
     this.settling = true;
     try {
-      this.capabilities.require(requiredProfile);
+      this.durability.require(requiredDurability);
       if (typeof apply !== "function") {
         throw new RinConfigurationError(
           "invalid_workflow",
           "apply must be a host-owned callback",
         );
       }
-      if (this.capabilities.profile === HOST_PROFILES.transactionalAction) {
+      if (this.durability.profile === HOST_DURABILITY_PROFILES.transactionalAction) {
         return await this.attempts.settle(
           pendingTurn,
           proposal,

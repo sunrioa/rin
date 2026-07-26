@@ -5,10 +5,10 @@
 This is a buildable reference for the upstream bleeding-edge, unreleased
 BepInEx 6 line, split by Unity backend.
 
-**Host capability profile: `advisory`.** The example persists stable identity,
+**Host durability profile: `advisory`.** The example persists stable identity,
 Pending Turn, Job ID, and Outcome Outbox state, but a generic BepInEx plugin
 cannot atomically combine an arbitrary game's save mutation with that file.
-See [Host capability profiles](../../../docs/host-capability-profiles.md).
+See [Host durability profiles](../../../docs/host-durability.md).
 
 ## Choose exactly one backend
 

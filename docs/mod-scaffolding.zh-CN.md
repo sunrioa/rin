@@ -5,7 +5,7 @@
 `rin init mod` 会为一个已支持的游戏宿主创建自包含起始项目。它消除 SDK
 Vendoring 与 Manifest 接线等机械工作，但不会猜测游戏专属的存档、线程或世界
 修改 API。Rin `0.6.0` 与生成项目均属于 Preview 软件，每个生成接入都从
-`advisory` 宿主能力分级开始。
+`advisory` 宿主持久保证分级开始。
 
 生成、编译和真实游戏稳定性是三层不同的证据。命令成功只证明输入与内嵌模板通过
 本地校验；构建成功只证明生成源码能够针对固定的宿主依赖编译。两者都不能证明 Mod
@@ -281,7 +281,7 @@ Lua SDK，并保持语法与状态测试同时兼容 Lua 5.1 和 5.4。把生成
 模板刻意只使用可逆的 Dialogue、Wait 或 Refusal 效果，并保持 `advisory`。
 发物品、货币、任务推进、背包变化与世界编辑需要按 Operation ID 幂等的游戏 API，
 或一个把游戏效果、Applied Marker 与持久 Outcome 一起 Commit 的真实事务。参见
-[宿主能力分级](host-capability-profiles.zh-CN.md)。
+[宿主持久保证分级](host-durability.zh-CN.md)。
 
 ## 实施与验收清单
 

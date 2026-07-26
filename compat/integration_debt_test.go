@@ -12,9 +12,9 @@ import (
 type integrationDebtManifest struct {
 	Version int `json:"version"`
 	Files   []struct {
-		Path     string `json:"path"`
-		MaxLines int    `json:"max_lines"`
-		Profile  string `json:"profile"`
+		Path              string `json:"path"`
+		MaxLines          int    `json:"max_lines"`
+		DurabilityProfile string `json:"durability_profile"`
 	} `json:"files"`
 }
 
@@ -27,7 +27,7 @@ func TestHostIntegrationDebtDoesNotGrow(t *testing.T) {
 	if err := json.Unmarshal(payload, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Version != 1 || len(manifest.Files) == 0 {
+	if manifest.Version != 2 || len(manifest.Files) == 0 {
 		t.Fatal("integration debt manifest is empty or has an unsupported version")
 	}
 
@@ -37,10 +37,14 @@ func TestHostIntegrationDebtDoesNotGrow(t *testing.T) {
 			t.Fatalf("invalid integration debt entry for %q", item.Path)
 		}
 		seen[item.Path] = true
-		if item.Profile != "advisory" &&
-			item.Profile != "idempotent-action" &&
-			item.Profile != "transactional-action" {
-			t.Fatalf("%s has unknown host profile %q", item.Path, item.Profile)
+		if item.DurabilityProfile != "advisory" &&
+			item.DurabilityProfile != "idempotent-action" &&
+			item.DurabilityProfile != "transactional-action" {
+			t.Fatalf(
+				"%s has unknown host durability profile %q",
+				item.Path,
+				item.DurabilityProfile,
+			)
 		}
 		file, err := os.Open(filepath.Join("..", filepath.FromSlash(item.Path)))
 		if err != nil {
@@ -84,12 +88,16 @@ func TestExampleModsDeclareAdvisoryProfileUntilDurabilityIsProven(t *testing.T) 
 		}
 		text := string(payload)
 		for _, required := range []string{
-			"Host capability profile",
+			"Host durability profile",
 			"`advisory`",
-			"host-capability-profiles",
+			"host-durability",
 		} {
 			if !strings.Contains(text, required) {
-				t.Errorf("%s does not declare the current host profile via %q", path, required)
+				t.Errorf(
+					"%s does not declare the current host durability via %q",
+					path,
+					required,
+				)
 			}
 		}
 	}

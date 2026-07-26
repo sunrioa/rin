@@ -26,12 +26,12 @@ Response types deliberately tolerate additive fields.
 `WorkflowCoordinator` combines the compatible `ProposalAttemptCoordinator` and
 `OutcomeOutbox` primitives behind `begin`, `resumePendingWork`,
 `applyAndEnqueueOutcome`, and `drainOutbox`. Supply a Workflow Store and a
-validated `HostCapabilities`. An idempotent apply receives the stable operation
+validated `HostDurability`. An idempotent apply receives the stable operation
 ID; only `transactional-action` invokes `settleProposalAttempt` as an atomic
 game transaction. Outbox draining deletes nothing until Rin returns normal or
 explicit duplicate success. The SDK intentionally supplies no unsafe
 in-memory production default. See
-[Host capability profiles](../../docs/host-capability-profiles.md).
+[Host durability profiles](../../docs/host-durability.md).
 
 `OpaqueSnapshotPersistence` stores bounded UTF-8 JSON bytes and returns the
 complete object, including additive fields unknown to this SDK version. The

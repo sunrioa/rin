@@ -14,7 +14,7 @@ applied marker, and up to 64 reports. A flushed temporary file and recoverable
 target/backup rename sequence avoid relying on overwrite-style rename on
 Windows.
 
-The capability profile remains `advisory`: the example can roll back its demo
+The durability profile remains `advisory`: the example can roll back its demo
 effect in process, but a general Unity world/save mutation cannot be atomic
 with this sidecar state file. Production games should make the operation ID
 idempotent or replace this boundary with their save transaction.

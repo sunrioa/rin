@@ -19,19 +19,19 @@ final class WorkflowCoordinatorTest {
 
     static void run() throws Exception {
         try {
-            new HostCapabilities(
+            new HostDurability(
                     1,
-                    HostProfile.TRANSACTIONAL_ACTION,
+                    HostDurabilityProfile.TRANSACTIONAL_ACTION,
                     false,
                     false,
                     false,
                     false,
                     false);
-            throw new AssertionError("inflated transactional capability was accepted");
+            throw new AssertionError("inflated transactional durability was accepted");
         } catch (RinConfigurationException expected) {
             require(
-                    expected.code().equals("invalid_host_capabilities"),
-                    "invalid capability returned the wrong code");
+                    expected.code().equals("invalid_host_durability"),
+                    "invalid durability returned the wrong code");
         }
 
         JsonCodec unusedCodec = new JsonCodec() {
@@ -48,7 +48,7 @@ final class WorkflowCoordinatorTest {
         WorkflowCoordinator workflow = new WorkflowCoordinator(
                 client,
                 store,
-                HostCapabilities.idempotentAction());
+                HostDurability.idempotentAction());
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("protocol_version", RinClient.PROTOCOL_VERSION);
         request.put("session_id", "session.workflow");
@@ -81,7 +81,7 @@ final class WorkflowCoordinatorTest {
                 pendingTurn,
                 proposal,
                 commit,
-                HostProfile.IDEMPOTENT_ACTION,
+                HostDurabilityProfile.IDEMPOTENT_ACTION,
                 operationId -> {
                     operation.set(operationId);
                     return CompletableFuture.completedFuture(null);
@@ -109,7 +109,7 @@ final class WorkflowCoordinatorTest {
                             "proposal_id", "proposal.workflow",
                             "event_id", "event.failed",
                             "accepted", true),
-                    HostProfile.IDEMPOTENT_ACTION,
+                    HostDurabilityProfile.IDEMPOTENT_ACTION,
                     ignored -> CompletableFuture.failedFuture(
                             new IllegalStateException("game save failed")))
                     .join();
@@ -137,7 +137,7 @@ final class WorkflowCoordinatorTest {
                             "session_id", "session.workflow",
                             "request_id", "request.workflow"),
                     commit,
-                    HostProfile.IDEMPOTENT_ACTION,
+                    HostDurabilityProfile.IDEMPOTENT_ACTION,
                     ignored -> CompletableFuture.completedFuture(null))
                     .join();
             throw new AssertionError("advisory host accepted an idempotent action");
@@ -145,12 +145,12 @@ final class WorkflowCoordinatorTest {
             require(
                     expected.getCause() instanceof RinConfigurationException &&
                             ((RinConfigurationException) expected.getCause()).code()
-                                    .equals("host_capability_insufficient"),
-                    "insufficient capability returned the wrong code");
+                                    .equals("host_durability_insufficient"),
+                    "insufficient durability returned the wrong code");
         }
         require(
                 advisoryStore.pendingTurn != null,
-                "capability rejection removed the Pending Turn");
+                "durability rejection removed the Pending Turn");
 
         require(
                 ProposalFreshness.evaluate(

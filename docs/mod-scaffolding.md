@@ -6,7 +6,7 @@
 host. It removes mechanical SDK vendoring and manifest wiring; it does not
 guess game-specific save, thread, or world-mutation APIs. Rin `0.6.0` and the
 generated projects are Preview software, and every generated integration starts
-with the `advisory` host capability profile.
+with the `advisory` host durability profile.
 
 Generation, compilation, and real-game stability are separate evidence levels.
 A successful command proves that its inputs and embedded template passed local
@@ -317,7 +317,7 @@ and remain `advisory`. Item grants, currency, quest advancement, inventory
 changes, and world edits require either an operation-keyed idempotent game API
 or a real transaction that commits the game effect, applied marker, and
 durable outcome together. See
-[host capability profiles](host-capability-profiles.md).
+[host durability profiles](host-durability.md).
 
 ## Implementation and validation checklist
 

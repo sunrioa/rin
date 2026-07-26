@@ -37,12 +37,12 @@ retry 中复用。
 `IWorkflowFallbackStore` 的 Store 还可以使用
 `ApplyAndEnqueueOutcomeWithFallbackAsync`；终态 Commit 错误只有在安全
 Observe 转换已经持久化后才会降级。接入方提供
-`IWorkflowStore` 与已校验的 `HostCapabilities`。幂等 Apply 会收到稳定
+`IWorkflowStore` 与已校验的 `HostDurability`。幂等 Apply 会收到稳定
 Operation ID；只有 `transactional-action` 才把
 `IProposalAttemptStore.SettleAsync` 当作一个游戏事务调用。只有普通成功或
 明确 duplicate Commit 成功后才能确认 Outbox 项。SDK 不提供会误用于生产的
 内存默认实现。参见
-[宿主能力分级](../../docs/host-capability-profiles.zh-CN.md)。
+[宿主持久保证分级](../../docs/host-durability.zh-CN.md)。
 
 `OpaqueSnapshotPersistence` 通过 `IOpaqueSnapshotStore` 保存有界 JSON 字节，
 并加载完整 `JsonElement`，保留当前 SDK 版本未知的新增 Member。

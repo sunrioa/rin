@@ -7,7 +7,7 @@ authority into the sidecar or a model. They remove repetitive HTTP, timeout,
 envelope, and job-polling code.
 
 Every integration must declare its real
-[host capability profile](host-capability-profiles.md). Calling the correct
+[host durability profile](host-durability.md). Calling the correct
 Rin endpoints does not make a host crash-safe: stronger profiles require a
 durable-before-network boundary plus either operation-keyed idempotent apply or
 an actual game transaction. The checked-in host examples already persist

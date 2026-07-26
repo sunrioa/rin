@@ -380,7 +380,7 @@ func TestExampleModsPreserveGameAuthority(t *testing.T) {
 			required: []string{
 				"ALLOWED_ACTIONS", "activePlayers", "WorkflowCoordinator",
 				"FabricServerTasks.call", "ProposalFreshness.evaluate",
-				"HostProfile.ADVISORY", "RinNpcRequests",
+				"HostDurabilityProfile.ADVISORY", "RinNpcRequests",
 			},
 			forbidden: []string{
 				"Runtime.getRuntime().exec", "ProcessBuilder", ".join()",
@@ -392,7 +392,7 @@ func TestExampleModsPreserveGameAuthority(t *testing.T) {
 			path: "../examples/mods/bepinex-rin-npc/RinNpc.Core/RinNpcRuntime.cs",
 			required: []string{
 				"AllowedActions", "WorkflowCoordinator", "ProposalFreshness.Evaluate",
-				"host.ApplyDialogueAsync", "HostProfile.Advisory",
+				"host.ApplyDialogueAsync", "HostDurabilityProfile.Advisory",
 				"ApplyAndEnqueueOutcomeWithFallbackAsync",
 			},
 			forbidden: []string{

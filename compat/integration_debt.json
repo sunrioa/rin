@@ -1,91 +1,91 @@
 {
-  "version": 1,
+  "version": 2,
   "description": "Non-increasing line budgets for host examples while workflow logic moves into SDKs.",
   "files": [
     {
       "path": "examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/RinNpcMod.java",
       "max_lines": 260,
-      "profile": "advisory"
+      "durability_profile": "advisory"
     },
     {
       "path": "examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/RinFabricState.java",
       "max_lines": 220,
-      "profile": "advisory"
+      "durability_profile": "advisory"
     },
     {
       "path": "examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/FabricWorkflowStore.java",
       "max_lines": 130,
-      "profile": "advisory"
+      "durability_profile": "advisory"
     },
     {
       "path": "examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/FabricServerTasks.java",
       "max_lines": 45,
-      "profile": "advisory"
+      "durability_profile": "advisory"
     },
     {
       "path": "examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/RinNpcRequests.java",
       "max_lines": 160,
-      "profile": "advisory"
+      "durability_profile": "advisory"
     },
     {
       "path": "examples/mods/bepinex-rin-npc/RinNpc.Core/RinNpcRuntime.cs",
       "max_lines": 250,
-      "profile": "advisory"
+      "durability_profile": "advisory"
     },
     {
       "path": "examples/mods/bepinex-rin-npc/RinNpc.Core/BepInExWorkflowState.cs",
       "max_lines": 430,
-      "profile": "advisory"
+      "durability_profile": "advisory"
     },
     {
       "path": "examples/mods/bepinex-rin-npc/RinNpc.Mono/Plugin.cs",
       "max_lines": 110,
-      "profile": "advisory"
+      "durability_profile": "advisory"
     },
     {
       "path": "examples/mods/bepinex-rin-npc/RinNpc.IL2CPP/Plugin.cs",
       "max_lines": 100,
-      "profile": "advisory"
+      "durability_profile": "advisory"
     },
     {
       "path": "examples/mods/luanti-rin-npc/init.lua",
       "max_lines": 500,
-      "profile": "advisory"
+      "durability_profile": "advisory"
     },
     {
       "path": "examples/mods/luanti-rin-npc/state.lua",
       "max_lines": 400,
-      "profile": "advisory"
+      "durability_profile": "advisory"
     },
     {
       "path": "examples/godot/example_npc.gd",
       "max_lines": 250,
-      "profile": "advisory"
+      "durability_profile": "advisory"
     },
     {
       "path": "examples/godot/rin_workflow.gd",
       "max_lines": 500,
-      "profile": "advisory"
+      "durability_profile": "advisory"
     },
     {
       "path": "examples/godot/rin_client.gd",
       "max_lines": 643,
-      "profile": "advisory"
+      "durability_profile": "advisory"
     },
     {
       "path": "examples/unity/RinClient.cs",
       "max_lines": 1554,
-      "profile": "advisory"
+      "durability_profile": "advisory"
     },
     {
       "path": "examples/unity/RinNpcExample.cs",
       "max_lines": 100,
-      "profile": "advisory"
+      "durability_profile": "advisory"
     },
     {
       "path": "examples/unity/RinUnityWorkflow.cs",
       "max_lines": 1510,
-      "profile": "advisory"
+      "durability_profile": "advisory"
     }
   ]
 }

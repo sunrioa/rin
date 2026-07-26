@@ -28,7 +28,7 @@ Java Client 类，不要再安装第二份 SDK JAR。
 
 ## 安全与恢复模型
 
-**Host capability profile / 宿主能力 Profile：具有稳定身份的 `advisory`。**
+**Host durability profile / 宿主持久 Profile：具有稳定身份的 `advisory`。**
 Mod 在主世界 Saved Data
 中保存生成一次的 World UUID、稳定序列、完整且身份不变的
 Create/Observe/Propose 请求、Pending Turn/Job 身份和有上限的 Outcome
@@ -39,7 +39,7 @@ Entry 同时保存精确 Commit 和预先记录、仅含绝对事实的安全 Ob
 `PersistentState.markDirty()` 只是安排稍后存盘，不是同步的网络前持久屏障，
 也不能把游戏修改与 Outbox 原子提交。因此本参考只提供可逆的聊天、等待和拒绝
 动作，并如实保持 `advisory`。发放物品、推进任务或修改世界的 Plugin 必须证明
-[宿主能力分级](../../../docs/host-capability-profiles.zh-CN.md)所要求的幂等或
+[宿主持久保证分级](../../../docs/host-durability.zh-CN.md)所要求的幂等或
 事务边界。
 
 结算前 Mod 会重新读取 Rin Session State，Java SDK 会校验 Proposal 仍在预期

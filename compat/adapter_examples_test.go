@@ -838,7 +838,7 @@ func TestBepInExDelegatesWorkflowAndSeparatesBackends(t *testing.T) {
 		"../examples/mods/bepinex-rin-npc/RinNpc.Core/RinNpcRuntime.cs": {
 			"WorkflowCoordinator", "ProposalFreshness.Evaluate",
 			"BeginAsync", "ApplyAndEnqueueOutcomeWithFallbackAsync",
-			"HostProfile.Advisory", `"offer_quest"`, `"advance_quest"`,
+			"HostDurabilityProfile.Advisory", `"offer_quest"`, `"advance_quest"`,
 			"store.ApplyQuestEffect(", `"quest-stage-" + store.QuestStage`,
 		},
 		"../examples/mods/bepinex-rin-npc/RinNpc.Core/BepInExWorkflowState.cs": {
@@ -881,7 +881,7 @@ func TestFabricDelegatesWorkflowAndPersistsRestartState(t *testing.T) {
 	files := map[string][]string{
 		"../examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/RinNpcMod.java": {
 			"WorkflowCoordinator", "ProposalFreshness.evaluate",
-			"preparePendingTurn", "HostProfile.ADVISORY",
+			"preparePendingTurn", "HostDurabilityProfile.ADVISORY",
 		},
 		"../examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/RinFabricState.java": {
 			"worldId", "PendingTurn", "OutcomeOutboxEntry",

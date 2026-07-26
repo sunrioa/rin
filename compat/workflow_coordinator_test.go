@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestPrioritySDKsExposeCapabilityGatedWorkflowCoordinators(t *testing.T) {
+func TestPrioritySDKsExposeDurabilityGatedWorkflowCoordinators(t *testing.T) {
 	tests := []struct {
 		path     string
 		required []string
@@ -14,11 +14,11 @@ func TestPrioritySDKsExposeCapabilityGatedWorkflowCoordinators(t *testing.T) {
 		{
 			path: "../sdk/javascript/src/index.js",
 			required: []string{
-				"export class HostCapabilities",
+				"export class HostDurability",
 				"export class WorkflowCoordinator",
 				"resumePendingWork",
 				"applyAndEnqueueOutcome",
-				"host_capability_insufficient",
+				"host_durability_insufficient",
 				"completeProposalAttempt",
 			},
 		},
@@ -76,7 +76,7 @@ func TestPortableLuaWorkflowDoesNotOverclaimHostDurability(t *testing.T) {
 			required: []string{
 				"`rin.new_workflow(client, store)`",
 				"The SDK defines ordering and validation, not host durability.",
-				"host-capability-profiles",
+				"host-durability",
 			},
 		},
 		{
@@ -84,7 +84,7 @@ func TestPortableLuaWorkflowDoesNotOverclaimHostDurability(t *testing.T) {
 			required: []string{
 				"`rin.new_workflow(client, store)`",
 				"SDK 定义顺序和校验，不定义宿主持久性。",
-				"host-capability-profiles",
+				"host-durability",
 			},
 		},
 	}
@@ -96,7 +96,45 @@ func TestPortableLuaWorkflowDoesNotOverclaimHostDurability(t *testing.T) {
 		text := string(payload)
 		for _, fragment := range test.required {
 			if !strings.Contains(text, fragment) {
-				t.Errorf("%s is missing honest Lua capability wording %q", test.path, fragment)
+				t.Errorf("%s is missing honest Lua durability wording %q", test.path, fragment)
+			}
+		}
+	}
+}
+
+func TestOldHostCapabilityModelIsRemoved(t *testing.T) {
+	for _, path := range []string{
+		"../docs/host-capability-profiles.md",
+		"../docs/host-capability-profiles.zh-CN.md",
+		"../sdk/csharp/Rin.Client/HostCapabilities.cs",
+		"../sdk/java/src/main/java/io/github/sunrioa/rin/HostCapabilities.java",
+		"../sdk/java/src/main/java/io/github/sunrioa/rin/HostProfile.java",
+	} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("obsolete host capability file still exists: %s", path)
+		}
+	}
+
+	for _, path := range []string{
+		"../sdk/javascript/src/index.js",
+		"../sdk/javascript/src/index.d.ts",
+		"../sdk/csharp/Rin.Client/HostDurability.cs",
+		"../sdk/csharp/Rin.Client/WorkflowCoordinator.cs",
+		"../sdk/java/src/main/java/io/github/sunrioa/rin/HostDurability.java",
+		"../sdk/java/src/main/java/io/github/sunrioa/rin/WorkflowCoordinator.java",
+	} {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, obsolete := range []string{
+			"HostCapabilities",
+			"HostProfile",
+			"invalid_host_capabilities",
+			"host_capability_insufficient",
+		} {
+			if strings.Contains(string(payload), obsolete) {
+				t.Errorf("%s retains obsolete symbol %q", path, obsolete)
 			}
 		}
 	}

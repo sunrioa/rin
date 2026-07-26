@@ -2,8 +2,8 @@ package io.github.sunrioa.rin.example;
 
 import com.google.gson.Gson;
 import com.mojang.brigadier.Command;
-import io.github.sunrioa.rin.HostCapabilities;
-import io.github.sunrioa.rin.HostProfile;
+import io.github.sunrioa.rin.HostDurability;
+import io.github.sunrioa.rin.HostDurabilityProfile;
 import io.github.sunrioa.rin.PendingTurn;
 import io.github.sunrioa.rin.ProposalFreshness;
 import io.github.sunrioa.rin.ResolvedPendingTurn;
@@ -30,8 +30,8 @@ import static net.minecraft.server.command.CommandManager.literal;
 
 public final class RinNpcMod implements ModInitializer {
     private static final Set<String> ALLOWED_ACTIONS = Set.of("talk", "wait", "refuse");
-    private static final HostCapabilities CAPABILITIES =
-            HostCapabilities.advisory(true);
+    private static final HostDurability DURABILITY =
+            HostDurability.advisory(true);
 
     private final Set<UUID> activePlayers = ConcurrentHashMap.newKeySet();
     private final RinClient rin = new RinClient(
@@ -72,7 +72,7 @@ public final class RinNpcMod implements ModInitializer {
                 sessionId,
                 RinNpcRequests.create(sessionId, player.getName().getString()));
         FabricWorkflowStore store = new FabricWorkflowStore(server, state, session);
-        WorkflowCoordinator workflow = new WorkflowCoordinator(rin, store, CAPABILITIES);
+        WorkflowCoordinator workflow = new WorkflowCoordinator(rin, store, DURABILITY);
 
         source.sendFeedback(
                 () -> Text.literal("The Rin guide is considering the situation..."),
@@ -152,7 +152,7 @@ public final class RinNpcMod implements ModInitializer {
                             pending,
                             proposal,
                             commit,
-                            HostProfile.ADVISORY,
+                            HostDurabilityProfile.ADVISORY,
                             ignored -> applyOnServer(server, playerId, plan));
                 });
     }

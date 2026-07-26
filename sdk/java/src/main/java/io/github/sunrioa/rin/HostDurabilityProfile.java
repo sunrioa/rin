@@ -1,6 +1,6 @@
 package io.github.sunrioa.rin;
 
-public enum HostProfile {
+public enum HostDurabilityProfile {
     ADVISORY("advisory", 0),
     IDEMPOTENT_ACTION("idempotent-action", 1),
     TRANSACTIONAL_ACTION("transactional-action", 2);
@@ -8,7 +8,7 @@ public enum HostProfile {
     private final String label;
     private final int rank;
 
-    HostProfile(String label, int rank) {
+    HostDurabilityProfile(String label, int rank) {
         this.label = label;
         this.rank = rank;
     }
@@ -21,4 +21,3 @@ public enum HostProfile {
         return rank;
     }
 }
-

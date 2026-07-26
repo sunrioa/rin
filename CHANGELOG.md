@@ -26,6 +26,10 @@ across every future minor release.
   metadata is recorded in `THIRD-PARTY-NOTICES.md`.
 - Capability discovery is explicitly not action authority: models select only
   arguments and targets already bound by a game-authored `ActionOffer`.
+- The misleading `HostCapabilities`/`HostProfile` SDK model is replaced by
+  `HostDurability`/`HostDurabilityProfile` in JavaScript, C#, Java, embedded
+  scaffold assets, and reference Mods. Old names, error codes, and documentation
+  paths are removed rather than retained as compatibility aliases.
 
 ## [0.6.0] - 2026-07-24 - Preview
 
@@ -94,7 +98,7 @@ release checklist passes. See the [release guide](docs/release-guide.md).
 ### Hardened
 
 - Host integrations now declare an explicit `advisory`,
-  `idempotent-action`, or `transactional-action` capability profile. The
+  `idempotent-action`, or `transactional-action` durability profile. The
   repository records non-increasing example-code budgets so protocol workflow
   logic cannot silently grow further inside game adapters.
 - Java centralizes Proposal freshness and terminal Commit-to-safe-Observe

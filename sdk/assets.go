@@ -15,8 +15,8 @@ const Version = protocol.ContractReleaseVersion
 // FS contains only the explicitly reviewed Java, C#, and Lua SDK sources and
 // project metadata.
 //
-//go:embed java/src/main/java/io/github/sunrioa/rin/HostCapabilities.java
-//go:embed java/src/main/java/io/github/sunrioa/rin/HostProfile.java
+//go:embed java/src/main/java/io/github/sunrioa/rin/HostDurability.java
+//go:embed java/src/main/java/io/github/sunrioa/rin/HostDurabilityProfile.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/JsonCodec.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/OutcomeOutboxEntry.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/PendingTurn.java
@@ -32,7 +32,7 @@ const Version = protocol.ContractReleaseVersion
 //go:embed java/src/main/java/io/github/sunrioa/rin/WorkflowStore.java
 //go:embed csharp/Rin.Client/AssemblyInfo.cs
 //go:embed csharp/Rin.Client/AuthoritativeWorkflow.cs
-//go:embed csharp/Rin.Client/HostCapabilities.cs
+//go:embed csharp/Rin.Client/HostDurability.cs
 //go:embed csharp/Rin.Client/NetStandardPolyfills.cs
 //go:embed csharp/Rin.Client/OpaqueSnapshots.cs
 //go:embed csharp/Rin.Client/ProposalFreshness.cs
