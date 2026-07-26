@@ -54,15 +54,33 @@ replace files portably; test interrupted replacement on Linux and Windows.
 
 ## Ren'Py
 
-Use [`adapters/renpy/rin_client.py`](../adapters/renpy/rin_client.py) from a
-background worker and return plain dictionaries to the main thread. The
-registry is process-local; persistent story state must contain the complete
-Pending Turn and any returned Job ID. Never put a worker, lock, HTTP response,
-or token in rollback/save data.
+Copy [`rin_client.py`](../adapters/renpy/rin_client.py),
+[`rin_epoch.py`](../adapters/renpy/rin_epoch.py), and
+[`rin_bridge.rpy`](../adapters/renpy/rin_bridge.rpy). Use the client from a
+background worker and return plain dictionaries to the main thread. Call
+`rin_bind_host_epoch` with game-supplied stable save and world IDs before
+creating offers.
 
-The adapter and bridge tests run on macOS, Linux, and Windows without launching
-Ren'Py. A real project must additionally verify save/load, rollback, screen
-updates, shutdown, and Sidecar restart inside the targeted Ren'Py build.
+The bridge stores only `rin_host_epoch_state` in the rollback/save store. A
+bounded, plain-data `persistent.rin_host_epoch_ledger` keeps Host and Timeline
+high-water marks outside rollback and merges replicas by maximum generation.
+`after_load` and the first interaction in each rollback sequence fork the
+Timeline and invalidate every registered result, including completed but
+unconsumed work. Scheduling and resuming fail closed unless the decision window
+and every offer match the current Epoch exactly; late worker results become
+`stale_epoch`. The bridge calls `renpy.block_rollback()` after load because the
+official Ren'Py guidance requires callback migrations not to be rolled back.
+
+The worker registry remains process-local; persistent story state must contain
+the complete Pending Turn and any returned Job ID. Never put a worker, lock,
+HTTP response, or token in rollback/save data.
+
+The Python suite covers process restart, old-save load, repeated rollback,
+persistent-ledger merge, bounds, malformed state, worker invalidation, and late
+completion. These logic tests run on macOS, Linux, and Windows. Ren'Py 8.5.3
+lint plus an engine-run rollback harness pass locally. A real project must
+still verify visible save/load, screen updates, shutdown, and Sidecar restart
+in its exact Ren'Py build.
 
 ## Godot 4
 

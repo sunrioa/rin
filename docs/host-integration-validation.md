@@ -17,7 +17,7 @@ evidence, the engine and Mod examples remain `advisory`.
 | Godot | Official Godot 4 headless parse and restart tests | Live Sidecar traffic in an editor session and exported build |
 | Unity | Strict Unity API stubs plus .NET restart tests | Unity Editor package import and Mono/IL2CPP Player builds |
 | Unreal | Runtime Plugin structure, forbidden-surface, and Windows path tests | Unreal Header Tool/compiler, Editor load, packaged builds, SaveGame and navigation runtime |
-| Ren'Py | Python adapter tests | Engine save/load, rollback, and interaction restart |
+| Ren'Py | Python adapter/Epoch tests; local Ren'Py 8.5.3 lint and rollback harness | Visible engine save/load, interaction restart, and packaged builds |
 | Terminal Story | Real Sidecar 20-turn CI on Windows, macOS, and Linux | It is a reference game, not evidence for another game's Mod lifecycle |
 
 ## Shared crash and recovery matrix
@@ -109,6 +109,10 @@ unresolved work remains recoverable, and the Outcome Outbox eventually drains.
 
 - Run inside the actual engine and verify save/load, rollback, interaction
   restart, and clean shutdown.
+- Bind stable game-owned save/world IDs, then confirm a loaded older save and
+  the first interaction after rollback both increase Timeline above the
+  persistent high-water mark. Confirm old worker completion becomes
+  `stale_epoch`.
 - Confirm that serialized state contains plain recovery data, not live worker,
   socket, lock, or callback objects.
 

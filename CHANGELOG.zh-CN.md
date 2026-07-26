@@ -73,6 +73,9 @@
   Capability 授权、World 切换的 `outcome-unknown` 处理，以及 Behavior Tree
   移动 ActionRun 示例。Linux/Windows CI 会检查其布局与受限执行入口；真实
   Unreal 构建仍是有文档记录的人工门禁。
+- Rollback-aware Ren'Py Host Epoch Coordinator。Save Data 只保存普通 Epoch，
+  Persistent Data 保存有界单调高水位；Load/Rollback 会 Fork Timeline，进程内
+  Proposal Worker 会失效，迟到结果不能恢复旧分支。
 - [`api/openapi.json`](api/openapi.json) 中的 OpenAPI 3.1 Wire Schema 与
   [兼容矩阵](docs/compatibility.zh-CN.md)。
 - 有界 frame 的 NDJSON Session Transfer：immutable export boundary、逐 event

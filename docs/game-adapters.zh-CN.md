@@ -46,15 +46,27 @@ Pending Turn、Marker、Outbox Entry 与状态文件字节数都必须有上限�
 
 ## Ren'Py
 
-从后台 Worker 使用
-[`adapters/renpy/rin_client.py`](../adapters/renpy/rin_client.py)，只把普通
-Dictionary 送回主线程。Registry 是进程内对象；持久剧情状态必须保存完整
-Pending Turn 与返回的 Job ID。Worker、Lock、HTTP Response 与 Token 都不得写入
-Rollback/Save Data。
+复制 [`rin_client.py`](../adapters/renpy/rin_client.py)、
+[`rin_epoch.py`](../adapters/renpy/rin_epoch.py) 与
+[`rin_bridge.rpy`](../adapters/renpy/rin_bridge.rpy)。从后台 Worker 使用 Client，
+只把普通 Dictionary 送回主线程；创建 Offer 前，用游戏提供的稳定存档与 World ID
+调用 `rin_bind_host_epoch`。
 
-Adapter 与 Bridge 测试可在 macOS、Linux、Windows 运行而无需启动 Ren'Py。
-真实项目还必须在目标 Ren'Py Build 内验证 Save/Load、Rollback、Screen 更新、
-Shutdown 与 Sidecar Restart。
+Bridge 只把 `rin_host_epoch_state` 放入 Rollback/Save Store。有界、纯数据的
+`persistent.rin_host_epoch_ledger` 在 Rollback 外保存 Host/Timeline 高水位，
+Replica Merge 取最大 Generation。`after_load` 和每段 Rollback 的首次 Interaction
+会 Fork Timeline，并使全部已登记结果失效，包括已经完成但尚未消费的结果。
+首次调度和恢复都要求 Decision Window 与每个 Offer 精确匹配当前 Epoch；迟到
+Worker 结果变成 `stale_epoch`。Bridge 在 Load 后调用
+`renpy.block_rollback()`，因为 Ren'Py 官方指南要求 Callback Migration 不得再次
+被 Rollback。
+
+Registry 仍是进程内对象；持久剧情状态必须保存完整 Pending Turn 与返回的 Job ID。
+Worker、Lock、HTTP Response 与 Token 都不得写入 Rollback/Save Data。Python 测试
+覆盖进程重启、旧存档 Load、重复 Rollback、Persistent Ledger Merge、上限、损坏
+状态、Worker 失效与迟到完成；这些逻辑测试在 macOS、Linux、Windows 运行。本机
+Ren'Py 8.5.3 Lint 和真引擎 Rollback Harness 已通过。真实项目仍须在准确 Ren'Py
+Build 中验证可见 Save/Load、Screen 更新、Shutdown 与 Sidecar Restart。
 
 ## Godot 4
 

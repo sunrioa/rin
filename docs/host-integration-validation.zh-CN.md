@@ -16,7 +16,7 @@ Rin `0.7.0` 是 Preview 软件。编译通过、模拟引擎 API 和面向重启
 | Godot | 官方 Godot 4 Headless 解析和重启测试 | Editor Session 与 Export Build 中的实时 Sidecar 流量 |
 | Unity | 严格 Unity API Stub 与 .NET 重启测试 | Unity Editor Package 导入和 Mono/IL2CPP Player 构建 |
 | Unreal | Runtime Plugin 结构、不安全入口与 Windows 路径测试 | Unreal Header Tool/编译器、Editor 加载、打包、SaveGame 与导航 Runtime |
-| Ren'Py | Python Adapter 测试 | 引擎存档/读档、Rollback 与 Interaction Restart |
+| Ren'Py | Python Adapter/Epoch 测试；本机 Ren'Py 8.5.3 Lint 与 Rollback Harness | 可见引擎 Save/Load、Interaction Restart 与打包 Build |
 | Terminal Story | Windows、macOS、Linux 上真实 Sidecar 20 回合 CI | 它是参考游戏，不能证明另一款游戏的 Mod 生命周期 |
 
 ## 通用崩溃与恢复矩阵
@@ -96,6 +96,9 @@ Rin `0.7.0` 是 Preview 软件。编译通过、模拟引擎 API 和面向重启
 ### Ren'Py
 
 - 在真实引擎中验证 Save/Load、Rollback、Interaction Restart 和正常关闭。
+- 绑定由游戏拥有的稳定 Save/World ID，确认加载旧存档和 Rollback 后首次
+  Interaction 都会把 Timeline 提升到 Persistent 高水位以上，并确认旧 Worker
+  完成结果变成 `stale_epoch`。
 - 确认序列化状态只包含普通恢复数据，不包含存活的 Worker、Socket、Lock 或
   Callback Object。
 

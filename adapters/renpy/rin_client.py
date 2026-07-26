@@ -1236,7 +1236,11 @@ class BackgroundProposalRegistry:
         def retain_job_id(job_id: str) -> bool:
             with self._lock:
                 entry = self._entries.get(request_id)
-                if entry is None or entry["request_fingerprint"] != request_fingerprint:
+                if (
+                    entry is None
+                    or entry["status"] == "invalidated"
+                    or entry["request_fingerprint"] != request_fingerprint
+                ):
                     return False
                 entry["job_id"] = _path_identifier(job_id)
                 return True
@@ -1264,7 +1268,7 @@ class BackgroundProposalRegistry:
                 retained_job_id = getattr(exc, "job_id", "") or known_job_id
             with self._lock:
                 entry = self._entries.get(request_id)
-                if entry is not None:
+                if entry is not None and entry["status"] != "invalidated":
                     entry["status"] = status
                     entry["result"] = _json_clone(result) if result is not None else None
                     entry["error_code"] = error_code
@@ -1293,7 +1297,12 @@ class BackgroundProposalRegistry:
     def consume(self, request_id: str) -> Optional[Dict[str, Any]]:
         with self._lock:
             entry = self._entries.get(str(request_id))
-            if not entry or entry["status"] not in ("complete", "failed", "canceled"):
+            if not entry or entry["status"] not in (
+                "complete",
+                "failed",
+                "canceled",
+                "invalidated",
+            ):
                 return None
             self._entries.pop(str(request_id), None)
             return {
@@ -1324,11 +1333,30 @@ class BackgroundProposalRegistry:
             entry["cancel_event"].set()
             return True
 
+    def invalidate_all(self, error_code: str = "stale_epoch") -> int:
+        """Make every registered result unusable after an Epoch change."""
+        invalidated = 0
+        with self._lock:
+            for entry in self._entries.values():
+                if entry["status"] == "invalidated":
+                    continue
+                entry["cancel_event"].set()
+                entry["status"] = "invalidated"
+                entry["result"] = None
+                entry["error_code"] = str(error_code)
+                invalidated += 1
+        return invalidated
+
     def _prune_locked(self) -> None:
         terminal = [
             key
             for key, entry in self._entries.items()
-            if entry.get("status") in ("complete", "failed", "canceled")
+            if entry.get("status") in (
+                "complete",
+                "failed",
+                "canceled",
+                "invalidated",
+            )
         ]
         while len(self._entries) >= self.maximum and terminal:
             self._entries.pop(terminal.pop(0), None)

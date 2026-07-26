@@ -81,6 +81,10 @@ release checklist passes. See the [release guide](docs/release-guide.md).
   `outcome-unknown` handling, and a Behavior Tree movement ActionRun example.
   Linux and Windows CI enforce its layout and restricted execution surface;
   real Unreal builds remain a documented manual gate.
+- A rollback-aware Ren'Py Host Epoch coordinator. Save data holds only a plain
+  Epoch, persistent data keeps bounded monotonic high-water marks, load and
+  rollback fork timelines, and process-local proposal workers become stale
+  without allowing late results to revive an older branch.
 - An OpenAPI 3.1 wire schema at [`api/openapi.json`](api/openapi.json) and a
   [compatibility matrix](docs/compatibility.md).
 - Bounded-frame NDJSON Session Transfer with immutable export boundaries,

@@ -430,6 +430,38 @@ class RinClientTests(unittest.TestCase):
             registry.schedule(changed, lambda worker: None)
         self.assertEqual(caught.exception.code, "request_id_conflict")
 
+    def test_epoch_change_invalidates_workers_and_ignores_late_results(self):
+        client = _client_with_opener()
+        registry = rin_client.BackgroundProposalRegistry(client)
+        request = _proposal_request()
+        workers = []
+        request_id = registry.schedule(request, workers.append)
+
+        self.assertEqual(registry.invalidate_all(), 1)
+        workers[0]()
+
+        self.assertEqual(registry.status(request_id), "invalidated")
+        self.assertIsNone(registry.attempt(request_id))
+        consumed = registry.consume(request_id)
+        self.assertEqual(consumed["status"], "invalidated")
+        self.assertEqual(consumed["error_code"], "stale_epoch")
+        self.assertIsNone(consumed["result"])
+
+    def test_epoch_change_invalidates_completed_unconsumed_result(self):
+        registry = rin_client.BackgroundProposalRegistry(_client_with_opener())
+        request_id = registry.schedule(
+            _proposal_request(),
+            lambda worker: worker(),
+        )
+
+        self.assertEqual(registry.status(request_id), "complete")
+        self.assertEqual(registry.invalidate_all(), 1)
+
+        consumed = registry.consume(request_id)
+        self.assertEqual(consumed["status"], "invalidated")
+        self.assertEqual(consumed["error_code"], "stale_epoch")
+        self.assertIsNone(consumed["result"])
+
     def test_background_registry_retains_and_recovers_unresolved_attempts(self):
         for unresolved_code in (
             "proposal_outcome_unknown",
@@ -1174,6 +1206,12 @@ class RinClientTests(unittest.TestCase):
         self.assertNotIn("default _RIN_", source)
         self.assertIn("def rin_proposal_attempt(", source)
         self.assertIn("def rin_resume_proposal(", source)
+        self.assertIn("def rin_bind_host_epoch(", source)
+        self.assertIn("rin_epoch.proposal_matches_epoch(", source)
+        self.assertIn('"epoch_not_bound"', source)
+        self.assertIn("config.after_load_callbacks.append(", source)
+        self.assertIn("config.interact_callbacks.append(", source)
+        self.assertNotIn("persistent._rin", source)
 
 
 if __name__ == "__main__":

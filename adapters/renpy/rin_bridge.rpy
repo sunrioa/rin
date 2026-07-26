@@ -1,5 +1,8 @@
-# Copy rin_client.py and this file into a Ren'Py game's game/ directory.
+# Copy rin_client.py, rin_epoch.py, and this file into a game's game/ directory.
 # The bridge keeps all worker objects process-local and returns plain JSON data.
+
+default rin_host_epoch_state = None
+default persistent.rin_host_epoch_ledger = None
 
 init -30 python:
     import hashlib
@@ -7,11 +10,18 @@ init -30 python:
     import os
 
     import rin_client
+    import rin_epoch
+
+    renpy.register_persistent(
+        "rin_host_epoch_ledger",
+        rin_epoch.merge_persistent_ledgers,
+    )
 
     _RIN_CLIENT = None
     _RIN_REGISTRY = None
     _RIN_CONFIG_FINGERPRINT = None
     _RIN_UNRESOLVED_ATTEMPTS = {}
+    _RIN_EPOCH_RUNTIME = None
 
     def _rin_env_enabled(name, default="0"):
         value = os.environ.get(name, default).strip().lower()
@@ -96,11 +106,29 @@ init -30 python:
         known_job_id="",
     ):
         """Start one proposal without blocking the Ren'Py interaction thread."""
+        if rin_host_epoch_state is None:
+            raise rin_client.RinProtocolError(
+                "epoch_not_bound",
+                "Bind the Host Epoch before scheduling a proposal",
+            )
+        if not rin_epoch.proposal_matches_epoch(
+            request,
+            rin_host_epoch_state,
+        ):
+            raise rin_client.RinProtocolError(
+                "stale_epoch",
+                "Proposal does not match the current Host Epoch",
+            )
         request_id = str(request.get("request_id", ""))
         if not request_id:
             raise rin_client.RinProtocolError("invalid_request", "Proposal request needs request_id")
         retained = _RIN_UNRESOLVED_ATTEMPTS.get(request_id)
         if retained is not None:
+            if retained["status"] == "stale":
+                raise rin_client.RinProtocolError(
+                    "stale_epoch",
+                    "Proposal belongs to an earlier Host Epoch",
+                )
             if retained["request_fingerprint"] != _rin_request_fingerprint(request):
                 raise rin_client.RinProtocolError(
                     "request_id_conflict",
@@ -135,19 +163,30 @@ init -30 python:
     def rin_proposal_status(request_id):
         request_id = str(request_id)
         if request_id in _RIN_UNRESOLVED_ATTEMPTS:
+            if _RIN_UNRESOLVED_ATTEMPTS[request_id]["status"] == "stale":
+                return "ready"
             return "unresolved"
         if _RIN_REGISTRY is None:
             return "missing"
         status = _RIN_REGISTRY.status(request_id)
-        if status in ("complete", "failed", "canceled"):
+        if status in ("complete", "failed", "canceled", "invalidated"):
             return "ready"
         return status
 
     def rin_consume_proposal(request_id):
         """Return a plain adapter result once; return None while still pending."""
         request_id = str(request_id)
-        if request_id in _RIN_UNRESOLVED_ATTEMPTS:
-            return None
+        retained = _RIN_UNRESOLVED_ATTEMPTS.get(request_id)
+        if retained is not None:
+            if retained["status"] != "stale":
+                return None
+            _RIN_UNRESOLVED_ATTEMPTS.pop(request_id, None)
+            return {
+                "source": "stale",
+                "error_code": "stale_epoch",
+                "job_id": retained.get("job_id", ""),
+                "proposal": None,
+            }
         if _RIN_REGISTRY is None:
             return None
         entry = _RIN_REGISTRY.consume(request_id)
@@ -155,6 +194,13 @@ init -30 python:
             return None
         if entry["status"] == "complete":
             return entry["result"]
+        if entry["status"] == "invalidated":
+            return {
+                "source": "stale",
+                "error_code": entry["error_code"],
+                "job_id": entry.get("job_id", ""),
+                "proposal": None,
+            }
         return {
             "source": "canceled" if entry["status"] == "canceled" else "error",
             "error_code": entry["error_code"],
@@ -167,6 +213,8 @@ init -30 python:
         request_id = str(request_id)
         retained = _RIN_UNRESOLVED_ATTEMPTS.get(request_id)
         if retained is not None:
+            if retained["status"] != "unresolved":
+                return None
             return json.loads(json.dumps(retained, ensure_ascii=False, separators=(",", ":")))
         if _RIN_REGISTRY is None:
             return None
@@ -197,3 +245,78 @@ init -30 python:
             "token_configured": bool(config["token"]),
             "pending_results": len(_RIN_UNRESOLVED_ATTEMPTS),
         }
+
+    def _rin_epoch_runtime():
+        global _RIN_EPOCH_RUNTIME
+        if _RIN_EPOCH_RUNTIME is None:
+            _RIN_EPOCH_RUNTIME = rin_epoch.EpochRuntime(
+                persistent.rin_host_epoch_ledger
+            )
+            persistent.rin_host_epoch_ledger = (
+                _RIN_EPOCH_RUNTIME.persistent_ledger
+            )
+            renpy.save_persistent()
+        return _RIN_EPOCH_RUNTIME
+
+    def _rin_store_epoch(state):
+        global rin_host_epoch_state
+        runtime = _rin_epoch_runtime()
+        rin_host_epoch_state = dict(state)
+        persistent.rin_host_epoch_ledger = runtime.persistent_ledger
+        renpy.save_persistent()
+        return dict(rin_host_epoch_state)
+
+    def _rin_invalidate_epoch_work():
+        if _RIN_REGISTRY is not None:
+            _RIN_REGISTRY.invalidate_all("stale_epoch")
+        for attempt in _RIN_UNRESOLVED_ATTEMPTS.values():
+            attempt["status"] = "stale"
+            attempt["error_code"] = "stale_epoch"
+
+    def rin_bind_host_epoch(session_id, world_id):
+        """Bind stable game-supplied identity and return a plain Epoch dict."""
+        runtime = _rin_epoch_runtime()
+        state = runtime.bind(rin_host_epoch_state, session_id, world_id)
+        return _rin_store_epoch(state)
+
+    def rin_fork_host_timeline(reason="manual"):
+        """Invalidate pending work and advance the non-rollback timeline."""
+        if rin_host_epoch_state is None:
+            raise rin_epoch.EpochStateError("Host Epoch is not bound")
+        runtime = _rin_epoch_runtime()
+        state = runtime.fork(rin_host_epoch_state, str(reason))
+        _rin_invalidate_epoch_work()
+        return _rin_store_epoch(state)
+
+    def rin_current_host_epoch():
+        if rin_host_epoch_state is None:
+            return None
+        return json.loads(json.dumps(
+            rin_host_epoch_state,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ))
+
+    def _rin_epoch_after_load():
+        if rin_host_epoch_state is None:
+            return
+        runtime = _rin_epoch_runtime()
+        state = runtime.after_load(rin_host_epoch_state)
+        _rin_invalidate_epoch_work()
+        _rin_store_epoch(state)
+        renpy.block_rollback()
+
+    def _rin_epoch_interact():
+        if rin_host_epoch_state is None:
+            return
+        runtime = _rin_epoch_runtime()
+        state, changed = runtime.observe_rollback(
+            rin_host_epoch_state,
+            bool(renpy.in_rollback()),
+        )
+        if changed:
+            _rin_invalidate_epoch_work()
+            _rin_store_epoch(state)
+
+    config.after_load_callbacks.append(_rin_epoch_after_load)
+    config.interact_callbacks.append(_rin_epoch_interact)

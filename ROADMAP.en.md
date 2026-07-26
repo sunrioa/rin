@@ -66,6 +66,8 @@ unchecked item is not a supported feature.
 - [x] Portable C99 Host reference and shared cross-engine scenario contract
 - [x] Preview Unreal Runtime Plugin skeleton with explicit Epoch binding, final
   Game Thread authorization, and Behavior Tree long-action reporting
+- [x] Rollback-aware Ren'Py Epoch high-water marks, load/rollback Timeline
+  forks, and old-worker invalidation
 - [x] Permanent request/Event ID history and fail-closed uncertain-append reconciliation
 - [x] Trusted Restore Binding, Snapshot size limits, and explicit checksum trust boundary
 - [x] Lazy Session recovery, range reads, derived checkpoints, and full-history maintenance audit
