@@ -70,6 +70,22 @@ unchecked item is not a supported feature.
   benchmark evidence, and Windows/macOS/Linux acceptance job
 - [ ] Complete manual installation and interaction tests in real Fabric, BepInEx, and Luanti game versions
 
+## Milestone 0.7 - Universal-host foundation
+
+- [x] Engine-neutral Go `host` contract covering the host manifest, epochs,
+  object references, capability descriptors, offers, invocations, action runs,
+  and outcomes
+- [x] Self-contained JSON Schema 2020-12 argument/result validation and
+  deterministic descriptor digests
+- [x] Concurrency-safe capability registry with exact versions, dynamic
+  revocation, and final time-of-check/time-of-use validation
+- [x] Separate capability discovery, per-decision game authorization, execution
+  lifecycle, and persistence guarantees
+- [x] Schema fuzz, registry race, stale epoch/digest/revocation, and state
+  transition tests
+- [ ] Integrate the Host Contract into cross-language SDKs, generic scaffolds,
+  and real engine adapters
+
 ## Preview release gates
 
 Before publishing a Preview tag:

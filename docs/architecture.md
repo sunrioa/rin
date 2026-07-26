@@ -31,6 +31,19 @@ boundaries, session revision, and content binding.
 
 ## Components
 
+### Host contract
+
+The engine-neutral [`host` contract](host-contract.md) describes the owning
+game process, its exact versioned capability implementations, per-decision
+offers, authoritative epochs, and action-run outcomes. Capability discovery is
+not action authorization: a policy selects only a game-authored bound offer,
+and the adapter rechecks its schema, digest, expiry, epoch, and current
+registration immediately before dispatch onto the engine authority thread.
+
+The Host Contract currently exists as a local Go package. It neither changes
+the HTTP `rin.protocol/v1` wire shape nor claims that existing language
+adapters already implement the new registry.
+
 ### Protocol
 
 `protocol` is the only layer other languages need to reproduce. Every request

@@ -9,6 +9,7 @@ Rin `0.6.0` 是 Preview、pre-1.0 软件。文档按公共接口组织，不以�
 | --- | --- | --- |
 | 权威 HTTP Wire Schema | [`api/openapi.json`](../api/openapi.json) | [`api/openapi.json`](../api/openapi.json) |
 | 架构、存储与权威边界 | [架构](architecture.zh-CN.md) | [Architecture](architecture.md) |
+| 引擎无关宿主与能力契约 | [宿主契约](host-contract.zh-CN.md) | [Host contract](host-contract.md) |
 | Proposal、应用与结果事务 | [动作结果记账](outcome-reporting.zh-CN.md) | [Action outcome reporting](outcome-reporting.md) |
 | 安全 Session 语义与 Optional Feature Matrix | [Session 语义基线](semantic-baseline.zh-CN.md) | [Session semantic baseline](semantic-baseline.md) |
 | HTTP 与状态契约 | [协议 v1](protocol-v1.zh-CN.md) | [Protocol v1](protocol-v1.md) |
@@ -35,7 +36,8 @@ Rin `0.6.0` 是 Preview、pre-1.0 软件。文档按公共接口组织，不以�
 [`rin init mod`](mod-scaffolding.zh-CN.md) 可以生成自包含的 Fabric、BepInEx
 或 Luanti 项目；规范源码模板仍位于 [`examples/mods/`](../examples/mods/)。
 
-标准 [MIT License](../LICENSE) 英文原文是具有约束力的许可证文本。
+标准 [MIT License](../LICENSE) 英文原文是项目许可证；
+依赖许可声明见 [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md)。
 
 Path、Method、HTTP Status、必填字段与 JSON Shape 以 `api/openapi.json` 为准；
 叙述文档定义事务与恢复语义。SDK Route Inventory 是生成的覆盖元数据，不是第二份

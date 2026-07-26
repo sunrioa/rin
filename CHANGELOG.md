@@ -6,6 +6,27 @@ This changelog records repository-level changes. Rin `0.6.0` is a Preview
 release: it is pre-1.0, and compatibility is documented rather than guaranteed
 across every future minor release.
 
+## Unreleased
+
+### Added
+
+- An engine-neutral Go `host` contract with validated host manifests,
+  authoritative epochs, opaque object references, versioned capabilities,
+  game-bound action offers, invocations, action-run states, and outcomes.
+- A concurrency-safe capability registry with root-closed JSON Schema 2020-12
+  inputs/outputs, deterministic descriptor digests, dynamic revocation, and a
+  final time-of-check/time-of-use authorization pass.
+- Fuzz, race, stale-epoch, expiry, digest-drift, revocation, durability, and
+  action-transition tests for the contract.
+
+### Changed
+
+- Runtime/server code remains standard-library-only, while the separate Host
+  Contract uses the maintained `santhosh-tekuri/jsonschema` validator. License
+  metadata is recorded in `THIRD-PARTY-NOTICES.md`.
+- Capability discovery is explicitly not action authority: models select only
+  arguments and targets already bound by a game-authored `ActionOffer`.
+
 ## [0.6.0] - 2026-07-24 - Preview
 
 The `v0.6.0` tag is created from the verified main branch only after the

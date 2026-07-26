@@ -6,8 +6,10 @@
 
 Rin 在游戏循环之外管理角色记忆、目标、决策、异步模型任务和可验证回放。
 游戏始终保留世界权威，只接收经过本地约束验证的行动提案。Rin 可以作为
-Sidecar 运行，也可以作为 Go 包嵌入工具链；核心只使用 Go 标准库，不绑定
-具体游戏、引擎或模型供应商。
+Sidecar 运行，也可以作为 Go 包嵌入工具链；Runtime 与服务端核心只使用 Go
+标准库，不绑定具体游戏、引擎或模型供应商。`host` Contract 复用经过维护的
+JSON Schema 2020-12 校验库；依赖与许可见
+[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
 
 文档索引：[简体中文](docs/README.zh-CN.md) | [English](docs/README.md)
 
@@ -36,6 +38,8 @@ Rin 将“角色思考”和“游戏世界事实”拆开：
   旧 History 为保持 Replay 与 Exact Retry 兼容，继续使用旧版 Commit/stale
   语义。
 - Ren'Py、Godot 4 和 Unity 适配器保持同一套 observe / propose / commit 权威边界。
+- 引擎无关 `host` Contract 区分静态 Capability、每轮 `ActionOffer`、带 Epoch
+  的 Invocation 与长动作终态；当前已交付 Go Registry，跨语言接入仍在开发。
 - Python、JavaScript、C#、Java、Lua SDK 与 Fabric、BepInEx、Luanti 示例 Mod 提供快速接入层。
 - 可选分层记忆、冲突认知、候选小目标、区域休眠和确定性多角色仲裁均由 Session feature 显式启用。
 - 脱敏 Timeline、指定 revision Replay 和 `rin inspect` 让长流程角色行为可以复现和审计。

@@ -25,6 +25,16 @@ flowchart LR
 
 ## 组件
 
+### Host Contract
+
+引擎无关的 [`host` Contract](host-contract.zh-CN.md) 描述权威游戏进程、精确带版本
+的能力实现、每轮 Offer、权威 Epoch 和动作运行结果。Capability Discovery 不等于
+Action Authorization：Policy 只能选择由游戏绑定的 Offer；Adapter 在派发到引擎
+权威线程之前，还会重新检查 Schema、Digest、过期时间、Epoch 和当前注册状态。
+
+Host Contract 当前以本地 Go 包形式存在；它既没有改变 HTTP `rin.protocol/v1`
+Wire Shape，也不声称既有语言 Adapter 已经实现新 Registry。
+
 ### 协议
 
 `protocol` 是唯一需要被其他语言复刻的层。所有请求显式携带 `rin.protocol/v1`，未知 JSON 字段会被 HTTP 层拒绝，标识符禁止路径分隔符。

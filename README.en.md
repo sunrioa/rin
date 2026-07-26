@@ -7,8 +7,11 @@
 Rin manages character memory, goals, decisions, asynchronous model work, and
 verified replay outside the game loop. The game keeps world authority and
 receives only locally validated action proposals. Rin can run as a sidecar or
-be embedded as a Go package in tooling; its core uses only the Go standard
-library and is independent of any specific game, engine, or model provider.
+be embedded as a Go package in tooling. The runtime and server core use only
+the Go standard library and are independent of any specific game, engine, or
+model provider. The `host` contract reuses a maintained JSON Schema 2020-12
+validator; dependencies and licenses are listed in
+[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
 
 Documentation index: [English](docs/README.md) |
 [简体中文](docs/README.zh-CN.md)
@@ -52,6 +55,10 @@ for replay and exact-retry compatibility.
 
 - Ren'Py, Godot 4, and Unity adapters preserve the same
   observe/propose/commit authority boundary.
+- The engine-neutral `host` contract separates static capabilities, per-turn
+  `ActionOffer` values, epoch-bound invocation, and long-action terminal
+  states. The Go registry is delivered; cross-language integration remains in
+  development.
 - Python, JavaScript, C#, Java, and Lua SDKs plus Fabric, BepInEx, and Luanti
   example mods provide quick integration paths.
 - Optional layered memory, conflicting beliefs, candidate subgoals, regional

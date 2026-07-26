@@ -5,6 +5,26 @@
 本文记录仓库级变更。Rin `0.6.0` 是 Preview 版本：它仍处于 pre-1.0 阶段，
 后续 minor 版本之间会记录兼容变化，但不承诺始终保持兼容。
 
+## 未发布
+
+### 新增
+
+- 引擎无关 Go `host` Contract，包含经过验证的 Host Manifest、权威 Epoch、
+  不透明对象引用、带版本 Capability、游戏绑定 ActionOffer、Invocation、
+  ActionRun 状态和 Outcome。
+- 并发安全 Capability Registry，支持根节点封闭的 JSON Schema 2020-12 输入/输出、
+  确定性 Descriptor Digest、动态撤销和执行前最终 TOCTOU 授权检查。
+- Contract 的 Fuzz、Race、过期 Epoch/Offer、Digest 漂移、撤销、持久级别和
+  动作状态转换测试。
+
+### 变化
+
+- Runtime/Server 代码仍只依赖标准库；独立 Host Contract 使用经过维护的
+  `santhosh-tekuri/jsonschema` 校验器。依赖许可记录在
+  `THIRD-PARTY-NOTICES.md`。
+- Capability Discovery 明确不等于动作授权：模型只能选择由游戏
+  `ActionOffer` 预先绑定参数和目标的候选。
+
 ## [0.6.0] - 2026-07-24 - Preview
 
 只有发布检查全部通过后，才会从已验证的主分支创建 `v0.6.0` Tag。流程见

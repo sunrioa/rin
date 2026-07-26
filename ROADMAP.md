@@ -68,6 +68,16 @@
   Windows/macOS/Linux 验收 Job
 - [ ] 在真实 Fabric、BepInEx、Luanti 游戏版本中完成人工安装与交互验收
 
+## 里程碑 0.7 - 通用 Host 基础
+
+- [x] 引擎无关 Go `host` Contract，覆盖宿主 Manifest、Epoch、对象引用、
+  Capability Descriptor、Offer、Invocation、ActionRun 与 Outcome
+- [x] 自包含 JSON Schema 2020-12 参数/结果校验与确定性 Descriptor Digest
+- [x] 并发安全 Capability Registry、精确版本、动态撤销和执行前 TOCTOU 复验
+- [x] 明确区分 Capability Discovery、每轮游戏授权、执行生命周期和持久保证
+- [x] Schema Fuzz、Registry Race、过期 Epoch/Digest/撤销和状态转换测试
+- [ ] 将 Host Contract 接入跨语言 SDK、通用脚手架和真实引擎 Adapter
+
 ## Preview 发布门禁
 
 发布 Preview Tag 前：

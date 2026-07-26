@@ -10,6 +10,7 @@ releases do not carry a post-1.0 stability guarantee.
 | --- | --- | --- |
 | Authoritative HTTP wire schema | [`api/openapi.json`](../api/openapi.json) | [`api/openapi.json`](../api/openapi.json) |
 | Architecture, storage, and authority boundary | [Architecture](architecture.md) | [架构](architecture.zh-CN.md) |
+| Engine-neutral host and capability contract | [Host contract](host-contract.md) | [宿主契约](host-contract.zh-CN.md) |
 | Proposal, application, and outcome transactions | [Action outcome reporting](outcome-reporting.md) | [动作结果记账](outcome-reporting.zh-CN.md) |
 | Safe Session semantics and optional Feature matrix | [Session semantic baseline](semantic-baseline.md) | [Session 语义基线](semantic-baseline.zh-CN.md) |
 | HTTP and state contract | [Protocol v1](protocol-v1.md) | [协议 v1](protocol-v1.zh-CN.md) |
@@ -37,7 +38,9 @@ SDK-specific quick starts are under [`sdk/`](../sdk/README.md). Use
 BepInEx, or Luanti project; the canonical source templates remain under
 [`examples/mods/`](../examples/mods/).
 
-The standard [MIT License](../LICENSE) is the authoritative license text.
+The standard [MIT License](../LICENSE) is the authoritative project license;
+dependency notices are recorded in
+[`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).
 
 For paths, methods, HTTP statuses, required fields, and JSON shapes,
 `api/openapi.json` is authoritative. Narrative documents define transaction
