@@ -2,9 +2,11 @@ class_name RinWorkflow
 extends RefCounted
 
 const PROTOCOL_VERSION := "rin.protocol/v2"
+const HostContract = preload("res://rin_host_contract.gd")
 const MAX_BYTES := 1024 * 1024
 const MAX_OUTCOMES := 64
 const MAX_SAFE_INTEGER := 9007199254740991
+static var _slot_owners: Dictionary = {}
 var _client: Variant
 var _path := ""
 var _state: Dictionary = {}
@@ -14,8 +16,18 @@ var _cancel_requested := false
 var last_error := ""
 
 
-func open(client: Variant, slot: String, create_factory: Callable) -> bool:
-	if client == null or not create_factory.is_valid() or not _safe_slot(slot):
+func open(
+	client: Variant,
+	slot: String,
+	create_factory: Callable,
+	world_id: String,
+) -> bool:
+	if (
+		client == null
+		or not create_factory.is_valid()
+		or not _safe_slot(slot)
+		or not HostContract.valid_id(world_id)
+	):
 		return _fail("invalid_workflow_options")
 	_client = client
 	_path = "user://rin/%s.json" % slot
@@ -26,7 +38,7 @@ func open(client: Variant, slot: String, create_factory: Callable) -> bool:
 		DirAccess.remove_absolute(_path + ".tmp")
 		DirAccess.remove_absolute(_path + ".bak")
 		_state = loaded
-		return true
+		return _open_authority(create_factory, world_id)
 	var temporary := _path + ".tmp"
 	var backup := _path + ".bak"
 	if FileAccess.file_exists(backup):
@@ -39,7 +51,7 @@ func open(client: Variant, slot: String, create_factory: Callable) -> bool:
 		DirAccess.remove_absolute(backup)
 		DirAccess.remove_absolute(temporary)
 		_state = recovered
-		return true
+		return _open_authority(create_factory, world_id)
 	if FileAccess.file_exists(temporary):
 		var interrupted := _load_file(temporary)
 		if interrupted.is_empty() or not _valid_state(interrupted):
@@ -47,7 +59,7 @@ func open(client: Variant, slot: String, create_factory: Callable) -> bool:
 		if DirAccess.rename_absolute(temporary, _path) != OK:
 			return _fail("workflow_replace_failed")
 		_state = interrupted
-		return true
+		return _open_authority(create_factory, world_id)
 	var run_id := _new_run_id()
 	var session_id := "godot." + run_id
 	var create_request = create_factory.call(session_id, _seed_from_run_id(run_id))
@@ -56,15 +68,26 @@ func open(client: Variant, slot: String, create_factory: Callable) -> bool:
 	if str(create_request.get("session_id", "")) != session_id:
 		return _fail("invalid_create_request")
 	var initialized := {
-		"version": 1,
+		"version": 2,
 		"run_id": run_id,
+		"world_id": world_id,
 		"sequence": 0,
 		"last_tick": 0,
+		"host_epoch": 0,
+		"world_epoch": 1,
+		"timeline_epoch": 0,
 		"create_request": create_request.duplicate(true),
 		"attempt": null,
+		"active_run": null,
 		"outcomes": [],
 	}
+	if not _claim_slot():
+		return false
 	if not _persist(initialized):
+		_release_slot()
+		return false
+	if not _begin_authority_lifetime():
+		_release_slot()
 		return false
 	return true
 
@@ -75,6 +98,34 @@ func create_request() -> Dictionary:
 
 func session_id() -> String:
 	return str(_state.get("create_request", {}).get("session_id", ""))
+
+
+func epoch() -> Dictionary:
+	return {
+		"session_id": session_id(),
+		"world_id": str(_state.get("world_id", "")),
+		"host": int(_state.get("host_epoch", 0)),
+		"world": int(_state.get("world_epoch", 0)),
+		"timeline": int(_state.get("timeline_epoch", 0)),
+	}
+
+
+func advance_epoch(timeline_changed: bool) -> bool:
+	if _busy:
+		return _fail("workflow_busy")
+	var candidate := _state.duplicate(true)
+	if (
+		int(candidate.get("world_epoch", 0)) >= MAX_SAFE_INTEGER
+		or (
+			timeline_changed
+			and int(candidate.get("timeline_epoch", 0)) >= MAX_SAFE_INTEGER
+		)
+	):
+		return _fail("epoch_exhausted")
+	candidate["world_epoch"] = int(candidate["world_epoch"]) + 1
+	if timeline_changed:
+		candidate["timeline_epoch"] = int(candidate["timeline_epoch"]) + 1
+	return _persist(candidate)
 
 
 func has_attempt() -> bool:
@@ -120,6 +171,11 @@ func begin(propose: Dictionary, observe: Dictionary) -> Dictionary:
 		or str(observe.get("event_id", "")) != "event." + operation_id
 		or not _safe_integer(observe.get("tick"))
 		or int(observe["tick"]) <= int(_state["last_tick"])
+		or not HostContract.valid_turn(propose, observe, expected_session)
+		or not HostContract.semantic_equal(
+			propose.get("decision_window", {}).get("epoch"),
+			epoch(),
+		)
 	):
 		_fail("workflow_identity_mismatch")
 		return {}
@@ -162,29 +218,67 @@ func resume() -> Dictionary:
 	)
 	_new_operation = ""
 	_busy = false
-	if not result.get("proposal") is Dictionary:
+	if result.get("proposal") is Dictionary:
+		var proposal: Dictionary = result["proposal"]
+		var offered := HostContract.resolve_offer(attempt["request"], proposal)
+		if offered.is_empty():
+			last_error = "proposal_binding_mismatch"
+			return _error(last_error)
+		proposal = proposal.duplicate(true)
+		proposal["action"] = offered
+		proposal["decision_window"] = attempt["request"]["decision_window"].duplicate(true)
+		result["proposal"] = proposal
+	else:
 		last_error = str(result.get("error_code", "proposal_unresolved"))
 	return result
 
 
 func shutdown() -> void:
 	_cancel_requested = true
+	_release_slot()
 
 
 func _is_cancelled() -> bool:
 	return _cancel_requested
 
 
-func complete(attempt: Dictionary, outcome: Dictionary, apply: Callable) -> bool:
+func complete(
+	attempt: Dictionary,
+	proposal: Dictionary,
+	outcome: Dictionary,
+	apply: Callable,
+) -> bool:
 	if _busy or not apply.is_valid() or not _matching_attempt(_state.get("attempt"), attempt):
 		return _fail("invalid_settlement")
 	if _state.get("outcomes", []).size() >= MAX_OUTCOMES:
 		return _fail("outcome_outbox_full")
-	if not _valid_outcome(outcome) or str(outcome.get("key", "")) != str(attempt["operation_id"]):
+	if (
+		HostContract.resolve_offer(attempt.get("request"), proposal).is_empty()
+		or not _valid_outcome(outcome)
+		or str(outcome.get("key", "")) != str(attempt["operation_id"])
+		or str(outcome.get("request", {}).get("report", {}).get("proposal_id", ""))
+			!= str(proposal.get("id", ""))
+		or not HostContract.outcome_matches_proposal(
+			outcome,
+			proposal,
+			str(attempt["operation_id"]),
+		)
+	):
 		return _fail("invalid_settlement")
 	if str(outcome["request"].get("session_id", "")) != session_id():
 		return _fail("invalid_settlement")
 	_busy = true
+	var report: Dictionary = outcome["request"]["report"]
+	if str(report.get("decision", "")) == "accepted":
+		var running := _state.duplicate(true)
+		running["active_run"] = {
+			"operation_id": str(attempt["operation_id"]),
+			"proposal": proposal.duplicate(true),
+			"recovery_outcome": HostContract.interrupted_outcome(outcome),
+		}
+		if not _persist(running):
+			_busy = false
+			return false
 	var applied = apply.call(str(attempt["operation_id"]))
 	if applied == false:
 		_busy = false
@@ -193,6 +287,7 @@ func complete(attempt: Dictionary, outcome: Dictionary, apply: Callable) -> bool
 	var outcomes: Array = candidate["outcomes"]
 	outcomes.append(outcome.duplicate(true))
 	candidate["attempt"] = null
+	candidate["active_run"] = null
 	candidate["last_tick"] = maxi(
 		int(candidate["last_tick"]),
 		int(outcome["request"].get("tick", 0)),
@@ -224,58 +319,60 @@ func drain_outbox() -> bool:
 
 
 static func proposal_freshness(state: Dictionary, proposal: Dictionary) -> String:
-	var retained = state.get("proposals", {}).get(proposal.get("id"))
-	if not retained is Dictionary or str(retained.get("status", "")) != "pending":
-		return "stale"
-	for field in [
-		"id", "session_id", "request_id", "actor_id", "tick",
-		"based_on_revision", "based_on_head_hash",
-		"based_on_world_revision", "created_revision",
-	]:
-		if not retained.has(field) or not proposal.has(field):
-			return "stale"
-		if not _semantic_equal(retained[field], proposal[field]):
-			return "stale"
-	if not _semantic_equal(retained.get("action"), proposal.get("action")):
-		return "stale"
-	if int(proposal.get("based_on_world_revision", 0)) > 0:
-		return (
-			"fresh"
-			if _safe_integer(proposal.get("based_on_world_revision"))
-			and _safe_integer(state.get("world_revision"))
-			and int(proposal["based_on_world_revision"]) > 0
-			and int(proposal["based_on_world_revision"]) == int(state["world_revision"])
-			else "stale"
-		)
-	return (
-		"fresh"
-		if _safe_integer(proposal.get("created_revision"))
-		and _safe_integer(state.get("revision"))
-		and int(proposal["created_revision"]) == int(state["revision"])
-		else "stale"
+	return HostContract.proposal_freshness(state, proposal)
+
+
+func _open_authority(create_factory: Callable, world_id: String) -> bool:
+	if str(_state.get("world_id", "")) != world_id:
+		return _fail("workflow_binding_mismatch")
+	var expected = create_factory.call(
+		session_id(),
+		_seed_from_run_id(str(_state.get("run_id", ""))),
 	)
-
-
-static func _semantic_equal(left: Variant, right: Variant) -> bool:
-	if typeof(left) in [TYPE_INT, TYPE_FLOAT] and typeof(right) in [TYPE_INT, TYPE_FLOAT]:
-		return _safe_integer(left) and _safe_integer(right) and float(left) == float(right)
-	if typeof(left) != typeof(right):
+	if (
+		not expected is Dictionary
+		or not HostContract.semantic_equal(expected, _state.get("create_request"))
+	):
+		return _fail("workflow_binding_mismatch")
+	if not _claim_slot():
 		return false
-	if left is Dictionary:
-		if left.size() != right.size():
-			return false
-		for key in left:
-			if not right.has(key) or not _semantic_equal(left[key], right[key]):
-				return false
-		return true
-	if left is Array:
-		if left.size() != right.size():
-			return false
-		for index in left.size():
-			if not _semantic_equal(left[index], right[index]):
-				return false
-		return true
-	return left == right
+	if not _begin_authority_lifetime():
+		_release_slot()
+		return false
+	return true
+
+
+func _claim_slot() -> bool:
+	var retained = _slot_owners.get(_path)
+	if retained is WeakRef and retained.get_ref() != null:
+		return _fail("workflow_slot_in_use")
+	_slot_owners[_path] = weakref(self)
+	return true
+
+
+func _release_slot() -> void:
+	var retained = _slot_owners.get(_path)
+	if retained is WeakRef and retained.get_ref() == self:
+		_slot_owners.erase(_path)
+
+
+func _begin_authority_lifetime() -> bool:
+	if (
+		int(_state.get("host_epoch", 0)) >= MAX_SAFE_INTEGER
+		or int(_state.get("timeline_epoch", 0)) >= MAX_SAFE_INTEGER
+	):
+		return _fail("epoch_exhausted")
+	var candidate := _state.duplicate(true)
+	candidate["host_epoch"] = int(candidate["host_epoch"]) + 1
+	candidate["timeline_epoch"] = int(candidate["timeline_epoch"]) + 1
+	var active = candidate.get("active_run")
+	if active is Dictionary:
+		if candidate["outcomes"].size() >= MAX_OUTCOMES:
+			return _fail("outcome_outbox_full")
+		candidate["outcomes"].append(active["recovery_outcome"].duplicate(true))
+		candidate["attempt"] = null
+		candidate["active_run"] = null
+	return _persist(candidate)
 
 
 func _save_job(operation_id: String, job_id: String) -> bool:
@@ -341,11 +438,16 @@ func _valid_state(value: Variant) -> bool:
 		return false
 	var state: Dictionary = value
 	if (
-		int(state.get("version", 0)) != 1
+		int(state.get("version", 0)) != 2
 		or not _valid_id(state.get("run_id"))
 		or str(state["run_id"]).length() != 32
+		or not HostContract.valid_id(state.get("world_id"))
 		or not _safe_integer(state.get("sequence"))
 		or not _safe_integer(state.get("last_tick"))
+		or not _safe_integer(state.get("host_epoch"))
+		or not _safe_integer(state.get("world_epoch"))
+		or int(state["world_epoch"]) <= 0
+		or not _safe_integer(state.get("timeline_epoch"))
 		or not state.get("create_request") is Dictionary
 		or not _valid_id(state["create_request"].get("session_id"))
 		or not _valid_id(state["create_request"].get("request_id"))
@@ -356,11 +458,21 @@ func _valid_state(value: Variant) -> bool:
 	var attempt = state.get("attempt")
 	if attempt != null and not _valid_attempt(attempt, state):
 		return false
+	var active = state.get("active_run")
+	if active != null and not _valid_active_run(active, attempt, state):
+		return false
+	var outcome_keys := {}
 	for entry in state["outcomes"]:
-		if not _valid_outcome(entry):
+		if not _valid_outcome(
+			entry,
+			str(state["create_request"]["session_id"]),
+		) or outcome_keys.has(str(entry.get("key", ""))):
 			return false
+		outcome_keys[str(entry["key"])] = true
 		if str(entry["request"].get("session_id", "")) != str(state["create_request"]["session_id"]):
 			return false
+	if active is Dictionary and outcome_keys.has(str(active.get("operation_id", ""))):
+		return false
 	return true
 
 
@@ -378,6 +490,11 @@ func _valid_attempt(value: Variant, state: Dictionary) -> bool:
 		and _valid_id(attempt["request"].get("request_id"))
 		and _valid_id(attempt["request"].get("actor_id"))
 		and _safe_integer(attempt["request"].get("tick"))
+		and HostContract.valid_turn(
+			attempt["request"],
+			attempt["observe"],
+			str(state["create_request"]["session_id"]),
+		)
 		and attempt.get("observe") is Dictionary
 		and str(attempt["observe"].get("session_id", "")) == str(state["create_request"]["session_id"])
 		and _valid_id(attempt["observe"].get("request_id"))
@@ -388,25 +505,45 @@ func _valid_attempt(value: Variant, state: Dictionary) -> bool:
 	)
 
 
-func _valid_outcome(value: Variant) -> bool:
-	if not value is Dictionary:
+func _valid_outcome(value: Variant, expected_session: String = "") -> bool:
+	return HostContract.valid_outcome(
+		value,
+		session_id() if expected_session.is_empty() else expected_session,
+	)
+
+
+func _valid_active_run(
+	value: Variant,
+	attempt: Variant,
+	state: Dictionary,
+) -> bool:
+	if not value is Dictionary or not attempt is Dictionary:
 		return false
-	var entry: Dictionary = value
-	if (
-		not _valid_id(entry.get("key"))
-		or str(entry.get("kind", "")) != "report"
-		or not entry.get("request") is Dictionary
-		or not _valid_id(entry["request"].get("session_id"))
-		or not _valid_id(entry["request"].get("request_id"))
-		or not _safe_integer(entry["request"].get("tick"))
-	):
-		return false
-	var report = entry["request"].get("report")
+	var active: Dictionary = value
 	return (
-		report is Dictionary
-		and _valid_id(report.get("proposal_id"))
-		and _valid_id(report.get("event_id"))
-		and str(report.get("decision", "")) in ["accepted", "rejected"]
+		str(active.get("operation_id", "")) == str(attempt.get("operation_id", ""))
+		and active.get("proposal") is Dictionary
+		and not HostContract.resolve_offer(
+			attempt.get("request"),
+			active["proposal"],
+		).is_empty()
+		and HostContract.valid_outcome(
+			active.get("recovery_outcome"),
+			str(state["create_request"]["session_id"]),
+			str(attempt["operation_id"]),
+		)
+		and HostContract.outcome_matches_proposal(
+			active["recovery_outcome"],
+			active["proposal"],
+			str(attempt["operation_id"]),
+		)
+		and str(
+			active.get("recovery_outcome", {})
+				.get("request", {})
+				.get("report", {})
+				.get("outcome", {})
+				.get("status", "")
+		) == "outcome-unknown"
 	)
 
 

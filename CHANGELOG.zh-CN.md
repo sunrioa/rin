@@ -83,6 +83,9 @@
 - Unity Authority Lifecycle：Domain/Scene Generation、持久化不透明 Offer
   参数与 Active Run、可取消长动作 Handle、旧 Callback 拒绝，以及游戏拥有的
   NavMesh 移动示例。
+- Godot 4.6.3 Authority Lifecycle：持久 Host/World/Timeline Generation、
+  完整 Offer Binding、Active Run 恢复，以及 Linux/Windows 官方 Headless
+  生命周期测试。
 - [`api/openapi.json`](api/openapi.json) 中的 OpenAPI 3.1 Wire Schema 与
   [兼容矩阵](docs/compatibility.zh-CN.md)。
 - 有界 frame 的 NDJSON Session Transfer：immutable export boundary、逐 event

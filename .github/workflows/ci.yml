@@ -396,11 +396,11 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            archive: Godot_v4.7.1-stable_linux.x86_64.zip
-            sha512: 4ccdab7a48eeccbe8819a2fc1f6262f8d72065d98601bcb3743fcbd7ebd39f373758a788ee3293a05ec5b2c48538266c437404312e372225cd2df273945a2de9
+            archive: Godot_v4.6.3-stable_linux.x86_64.zip
+            sha256: d0bc2113065e481c9c2c2b2c37daa4e8be3fe9e27f0ab9ab0b6096e9a37907f3
           - os: windows-latest
-            archive: Godot_v4.7.1-stable_win64.exe.zip
-            sha512: a6b02c527c18ba9936e63562032701432b2dc57d98d6483ceaccb00fe14af16af5773ae8a55e7b4d614edf121c4d9e420d870f804edb1dac16362298a01ce6c4
+            archive: Godot_v4.6.3-stable_win64.exe.zip
+            sha256: e39986a178d585ce7ac198fb8de6ea436366dc0cc00e594810c2e3e104c04b90
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -411,21 +411,21 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          curl -fL "https://github.com/godotengine/godot-builds/releases/download/4.7.1-stable/${{ matrix.archive }}" -o godot.zip
-          echo "${{ matrix.sha512 }}  godot.zip" | sha512sum -c -
+          curl -fL "https://github.com/godotengine/godot-builds/releases/download/4.6.3-stable/${{ matrix.archive }}" -o godot.zip
+          echo "${{ matrix.sha256 }}  godot.zip" | sha256sum -c -
           unzip -q godot.zip -d godot
-          chmod +x godot/Godot_v4.7.1-stable_linux.x86_64
-          python tools/verify_godot.py --godot godot/Godot_v4.7.1-stable_linux.x86_64
+          chmod +x godot/Godot_v4.6.3-stable_linux.x86_64
+          python tools/verify_godot.py --godot godot/Godot_v4.6.3-stable_linux.x86_64
       - name: Download and verify Godot on Windows
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $url = "https://github.com/godotengine/godot-builds/releases/download/4.7.1-stable/${{ matrix.archive }}"
+          $url = "https://github.com/godotengine/godot-builds/releases/download/4.6.3-stable/${{ matrix.archive }}"
           Invoke-WebRequest -Uri $url -OutFile godot.zip
-          $actual = (Get-FileHash godot.zip -Algorithm SHA512).Hash.ToLowerInvariant()
-          if ($actual -ne "${{ matrix.sha512 }}") { throw "Godot SHA-512 mismatch" }
+          $actual = (Get-FileHash godot.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne "${{ matrix.sha256 }}") { throw "Godot SHA-256 mismatch" }
           Expand-Archive godot.zip -DestinationPath godot
-          python tools/verify_godot.py --godot godot/Godot_v4.7.1-stable_win64.exe
+          python tools/verify_godot.py --godot godot/Godot_v4.6.3-stable_win64.exe
 
   unity-package:
     strategy:

@@ -11,6 +11,7 @@ import tempfile
 
 SCRIPTS = (
     "res://rin_client.gd",
+    "res://rin_host_contract.gd",
     "res://rin_workflow.gd",
     "res://example_npc.gd",
     "res://tests/test_workflow.gd",
@@ -19,13 +20,20 @@ ERROR_MARKERS = ("SCRIPT ERROR", "Failed to load script")
 
 
 def run(command: list[str]) -> str:
-    completed = subprocess.run(
-        command,
-        check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as error:
+        output = (error.stdout or b"")
+        if isinstance(output, bytes):
+            output = output.decode(errors="replace")
+        raise SystemExit(f"Godot verification timed out:\n{output}") from error
     output = completed.stdout
     if completed.returncode != 0 or any(marker in output for marker in ERROR_MARKERS):
         raise SystemExit(
@@ -46,8 +54,8 @@ def main() -> None:
     godot = str(args.godot.resolve())
     project = str(args.project.resolve())
     version = run([godot, "--version"]).strip()
-    if not version.startswith("4.7.1."):
-        raise SystemExit(f"expected Godot 4.7.1, got {version!r}")
+    if not version.startswith("4.6.3."):
+        raise SystemExit(f"expected Godot 4.6.3, got {version!r}")
     with tempfile.TemporaryDirectory(prefix="rin-godot-") as temporary:
         log = str(pathlib.Path(temporary) / "godot.log")
         for script in SCRIPTS:

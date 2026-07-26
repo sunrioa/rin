@@ -12,7 +12,12 @@ var turn_running := false
 
 
 func _ready() -> void:
-	if not workflow.open(rin, "default", _build_create_request):
+	if not workflow.open(
+		rin,
+		"default",
+		_build_create_request,
+		"godot.example",
+	):
 		push_error("Rin workflow state rejected: " + workflow.last_error)
 		return
 	print("Rin Godot example ready. Call ask_npc_to_respond() for one turn.")
@@ -91,7 +96,7 @@ func _run_turn() -> void:
 		if planned["accepted"]:
 			print("Mira: " + str(planned["outcome"]))
 		return true
-	if not workflow.complete(attempt, outcome, apply):
+	if not workflow.complete(attempt, proposal, outcome, apply):
 		push_error("Applied action remains pending persistence: " + workflow.last_error)
 		return
 	if not await workflow.drain_outbox():
@@ -219,13 +224,7 @@ func _build_outcome(
 
 
 func _epoch() -> Dictionary:
-	return {
-		"session_id": workflow.session_id(),
-		"world_id": "godot.example",
-		"host": 1,
-		"world": 1,
-		"timeline": 1,
-	}
+	return workflow.epoch()
 
 
 func _offer(

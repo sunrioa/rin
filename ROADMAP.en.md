@@ -72,6 +72,8 @@ unchecked item is not a supported feature.
   stale-work rejection, and official dedicated-server GameTest
 - [x] Unity Domain/Scene authority, durable Active Runs, cancellable NavMesh
   long actions, and late-callback rejection
+- [x] Godot 4.6.3 headless authority generations, complete Offer binding,
+  Active Run `outcome-unknown` recovery, and Windows CI
 - [x] Permanent request/Event ID history and fail-closed uncertain-append reconciliation
 - [x] Trusted Restore Binding, Snapshot size limits, and explicit checksum trust boundary
 - [x] Lazy Session recovery, range reads, derived checkpoints, and full-history maintenance audit

@@ -38,3 +38,8 @@ gate.
 durable Active Run recovery, cancellable long-action handles, and a
 game-authored NavMesh movement example. Strict API stubs cover its portable
 contract; Editor and Player builds remain manual gates.
+
+[`godot`](godot) is a runnable Godot 4.6.3 project with durable
+Host/World/Timeline generations, exact Decision Window/Offer binding, and
+Active Run recovery. Official headless binaries exercise the lifecycle on
+Linux and Windows; Editor and exported-build traffic remain manual gates.

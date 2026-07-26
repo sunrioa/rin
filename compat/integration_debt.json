@@ -79,7 +79,12 @@
     },
     {
       "path": "examples/godot/rin_workflow.gd",
-      "max_lines": 500,
+      "max_lines": 610,
+      "durability_profile": "advisory"
+    },
+    {
+      "path": "examples/godot/rin_host_contract.gd",
+      "max_lines": 350,
       "durability_profile": "advisory"
     },
     {

@@ -220,7 +220,8 @@ Identifier History；Rin 不提供事件日志自动归档。大 lineage 的完�
 ## 游戏引擎适配
 
 - Ren'Py：纯标准库 Python 客户端、`renpy.invoke_in_thread` 桥接与 authored 离线回退。
-- Godot 4：基于 `HTTPRequest` signal/timer 的异步客户端。
+- Godot 4.6.3：`HTTPRequest` 异步客户端、Host/World/Timeline Epoch、
+  精确 Offer Binding 与 Active Run 恢复。
 - Unity：`UnityWebRequest` Coroutine、有界响应、Domain/Scene Epoch、持久
   Active Run 与可取消 NavMesh 长动作。
 - Unreal：Preview Runtime Plugin 骨架，包含显式 Epoch、Game Thread 授权与

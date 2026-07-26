@@ -92,6 +92,9 @@ release checklist passes. See the [release guide](docs/release-guide.md).
 - A Unity authority lifecycle with Domain/Scene generations, durable opaque
   Offer arguments and Active Runs, cancellable long-action handles, stale
   callback rejection, and a game-owned NavMesh movement example.
+- A Godot 4.6.3 authority lifecycle with durable Host/World/Timeline
+  generations, complete Offer binding, Active Run recovery, and official
+  headless lifecycle tests on Linux and Windows.
 - An OpenAPI 3.1 wire schema at [`api/openapi.json`](api/openapi.json) and a
   [compatibility matrix](docs/compatibility.md).
 - Bounded-frame NDJSON Session Transfer with immutable export boundaries,

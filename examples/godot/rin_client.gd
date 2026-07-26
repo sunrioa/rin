@@ -113,22 +113,28 @@ static func immediate_action_report(options: Dictionary) -> Dictionary:
 	}
 	if options["accepted"]:
 		var offer: Dictionary = proposal["action"]
+		var status := str(options.get("status", "succeeded"))
+		if status not in [
+			"succeeded", "failed", "cancelled", "interrupted", "stale",
+			"outcome-unknown",
+		]:
+			status = "failed"
 		var invocation := offer.duplicate(true)
 		invocation.erase("description")
 		invocation["operation_id"] = options["operation_id"]
 		report["invocation"] = invocation
 		report["run"] = {
 			"operation_id": options["operation_id"],
-			"status": "succeeded",
+			"status": status,
 			"progress_seq": 1,
-			"progress": 100,
+			"progress": 100 if status == "succeeded" else 0,
 			"updated_at": options["occurred_at"],
 		}
 		report["outcome"] = {
 			"operation_id": options["operation_id"],
-			"status": "succeeded",
+			"status": status,
 			"summary": options["summary"],
-			"epoch": options["epoch"],
+			"epoch": offer["expected_epoch"],
 			"world_seq": options["world_seq"],
 			"occurred_at": options["occurred_at"],
 		}

@@ -221,14 +221,26 @@ func TestGodotReferenceDelegatesToPersistentWorkflow(t *testing.T) {
 		},
 		"../examples/godot/rin_workflow.gd": {
 			"const MAX_BYTES := 1024 * 1024",
+			`"version": 2`,
 			`_path = "user://rin/%s.json" % slot`,
+			"func epoch()",
+			"func advance_epoch(",
 			"func begin(",
 			"func resume()",
 			"func complete(",
 			"func drain_outbox()",
+			`"active_run"`,
+			"HostContract.resolve_offer(",
 			"_client.report_action(",
 			"file.flush()",
 			"DirAccess.rename_absolute(temporary, _path)",
+		},
+		"../examples/godot/rin_host_contract.gd": {
+			"static func resolve_offer(",
+			"static func valid_turn(",
+			"static func valid_outcome(",
+			"static func interrupted_outcome(",
+			`"outcome-unknown"`,
 		},
 		"../examples/godot/example_npc.gd": {
 			"workflow.open(",
@@ -242,7 +254,7 @@ func TestGodotReferenceDelegatesToPersistentWorkflow(t *testing.T) {
 		assertSourceMarkers(t, path, required, nil)
 	}
 	assertSourceMarkers(t, "../examples/godot/example_npc.gd", nil, []string{
-		"FileAccess.", "_proposal_attempts", "_report_outbox",
+		"FileAccess.", "_proposal_attempts", "_report_outbox", `"host": 1`,
 	})
 }
 

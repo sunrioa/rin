@@ -70,6 +70,8 @@
   旧工作拒绝与官方 Dedicated Server GameTest
 - [x] Unity Domain/Scene Authority、持久 Active Run、可取消 NavMesh 长动作与
   迟到 Callback 拒绝
+- [x] Godot 4.6.3 Headless Authority Generation、完整 Offer Binding、Active
+  Run `outcome-unknown` 恢复与 Windows CI
 - [x] 永久 Request/Event ID History 与 Fail-closed 未决 Append 对账
 - [x] 可信 Restore Binding、Snapshot 大小限制与明确 Checksum Trust Boundary
 - [x] Lazy Session 恢复、Range Read、派生 Checkpoint 与全历史运维审计

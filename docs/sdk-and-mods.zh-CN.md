@@ -174,16 +174,18 @@ Luanti 示例是完整服务器 Mod。它只在模块作用域调用
 检查、Freshness、精确 Report 重试及 ACK 后 Evict。由于 ModStorage 保存时机与
 任意游戏效果不能组成同步事务，其 Profile 仍为 `advisory`。
 
-Godot 4.7.1 参考是可直接运行的项目。可复用 Workflow 在 `user://` 保存稳定
-Save Slot Identity、完整 Pending Turn、Job ID、Tick High-water 与有界
-Outcome Outbox；少于 250 行的 NPC 宿主只保留游戏拥有的 Policy 与效果。CI 对官方
-Godot Binary 固定 SHA-512，并在 Linux 与 Windows 执行 Headless 解析和重启
-测试。
+Godot 4.6.3 参考是可直接运行的项目。可复用 Workflow 在 `user://` 保存稳定
+Save Slot Identity、Host/World/Timeline Generation、完整 Pending Turn、Job
+ID、Active Run、Tick High-water 与有界 Outcome Outbox。它会把已解析 Proposal
+精确绑定到持久 Decision Window 与 Offer，并把不确定动作恢复为
+`outcome-unknown`。CI 使用 GitHub Release Metadata 中的 SHA-256 固定官方
+Godot Binary，并在 Linux 与 Windows 执行 Headless 生命周期测试。
 
 Unity 包声明最低 API Level 为 `2021.3`。Coroutine Workflow 在
-`Application.persistentDataPath` 维护可重启的 Pending Turn、Job、Freshness、
-Settlement 与 Outbox 状态；游戏侧示例只有 18 行。.NET Harness 会在 Linux
-与 Windows 使用 Unity API Stub 编译包并测试文件恢复。在执行
+`Application.persistentDataPath` 维护可重启的 Pending Turn、Active Run、精确
+Offer Binding、Authority Generation、Settlement 与 Outbox 状态；游戏侧示例
+保持在 100 行以内。.NET Harness 会在 Linux 与 Windows 使用 Unity API Stub
+编译包并测试生命周期和文件恢复。在执行
 [真实宿主验收矩阵](host-integration-validation.zh-CN.md)前，这不能证明包已在
 2021.3 或后续 Unity 版本中完成 Editor 导入或 Player 兼容测试。
 
