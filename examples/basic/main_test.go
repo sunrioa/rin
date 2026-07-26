@@ -59,7 +59,7 @@ func TestRunQuickstart(t *testing.T) {
 	if err := runQuickstart(client, &output, 7); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(paths, ","), "/v1/session/create,/v1/session/observe"; got != want {
+	if got, want := strings.Join(paths, ","), "/v2/session/create,/v2/session/observe"; got != want {
 		t.Fatalf("paths = %q, want %q", got, want)
 	}
 	if !strings.Contains(output.String(), "observed revision 2") {

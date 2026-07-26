@@ -1,18 +1,10 @@
 class_name RinWorkflow
 extends RefCounted
 
-const PROTOCOL_VERSION := "rin.protocol/v1"
+const PROTOCOL_VERSION := "rin.protocol/v2"
 const MAX_BYTES := 1024 * 1024
 const MAX_OUTCOMES := 64
 const MAX_SAFE_INTEGER := 9007199254740991
-const TERMINAL_COMMIT_ERRORS := {
-	"session_not_found": true,
-	"unknown_proposal": true,
-	"proposal_resolved": true,
-	"proposal_canceled": true,
-	"proposal_stale": true,
-}
-
 var _client: Variant
 var _path := ""
 var _state: Dictionary = {}
@@ -107,8 +99,8 @@ func next_tick() -> int:
 	return maxi(Time.get_ticks_msec(), current + 1)
 
 
-func begin(propose: Dictionary, observe: Dictionary, fallback_action_id: String) -> Dictionary:
-	if _busy or has_attempt() or not _valid_id(fallback_action_id):
+func begin(propose: Dictionary, observe: Dictionary) -> Dictionary:
+	if _busy or has_attempt():
 		_fail("workflow_busy")
 		return {}
 	var sequence := int(_state.get("sequence", 0)) + 1
@@ -137,7 +129,6 @@ func begin(propose: Dictionary, observe: Dictionary, fallback_action_id: String)
 		"sequence": sequence,
 		"request": propose.duplicate(true),
 		"observe": observe.duplicate(true),
-		"fallback_action_id": fallback_action_id,
 		"job_id": "",
 	}
 	var candidate := _state.duplicate(true)
@@ -163,18 +154,16 @@ func resume() -> Dictionary:
 	var operation_id := str(attempt["operation_id"])
 	var save_job := func(job_id: String) -> bool:
 		return _save_job(operation_id, job_id)
-	var result: Dictionary = await _client.propose_with_fallback(
+	var result: Dictionary = await _client.propose(
 		attempt["request"].duplicate(true),
-		str(attempt["fallback_action_id"]),
 		_is_cancelled,
 		str(attempt["job_id"]),
 		save_job,
-		_new_operation == operation_id,
 	)
 	_new_operation = ""
 	_busy = false
 	if not result.get("proposal") is Dictionary:
-		last_error = str(result.get("fallback_reason", "proposal_unresolved"))
+		last_error = str(result.get("error_code", "proposal_unresolved"))
 	return result
 
 
@@ -221,26 +210,7 @@ func drain_outbox() -> bool:
 	_busy = true
 	while not _state["outcomes"].is_empty():
 		var entry: Dictionary = _state["outcomes"][0].duplicate(true)
-		var response: Dictionary
-		if entry["kind"] == "commit":
-			response = await _client.commit(entry["request"].duplicate(true))
-			if not response.get("ok", false):
-				var code := str(response.get("error_code", "commit_failed"))
-				if not TERMINAL_COMMIT_ERRORS.has(code):
-					_busy = false
-					return _fail(code)
-				var converted := entry.duplicate(true)
-				converted["kind"] = "observe"
-				converted["request"] = entry["fallback_observe"].duplicate(true)
-				var conversion := _state.duplicate(true)
-				conversion["outcomes"][0] = converted
-				if not _persist(conversion):
-					_busy = false
-					return false
-				entry = converted
-				response = await _client.observe(entry["request"].duplicate(true))
-		else:
-			response = await _client.observe(entry["request"].duplicate(true))
+		var response: Dictionary = await _client.report_action(entry["request"].duplicate(true))
 		if not response.get("ok", false):
 			_busy = false
 			return _fail(str(response.get("error_code", "report_failed")))
@@ -327,7 +297,8 @@ func _persist(candidate: Dictionary) -> bool:
 	var encoded := JSON.stringify(candidate)
 	if encoded.to_utf8_buffer().size() > MAX_BYTES:
 		return _fail("workflow_state_too_large")
-	if DirAccess.make_dir_recursive_absolute("user://rin") != OK:
+	var directory_error := DirAccess.make_dir_recursive_absolute("user://rin")
+	if directory_error not in [OK, ERR_ALREADY_EXISTS]:
 		return _fail("workflow_directory_failed")
 	var temporary := _path + ".tmp"
 	var file := FileAccess.open(temporary, FileAccess.WRITE)
@@ -412,7 +383,6 @@ func _valid_attempt(value: Variant, state: Dictionary) -> bool:
 		and _valid_id(attempt["observe"].get("request_id"))
 		and _valid_id(attempt["observe"].get("event_id"))
 		and _safe_integer(attempt["observe"].get("tick"))
-		and _valid_id(attempt.get("fallback_action_id"))
 		and typeof(attempt.get("job_id")) == TYPE_STRING
 		and (str(attempt["job_id"]).is_empty() or _valid_id(attempt["job_id"]))
 	)
@@ -424,24 +394,20 @@ func _valid_outcome(value: Variant) -> bool:
 	var entry: Dictionary = value
 	if (
 		not _valid_id(entry.get("key"))
-		or str(entry.get("kind", "")) not in ["commit", "observe"]
+		or str(entry.get("kind", "")) != "report"
 		or not entry.get("request") is Dictionary
 		or not _valid_id(entry["request"].get("session_id"))
 		or not _valid_id(entry["request"].get("request_id"))
-		or not _valid_id(entry["request"].get("event_id"))
 		or not _safe_integer(entry["request"].get("tick"))
 	):
 		return false
-	if str(entry["kind"]) == "commit":
-		var fallback = entry.get("fallback_observe")
-		return (
-			fallback is Dictionary
-			and str(fallback.get("session_id", "")) == str(entry["request"]["session_id"])
-			and _valid_id(fallback.get("request_id"))
-			and _valid_id(fallback.get("event_id"))
-			and _safe_integer(fallback.get("tick"))
-		)
-	return true
+	var report = entry["request"].get("report")
+	return (
+		report is Dictionary
+		and _valid_id(report.get("proposal_id"))
+		and _valid_id(report.get("event_id"))
+		and str(report.get("decision", "")) in ["accepted", "rejected"]
+	)
 
 
 func _matching_attempt(left: Variant, right: Variant) -> bool:
@@ -489,7 +455,7 @@ static func _seed_from_run_id(run_id: String) -> int:
 
 func _error(code: String) -> Dictionary:
 	last_error = code
-	return {"ok": false, "fallback_reason": code}
+	return {"ok": false, "error_code": code}
 
 
 func _fail(code: String) -> bool:

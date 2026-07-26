@@ -57,7 +57,7 @@ class _Opener:
         self.authorization = request.get_header("Authorization", "")
         self.user_agent = request.get_header("User-agent", "")
         self.payload = json.loads(request.data.decode("utf-8")) if request.data is not None else None
-        status = 202 if self.path in ("/v1/jobs/propose", "/v1/generation/jobs") else 200
+        status = 202 if self.path in ("/v2/jobs/propose", "/v2/generation/jobs") else 200
         self.status = status
         return _Response(status, {"ok": True, "data": {"status": "ok", "job_id": "job.fixture"}})
 
@@ -127,28 +127,28 @@ class RinClientTests(unittest.TestCase):
         }
         cases = (
             ("health", client.health, (), "GET", "/health"),
-            ("create_session", client.create_session, (payload,), "POST", "/v1/session/create"),
-            ("observe", client.observe, (payload,), "POST", "/v1/session/observe"),
-            ("propose", client.propose, (payload,), "POST", "/v1/agent/propose"),
-            ("submit_proposal_job", client.submit_proposal_job, (payload,), "POST", "/v1/jobs/propose"),
-            ("get_proposal_job", client.get_proposal_job, ("job.fixture",), "GET", "/v1/jobs/job.fixture"),
-            ("cancel_proposal_job", client.cancel_proposal_job, ("job.fixture",), "DELETE", "/v1/jobs/job.fixture"),
-            ("submit_generation_job", client.submit_generation_job, (payload,), "POST", "/v1/generation/jobs"),
-            ("get_generation_job", client.get_generation_job, ("job.fixture",), "GET", "/v1/generation/jobs/job.fixture"),
-            ("cancel_generation_job", client.cancel_generation_job, ("job.fixture",), "DELETE", "/v1/generation/jobs/job.fixture"),
-            ("commit", client.commit, (payload,), "POST", "/v1/action/commit"),
-            ("commit_batch", client.commit_batch, (payload,), "POST", "/v1/action/commit-batch"),
-            ("set_actor_activity", client.set_actor_activity, (payload,), "POST", "/v1/session/activity"),
-            ("arbitrate", client.arbitrate, (payload,), "POST", "/v1/world/arbitrate"),
-            ("state", client.state, (payload,), "POST", "/v1/session/get"),
-            ("session_stats", client.session_stats, (payload,), "POST", "/v1/session/stats"),
-            ("archive_session", client.archive_session, (payload,), "POST", "/v1/session/archive"),
-            ("delete_session", client.delete_session, (payload,), "POST", "/v1/session/delete"),
-            ("snapshot", client.snapshot, (payload,), "POST", "/v1/session/snapshot"),
-            ("restore", client.restore, (payload,), "POST", "/v1/session/restore"),
-            ("timeline", client.timeline, (payload,), "POST", "/v1/session/timeline"),
-            ("replay", client.replay, (payload,), "POST", "/v1/session/replay"),
-            ("due_agents", client.due_agents, (payload,), "POST", "/v1/scheduler/due"),
+            ("create_session", client.create_session, (payload,), "POST", "/v2/session/create"),
+            ("observe", client.observe, (payload,), "POST", "/v2/session/observe"),
+            ("propose", client.propose, (payload,), "POST", "/v2/agent/propose"),
+            ("submit_proposal_job", client.submit_proposal_job, (payload,), "POST", "/v2/jobs/propose"),
+            ("get_proposal_job", client.get_proposal_job, ("job.fixture",), "GET", "/v2/jobs/job.fixture"),
+            ("cancel_proposal_job", client.cancel_proposal_job, ("job.fixture",), "DELETE", "/v2/jobs/job.fixture"),
+            ("submit_generation_job", client.submit_generation_job, (payload,), "POST", "/v2/generation/jobs"),
+            ("get_generation_job", client.get_generation_job, ("job.fixture",), "GET", "/v2/generation/jobs/job.fixture"),
+            ("cancel_generation_job", client.cancel_generation_job, ("job.fixture",), "DELETE", "/v2/generation/jobs/job.fixture"),
+            ("report_action", client.report_action, (payload,), "POST", "/v2/action/report"),
+            ("report_action_batch", client.report_action_batch, (payload,), "POST", "/v2/action/report-batch"),
+            ("set_actor_activity", client.set_actor_activity, (payload,), "POST", "/v2/session/activity"),
+            ("arbitrate", client.arbitrate, (payload,), "POST", "/v2/world/arbitrate"),
+            ("state", client.state, (payload,), "POST", "/v2/session/get"),
+            ("session_stats", client.session_stats, (payload,), "POST", "/v2/session/stats"),
+            ("archive_session", client.archive_session, (payload,), "POST", "/v2/session/archive"),
+            ("delete_session", client.delete_session, (payload,), "POST", "/v2/session/delete"),
+            ("snapshot", client.snapshot, (payload,), "POST", "/v2/session/snapshot"),
+            ("restore", client.restore, (payload,), "POST", "/v2/session/restore"),
+            ("timeline", client.timeline, (payload,), "POST", "/v2/session/timeline"),
+            ("replay", client.replay, (payload,), "POST", "/v2/session/replay"),
+            ("due_agents", client.due_agents, (payload,), "POST", "/v2/scheduler/due"),
         )
         observed_routes = []
         for operation_name, method, args, http_method, path in cases:
@@ -183,16 +183,13 @@ class RinClientTests(unittest.TestCase):
         )
         self.assertEqual(sorted(observed_routes), expected_routes)
 
-    def test_false_commit_flags_are_serialized(self):
+    def test_action_decisions_are_serialized(self):
         client = RinClient()
         client._opener = _Opener()
-        client.commit({"accepted": False})
-        self.assertIn("accepted", client._opener.payload)
-        self.assertIs(client._opener.payload["accepted"], False)
-        client.commit_batch({"items": [{"accepted": False}]})
-        item = client._opener.payload["items"][0]
-        self.assertIn("accepted", item)
-        self.assertIs(item["accepted"], False)
+        client.report_action({"report": {"decision": "rejected"}})
+        self.assertEqual(client._opener.payload["report"]["decision"], "rejected")
+        client.report_action_batch({"reports": [{"decision": "rejected"}]})
+        self.assertEqual(client._opener.payload["reports"][0]["decision"], "rejected")
 
     def test_invalid_json_numbers_cycles_and_depth_fail_before_transport(self):
         client = RinClient()
@@ -214,7 +211,7 @@ class RinClientTests(unittest.TestCase):
         for payload in invalid_payloads:
             with self.subTest(payload_type=type(payload).__name__):
                 with self.assertRaises(RinProtocolError) as caught:
-                    client.commit(payload)
+                    client.report_action(payload)
                 self.assertEqual(caught.exception.code, "invalid_request")
         self.assertEqual(client._opener.calls, 0)
 

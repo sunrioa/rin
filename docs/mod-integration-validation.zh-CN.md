@@ -2,7 +2,7 @@
 
 [English](mod-integration-validation.md) | [简体中文](mod-integration-validation.zh-CN.md)
 
-Rin `0.6.0` 是 Preview 软件。编译通过、模拟引擎 API 和面向重启的单元测试是有价值的
+Rin `0.7.0` 是 Preview 软件。编译通过、模拟引擎 API 和面向重启的单元测试是有价值的
 门禁，但不能证明 Mod 在真实游戏内稳定。下列对应行尚未形成实测证据前，引擎与 Mod
 示例仍属于 `advisory`。
 

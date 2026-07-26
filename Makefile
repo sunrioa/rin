@@ -6,7 +6,7 @@ DOTNET ?= dotnet
 JAVAC ?= javac
 JAVA ?= java
 LUA ?= lua
-VERSION ?= 0.6.0
+VERSION ?= 0.7.0
 
 .PHONY: fmt test verify contract-check contract-write test-go test-adapters test-sdks test-sdk-python test-sdk-javascript test-sdk-csharp test-sdk-java test-sdk-lua test-terminal-story race vet build
 

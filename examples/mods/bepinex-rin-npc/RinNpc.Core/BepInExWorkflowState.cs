@@ -5,7 +5,7 @@ using Rin.Client;
 
 namespace RinNpcExample;
 
-public sealed class BepInExWorkflowState : IWorkflowFallbackStore
+public sealed class BepInExWorkflowState : IWorkflowStore
 {
     private const int CurrentVersion = 1;
     private const int MaxOutcomes = 32;
@@ -47,8 +47,8 @@ public sealed class BepInExWorkflowState : IWorkflowFallbackStore
             if (state.Pending?.OperationId != operationId) return false;
             var nextStage = actionId switch
             {
-                "offer_quest" when state.QuestStage == 0 => 1,
-                "advance_quest" when state.QuestStage == 1 => 2,
+                "offer.quest" when state.QuestStage == 0 => 1,
+                "offer.advance-quest" when state.QuestStage == 1 => 2,
                 _ => state.QuestStage,
             };
             if (nextStage == state.QuestStage) return false;
@@ -187,7 +187,7 @@ public sealed class BepInExWorkflowState : IWorkflowFallbackStore
     public ValueTask SettleAsync(
         ProposalAttempt attempt,
         ActionProposal proposal,
-        CommitRequest commit,
+        ReportActionRequest report,
         Func<CancellationToken, ValueTask> apply,
         CancellationToken cancellationToken = default) =>
         throw new RinConfigurationException(
@@ -197,7 +197,7 @@ public sealed class BepInExWorkflowState : IWorkflowFallbackStore
     public ValueTask CompleteAsync(
         ProposalAttempt attempt,
         ActionProposal proposal,
-        CommitRequest commit,
+        ReportActionRequest report,
         CancellationToken cancellationToken = default)
     {
         lock (gate)
@@ -208,32 +208,7 @@ public sealed class BepInExWorkflowState : IWorkflowFallbackStore
                 throw new InvalidOperationException("Rin Outcome Outbox is full");
             }
             var candidate = CopyState();
-            candidate.Outcomes.Add(new OutcomeOutboxEntry(attempt.OperationId, commit));
-            candidate.Pending = null;
-            candidate.PendingObserve = null;
-            Persist(candidate);
-            return default;
-        }
-    }
-
-    public ValueTask CompleteWithFallbackAsync(
-        ProposalAttempt attempt,
-        ActionProposal proposal,
-        CommitRequest commit,
-        object fallbackObserve,
-        CancellationToken cancellationToken = default)
-    {
-        lock (gate)
-        {
-            RequirePending(attempt);
-            if (state.Outcomes.Count >= MaxOutcomes)
-            {
-                throw new InvalidOperationException("Rin Outcome Outbox is full");
-            }
-            var candidate = CopyState();
-            var safeFallback = JsonSerializer.SerializeToElement(fallbackObserve, JsonOptions);
-            candidate.Outcomes.Add(
-                new OutcomeOutboxEntry(attempt.OperationId, commit, safeFallback));
+            candidate.Outcomes.Add(new OutcomeOutboxEntry(attempt.OperationId, report));
             candidate.Pending = null;
             candidate.PendingObserve = null;
             Persist(candidate);
@@ -267,25 +242,6 @@ public sealed class BepInExWorkflowState : IWorkflowFallbackStore
         }
     }
 
-    public ValueTask<OutcomeOutboxEntry> ReplaceWithFallbackAsync(
-        OutcomeOutboxEntry entry,
-        CancellationToken cancellationToken = default)
-    {
-        lock (gate)
-        {
-            var candidate = CopyState();
-            var index = candidate.Outcomes.FindIndex(outcome => SameEntry(outcome, entry));
-            if (index < 0)
-            {
-                throw new InvalidOperationException("Outcome changed before fallback conversion");
-            }
-            var converted = candidate.Outcomes[index].AsDegradedObserve();
-            candidate.Outcomes[index] = converted;
-            Persist(candidate);
-            return new ValueTask<OutcomeOutboxEntry>(converted);
-        }
-    }
-
     private void RequirePending(ProposalAttempt attempt)
     {
         var pending = state.Pending;
@@ -302,8 +258,7 @@ public sealed class BepInExWorkflowState : IWorkflowFallbackStore
 
     private static bool SameEntry(OutcomeOutboxEntry candidate, OutcomeOutboxEntry expected) =>
         candidate.Key == expected.Key &&
-        candidate.Commit.RequestId == expected.Commit.RequestId &&
-        candidate.IsDegradedObserve == expected.IsDegradedObserve;
+        candidate.Report.RequestId == expected.Report.RequestId;
 
     private StateData CopyState() =>
         JsonSerializer.Deserialize<StateData>(
@@ -339,12 +294,11 @@ public sealed class BepInExWorkflowState : IWorkflowFallbackStore
         OutcomeOutboxEntry? outcome,
         string sessionId)
     {
-        if (outcome is null || outcome.Commit is null) return true;
+        if (outcome is null || outcome.Report is null || outcome.Report.Report is null) return true;
         return !RinIds.IsValid(outcome.Key) ||
-            (outcome.IsDegradedObserve && outcome.FallbackObserve is null) ||
-            outcome.Commit.SessionId != sessionId ||
-            !RinIds.IsValid(outcome.Commit.RequestId) ||
-            !RinIds.IsValid(outcome.Commit.EventId);
+            outcome.Report.SessionId != sessionId ||
+            !RinIds.IsValid(outcome.Report.RequestId) ||
+            !RinIds.IsValid(outcome.Report.Report.EventId);
     }
 
     private static string? InvalidState(StateData loaded, string saveIdentity)

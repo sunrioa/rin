@@ -285,21 +285,21 @@ func (s *Server) propose(response http.ResponseWriter, request *http.Request) {
 	s.respond(response, request, protocol.ProposalResult{Proposal: proposal, Duplicate: duplicate}, err)
 }
 
-func (s *Server) commit(response http.ResponseWriter, request *http.Request) {
-	var input protocol.CommitRequest
+func (s *Server) reportAction(response http.ResponseWriter, request *http.Request) {
+	var input protocol.ReportActionRequest
 	if !s.decode(response, request, &input) {
 		return
 	}
-	result, err := s.engine.Commit(input)
+	result, err := s.engine.ReportAction(input)
 	s.respond(response, request, result, err)
 }
 
-func (s *Server) commitBatch(response http.ResponseWriter, request *http.Request) {
-	var input protocol.BatchCommitRequest
+func (s *Server) reportActionBatch(response http.ResponseWriter, request *http.Request) {
+	var input protocol.BatchActionReportRequest
 	if !s.decode(response, request, &input) {
 		return
 	}
-	result, err := s.engine.CommitBatch(input)
+	result, err := s.engine.ReportActionBatch(input)
 	s.respond(response, request, result, err)
 }
 

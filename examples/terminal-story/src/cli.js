@@ -38,7 +38,7 @@ try {
     provider_cost_usd: result.provider_cost_usd,
     text: shown,
   };
-  if (result.fallback_reason) output.fallback_reason = result.fallback_reason;
+  if (result.local_reason) output.local_reason = result.local_reason;
   if (options.json) console.log(JSON.stringify(output));
 } catch (error) {
   console.error(`terminal story: ${error.code || "error"}: ${error.message}`);

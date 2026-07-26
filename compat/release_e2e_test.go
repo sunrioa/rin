@@ -43,7 +43,6 @@ func TestReleaseGateFromEmptyDirectories(t *testing.T) {
 		Seed:            606,
 		Features: []string{
 			protocol.FeatureMemoryArchive,
-			protocol.FeatureOutcomeReporting,
 		},
 		Actors: []protocol.ActorSeed{{
 			ID:              "actor.mira",
@@ -54,13 +53,13 @@ func TestReleaseGateFromEmptyDirectories(t *testing.T) {
 		}},
 	}
 	created := releaseGatePost[protocol.MutationResult](
-		t, sourceServer.URL, "/v1/session/create", createRequest, http.StatusOK,
+		t, sourceServer.URL, "/v2/session/create", createRequest, http.StatusOK,
 	)
 	if created.Duplicate || created.Revision != 1 {
 		t.Fatalf("unexpected create result: %+v", created)
 	}
 	duplicateCreate := releaseGatePost[protocol.MutationResult](
-		t, sourceServer.URL, "/v1/session/create", createRequest, http.StatusOK,
+		t, sourceServer.URL, "/v2/session/create", createRequest, http.StatusOK,
 	)
 	if !duplicateCreate.Duplicate || duplicateCreate.Revision != created.Revision {
 		t.Fatalf("exact create retry was not stable: %+v", duplicateCreate)
@@ -80,16 +79,18 @@ func TestReleaseGateFromEmptyDirectories(t *testing.T) {
 			Summary:         fmt.Sprintf("Observed release-gate event %03d.", tick),
 			Tags:            []string{"release"},
 			Importance:      int(tick%5) + 1,
+			Epoch:           compatEpoch(createRequest.SessionID),
+			ObservationSeq:  uint64(tick),
 		}
 		if tick == 1 {
 			firstObservation = observation
 		}
 		releaseGatePost[protocol.MutationResult](
-			t, sourceServer.URL, "/v1/session/observe", observation, http.StatusOK,
+			t, sourceServer.URL, "/v2/session/observe", observation, http.StatusOK,
 		)
 	}
 	duplicateObservation := releaseGatePost[protocol.MutationResult](
-		t, sourceServer.URL, "/v1/session/observe", firstObservation, http.StatusOK,
+		t, sourceServer.URL, "/v2/session/observe", firstObservation, http.StatusOK,
 	)
 	if !duplicateObservation.Duplicate {
 		t.Fatalf("exact observation retry was not reported as duplicate: %+v", duplicateObservation)
@@ -99,7 +100,7 @@ func TestReleaseGateFromEmptyDirectories(t *testing.T) {
 	releaseGateError(
 		t,
 		sourceServer.URL,
-		"/v1/session/observe",
+		"/v2/session/observe",
 		conflictingObservation,
 		http.StatusConflict,
 		"request_id_conflict",
@@ -108,49 +109,40 @@ func TestReleaseGateFromEmptyDirectories(t *testing.T) {
 	proposal := releaseGatePost[protocol.ProposalResult](
 		t,
 		sourceServer.URL,
-		"/v1/agent/propose",
-		protocol.ProposeRequest{
-			ProtocolVersion: protocol.Version,
-			SessionID:       createRequest.SessionID,
-			RequestID:       "propose.release-gate",
-			ActorID:         "actor.mira",
-			Tick:            140,
-			Intent:          "Choose a safe authored action.",
-			CandidateActions: []protocol.ActionSpec{{
-				ID:          "wait",
-				Kind:        "wait",
-				Description: "wait and observe",
-			}},
-		},
+		"/v2/agent/propose",
+		compatPropose(
+			createRequest.SessionID,
+			"propose.release-gate",
+			"actor.mira",
+			140,
+			"wait",
+		),
 		http.StatusOK,
 	)
-	if proposal.Proposal.Action.ID != "wait" || proposal.Proposal.Status != "pending" {
+	if proposal.Proposal.Action.OfferID != "wait" || proposal.Proposal.Status != "pending" {
 		t.Fatalf("unexpected proposal: %+v", proposal)
 	}
-	commitRequest := protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       createRequest.SessionID,
-		RequestID:       "commit.release-gate",
-		ProposalID:      proposal.Proposal.ID,
-		EventID:         "event.commit.release-gate",
-		Tick:            141,
-		Accepted:        true,
-		Outcome:         "The game applied the authored wait action.",
-	}
-	committed := releaseGatePost[protocol.MutationResult](
-		t, sourceServer.URL, "/v1/action/commit", commitRequest, http.StatusOK,
+	reportRequest := compatSuccessfulReport(
+		proposal.Proposal,
+		"report.release-gate",
+		"event.report.release-gate",
+		141,
+		"The game applied the authored wait action.",
 	)
-	duplicateCommit := releaseGatePost[protocol.MutationResult](
-		t, sourceServer.URL, "/v1/action/commit", commitRequest, http.StatusOK,
+	reported := releaseGatePost[protocol.MutationResult](
+		t, sourceServer.URL, "/v2/action/report", reportRequest, http.StatusOK,
 	)
-	if duplicateCommit.Revision != committed.Revision || !duplicateCommit.Duplicate {
-		t.Fatalf("exact commit retry was not stable: first=%+v duplicate=%+v", committed, duplicateCommit)
+	duplicateReport := releaseGatePost[protocol.MutationResult](
+		t, sourceServer.URL, "/v2/action/report", reportRequest, http.StatusOK,
+	)
+	if duplicateReport.Revision != reported.Revision || !duplicateReport.Duplicate {
+		t.Fatalf("exact report retry was not stable: first=%+v duplicate=%+v", reported, duplicateReport)
 	}
 
 	state := releaseGatePost[protocol.SessionState](
 		t,
 		sourceServer.URL,
-		"/v1/session/get",
+		"/v2/session/get",
 		protocol.SessionRequest{ProtocolVersion: protocol.Version, SessionID: createRequest.SessionID},
 		http.StatusOK,
 	)
@@ -161,7 +153,7 @@ func TestReleaseGateFromEmptyDirectories(t *testing.T) {
 	replayed := releaseGatePost[protocol.Snapshot](
 		t,
 		sourceServer.URL,
-		"/v1/session/replay",
+		"/v2/session/replay",
 		protocol.ReplayRequest{
 			ProtocolVersion: protocol.Version,
 			SessionID:       createRequest.SessionID,
@@ -172,7 +164,7 @@ func TestReleaseGateFromEmptyDirectories(t *testing.T) {
 	snapshot := releaseGatePost[protocol.Snapshot](
 		t,
 		sourceServer.URL,
-		"/v1/session/snapshot",
+		"/v2/session/snapshot",
 		protocol.SessionRequest{ProtocolVersion: protocol.Version, SessionID: createRequest.SessionID},
 		http.StatusOK,
 	)
@@ -213,13 +205,13 @@ func TestReleaseGateFromEmptyDirectories(t *testing.T) {
 	releaseGateError(
 		t,
 		targetServer.URL,
-		"/v1/session/restore",
+		"/v2/session/restore",
 		wrongBinding,
 		http.StatusConflict,
 		"binding_mismatch",
 	)
 	restored := releaseGatePost[protocol.MutationResult](
-		t, targetServer.URL, "/v1/session/restore", restoreRequest, http.StatusOK,
+		t, targetServer.URL, "/v2/session/restore", restoreRequest, http.StatusOK,
 	)
 	if restored.Duplicate || restored.Revision != 1 {
 		t.Fatalf("fresh restore did not create one durable target event: %+v", restored)
@@ -227,7 +219,7 @@ func TestReleaseGateFromEmptyDirectories(t *testing.T) {
 	restoredState := releaseGatePost[protocol.SessionState](
 		t,
 		targetServer.URL,
-		"/v1/session/get",
+		"/v2/session/get",
 		protocol.SessionRequest{ProtocolVersion: protocol.Version, SessionID: createRequest.SessionID},
 		http.StatusOK,
 	)

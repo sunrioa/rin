@@ -13,14 +13,14 @@ const capabilities = await rin.negotiateCapabilities();
 console.log(capabilities.release_version);
 ```
 
-`negotiateCapabilities()` 会在 Runtime 不是 `rin.protocol/v1` 或不支持权威
-Outcome Reporting preset 时 Fail Closed。请用 `createRinId("request")` 与
+`negotiateCapabilities()` 会在 Runtime 不是 `rin.protocol/v2` 时 Fail Closed。
+请用 `createRinId("request")` 与
 `createRinId("event")` 生成一次 ID，将其随操作持久化，并在每次 exact retry
 中复用。
 
-随附 TypeScript 声明为权威 create/propose/commit 流程提供与 OpenAPI 对齐的
+随附 TypeScript 声明为权威 create/propose/report 流程提供与 OpenAPI 对齐的
 `CreateSessionRequest`、`ProposeRequest`、`ProposalResult`、
-`CommitRequest` 和 `MutationResult` 类型；响应类型会容忍未来新增字段。
+`ReportActionRequest` 和 `MutationResult` 类型；响应类型会容忍未来新增字段。
 
 `WorkflowCoordinator` 把兼容保留的 `ProposalAttemptCoordinator` 与
 `OutcomeOutbox` 组合为 `begin`、`resumePendingWork`、
@@ -52,7 +52,7 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { Readable, Writable } from "node:stream";
 
 const request = {
-  protocol_version: "rin.protocol/v1",
+  protocol_version: "rin.protocol/v2",
   session_id: "session.example",
 };
 const output = Writable.toWeb(createWriteStream("session.ndjson"));

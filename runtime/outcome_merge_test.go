@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
 	"testing"
 
 	"github.com/sunrioa/rin/policy"
@@ -12,53 +11,6 @@ import (
 	rinruntime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
 )
-
-func TestSafeBaselineBlocksNewLegacySessionsButPreservesExactRetry(t *testing.T) {
-	eventStore := store.NewMemory()
-	legacy := newLegacyEngine(t, eventStore, policy.Deterministic{})
-	const sessionID = "session.legacy-exact-retry"
-	create := createRequest(sessionID)
-	create.Features = nil
-	created, err := legacy.CreateSession(create)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	reopened := newEngine(t, eventStore, policy.Deterministic{})
-	retry, err := reopened.CreateSession(create)
-	if err != nil {
-		t.Fatalf("legacy exact retry became invalid: %v", err)
-	}
-	if !retry.Duplicate || retry.Revision != created.Revision {
-		t.Fatalf("legacy exact retry result: %+v", retry)
-	}
-
-	freshStore := store.NewMemory()
-	fresh := newEngine(t, freshStore, policy.Deterministic{})
-	freshCreate := createRequest("session.legacy-fresh-rejected")
-	freshCreate.Features = nil
-	if _, err := fresh.CreateSession(freshCreate); rinruntime.ErrorCode(err) != "invalid_request" {
-		t.Fatalf("fresh legacy Create error = %v", err)
-	}
-	if sessions, err := freshStore.ListSessions(); err != nil || len(sessions) != 0 {
-		t.Fatalf("rejected legacy Create published storage: %v %v", sessions, err)
-	}
-
-	snapshot, err := legacy.Snapshot(sessionRequest(sessionID))
-	if err != nil {
-		t.Fatal(err)
-	}
-	restoreTarget := newEngine(t, store.NewMemory(), policy.Deterministic{})
-	if _, err := restoreTarget.Restore(protocol.RestoreRequest{
-		ProtocolVersion: protocol.Version,
-		RequestID:       "restore.legacy-fresh-rejected",
-		SessionID:       sessionID,
-		ExpectedBinding: snapshot.State.Binding,
-		Snapshot:        snapshot,
-	}); rinruntime.ErrorCode(err) != "legacy_semantics_forbidden" {
-		t.Fatalf("fresh legacy Restore error = %v", err)
-	}
-}
 
 func TestSafeBaselineSupportsEveryOptionalFeatureCombination(t *testing.T) {
 	optional := []string{
@@ -90,101 +42,7 @@ func TestSafeBaselineSupportsEveryOptionalFeatureCombination(t *testing.T) {
 	}
 }
 
-func TestSessionsWithoutOutcomeFeaturePreserveLegacyReplaySemantics(t *testing.T) {
-	eventStore := store.NewMemory()
-	engine := newLegacyEngine(t, eventStore, policy.Deterministic{})
-	const sessionID = "session.legacy-outcome-semantics"
-	create := createRequest(sessionID)
-	create.Features = []string{protocol.FeatureBeliefConflicts}
-	if _, err := engine.CreateSession(create); err != nil {
-		t.Fatal(err)
-	}
-	first, _, err := engine.Propose(
-		context.Background(),
-		proposeRequest(sessionID, "propose.legacy-first", 0, nil),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := engine.Commit(protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       sessionID,
-		RequestID:       "commit.legacy-first",
-		ProposalID:      first.ID,
-		EventID:         "event.legacy-first",
-		Tick:            0,
-		Accepted:        true,
-		Outcome:         "Legacy first action.",
-		GoalUpdates: []protocol.GoalUpdate{{
-			GoalID: "goal.connect", ProgressDelta: -5,
-		}},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	second, _, err := engine.Propose(
-		context.Background(),
-		proposeRequest(sessionID, "propose.legacy-second", 5, nil),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := engine.Commit(protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       sessionID,
-		RequestID:       "commit.legacy-second",
-		ProposalID:      second.ID,
-		EventID:         "event.legacy-second",
-		Tick:            5,
-		Accepted:        true,
-		Outcome:         "Legacy second action.",
-		GoalUpdates: []protocol.GoalUpdate{{
-			GoalID: "goal.connect", ProgressDelta: 5,
-		}},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	older := observeRequest(sessionID, "observe.legacy-older", "event.legacy-older", 6)
-	older.Facts = []protocol.Fact{{
-		SubjectID: "relic", Predicate: "location", Object: "harbor", Confidence: 90,
-	}}
-	if _, err := engine.Observe(older); err != nil {
-		t.Fatal(err)
-	}
-	newer := observeRequest(sessionID, "observe.legacy-newer", "event.legacy-newer", 7)
-	newer.Facts = []protocol.Fact{{
-		SubjectID: "relic", Predicate: "location", Object: "tower", Confidence: 60,
-	}}
-	if _, err := engine.Observe(newer); err != nil {
-		t.Fatal(err)
-	}
-
-	before, err := engine.State(sessionRequest(sessionID))
-	if err != nil {
-		t.Fatal(err)
-	}
-	goal, found := findGoal(before.Actors["npc.mira"], "goal.connect")
-	if !found ||
-		goal.Progress != 3 ||
-		goal.ProgressAccumulator != 0 ||
-		goal.UpdatedTick != 0 ||
-		goal.StatusExplicit ||
-		before.Actors["npc.mira"].Beliefs["relic:location"].Object != "harbor" ||
-		before.Actors["npc.mira"].Beliefs["relic:location"].ObservedTick != 0 ||
-		before.Proposals[first.ID].OutcomeEventID != "" ||
-		before.Proposals[second.ID].OutcomeEventID != "" {
-		t.Fatalf("pre-feature session did not retain legacy state semantics: goal=%+v state=%+v", goal, before)
-	}
-	reopened := newEngine(t, eventStore, policy.Deterministic{})
-	after, err := reopened.State(sessionRequest(sessionID))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(before, after) {
-		t.Fatalf("legacy event-log replay diverged:\nbefore=%+v\nafter=%+v", before, after)
-	}
-}
-
-func TestLateCommitMergesDerivedStateByOccurrenceTick(t *testing.T) {
+func TestLateActionReportMergesDerivedStateByOccurrenceTick(t *testing.T) {
 	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
 	const sessionID = "session.late-merge"
 	create := createRequest(sessionID)
@@ -205,36 +63,28 @@ func TestLateCommitMergesDerivedStateByOccurrenceTick(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := engine.Commit(protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       sessionID,
-		RequestID:       "commit.newer",
-		ProposalID:      newer.ID,
-		EventID:         "event.newer",
-		Tick:            10,
-		Accepted:        true,
-		Outcome:         "The newer action happened.",
-		Facts: []protocol.Fact{{
-			SubjectID: "door", Predicate: "state", Object: "open", Confidence: 80,
-		}},
-		GoalUpdates: []protocol.GoalUpdate{{GoalID: "goal.connect", Status: "released"}},
-	}); err != nil {
+	newerReport := successfulReportRequest(
+		newer, "report.newer", "event.newer", 10, "The newer action happened.",
+	)
+	newerReport.Report.Facts = []protocol.Fact{{
+		SubjectID: "door", Predicate: "state", Object: "open", Confidence: 80,
+	}}
+	newerReport.Report.GoalUpdates = []protocol.GoalUpdate{{
+		GoalID: "goal.connect", Status: "released",
+	}}
+	if _, err := engine.ReportAction(newerReport); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := engine.Commit(protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       sessionID,
-		RequestID:       "commit.older",
-		ProposalID:      older.ID,
-		EventID:         "event.older",
-		Tick:            0,
-		Accepted:        true,
-		Outcome:         "The older action report arrived late.",
-		Facts: []protocol.Fact{{
-			SubjectID: "door", Predicate: "state", Object: "closed", Confidence: 100,
-		}},
-		GoalUpdates: []protocol.GoalUpdate{{GoalID: "goal.connect", Status: "active"}},
-	}); err != nil {
+	olderReport := successfulReportRequest(
+		older, "report.older", "event.older", 0, "The older action report arrived late.",
+	)
+	olderReport.Report.Facts = []protocol.Fact{{
+		SubjectID: "door", Predicate: "state", Object: "closed", Confidence: 100,
+	}}
+	olderReport.Report.GoalUpdates = []protocol.GoalUpdate{{
+		GoalID: "goal.connect", Status: "active",
+	}}
+	if _, err := engine.ReportAction(olderReport); err != nil {
 		t.Fatalf("late outcome should merge without regressing newer state: %v", err)
 	}
 
@@ -343,7 +193,7 @@ func TestBeliefConflictCapacityKeepsNewestOccurrences(t *testing.T) {
 	}
 }
 
-func TestLateBatchCommitMergesByOccurrenceTick(t *testing.T) {
+func TestLateBatchReportMergesByOccurrenceTick(t *testing.T) {
 	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
 	create := twoActorWorldRequest("session.late-batch-merge")
 	if _, err := engine.CreateSession(create); err != nil {
@@ -377,28 +227,38 @@ func TestLateBatchCommitMergesByOccurrenceTick(t *testing.T) {
 	}
 
 	newFacts := []protocol.Fact{{SubjectID: "camera", Predicate: "state", Object: "repaired", Confidence: 80}}
-	if _, err := engine.CommitBatch(protocol.BatchCommitRequest{
+	newMiraReport := successfulReportRequest(
+		newMira, "unused", "event.batch-new-mira", 10, "Mira repaired it.",
+	).Report
+	newMiraReport.Facts = newFacts
+	newOrenReport := successfulReportRequest(
+		newOren, "unused", "event.batch-new-oren", 10, "Oren documented it.",
+	).Report
+	newOrenReport.Facts = newFacts
+	if _, err := engine.ReportActionBatch(protocol.BatchActionReportRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       create.SessionID,
-		RequestID:       "commit.batch-new",
+		RequestID:       "report.batch-new",
 		Tick:            10,
-		Items: []protocol.CommitItem{
-			{ProposalID: newMira.ID, EventID: "event.batch-new-mira", Accepted: true, Outcome: "Mira repaired it.", Facts: newFacts},
-			{ProposalID: newOren.ID, EventID: "event.batch-new-oren", Accepted: true, Outcome: "Oren documented it.", Facts: newFacts},
-		},
+		Reports:         []protocol.ActionReport{newMiraReport, newOrenReport},
 	}); err != nil {
 		t.Fatal(err)
 	}
 	oldFacts := []protocol.Fact{{SubjectID: "camera", Predicate: "state", Object: "damaged", Confidence: 100}}
-	if _, err := engine.CommitBatch(protocol.BatchCommitRequest{
+	oldMiraReport := successfulReportRequest(
+		oldMira, "unused", "event.batch-old-mira", 0, "Mira first inspected it.",
+	).Report
+	oldMiraReport.Facts = oldFacts
+	oldOrenReport := successfulReportRequest(
+		oldOren, "unused", "event.batch-old-oren", 0, "Oren first inspected it.",
+	).Report
+	oldOrenReport.Facts = oldFacts
+	if _, err := engine.ReportActionBatch(protocol.BatchActionReportRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       create.SessionID,
-		RequestID:       "commit.batch-old",
+		RequestID:       "report.batch-old",
 		Tick:            0,
-		Items: []protocol.CommitItem{
-			{ProposalID: oldMira.ID, EventID: "event.batch-old-mira", Accepted: true, Outcome: "Mira first inspected it.", Facts: oldFacts},
-			{ProposalID: oldOren.ID, EventID: "event.batch-old-oren", Accepted: true, Outcome: "Oren first inspected it.", Facts: oldFacts},
-		},
+		Reports:         []protocol.ActionReport{oldMiraReport, oldOrenReport},
 	}); err != nil {
 		t.Fatalf("late batch outcome should be recorded: %v", err)
 	}
@@ -467,19 +327,17 @@ func TestGoalProgressDeltasAreIndependentOfOutcomeArrivalOrder(t *testing.T) {
 			proposals[spec.name] = proposal
 		}
 		for _, spec := range order {
-			if _, err := engine.Commit(protocol.CommitRequest{
-				ProtocolVersion: protocol.Version,
-				SessionID:       sessionID,
-				RequestID:       "commit." + spec.name,
-				ProposalID:      proposals[spec.name].ID,
-				EventID:         "event." + spec.name,
-				Tick:            spec.tick,
-				Accepted:        true,
-				Outcome:         "The game applied the " + spec.name + " action.",
-				GoalUpdates: []protocol.GoalUpdate{{
-					GoalID: "goal.connect", ProgressDelta: spec.delta,
-				}},
-			}); err != nil {
+			report := successfulReportRequest(
+				proposals[spec.name],
+				"report."+spec.name,
+				"event."+spec.name,
+				spec.tick,
+				"The game applied the "+spec.name+" action.",
+			)
+			report.Report.GoalUpdates = []protocol.GoalUpdate{{
+				GoalID: "goal.connect", ProgressDelta: spec.delta,
+			}}
+			if _, err := engine.ReportAction(report); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -539,21 +397,19 @@ func TestGoalStatusOrderingIsIndependentFromProgressOnlyUpdates(t *testing.T) {
 			proposals[spec.name] = proposal
 		}
 		for _, spec := range order {
-			if _, err := engine.Commit(protocol.CommitRequest{
-				ProtocolVersion: protocol.Version,
-				SessionID:       sessionID,
-				RequestID:       "commit." + spec.name,
-				ProposalID:      proposals[spec.name].ID,
-				EventID:         "event." + spec.name,
-				Tick:            spec.tick,
-				Accepted:        true,
-				Outcome:         "The game applied " + spec.name + ".",
-				GoalUpdates: []protocol.GoalUpdate{{
-					GoalID:        "goal.connect",
-					ProgressDelta: spec.delta,
-					Status:        spec.status,
-				}},
-			}); err != nil {
+			report := successfulReportRequest(
+				proposals[spec.name],
+				"report."+spec.name,
+				"event."+spec.name,
+				spec.tick,
+				"The game applied "+spec.name+".",
+			)
+			report.Report.GoalUpdates = []protocol.GoalUpdate{{
+				GoalID:        "goal.connect",
+				ProgressDelta: spec.delta,
+				Status:        spec.status,
+			}}
+			if _, err := engine.ReportAction(report); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -601,19 +457,17 @@ func TestGoalStatusSameTickUsesStableEventIDTieBreak(t *testing.T) {
 			proposals[spec.name] = proposal
 		}
 		for _, spec := range order {
-			if _, err := engine.Commit(protocol.CommitRequest{
-				ProtocolVersion: protocol.Version,
-				SessionID:       sessionID,
-				RequestID:       "commit.tie-" + spec.name,
-				ProposalID:      proposals[spec.name].ID,
-				EventID:         "event.tie-" + spec.name,
-				Tick:            10,
-				Accepted:        true,
-				Outcome:         "The game applied " + spec.name + ".",
-				GoalUpdates: []protocol.GoalUpdate{{
-					GoalID: "goal.connect", Status: spec.status,
-				}},
-			}); err != nil {
+			report := successfulReportRequest(
+				proposals[spec.name],
+				"report.tie-"+spec.name,
+				"event.tie-"+spec.name,
+				10,
+				"The game applied "+spec.name+".",
+			)
+			report.Report.GoalUpdates = []protocol.GoalUpdate{{
+				GoalID: "goal.connect", Status: spec.status,
+			}}
+			if _, err := engine.ReportAction(report); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -631,7 +485,7 @@ func TestGoalStatusSameTickUsesStableEventIDTieBreak(t *testing.T) {
 	}
 }
 
-func TestTickZeroAutomaticGoalStatusDoesNotBecomeExplicitMidCommit(t *testing.T) {
+func TestTickZeroAutomaticGoalStatusDoesNotBecomeExplicitMidReport(t *testing.T) {
 	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
 	const sessionID = "session.goal-tick-zero"
 	create := createRequest(sessionID)
@@ -646,19 +500,17 @@ func TestTickZeroAutomaticGoalStatusDoesNotBecomeExplicitMidCommit(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := engine.Commit(protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       sessionID,
-		RequestID:       "commit.goal-tick-zero",
-		ProposalID:      proposal.ID,
-		EventID:         "event.goal-tick-zero",
-		Tick:            0,
-		Accepted:        true,
-		Outcome:         "The game applied and then reversed the progress in one outcome.",
-		GoalUpdates: []protocol.GoalUpdate{{
-			GoalID: "goal.connect", ProgressDelta: -1,
-		}},
-	}); err != nil {
+	report := successfulReportRequest(
+		proposal,
+		"report.goal-tick-zero",
+		"event.goal-tick-zero",
+		0,
+		"The game applied and then reversed the progress in one outcome.",
+	)
+	report.Report.GoalUpdates = []protocol.GoalUpdate{{
+		GoalID: "goal.connect", ProgressDelta: -1,
+	}}
+	if _, err := engine.ReportAction(report); err != nil {
 		t.Fatal(err)
 	}
 	state, err := engine.State(sessionRequest(sessionID))
@@ -677,7 +529,7 @@ func TestTickZeroAutomaticGoalStatusDoesNotBecomeExplicitMidCommit(t *testing.T)
 	}
 }
 
-func TestOutcomeEventIDsAreUniqueAcrossMutationKinds(t *testing.T) {
+func TestActionReportEventIDsAreUniqueAcrossMutationKinds(t *testing.T) {
 	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
 	const sessionID = "session.event-id-unique"
 	if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
@@ -690,33 +542,21 @@ func TestOutcomeEventIDsAreUniqueAcrossMutationKinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := engine.Commit(protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       sessionID,
-		RequestID:       "commit.shared",
-		ProposalID:      proposal.ID,
-		EventID:         "event.shared",
-		Tick:            0,
-		Accepted:        true,
-		Outcome:         "This must not be recorded.",
-	}); !errors.Is(err, rinruntime.ErrConflict) || rinruntime.ErrorCode(err) != "event_exists" {
-		t.Fatalf("commit reused an observation event id: %v", err)
+	report := successfulReportRequest(
+		proposal, "report.shared", "event.shared", 0, "This must not be recorded.",
+	)
+	if _, err := engine.ReportAction(report); !errors.Is(err, rinruntime.ErrConflict) ||
+		rinruntime.ErrorCode(err) != "event_exists" {
+		t.Fatalf("report reused an observation event id: %v", err)
 	}
 
 	rejected, _, err := engine.Propose(context.Background(), proposeRequest(sessionID, "propose.rejected-id", 0, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := engine.Commit(protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       sessionID,
-		RequestID:       "commit.rejected-id",
-		ProposalID:      rejected.ID,
-		EventID:         "event.rejected-id",
-		Tick:            0,
-		Accepted:        false,
-		Outcome:         "The game rejected it.",
-	}); err != nil {
+	if _, err := engine.ReportAction(rejectedReportRequest(
+		rejected, "report.rejected-id", "event.rejected-id", 0, "The game rejected it.",
+	)); err != nil {
 		t.Fatal(err)
 	}
 	duplicateObservation := observeRequest(
@@ -733,21 +573,16 @@ func TestOutcomeEventIDsAreUniqueAcrossMutationKinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := engine.Commit(protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       sessionID,
-		RequestID:       "commit.reuse-rejected-id",
-		ProposalID:      next.ID,
-		EventID:         "event.rejected-id",
-		Tick:            0,
-		Accepted:        true,
-		Outcome:         "This must not be recorded.",
-	}); !errors.Is(err, rinruntime.ErrConflict) || rinruntime.ErrorCode(err) != "event_exists" {
-		t.Fatalf("accepted commit reused a rejected outcome event id: %v", err)
+	reused := successfulReportRequest(
+		next, "report.reuse-rejected-id", "event.rejected-id", 0, "This must not be recorded.",
+	)
+	if _, err := engine.ReportAction(reused); !errors.Is(err, rinruntime.ErrConflict) ||
+		rinruntime.ErrorCode(err) != "event_exists" {
+		t.Fatalf("accepted report reused a rejected report event id: %v", err)
 	}
 }
 
-func TestBatchOutcomeEventIDsAreUniqueWithinBatchAndAcrossKinds(t *testing.T) {
+func TestBatchReportEventIDsAreUniqueWithinBatchAndAcrossKinds(t *testing.T) {
 	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
 	create := twoActorWorldRequest("session.batch-event-id-unique")
 	if _, err := engine.CreateSession(create); err != nil {
@@ -770,27 +605,33 @@ func TestBatchOutcomeEventIDsAreUniqueWithinBatchAndAcrossKinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := engine.CommitBatch(protocol.BatchCommitRequest{
+	crossKindMira := successfulReportRequest(
+		mira, "unused", "event.batch-shared", 0, "Must not report.",
+	).Report
+	crossKindOren := successfulReportRequest(
+		oren, "unused", "event.batch-other", 0, "Must not report.",
+	).Report
+	if _, err := engine.ReportActionBatch(protocol.BatchActionReportRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       create.SessionID,
-		RequestID:       "commit.batch-cross-kind-id",
+		RequestID:       "report.batch-cross-kind-id",
 		Tick:            0,
-		Items: []protocol.CommitItem{
-			{ProposalID: mira.ID, EventID: "event.batch-shared", Accepted: true, Outcome: "Must not commit."},
-			{ProposalID: oren.ID, EventID: "event.batch-other", Accepted: true, Outcome: "Must not commit."},
-		},
+		Reports:         []protocol.ActionReport{crossKindMira, crossKindOren},
 	}); !errors.Is(err, rinruntime.ErrConflict) || rinruntime.ErrorCode(err) != "event_exists" {
 		t.Fatalf("batch reused an observation event id: %v", err)
 	}
-	if _, err := engine.CommitBatch(protocol.BatchCommitRequest{
+	duplicateMira := successfulReportRequest(
+		mira, "unused", "event.batch-duplicate", 0, "Must not report.",
+	).Report
+	duplicateOren := successfulReportRequest(
+		oren, "unused", "event.batch-duplicate", 0, "Must not report.",
+	).Report
+	if _, err := engine.ReportActionBatch(protocol.BatchActionReportRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       create.SessionID,
-		RequestID:       "commit.batch-duplicate-id",
+		RequestID:       "report.batch-duplicate-id",
 		Tick:            0,
-		Items: []protocol.CommitItem{
-			{ProposalID: mira.ID, EventID: "event.batch-duplicate", Accepted: true, Outcome: "Must not commit."},
-			{ProposalID: oren.ID, EventID: "event.batch-duplicate", Accepted: true, Outcome: "Must not commit."},
-		},
+		Reports:         []protocol.ActionReport{duplicateMira, duplicateOren},
 	}); rinruntime.ErrorCode(err) != "invalid_request" {
 		t.Fatalf("batch accepted duplicate item event ids: %v", err)
 	}
@@ -804,15 +645,18 @@ func TestBatchOutcomeEventIDsAreUniqueWithinBatchAndAcrossKinds(t *testing.T) {
 		t.Fatalf("invalid batch mutated state: before=%+v after=%+v", before, afterFailures)
 	}
 
-	if _, err := engine.CommitBatch(protocol.BatchCommitRequest{
+	rejectedMira := rejectedReportRequest(
+		mira, "unused", "event.batch-rejected", 0, "The game rejected it.",
+	).Report
+	acceptedOren := successfulReportRequest(
+		oren, "unused", "event.batch-accepted", 0, "The game applied it.",
+	).Report
+	if _, err := engine.ReportActionBatch(protocol.BatchActionReportRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       create.SessionID,
-		RequestID:       "commit.batch-record-ids",
+		RequestID:       "report.batch-record-ids",
 		Tick:            0,
-		Items: []protocol.CommitItem{
-			{ProposalID: mira.ID, EventID: "event.batch-rejected", Accepted: false, Outcome: "The game rejected it."},
-			{ProposalID: oren.ID, EventID: "event.batch-accepted", Accepted: true, Outcome: "The game applied it."},
-		},
+		Reports:         []protocol.ActionReport{rejectedMira, acceptedOren},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -820,21 +664,20 @@ func TestBatchOutcomeEventIDsAreUniqueWithinBatchAndAcrossKinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := engine.Commit(protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       create.SessionID,
-		RequestID:       "commit.reuse-batch-rejected",
-		ProposalID:      next.ID,
-		EventID:         "event.batch-rejected",
-		Tick:            0,
-		Accepted:        true,
-		Outcome:         "Must not reuse a rejected batch event id.",
-	}); !errors.Is(err, rinruntime.ErrConflict) || rinruntime.ErrorCode(err) != "event_exists" {
-		t.Fatalf("single commit reused a rejected batch event id: %v", err)
+	reusedBatchID := successfulReportRequest(
+		next,
+		"report.reuse-batch-rejected",
+		"event.batch-rejected",
+		0,
+		"Must not reuse a rejected batch event id.",
+	)
+	if _, err := engine.ReportAction(reusedBatchID); !errors.Is(err, rinruntime.ErrConflict) ||
+		rinruntime.ErrorCode(err) != "event_exists" {
+		t.Fatalf("single report reused a rejected batch event id: %v", err)
 	}
 }
 
-func TestCommitRejectsNextThinkTickOverflow(t *testing.T) {
+func TestActionReportRejectsNextThinkTickOverflow(t *testing.T) {
 	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
 	const sessionID = "session.tick-overflow"
 	if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
@@ -842,21 +685,20 @@ func TestCommitRejectsNextThinkTickOverflow(t *testing.T) {
 	}
 	proposal, _, err := engine.Propose(
 		context.Background(),
-		proposeRequest(sessionID, "propose.max-tick", protocol.MaxJSONSafeInteger, nil),
+		proposeRequest(sessionID, "propose.max-tick", protocol.MaxJSONSafeInteger-4, nil),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := engine.Commit(protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       sessionID,
-		RequestID:       "commit.max-tick",
-		ProposalID:      proposal.ID,
-		EventID:         "event.max-tick",
-		Tick:            protocol.MaxJSONSafeInteger,
-		Accepted:        true,
-		Outcome:         "This must not overflow scheduling state.",
-	}); !errors.Is(err, rinruntime.ErrConflict) || rinruntime.ErrorCode(err) != "tick_overflow" {
+	overflowReport := successfulReportRequest(
+		proposal,
+		"report.max-tick",
+		"event.max-tick",
+		protocol.MaxJSONSafeInteger-4,
+		"This must not overflow scheduling state.",
+	)
+	if _, err := engine.ReportAction(overflowReport); !errors.Is(err, rinruntime.ErrConflict) ||
+		rinruntime.ErrorCode(err) != "tick_overflow" {
 		t.Fatalf("expected tick_overflow, got %v", err)
 	}
 	state, err := engine.State(sessionRequest(sessionID))
@@ -864,11 +706,11 @@ func TestCommitRejectsNextThinkTickOverflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	if state.Proposals[proposal.ID].Status != "pending" || state.Revision != 2 {
-		t.Fatalf("overflowing commit mutated state: %+v", state)
+		t.Fatalf("overflowing report mutated state: %+v", state)
 	}
 }
 
-func TestBatchCommitRejectsNextThinkTickOverflow(t *testing.T) {
+func TestBatchReportRejectsNextThinkTickOverflow(t *testing.T) {
 	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
 	create := twoActorWorldRequest("session.batch-tick-overflow")
 	if _, err := engine.CreateSession(create); err != nil {
@@ -880,17 +722,19 @@ func TestBatchCommitRejectsNextThinkTickOverflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := engine.CommitBatch(protocol.BatchCommitRequest{
+	overflowBatchReport := successfulReportRequest(
+		proposal,
+		"unused",
+		"event.batch-max-tick",
+		protocol.MaxJSONSafeInteger,
+		"This must not overflow scheduling state.",
+	).Report
+	if _, err := engine.ReportActionBatch(protocol.BatchActionReportRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       create.SessionID,
-		RequestID:       "commit.batch-max-tick",
+		RequestID:       "report.batch-max-tick",
 		Tick:            protocol.MaxJSONSafeInteger,
-		Items: []protocol.CommitItem{{
-			ProposalID: proposal.ID,
-			EventID:    "event.batch-max-tick",
-			Accepted:   true,
-			Outcome:    "This must not overflow scheduling state.",
-		}},
+		Reports:         []protocol.ActionReport{overflowBatchReport},
 	}); !errors.Is(err, rinruntime.ErrConflict) || rinruntime.ErrorCode(err) != "tick_overflow" {
 		t.Fatalf("expected batch tick_overflow, got %v", err)
 	}
@@ -899,6 +743,6 @@ func TestBatchCommitRejectsNextThinkTickOverflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	if state.Proposals[proposal.ID].Status != "pending" || state.Revision != 2 {
-		t.Fatalf("overflowing batch commit mutated state: %+v", state)
+		t.Fatalf("overflowing batch report mutated state: %+v", state)
 	}
 }

@@ -5,7 +5,7 @@
 这些约定让 RPG、模拟、战术游戏和开放区域 NPC 系统使用 Rin，同时不把
 世界权威交给 Agent。
 
-本文描述 Rin `0.6.0` Preview。Wire 字段与必填成员来自
+本文描述 Rin `0.7.0` Preview。Wire 字段与必填成员来自
 [`api/openapi.json`](../api/openapi.json)。
 
 ## 身份与 Tick
@@ -57,7 +57,7 @@ Fact 使用自己的 `visibility` 白名单。这样，听到声音的角色不�
 `offer-next-step` 这类 Proposal 只是对白意图；是否推进任务、发放奖励或
 修改背包仍由游戏决定。
 
-Rin 会根据外层 Observation 或 Commit 的 `event_id` 生成存储后 Fact 的
+Rin 会根据外层 Observation 或 Action Report 的 `event_id` 生成存储后 Fact 的
 `source_event_id`，调用方应在请求中省略该字段。传闻应使用较低置信度。
 两个角色意见冲突时保留两条 Observation，不要悄悄把其中一条提升为世界真相。
 
@@ -79,26 +79,19 @@ Rin 会根据外层 Observation 或 Commit 的 `event_id` 生成存储后 Fact �
 高影响动作应提供 `request-trade` 或 `attempt-attack` 这类意图；权威游戏
 系统在 Proposal 验证后计算价格、命中、伤害、所有权和后果。
 
-## 应用与提交
-
-以下顺序只适用于显式启用 `outcome-reporting-v1` 的 Session；旧 Session
-继续使用原有 Commit 语义。
+## 执行与回报
 
 1. 若目标移动、死亡、离开可见范围、改变阵营或失去所需资源，拒绝过期提案。
 2. 通过正常玩法系统应用选定动作，或决定拒绝。
 3. 在同一权威事务中把实际结果写入游戏自己的 Outcome Outbox。
-4. 从 Outbox Commit 实际结果；状态已经前进不会使已发生结果失效。
+4. 从 Outbox 回报实际结果；状态已经前进不会使已发生结果失效。
 5. 只向确实感知结果的 Actor 发送后续 Observation。
 
-被拒绝的 Proposal 仍是有价值的审计历史。若动作作为角色意图仍然有效，
-只是被游戏规则拒绝，应以 `accepted=false` Commit。不要 Commit 适配器
-本地的 `offline.*` Proposal；之后通过 `observe` 报告它们的实际结果。
+被拒绝的 Proposal 仍是有价值的审计历史。若意图有效但游戏规则拒绝，应使用
+`rejected` Action Decision。Transport 失败不得创建动作或 Action Report。
 
-Commit 与每个 Batch Item 都必须显式携带 `accepted`；省略表示非法，不等价于
-`false`。
-
-Commit 超时或暂时失败时只重报同一 Outbox 项，不得再次执行动作。完整规则见
-[动作结果记账](outcome-reporting.zh-CN.md)。
+Action Report 超时或暂时失败时只重报同一 Outbox 项，不得再次执行动作。完整规则见
+[动作结果记账](action-lifecycle.zh-CN.md)。
 
 ## 边界与玩家安全
 
@@ -111,7 +104,7 @@ NPC 可以拒绝、误解、延迟或追求小目标，但不能创建新的合�
 
 ## 扩展到大量 Actor
 
-- 在模拟 tick 或区域激活时查询 `/v1/scheduler/due`，不要每帧查询。
+- 在模拟 tick 或区域激活时查询 `/v2/scheduler/due`，不要每帧查询。
 - 只为已加载且相关的 Actor 提交 Job，并在游戏侧和 Rin 侧都限制并发。
 - 若所有列出的 Observer 都感知了同一结果，把世界事件合成一条简洁
   Observation。

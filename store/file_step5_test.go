@@ -1050,6 +1050,10 @@ func TestFileStoreAppendRejectsCorruptActualTail(t *testing.T) {
 		Kind:            "world",
 		Summary:         "A new event must not extend a corrupt tail.",
 		Importance:      2,
+		Epoch: protocol.Epoch{
+			SessionID: "session.tail-bitrot", WorldID: "world.store", Host: 1, World: 1, Timeline: 1,
+		},
+		ObservationSeq: 3,
 	})
 	if !errors.Is(err, rinruntime.ErrCorruptLog) {
 		t.Fatalf("append on corrupt tail error = %v, want ErrCorruptLog", err)
@@ -1784,6 +1788,10 @@ func step5Observe(
 		Kind:            "world",
 		Summary:         "Step 5 range event.",
 		Importance:      2,
+		Epoch: protocol.Epoch{
+			SessionID: sessionID, WorldID: "world.store", Host: 1, World: 1, Timeline: 1,
+		},
+		ObservationSeq: uint64(revision),
 	})
 	if err != nil {
 		t.Errorf("Observe(%s,%d): %v", sessionID, revision, err)

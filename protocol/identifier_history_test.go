@@ -227,10 +227,10 @@ func TestValidateIdentifierHistoryRejectsInvalidResultAssociations(t *testing.T)
 			name: "proposal action must be valid",
 			mutate: func(history *IdentifierHistory) {
 				identity := history.Requests["request.propose"]
-				identity.Proposal.Action = ActionSpec{}
+				identity.Proposal.Action = ActionOffer{}
 				history.Requests["request.propose"] = identity
 			},
-			field: "identifier_history.requests.request.propose.proposal.action.id",
+			field: "identifier_history.requests.request.propose.proposal.action.offer_id",
 		},
 		{
 			name: "original proposal must remain pending",
@@ -326,7 +326,8 @@ func validIdentifierHistory() IdentifierHistory {
 					BasedOnRevision: 2,
 					BasedOnHeadHash: headHash,
 					CreatedRevision: 3,
-					Action:          ActionSpec{ID: "wait", Kind: "wait", Description: "Wait safely."},
+					DecisionWindow:  testDecisionWindow("session.history", "actor.history", 1),
+					Action:          testActionOffer("session.history", "actor.history", "wait", 1),
 					Stance:          "wait",
 					Summary:         "Wait.",
 					Rationale:       "Waiting is allowed.",

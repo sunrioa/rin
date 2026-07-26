@@ -172,17 +172,17 @@ function State:_validate(candidate)
         if type(outcome) ~= "table" or seen[outcome.key] or
             not valid_id(outcome.key) or type(outcome.owner) ~= "string" or
             type(state.players[outcome.owner]) ~= "table" or
-            (outcome.kind ~= "commit" and outcome.kind ~= "observe") or
+            (outcome.kind ~= "report" and outcome.kind ~= "observe") or
             type(outcome.request) ~= "table" or
             not valid_id(outcome.request.session_id) or
             not valid_id(outcome.request.request_id) or
-            not valid_id(outcome.request.event_id) or
             not safe_integer(outcome.request.tick) or
-            (outcome.kind == "commit" and
-                (type(outcome.fallback_observe) ~= "table" or
-                    outcome.fallback_observe.session_id ~= outcome.request.session_id or
-                    not valid_id(outcome.fallback_observe.request_id) or
-                    not valid_id(outcome.fallback_observe.event_id))) then
+            (outcome.kind == "report" and
+                (type(outcome.request.report) ~= "table" or
+                    not valid_id(outcome.request.report.proposal_id) or
+                    not valid_id(outcome.request.report.event_id))) or
+            (outcome.kind == "observe" and
+                not valid_id(outcome.request.event_id)) then
             return false, state_error("invalid_state", "Outcome Outbox is malformed")
         end
         seen[outcome.key] = true
@@ -343,18 +343,6 @@ local function same_outcome(left, right)
         left.request.request_id == right.request.request_id
 end
 
-function State:replace_outcome(name, original, converted)
-    local candidate, copy_error = self:_copy(self.state)
-    if not candidate then return false, copy_error end
-    for index, outcome in ipairs(candidate.outcomes) do
-        if outcome.owner == name and same_outcome(outcome, original) then
-            candidate.outcomes[index] = converted
-            return self:_persist(candidate)
-        end
-    end
-    return false, state_error("outcome_changed", "Outcome changed before conversion")
-end
-
 function State:acknowledge_outcome(name, acknowledged)
     local candidate, copy_error = self:_copy(self.state)
     if not candidate then return false, copy_error end
@@ -378,22 +366,6 @@ function State:has_outcomes(name)
         if outcome.owner == name then return true end
     end
     return false
-end
-
-function State:complete_offline(name, sequence, outcome)
-    local player = self.state.players[name]
-    if not player or player.attempt or sequence ~= player.sequence + 1 or
-        #self.state.outcomes >= maximum_outcomes then
-        return false, state_error("invalid_offline_outcome", "Offline outcome cannot be stored")
-    end
-    local candidate, copy_error = self:_copy(self.state)
-    if not candidate then return false, copy_error end
-    candidate.players[name].sequence = sequence
-    candidate.players[name].last_tick = math.max(
-        candidate.players[name].last_tick,
-        tonumber(outcome.request.tick) or 0)
-    table.insert(candidate.outcomes, outcome)
-    return self:_persist(candidate)
 end
 
 return module

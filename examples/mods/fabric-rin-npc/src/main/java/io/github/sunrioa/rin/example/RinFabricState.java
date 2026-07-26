@@ -146,8 +146,7 @@ final class RinFabricState extends PersistentState {
             List<Object> encodedOutcomes = new ArrayList<>();
             outcomes.values().forEach(entry -> encodedOutcomes.add(Map.of(
                     "key", entry.key(),
-                    "commit", entry.commit(),
-                    "fallback_observe", entry.fallbackObserve())));
+                    "report", entry.report())));
             result.put("outcomes", encodedOutcomes);
             return result;
         }
@@ -175,8 +174,7 @@ final class RinFabricState extends PersistentState {
                     Map<String, Object> encoded = object(raw);
                     OutcomeOutboxEntry entry = new OutcomeOutboxEntry(
                             text(encoded.get("key")),
-                            object(encoded.get("commit")),
-                            object(encoded.get("fallback_observe")));
+                            object(encoded.get("report")));
                     if (session.outcomes.putIfAbsent(entry.key(), entry) != null) {
                         throw new IllegalStateException("Rin saved state has duplicate outcomes");
                     }

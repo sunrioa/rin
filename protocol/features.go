@@ -8,20 +8,14 @@ const (
 	FeatureGoalCandidates  = "goal-candidates-v1"
 	FeatureActorActivity   = "actor-activity-v1"
 	FeatureArbitration     = "arbitration-v1"
-	// FeatureOutcomeReporting opts a session into game-authoritative outcome
-	// reports, late occurrence-time merging, and durable outcome metadata.
-	// Sessions created before this feature retain their historical reducer
-	// semantics when old event logs are replayed.
-	FeatureOutcomeReporting = "outcome-reporting-v1"
 )
 
 var supportedFeatures = map[string]struct{}{
-	FeatureMemoryArchive:    {},
-	FeatureBeliefConflicts:  {},
-	FeatureGoalCandidates:   {},
-	FeatureActorActivity:    {},
-	FeatureArbitration:      {},
-	FeatureOutcomeReporting: {},
+	FeatureMemoryArchive:   {},
+	FeatureBeliefConflicts: {},
+	FeatureGoalCandidates:  {},
+	FeatureActorActivity:   {},
+	FeatureArbitration:     {},
 }
 
 func SupportedFeatures() []string {
@@ -36,7 +30,7 @@ func SupportedFeatures() []string {
 // RecommendedFeatures is the single safe semantic baseline for every newly
 // created Session. Other Features remain optional capabilities.
 func RecommendedFeatures() []string {
-	return []string{FeatureOutcomeReporting}
+	return nil
 }
 
 func IsSupportedFeature(feature string) bool {

@@ -29,7 +29,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import static net.minecraft.server.command.CommandManager.literal;
 
 public final class RinNpcMod implements ModInitializer {
-    private static final Set<String> ALLOWED_ACTIONS = Set.of("talk", "wait", "refuse");
+    private static final Set<String> ALLOWED_OFFERS =
+            Set.of("offer.talk", "offer.wait", "offer.refuse");
     private static final HostDurability DURABILITY =
             HostDurability.advisory(true);
 
@@ -142,7 +143,7 @@ public final class RinNpcMod implements ModInitializer {
                 .thenCompose(freshness -> planOnServer(server, playerId, proposal, freshness))
                 .thenCompose(plan -> {
                     PendingTurn pending = resolved.pendingTurn();
-                    Map<String, Object> commit = RinNpcRequests.commit(
+                    Map<String, Object> report = RinNpcRequests.report(
                             server,
                             pending,
                             proposal,
@@ -151,7 +152,7 @@ public final class RinNpcMod implements ModInitializer {
                     return workflow.applyAndEnqueueOutcome(
                             pending,
                             proposal,
-                            commit,
+                            report,
                             HostDurabilityProfile.ADVISORY,
                             ignored -> applyOnServer(server, playerId, plan));
                 });
@@ -175,17 +176,17 @@ public final class RinNpcMod implements ModInitializer {
                         "The player left before the proposal could be applied.",
                         "");
             }
-            String actionId = text(object(proposal.get("action")).get("id"));
-            if (!ALLOWED_ACTIONS.contains(actionId)) {
+            String actionId = text(object(proposal.get("action")).get("offer_id"));
+            if (!ALLOWED_OFFERS.contains(actionId)) {
                 return new ActionPlan(
                         false,
                         "The game rejected an action outside its allowlist.",
                         "");
             }
             String line = switch (actionId) {
-                case "talk" -> "Guide: Check the nearby terrain, then choose a route with cover.";
-                case "wait" -> "Guide: Let us watch one more cycle before acting.";
-                case "refuse" -> "Guide: I cannot help with actions that break server rules.";
+                case "offer.talk" -> "Guide: Check the nearby terrain, then choose a route with cover.";
+                case "offer.wait" -> "Guide: Let us watch one more cycle before acting.";
+                case "offer.refuse" -> "Guide: I cannot help with actions that break server rules.";
                 default -> throw new IllegalStateException("Action allowlist changed");
             };
             return new ActionPlan(true, line, line);

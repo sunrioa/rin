@@ -14,7 +14,7 @@ public final class RinFabricStateTest {
         RinFabricState state = new RinFabricState();
         String sessionId = "fabric." + state.worldId + ".00000000-0000-0000-0000-000000000001";
         Map<String, Object> create = Map.of(
-                "protocol_version", "0.6",
+                "protocol_version", "rin.protocol/v2",
                 "session_id", sessionId,
                 "request_id", "create." + sessionId);
         RinFabricState.SessionState session = state.session(sessionId, create);
@@ -22,26 +22,26 @@ public final class RinFabricStateTest {
         session.pendingTurn = PendingTurn.create(
                 state.worldId + "." + sequence,
                 Map.of(
-                        "protocol_version", "0.6",
+                        "protocol_version", "rin.protocol/v2",
                         "session_id", sessionId,
                         "request_id", "propose." + state.worldId + "." + sequence,
                         "actor_id", "npc.rin.guide",
                         "intent", "talk",
-                        "candidate_actions", List.of()));
+                        "offers", List.of()));
         session.pendingObserve = Map.of(
-                "protocol_version", "0.6",
+                "protocol_version", "rin.protocol/v2",
                 "session_id", sessionId,
                 "request_id", "observe." + state.worldId + "." + sequence);
         OutcomeOutboxEntry outcome = new OutcomeOutboxEntry(
                 state.worldId + "." + sequence,
                 Map.of(
-                        "request_id", "commit." + state.worldId + "." + sequence,
-                        "event_id", "outcome." + state.worldId + "." + sequence,
-                        "tick", 7L),
-                Map.of(
-                        "request_id", "fallback." + state.worldId + "." + sequence,
-                        "event_id", "outcome." + state.worldId + "." + sequence,
-                        "tick", 7L));
+                        "request_id", "report." + state.worldId + "." + sequence,
+                        "tick", 7L,
+                        "report", Map.of(
+                                "proposal_id", "proposal.fixture",
+                                "event_id", "outcome." + state.worldId + "." + sequence,
+                                "decision", "rejected",
+                                "summary", "host rejected the offer")));
         session.outcomes.put(outcome.key(), outcome);
 
         NbtCompound nbt = state.writeNbt(new NbtCompound(), null);
@@ -54,7 +54,7 @@ public final class RinFabricStateTest {
         require(restoredSession.pendingObserve.equals(session.pendingObserve), "Observe changed");
         require(restoredSession.outcomes.get(outcome.key()).equals(outcome), "Outbox changed");
         require(
-                restoredSession.outcomes.get(outcome.key()).commit().get("tick")
+                restoredSession.outcomes.get(outcome.key()).report().get("tick")
                         instanceof Long,
                 "integer tick lost its wire type");
 

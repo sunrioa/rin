@@ -1,10 +1,10 @@
 class_name RinClient
 extends Node
 
-## Godot 4 adapter for Rin Protocol v1. Add this node as an autoload or child.
+## Godot 4 adapter for Rin Protocol v2. Add this node as an autoload or child.
 ## The coroutine-style API never blocks the render thread.
 
-const PROTOCOL_VERSION := "rin.protocol/v1"
+const PROTOCOL_VERSION := "rin.protocol/v2"
 const TERMINAL_STATES := ["succeeded", "failed", "stale", "canceled"]
 const AMBIGUOUS_PROPOSAL_ERRORS := [
 	"proposal_outcome_unknown",
@@ -35,68 +35,122 @@ func health() -> Dictionary:
 	return await _json_request(HTTPClient.METHOD_GET, "/health", {}, [200])
 
 func create_session(request: Dictionary) -> Dictionary:
-	return await _json_request(HTTPClient.METHOD_POST, "/v1/session/create", request, [200])
+	return await _json_request(HTTPClient.METHOD_POST, "/v2/session/create", request, [200])
 
 func state(request: Dictionary) -> Dictionary:
-	return await _json_request(HTTPClient.METHOD_POST, "/v1/session/get", request, [200])
+	return await _json_request(HTTPClient.METHOD_POST, "/v2/session/get", request, [200])
 
 func observe(request: Dictionary) -> Dictionary:
-	return await _json_request(HTTPClient.METHOD_POST, "/v1/session/observe", request, [200])
+	return await _json_request(HTTPClient.METHOD_POST, "/v2/session/observe", request, [200])
 
 
-func commit(request: Dictionary) -> Dictionary:
-	return await _json_request(HTTPClient.METHOD_POST, "/v1/action/commit", request, [200])
+func report_action(request: Dictionary) -> Dictionary:
+	return await _json_request(HTTPClient.METHOD_POST, "/v2/action/report", request, [200])
 
 
-func commit_batch(request: Dictionary) -> Dictionary:
-	return await _json_request(HTTPClient.METHOD_POST, "/v1/action/commit-batch", request, [200])
+func report_action_batch(request: Dictionary) -> Dictionary:
+	return await _json_request(HTTPClient.METHOD_POST, "/v2/action/report-batch", request, [200])
 
 
 func set_actor_activity(request: Dictionary) -> Dictionary:
-	return await _json_request(HTTPClient.METHOD_POST, "/v1/session/activity", request, [200])
+	return await _json_request(HTTPClient.METHOD_POST, "/v2/session/activity", request, [200])
 
 
 func due_agents(request: Dictionary) -> Dictionary:
-	return await _json_request(HTTPClient.METHOD_POST, "/v1/scheduler/due", request, [200])
+	return await _json_request(HTTPClient.METHOD_POST, "/v2/scheduler/due", request, [200])
 
 
 func arbitrate(request: Dictionary) -> Dictionary:
-	return await _json_request(HTTPClient.METHOD_POST, "/v1/world/arbitrate", request, [200])
+	return await _json_request(HTTPClient.METHOD_POST, "/v2/world/arbitrate", request, [200])
 
 
 func timeline(request: Dictionary) -> Dictionary:
-	return await _json_request(HTTPClient.METHOD_POST, "/v1/session/timeline", request, [200])
+	return await _json_request(HTTPClient.METHOD_POST, "/v2/session/timeline", request, [200])
 
 
 func replay(request: Dictionary) -> Dictionary:
-	return await _json_request(HTTPClient.METHOD_POST, "/v1/session/replay", request, [200])
+	return await _json_request(HTTPClient.METHOD_POST, "/v2/session/replay", request, [200])
 
 
 func snapshot(session_id: String) -> Dictionary:
 	return await _json_request(
 		HTTPClient.METHOD_POST,
-		"/v1/session/snapshot",
+		"/v2/session/snapshot",
 		{"protocol_version": PROTOCOL_VERSION, "session_id": session_id},
 		[200],
 	)
 
 
-func propose_with_fallback(
+static func action_offer(options: Dictionary, window: Dictionary) -> Dictionary:
+	var offer := {
+		"offer_id": options["offer_id"],
+		"decision_window_id": window["id"],
+		"actor_id": options["actor_id"],
+		"capability": {
+			"id": options["capability_id"],
+			"version": options.get("capability_version", "1"),
+		},
+		"descriptor_digest": options["descriptor_digest"],
+		"description": options["description"],
+		"arguments": options.get("arguments", {}),
+		"expected_epoch": window["epoch"].duplicate(true),
+		"observation_seq": window["observation_seq"],
+		"deadline": window["deadline"].duplicate(true),
+	}
+	if options.has("targets"):
+		offer["targets"] = options["targets"]
+	return offer
+
+
+static func immediate_action_report(options: Dictionary) -> Dictionary:
+	var proposal: Dictionary = options["proposal"]
+	var report := {
+		"proposal_id": proposal["id"],
+		"event_id": options["event_id"],
+		"decision": "accepted" if options["accepted"] else "rejected",
+		"summary": options["summary"],
+		"tags": options.get("tags", []),
+	}
+	if options["accepted"]:
+		var offer: Dictionary = proposal["action"]
+		var invocation := offer.duplicate(true)
+		invocation.erase("description")
+		invocation["operation_id"] = options["operation_id"]
+		report["invocation"] = invocation
+		report["run"] = {
+			"operation_id": options["operation_id"],
+			"status": "succeeded",
+			"progress_seq": 1,
+			"progress": 100,
+			"updated_at": options["occurred_at"],
+		}
+		report["outcome"] = {
+			"operation_id": options["operation_id"],
+			"status": "succeeded",
+			"summary": options["summary"],
+			"epoch": options["epoch"],
+			"world_seq": options["world_seq"],
+			"occurred_at": options["occurred_at"],
+		}
+	return {
+		"protocol_version": PROTOCOL_VERSION,
+		"session_id": options["session_id"],
+		"request_id": options["request_id"],
+		"tick": options["tick"],
+		"report": report,
+	}
+
+
+func propose(
 	request: Dictionary,
-	fallback_action_id: String = "",
 	cancel_check: Callable = Callable(),
 	known_job_id: String = "",
 	persist_job_id: Callable = Callable(),
-	allow_offline_before_submit: bool = true,
 ) -> Dictionary:
 	if not known_job_id.is_empty() and not _is_valid_protocol_id(known_job_id):
 		return _closed_result("invalid_job")
 	var validation_error := _validate_endpoint()
 	if not validation_error.is_empty():
-		if allow_offline_before_submit and known_job_id.is_empty():
-			return _offline_result(request, fallback_action_id, "invalid_endpoint")
-		if known_job_id.is_empty():
-			return _closed_result("proposal_outcome_unknown")
 		return _closed_result("proposal_outcome_unknown", known_job_id)
 
 	var job_id: String = known_job_id
@@ -104,19 +158,6 @@ func propose_with_fallback(
 	if job_id.is_empty():
 		var submission := await _submit_proposal(request, persist_job_id)
 		if not submission.get("ok", false):
-			var submission_error := str(submission.get("error_code", "transport_failed"))
-			if (
-				allow_offline_before_submit
-				and submission_error == "transport_unavailable_before_send"
-				and not submission.has("status")
-			):
-				# DNS/connect/TLS setup failed before an HTTP request could reach
-				# Rin and no Proposal Job was created. Resumed attempts disable
-				# this path even when the current transport is unavailable.
-				return _offline_result(request, fallback_action_id, submission_error)
-			# A timeout, connection reset, 5xx from a reverse proxy, or an
-			# oversized/malformed response may hide a durable job. Never execute
-			# a second, offline action after submission began.
 			return _closed_result(
 				"proposal_outcome_unknown",
 				_valid_submission_job_id_or(submission, ""),
@@ -127,17 +168,15 @@ func propose_with_fallback(
 	while Time.get_ticks_msec() < deadline_msec:
 		if not _is_valid_protocol_id(job_id):
 			return _closed_result("invalid_job")
-		if cancel_check.is_valid() and bool(cancel_check.call()):
-			return await _cancel_and_resolve(
-				request,
-				fallback_action_id,
-				job_id,
-				false,
-				"job_cancel_unconfirmed",
-			)
+			if cancel_check.is_valid() and bool(cancel_check.call()):
+				return await _cancel_and_resolve(
+					request,
+					job_id,
+					"job_cancel_unconfirmed",
+				)
 		var response := await _json_request(
 			HTTPClient.METHOD_GET,
-			"/v1/jobs/" + job_id.uri_encode(),
+			"/v2/jobs/" + job_id.uri_encode(),
 			{},
 			[200],
 		)
@@ -191,22 +230,17 @@ func propose_with_fallback(
 					)
 				job_id = recovered["job_id"]
 				continue
-			return _terminal_job_result(
-				request,
-				fallback_action_id,
-				job_id,
-				job,
-				true,
-			)
+				return _terminal_job_result(
+					job_id,
+					job,
+				)
 		if status != "queued" and status != "running":
 			return _closed_result("invalid_job", job_id)
 		await get_tree().create_timer(poll_interval_seconds).timeout
 
 	return await _cancel_and_resolve(
 		request,
-		fallback_action_id,
 		job_id,
-		true,
 		"job_outcome_unknown",
 	)
 
@@ -217,7 +251,7 @@ func _submit_proposal(
 ) -> Dictionary:
 	var submission := await _json_request(
 		HTTPClient.METHOD_POST,
-		"/v1/jobs/propose",
+		"/v2/jobs/propose",
 		request,
 		[202],
 	)
@@ -244,16 +278,14 @@ func _submit_proposal(
 
 func _cancel_and_resolve(
 	request: Dictionary,
-	fallback_action_id: String,
 	job_id: String,
-	allow_confirmed_terminal_fallback: bool,
 	unconfirmed_reason: String,
 ) -> Dictionary:
 	if not _is_valid_protocol_id(job_id):
 		return _closed_result("invalid_job")
 	var response := await _json_request(
 		HTTPClient.METHOD_DELETE,
-		"/v1/jobs/" + job_id.uri_encode(),
+		"/v2/jobs/" + job_id.uri_encode(),
 		{},
 		[200],
 	)
@@ -281,40 +313,28 @@ func _cancel_and_resolve(
 			)
 		)
 	if status in TERMINAL_STATES:
-		return _terminal_job_result(
-			request,
-			fallback_action_id,
-			job_id,
-			job,
-			allow_confirmed_terminal_fallback,
-		)
+		return _terminal_job_result(job_id, job)
 	if status == "queued" or status == "running":
 		return _closed_result(unconfirmed_reason, job_id)
 	return _closed_result("invalid_job", job_id)
 
 
 func _terminal_job_result(
-	request: Dictionary,
-	fallback_action_id: String,
 	job_id: String,
 	job: Dictionary,
-	allow_fallback: bool,
 ) -> Dictionary:
 	var reason := _terminal_error_code(job)
 	if reason.is_empty():
 		return _closed_result("job_outcome_unknown", job_id)
 	if reason in AMBIGUOUS_PROPOSAL_ERRORS:
 		return _closed_result(reason, job_id)
-	if allow_fallback:
-		return _offline_result(request, fallback_action_id, reason, job_id)
 	return _closed_result(reason, job_id, "canceled")
 
 
 func _sidecar_result(proposal: Dictionary, job_id: String) -> Dictionary:
 	return {
 		"source": "sidecar",
-		"committable": true,
-		"fallback_reason": "",
+		"error_code": "",
 		"job_id": job_id,
 		"proposal": proposal.duplicate(true),
 	}
@@ -342,7 +362,7 @@ func _proposal_matches_request(
 		and _same_protocol_id(proposal.get("request_id"), request.get("request_id"))
 		and _same_protocol_id(proposal.get("actor_id"), request.get("actor_id"))
 		and _same_json_integer(proposal.get("tick"), request.get("tick"))
-		and _proposal_action_matches_request(proposal.get("action"), request)
+		and _proposal_offer_matches_request(proposal.get("action"), request)
 	)
 
 
@@ -374,48 +394,49 @@ func _valid_submission_job_id_or(submission: Dictionary, fallback: String) -> St
 	return valid_job_id
 
 
-func _proposal_action_matches_request(action: Variant, request: Dictionary) -> bool:
-	if not _is_valid_action_spec(action):
+func _proposal_offer_matches_request(offer: Variant, request: Dictionary) -> bool:
+	if not _is_valid_action_offer(offer):
 		return false
-	var candidates = request.get("candidate_actions")
+	var candidates = request.get("offers")
 	if not candidates is Array:
 		return false
 	for candidate in candidates:
 		if (
-			_is_valid_action_spec(candidate)
-			and action == candidate
+			_is_valid_action_offer(candidate)
+			and offer == candidate
 		):
 			return true
 	return false
 
 
-func _is_valid_action_spec(value: Variant) -> bool:
+func _is_valid_action_offer(value: Variant) -> bool:
 	if not value is Dictionary:
 		return false
 	if (
-		not _is_valid_protocol_id(value.get("id"))
-		or not _is_valid_protocol_id(value.get("kind"))
+		not _is_valid_protocol_id(value.get("offer_id"))
+		or not _is_valid_protocol_id(value.get("decision_window_id"))
+		or not _is_valid_protocol_id(value.get("actor_id"))
 		or typeof(value.get("description")) != TYPE_STRING
+		or not value.get("capability") is Dictionary
+		or not _is_valid_protocol_id(value["capability"].get("id"))
+		or not _is_valid_protocol_id(value["capability"].get("version"))
+		or typeof(value.get("descriptor_digest")) != TYPE_STRING
+		or str(value["descriptor_digest"]).length() != 64
+		or not value.get("arguments") is Dictionary
+		or not value.get("expected_epoch") is Dictionary
+		or not _same_json_integer(value.get("observation_seq"), value.get("observation_seq"))
+		or not value.get("deadline") is Dictionary
+		or str(value["deadline"].get("clock", "")) not in ["event", "step", "realtime"]
 	):
 		return false
 	var description: String = value["description"]
 	if description.strip_edges().is_empty() or description.length() > 300:
 		return false
-	var target_ids = value.get("target_ids", [])
-	if not target_ids is Array or target_ids.size() > 32:
+	var targets = value.get("targets", [])
+	if not targets is Array or targets.size() > 32:
 		return false
-	for target_id in target_ids:
-		if not _is_valid_protocol_id(target_id):
-			return false
-	var parameters = value.get("parameters", {})
-	if not parameters is Dictionary or parameters.size() > 32:
-		return false
-	for key in parameters:
-		if (
-			not _is_valid_protocol_id(key)
-			or typeof(parameters[key]) != TYPE_STRING
-			or String(parameters[key]).length() > 500
-		):
+	for target in targets:
+		if not target is Dictionary:
 			return false
 	return true
 
@@ -485,8 +506,7 @@ func _closed_result(
 ) -> Dictionary:
 	return {
 		"source": source,
-		"committable": false,
-		"fallback_reason": reason.left(96),
+		"error_code": reason.left(96),
 		"job_id": job_id,
 		"proposal": null,
 	}
@@ -553,64 +573,6 @@ func _json_request(
 	if not decoded.get("data") is Dictionary:
 		return {"ok": false, "error_code": "invalid_response"}
 	return {"ok": true, "data": decoded["data"]}
-
-
-func _offline_result(
-	request: Dictionary,
-	fallback_action_id: String,
-	reason: String,
-	job_id: String = "",
-) -> Dictionary:
-	var candidates = request.get("candidate_actions", [])
-	if not candidates is Array or candidates.is_empty():
-		return {
-			"source": "error",
-			"committable": false,
-			"fallback_reason": "invalid_request",
-			"job_id": job_id,
-			"proposal": null,
-		}
-	var selected: Dictionary
-	if fallback_action_id.is_empty():
-		selected = candidates[0]
-	else:
-		for candidate in candidates:
-			if candidate is Dictionary and str(candidate.get("id", "")) == fallback_action_id:
-				selected = candidate
-				break
-		if selected.is_empty():
-			return {
-				"source": "error",
-				"committable": false,
-				"fallback_reason": "invalid_fallback",
-				"job_id": job_id,
-				"proposal": null,
-			}
-	var kind := str(selected.get("kind", ""))
-	var stance := kind if kind in ["engage", "partial", "redirect", "refuse", "wait"] else "engage"
-	var fingerprint := JSON.stringify({
-		"request": request,
-		"action_id": selected.get("id", ""),
-	}).sha256_text().left(24)
-	return {
-		"source": "offline",
-		"committable": false,
-		"fallback_reason": reason.left(96),
-		"job_id": job_id,
-		"proposal": {
-			"id": "offline." + fingerprint,
-			"session_id": str(request.get("session_id", "")),
-			"request_id": str(request.get("request_id", "")),
-			"actor_id": str(request.get("actor_id", "")),
-			"tick": maxi(0, int(request.get("tick", 0))),
-			"action": selected.duplicate(true),
-			"stance": stance,
-			"summary": "The game used its authored offline fallback.",
-			"rationale": "The Rin Sidecar was unavailable; world state remains game-owned.",
-			"policy_source": "adapter-offline",
-			"status": "offline",
-		},
-	}
 
 
 func _validate_endpoint() -> String:

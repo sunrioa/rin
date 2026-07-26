@@ -39,6 +39,10 @@ func TestRunInspectPrintsVerifiedRedactedSummary(t *testing.T) {
 		ProtocolVersion: protocol.Version, SessionID: "session.inspect", RequestID: "observe.inspect",
 		EventID: "event.inspect", Tick: 1, ObserverIDs: []string{"npc.inspect"}, Source: "game",
 		Kind: "dialogue", Summary: "PRIVATE_SUMMARY", Quote: "PRIVATE_QUOTE", Importance: 3,
+		Epoch: protocol.Epoch{
+			SessionID: "session.inspect", WorldID: "world.inspect", Host: 1, World: 1, Timeline: 1,
+		},
+		ObservationSeq: 1,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -100,6 +104,10 @@ func TestInspectTimelineReadsOnlyRequestedTail(t *testing.T) {
 			Kind:            "world",
 			Summary:         "A bounded inspect event.",
 			Importance:      2,
+			Epoch: protocol.Epoch{
+				SessionID: sessionID, WorldID: "world.inspect", Host: 1, World: 1, Timeline: 1,
+			},
+			ObservationSeq: uint64(revision),
 		})
 		if err != nil {
 			t.Fatal(err)

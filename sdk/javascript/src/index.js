@@ -1,5 +1,5 @@
-export const SDK_VERSION = "0.6.0";
-export const PROTOCOL_VERSION = "rin.protocol/v1";
+export const SDK_VERSION = "0.7.0";
+export const PROTOCOL_VERSION = "rin.protocol/v2";
 export const DEFAULT_BASE_URL = "http://127.0.0.1:7374";
 export const DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 export const INLINE_SNAPSHOT_MAX_BYTES = 16 * 1024 * 1024;
@@ -11,15 +11,10 @@ export const RIN_FEATURES = Object.freeze({
   goalCandidates: "goal-candidates-v1",
   actorActivity: "actor-activity-v1",
   arbitration: "arbitration-v1",
-  outcomeReporting: "outcome-reporting-v1",
 });
 export const FEATURE_PRESETS = Object.freeze({
-  safeBaseline: Object.freeze([
-    RIN_FEATURES.outcomeReporting,
-  ]),
-  authoritative: Object.freeze([
-    RIN_FEATURES.outcomeReporting,
-  ]),
+  safeBaseline: Object.freeze([]),
+  authoritative: Object.freeze([]),
   full: Object.freeze(Object.values(RIN_FEATURES)),
 });
 export const HOST_DURABILITY_PROFILES = Object.freeze({
@@ -240,21 +235,21 @@ export class ProposalAttemptCoordinator {
     };
   }
 
-  async settle(attempt, proposal, commit, apply) {
+  async settle(attempt, proposal, report, apply) {
     const stableAttempt = validateProposalAttempt(attempt);
     const stableProposal = cloneProtocolObject(proposal);
-    const stableCommit = cloneProtocolObject(commit);
+    const stableReport = cloneProtocolObject(report);
     if (typeof apply !== "function") {
       throw new RinConfigurationError(
         "invalid_workflow",
         "apply must be an authoritative transaction callback",
       );
     }
-    validateWorkflowSettlement(stableAttempt, stableProposal, stableCommit);
+    validateWorkflowSettlement(stableAttempt, stableProposal, stableReport);
     await this.store.settleProposalAttempt({
       attempt: stableAttempt,
       proposal: stableProposal,
-      commit: stableCommit,
+      report: stableReport,
       apply,
     });
   }
@@ -289,16 +284,16 @@ export class OutcomeOutbox {
         );
       }
       for (const entry of entries) {
-        if (!isObject(entry) || !isObject(entry.commit)) {
+        if (!isObject(entry) || !isObject(entry.report)) {
           throw new RinConfigurationError(
             "invalid_outbox",
-            "Outcome Outbox entry must contain a Commit",
+            "Outcome Outbox entry must contain an Action Report",
           );
         }
-        const commit = cloneProtocolObject(entry.commit);
-        requireIdentifier("request_id", commit.request_id);
-        requireIdentifier("event_id", commit.event_id);
-        const result = await this.client.commit(commit);
+        const report = cloneProtocolObject(entry.report);
+        requireIdentifier("request_id", report.request_id);
+        requireIdentifier("event_id", report.report?.event_id);
+        const result = await this.client.reportAction(report);
         await this.store.acknowledgeOutcome(entry, result);
         acknowledged++;
       }
@@ -373,7 +368,7 @@ export class WorkflowCoordinator {
   async applyAndEnqueueOutcome({
     pendingTurn,
     proposal,
-    commit,
+    report,
     requiredDurability = HOST_DURABILITY_PROFILES.advisory,
     apply,
   }) {
@@ -396,17 +391,17 @@ export class WorkflowCoordinator {
         return await this.attempts.settle(
           pendingTurn,
           proposal,
-          commit,
+          report,
           () => apply(pendingTurn.operation_id),
         );
       }
       const stableAttempt = validateProposalAttempt(pendingTurn);
-      validateWorkflowSettlement(stableAttempt, proposal, commit);
+      validateWorkflowSettlement(stableAttempt, proposal, report);
       await apply(stableAttempt.operation_id);
       await this.store.completeProposalAttempt({
         attempt: stableAttempt,
         proposal: cloneProtocolObject(proposal),
-        commit: cloneProtocolObject(commit),
+        report: cloneProtocolObject(report),
       });
     } finally {
       this.settling = false;
@@ -516,11 +511,10 @@ export class RinClient {
       );
     }
     if (!Array.isArray(health.recommended_features) ||
-        health.recommended_features.some((feature) => typeof feature !== "string") ||
-        health.recommended_features.length === 0) {
+        health.recommended_features.some((feature) => typeof feature !== "string")) {
       throw new RinProtocolError(
         "invalid_health",
-        "Rin health recommended_features must be a non-empty array of strings",
+        "Rin health recommended_features must be an array of strings",
       );
     }
     const available = new Set(health.features);
@@ -533,34 +527,32 @@ export class RinClient {
     }
     return health;
   }
-  createSession(payload) { return this.post("/v1/session/create", payload); }
-  observe(payload) { return this.post("/v1/session/observe", payload); }
-  propose(payload) { return this.post("/v1/agent/propose", payload); }
-  submitProposalJob(payload) { return this.request("POST", "/v1/jobs/propose", payload, [202]); }
-  getProposalJob(jobId) { return this.request("GET", `/v1/jobs/${pathId(jobId)}`); }
-  cancelProposalJob(jobId) { return this.request("DELETE", `/v1/jobs/${pathId(jobId)}`); }
-  submitGenerationJob(payload) { return this.request("POST", "/v1/generation/jobs", payload, [202]); }
-  getGenerationJob(jobId) { return this.request("GET", `/v1/generation/jobs/${pathId(jobId)}`); }
-  cancelGenerationJob(jobId) { return this.request("DELETE", `/v1/generation/jobs/${pathId(jobId)}`); }
-  // Report outcomes the game already applied or rejected; never use as execution authorization.
-  commit(payload) { return this.post("/v1/action/commit", payload); }
-  // Atomically report outcomes whose proposals share one original world revision.
-  commitBatch(payload) { return this.post("/v1/action/commit-batch", payload); }
-  setActorActivity(payload) { return this.post("/v1/session/activity", payload); }
-  arbitrate(payload) { return this.post("/v1/world/arbitrate", payload); }
-  state(payload) { return this.post("/v1/session/get", payload); }
-  sessionStats(payload) { return this.post("/v1/session/stats", payload); }
-  archiveSession(payload) { return this.post("/v1/session/archive", payload); }
-  deleteSession(payload) { return this.post("/v1/session/delete", payload); }
-  snapshot(payload) { return this.post("/v1/session/snapshot", payload); }
-  restore(payload) { return this.post("/v1/session/restore", payload); }
+  createSession(payload) { return this.post("/v2/session/create", payload); }
+  observe(payload) { return this.post("/v2/session/observe", payload); }
+  propose(payload) { return this.post("/v2/agent/propose", payload); }
+  submitProposalJob(payload) { return this.request("POST", "/v2/jobs/propose", payload, [202]); }
+  getProposalJob(jobId) { return this.request("GET", `/v2/jobs/${pathId(jobId)}`); }
+  cancelProposalJob(jobId) { return this.request("DELETE", `/v2/jobs/${pathId(jobId)}`); }
+  submitGenerationJob(payload) { return this.request("POST", "/v2/generation/jobs", payload, [202]); }
+  getGenerationJob(jobId) { return this.request("GET", `/v2/generation/jobs/${pathId(jobId)}`); }
+  cancelGenerationJob(jobId) { return this.request("DELETE", `/v2/generation/jobs/${pathId(jobId)}`); }
+  reportAction(payload) { return this.post("/v2/action/report", payload); }
+  reportActionBatch(payload) { return this.post("/v2/action/report-batch", payload); }
+  setActorActivity(payload) { return this.post("/v2/session/activity", payload); }
+  arbitrate(payload) { return this.post("/v2/world/arbitrate", payload); }
+  state(payload) { return this.post("/v2/session/get", payload); }
+  sessionStats(payload) { return this.post("/v2/session/stats", payload); }
+  archiveSession(payload) { return this.post("/v2/session/archive", payload); }
+  deleteSession(payload) { return this.post("/v2/session/delete", payload); }
+  snapshot(payload) { return this.post("/v2/session/snapshot", payload); }
+  restore(payload) { return this.post("/v2/session/restore", payload); }
   async exportSession(payload, sink) {
     const serialized = serializeRequest(payload);
     const target = transferSink(sink);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      const response = await this.fetch(`${this.baseUrl}/v1/session/export`, {
+      const response = await this.fetch(`${this.baseUrl}/v2/session/export`, {
         method: "POST",
         headers: this.headers("application/x-ndjson", "application/json"),
         body: serialized,
@@ -617,7 +609,7 @@ export class RinClient {
       headers["Rin-Expected-Content-Id"] = binding.content_id;
       headers["Rin-Expected-Content-Version"] = binding.content_version;
       headers["Rin-Expected-Content-Hash"] = binding.content_hash;
-      const response = await this.fetch(`${this.baseUrl}/v1/session/import`, {
+      const response = await this.fetch(`${this.baseUrl}/v2/session/import`, {
         method: "POST",
         headers,
         body,
@@ -646,9 +638,9 @@ export class RinClient {
       clearTimeout(timer);
     }
   }
-  timeline(payload) { return this.post("/v1/session/timeline", payload); }
-  replay(payload) { return this.post("/v1/session/replay", payload); }
-  dueAgents(payload) { return this.post("/v1/scheduler/due", payload); }
+  timeline(payload) { return this.post("/v2/session/timeline", payload); }
+  replay(payload) { return this.post("/v2/session/replay", payload); }
+  dueAgents(payload) { return this.post("/v2/scheduler/due", payload); }
 
   waitForProposal(jobId, options = {}) {
     return this.waitJob(jobId, this.getProposalJob.bind(this), this.cancelProposalJob.bind(this), {
@@ -849,20 +841,20 @@ function validateProposalAttempt(value) {
   return cloneProtocolObject(value);
 }
 
-function validateWorkflowSettlement(attempt, proposal, commit) {
+function validateWorkflowSettlement(attempt, proposal, report) {
   const stableProposal = cloneProtocolObject(proposal);
-  const stableCommit = cloneProtocolObject(commit);
+  const stableReport = cloneProtocolObject(report);
   if (stableProposal.session_id !== attempt.request.session_id ||
       stableProposal.request_id !== attempt.request.request_id ||
-      stableCommit.session_id !== attempt.request.session_id ||
-      stableCommit.proposal_id !== stableProposal.id) {
+      stableReport.session_id !== attempt.request.session_id ||
+      stableReport.report?.proposal_id !== stableProposal.id) {
     throw new RinConfigurationError(
       "workflow_identity_mismatch",
-      "Attempt, Proposal, and Commit identities do not match",
+      "Attempt, Proposal, and Action Report identities do not match",
     );
   }
-  requireIdentifier("request_id", stableCommit.request_id);
-  requireIdentifier("event_id", stableCommit.event_id);
+  requireIdentifier("request_id", stableReport.request_id);
+  requireIdentifier("event_id", stableReport.report?.event_id);
 }
 
 function serializeRequest(payload) {

@@ -8,7 +8,7 @@ public sealed class Plugin : BasePlugin, IRinNpcHost
 {
     public const string PluginGuid = "io.github.sunrioa.rin.npc-example.il2cpp";
     public const string PluginName = "Rin NPC Example (IL2CPP)";
-    public const string PluginVersion = "0.6.0";
+    public const string PluginVersion = "0.7.0";
 
     private RinNpcRuntime? runtime;
     private readonly CancellationTokenSource shutdown = new();

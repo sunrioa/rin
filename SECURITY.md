@@ -4,7 +4,7 @@
 
 本文说明 Rin 的受支持安全边界、部署要求和漏洞报告方式。
 
-Rin `0.6.0` 是 Preview、pre-1.0 软件。Preview 状态不会放宽本文的 Fail-closed
+Rin `0.7.0` 是 Preview、pre-1.0 软件。Preview 状态不会放宽本文的 Fail-closed
 规则，但未来兼容性必须结合 Changelog 与迁移指南重新评估。
 
 ## Defaults
@@ -13,7 +13,7 @@ Rin `0.6.0` 是 Preview、pre-1.0 软件。Preview 状态不会放宽本文的 F
 - 非 loopback 地址必须同时传入 `-allow-remote` 并设置 `RIN_TOKEN`。
 - Rin 不终止入站 TLS；远程部署必须放在受控网络和 TLS 反向代理之后。
 - 除不含内容的 `/health` 与 `/ready` Probe 外，配置 Token 后所有端点都使用
-  constant-time Bearer 校验。`/metrics` 与 `/v1/diagnostics` 仍需鉴权，不得作为
+  constant-time Bearer 校验。`/metrics` 与 `/v2/diagnostics` 仍需鉴权，不得作为
   Reverse Proxy 的公网 Route。
 - JSON 请求正文与随附客户端响应正文默认限制为 32 MiB。完整 inline Snapshot
   compact JSON 另有 16 MiB 上限，以便为 envelope 与持久记录预留空间；超限
@@ -47,7 +47,10 @@ Rin `0.6.0` 是 Preview、pre-1.0 软件。Preview 状态不会放宽本文的 F
 
 ## Trust model
 
-Policy 和模型输出均不可信。运行时只接受游戏本次声明的候选动作，并核对 Actor、Goal、Memory、Boundary、revision 和 content binding。Rin 不执行脚本、Shell、动态插件或模型生成的工具调用。
+Policy 和模型输出均不可信。Runtime 只接受游戏为当前 Decision Window 完整绑定
+的 Action Offer，并校验 Actor、Epoch、Observation Sequence、Capability Digest、
+Deadline、Goal、Memory、Boundary、Revision 与 Content Binding。Rin 不执行
+脚本、Shell、动态插件或模型生成的工具调用。
 
 Snapshot 是可信、不透明的序列化状态，必须按事件日志同等级别保护。其中
 SHA-256 canonical checksum 可发现意外损坏或未同步修改，但不是签名或来源
@@ -62,7 +65,7 @@ History。
 在线模式只发送当前 Actor 的有限 traits、boundaries、active goals、相关 memories、beliefs、近期行动及本次候选动作。事件日志、完整 Session、Receipts、快照、文件路径、Token 和 API Key 不进入模型数据包。所有游戏文字放在明确标记的 `untrusted_game_data` 下，模型返回值仍需本地白名单验证。
 
 模型输出 Schema 不接受 `summary` 或 `rationale`，所有 Policy Draft 中的兼容
-文本也会被丢弃。运行时只用游戏明确授权展示的 `ActionSpec.description` 与
+文本也会被丢弃。运行时只用游戏明确授权展示的 `ActionOffer.description` 与
 固定 stance 模板重建玩家字段；私有 Goal、Boundary、Memory、Belief、Prompt
 和供应商文本不是该函数的输入。`policy_source`、`recalled_memory_ids`、
 `goal_id`、`boundary_id` 与完整 `proposed_goal` 是私有审计/集成元数据，不得
@@ -88,12 +91,14 @@ Provider Body 只用于有界错误分类，不会被当成 Content、写入 Ses
 
 游戏仍需把任务、物品、战斗、金钱、亲密同意和关键剧情等高权限操作留在自己的规则层验证。
 
-适配器的 `offline.*` Proposal 只用于游戏自己的离线回退，明确标记 `committable=false`，不能伪装成 Sidecar 提案提交。线程、HTTP 对象和取消句柄不得进入 Ren'Py 存档；只有普通 JSON 结果和经验证 Snapshot 可持久化。
+Transport 失败时 Adapter 不得合成 Proposal。线程、HTTP
+对象和取消句柄不得进入 Ren'Py 存档；只有普通 JSON、完整 Pending Turn、
+Report Outbox Entry 与经验证 Snapshot 可持久化。
 
 已确认存活的 Sidecar Proposal Operation 内部若 Provider 失败，可以使用确定性
 Policy；Sidecar Submit、Poll、Timeout 或 Cancel 结果未决则不是 Offline 证明，
 在线 Proposal 可能已经存在。游戏必须持久化并恢复完全相同的 Proposal
-Attempt/Job 身份，阻塞新 Turn，并在确认 Proposal 不存在前禁止执行 Fallback。
+Attempt/Job 身份并阻塞新 Turn。
 
 随附 File Store 会在读写前取得数据目录的 non-blocking exclusive lock。第二个
 进程打开同一目录会失败；嵌入式调用方必须调用 `(*store.File).Close()` 释放

@@ -119,7 +119,7 @@ func proposalCacheKey(input rinruntime.PolicyContext) (string, error) {
 	}{
 		SessionID: input.State.SessionID, StateVersion: policyStateVersion(input), ActorID: input.Actor.ID,
 		Tick: input.Request.Tick, Intent: input.Request.Intent, Tags: input.Request.Tags,
-		Actions: input.Request.CandidateActions, CandidateGoals: input.Request.CandidateGoals, Urgent: input.Request.Urgent,
+		Actions: input.Request.Offers, CandidateGoals: input.Request.CandidateGoals, Urgent: input.Request.Urgent,
 	})
 	if err != nil {
 		return "", err

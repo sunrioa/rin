@@ -16,11 +16,11 @@ validator; dependencies and licenses are listed in
 Documentation index: [English](docs/README.md) |
 [简体中文](docs/README.zh-CN.md)
 
-**Release status:** `0.6.0` Preview (pre-1.0). The project documents migration
+**Release status:** `0.7.0` Preview (pre-1.0). The project documents migration
 behavior but does not promise compatibility across every future minor release.
 Pin an exact repository revision or verified release tag. See the
 [changelog](CHANGELOG.md), [compatibility matrix](docs/compatibility.md),
-[v0.6 migration guide](docs/migration-v0.6.md), and
+[Protocol v2 guide](docs/protocol-v2.md), and
 [release guide](docs/release-guide.md).
 
 ## Core capabilities
@@ -32,8 +32,8 @@ Rin separates character reasoning from game-world facts:
 - A character creates an `ActionProposal` from memories, goals, boundaries,
   and the actions currently allowed by the game.
 - A proposal cannot directly change plot, inventory, quests, or
-  relationships. The game validates and applies or rejects it, then uses
-  `commit` to report the actual outcome to Rin.
+  relationships. The game validates and applies or rejects it, then reports
+  the typed action lifecycle to Rin.
 - Every state change is written to a hash-chained JSONL event log that can be
   replayed and inspected.
 - Snapshots bind `game/content/version/hash`. Their SHA-256 canonical
@@ -49,12 +49,8 @@ Rin separates character reasoning from game-world facts:
 - If a model is unavailable, Rin falls back to a deterministic policy and
   identifies the source with `policy_source`.
 
-Every new Session must request the `outcome-reporting-v1` safe baseline.
-Pre-baseline histories without it retain legacy pre-commit/staleness behavior
-for replay and exact-retry compatibility.
-
 - Ren'Py, Godot 4, and Unity adapters preserve the same
-  observe/propose/commit authority boundary.
+  observe/propose/execute/report authority boundary.
 - The engine-neutral `host` contract separates static capabilities, per-turn
   `ActionOffer` values, epoch-bound invocation, and long-action terminal
   states. The Go registry is delivered; cross-language integration remains in
@@ -135,41 +131,41 @@ additional persistence allowlist.
 | `GET` | `/health` | Unauthenticated, dependency-free liveness |
 | `GET` | `/ready` | Unauthenticated Store/worker readiness |
 | `GET` | `/metrics` | Authenticated dependency-free Prometheus metrics |
-| `GET` | `/v1/diagnostics` | Authenticated bounded operational state without player content |
-| `POST` | `/v1/session/create` | Create a session bound to a game-content version |
-| `POST` | `/v1/session/observe` | Submit events actually observed by one or more actors |
-| `POST` | `/v1/agent/propose` | Produce a character proposal from game-allowlisted actions |
-| `POST` | `/v1/jobs/propose` | Submit an asynchronous proposal job |
-| `GET` | `/v1/jobs/{job_id}` | Read proposal-job status and result |
-| `DELETE` | `/v1/jobs/{job_id}` | Cancel a queued or running proposal job |
-| `POST` | `/v1/generation/jobs` | Submit an asynchronous structured JSON generation job |
-| `GET` | `/v1/generation/jobs/{job_id}` | Read a generation job and safe metadata |
-| `DELETE` | `/v1/generation/jobs/{job_id}` | Cancel a generation job |
-| `POST` | `/v1/action/commit` | Record an outcome the game already applied or rejected |
-| `POST` | `/v1/action/commit-batch` | Atomically record multi-actor outcomes from one original world revision |
-| `POST` | `/v1/session/activity` | Update actor region and awake/dormant state |
-| `POST` | `/v1/world/arbitrate` | Deterministically arbitrate conflicting parallel proposals |
-| `POST` | `/v1/scheduler/due` | Query actors due to think at the current tick |
-| `POST` | `/v1/session/get` | Read session state |
-| `POST` | `/v1/session/stats` | Read lifecycle and managed storage use |
-| `POST` | `/v1/session/archive` | Freeze read-only with Binding/head preconditions |
-| `POST` | `/v1/session/delete` | Delete an archived Session and retain a minimal tombstone |
-| `POST` | `/v1/session/snapshot` | Create and atomically save a snapshot |
-| `POST` | `/v1/session/restore` | Validate and restore a snapshot |
-| `POST` | `/v1/session/timeline` | Read the redacted event timeline |
-| `POST` | `/v1/session/replay` | Replay to a revision and return a snapshot |
+| `GET` | `/v2/diagnostics` | Authenticated bounded operational state without player content |
+| `POST` | `/v2/session/create` | Create a session bound to a game-content version |
+| `POST` | `/v2/session/observe` | Submit events actually observed by one or more actors |
+| `POST` | `/v2/agent/propose` | Produce a character proposal from game-allowlisted actions |
+| `POST` | `/v2/jobs/propose` | Submit an asynchronous proposal job |
+| `GET` | `/v2/jobs/{job_id}` | Read proposal-job status and result |
+| `DELETE` | `/v2/jobs/{job_id}` | Cancel a queued or running proposal job |
+| `POST` | `/v2/generation/jobs` | Submit an asynchronous structured JSON generation job |
+| `GET` | `/v2/generation/jobs/{job_id}` | Read a generation job and safe metadata |
+| `DELETE` | `/v2/generation/jobs/{job_id}` | Cancel a generation job |
+| `POST` | `/v2/action/report` | Record a host decision, invocation, run, and outcome |
+| `POST` | `/v2/action/report-batch` | Atomically record results from one simultaneous decision window |
+| `POST` | `/v2/session/activity` | Update actor region and awake/dormant state |
+| `POST` | `/v2/world/arbitrate` | Deterministically arbitrate conflicting parallel proposals |
+| `POST` | `/v2/scheduler/due` | Query actors due to think at the current tick |
+| `POST` | `/v2/session/get` | Read session state |
+| `POST` | `/v2/session/stats` | Read lifecycle and managed storage use |
+| `POST` | `/v2/session/archive` | Freeze read-only with Binding/head preconditions |
+| `POST` | `/v2/session/delete` | Delete an archived Session and retain a minimal tombstone |
+| `POST` | `/v2/session/snapshot` | Create and atomically save a snapshot |
+| `POST` | `/v2/session/restore` | Validate and restore a snapshot |
+| `POST` | `/v2/session/timeline` | Read the redacted event timeline |
+| `POST` | `/v2/session/replay` | Replay to a revision and return a snapshot |
 
 This table is an overview. [`api/openapi.json`](api/openapi.json) is the single
 wire-schema source for paths, methods, status codes, required fields, and JSON
-shapes. The [protocol reference](docs/protocol-v1.md) defines transaction,
+shapes. The [protocol reference](docs/protocol-v2.md) defines transaction,
 retry, and persistence semantics. Requests reject unknown fields, while clients
 must tolerate additive response fields.
 
 Every public JSON integer must be exactly representable from
 `-9007199254740991` through `9007199254740991`; fields such as ticks and
-revisions have narrower non-negative rules. Commit and every Batch Commit item
-must explicitly include `accepted`, including `accepted=false`; omission or
-`null` is invalid. Non-2xx failures use the Rin error envelope. A Job lookup can
+revisions have narrower non-negative rules. Every Action Report and Batch item
+must explicitly include `decision`; omission or `null` is invalid. Non-2xx
+failures use the Rin error envelope. A Job lookup can
 instead return HTTP `200` with a terminal `data.error`, so HTTP success alone
 does not mean the asynchronous operation succeeded.
 
@@ -179,7 +175,7 @@ the canonical typed JSON payload, and its first durable result. An exact retry
 does not mutate state: it returns the first result's revision/head (or the
 original Proposal/Arbitration) with `duplicate=true`. Reusing the ID for a
 different operation or payload returns `409 request_id_conflict`. Observe,
-Commit, and every Batch item share a permanent, Session-scoped `event_id`
+Action Report, and every Batch item share a permanent, Session-scoped `event_id`
 namespace. Bounded State Receipts are only a hot projection of this history.
 
 If Rin cannot confirm whether a non-Proposal mutation reached durable storage,
@@ -192,8 +188,8 @@ uncertain tail. Proposal writes retain the compatible
 Provider failure inside a live Rin Proposal operation can select the
 deterministic Policy. Loss of the Sidecar submit, poll, timeout, or cancellation
 result is different: an online Proposal may already exist. Preserve and resume
-the exact Proposal Attempt/Job identity, block a new turn, and do not apply an
-offline fallback until absence of an online Proposal is confirmed.
+the exact Proposal Attempt/Job identity and block a new turn. The transport
+layer must never invent a replacement action.
 
 Proposal and Generation Job records have separate, bounded in-process
 retention. In particular, a Generation request may run again after its Job is
@@ -217,13 +213,13 @@ Inline Snapshot compact JSON is limited to 16 MiB. Rin returns
 default request-body limit and every bundled client's default response limit
 are 32 MiB, leaving room for the API envelope, Restore metadata, and durable
 EventRecord framing. A lineage that outgrows the inline limit cannot use those
-JSON endpoints; use the Bearer-protected `/v1/session/export` and
-`/v1/session/import` NDJSON Session Transfer instead. The JavaScript and C#
+JSON endpoints; use the Bearer-protected `/v2/session/export` and
+`/v2/session/import` NDJSON Session Transfer instead. The JavaScript and C#
 SDKs provide caller-owned streaming source/sink helpers.
 
-See the [protocol reference](docs/protocol-v1.md) for complete fields and
+See the [protocol reference](docs/protocol-v2.md) for complete fields and
 error semantics, the [architecture guide](docs/architecture.md) for
-responsibility boundaries, and [action outcome reporting](docs/outcome-reporting.md)
+responsibility boundaries, and [action outcome reporting](docs/action-lifecycle.md)
 for application, recording, and retry order.
 
 Inspect one session offline. The command validates the requested recovery
@@ -271,8 +267,7 @@ not remove the operator's retention or capacity-planning responsibility.
 
 ## Game-engine adapters
 
-- Ren'Py: standard-library Python client, `renpy.invoke_in_thread` bridge, and
-  authored offline fallback.
+- Ren'Py: standard-library Python client and `renpy.invoke_in_thread` bridge.
 - Godot 4: asynchronous `HTTPRequest` signal/timer example.
 - Unity: asynchronous `UnityWebRequest` coroutine with bounded response
   handling.

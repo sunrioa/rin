@@ -108,6 +108,20 @@ type Epoch struct {
 	Timeline  uint64 `json:"timeline"`
 }
 
+// Timepoint is a value on one authoritative host clock. Realtime values are
+// Unix milliseconds; event and step values are host-monotonic sequence
+// numbers. A Timepoint is never a render or physics frame.
+type Timepoint struct {
+	Clock ClockMode `json:"clock"`
+	Value int64     `json:"value"`
+}
+
+// Duration is a positive budget measured by one host clock.
+type Duration struct {
+	Clock ClockMode `json:"clock"`
+	Value uint64    `json:"value"`
+}
+
 // HostRef is an opaque game-object reference. Only the owning adapter may
 // resolve Key on its authority thread. Ephemeral references must not be saved.
 type HostRef struct {
@@ -181,7 +195,7 @@ type CapabilityDescriptor struct {
 	Risk               RiskLevel         `json:"risk"`
 	RequiredDurability DurabilityProfile `json:"required_durability"`
 	RequiredScopes     []string          `json:"required_scopes,omitempty"`
-	TimeoutMS          uint32            `json:"timeout_ms"`
+	ExecutionBudget    Duration          `json:"execution_budget"`
 	MaxInputBytes      uint32            `json:"max_input_bytes"`
 	MaxOutputBytes     uint32            `json:"max_output_bytes"`
 	Cancellation       CancellationMode  `json:"cancellation"`
@@ -194,21 +208,23 @@ type CapabilityDescriptor struct {
 // name or arbitrary arguments.
 type ActionOffer struct {
 	OfferID          string          `json:"offer_id"`
+	DecisionWindowID string          `json:"decision_window_id"`
 	ActorID          string          `json:"actor_id"`
 	Capability       CapabilityRef   `json:"capability"`
 	DescriptorDigest string          `json:"descriptor_digest"`
 	Description      string          `json:"description"`
 	Arguments        json.RawMessage `json:"arguments"`
 	Targets          []HostRef       `json:"targets,omitempty"`
-	Epoch            Epoch           `json:"epoch"`
+	ExpectedEpoch    Epoch           `json:"expected_epoch"`
 	ObservationSeq   uint64          `json:"observation_seq"`
-	ExpiresAtUnixMS  int64           `json:"expires_at_unix_ms"`
+	Deadline         Timepoint       `json:"deadline"`
 }
 
 // ActionInvocation is a validated offer bound to a stable operation ID.
 type ActionInvocation struct {
 	OperationID      string          `json:"operation_id"`
 	OfferID          string          `json:"offer_id"`
+	DecisionWindowID string          `json:"decision_window_id"`
 	ActorID          string          `json:"actor_id"`
 	Capability       CapabilityRef   `json:"capability"`
 	DescriptorDigest string          `json:"descriptor_digest"`
@@ -216,7 +232,7 @@ type ActionInvocation struct {
 	Targets          []HostRef       `json:"targets,omitempty"`
 	ExpectedEpoch    Epoch           `json:"expected_epoch"`
 	ObservationSeq   uint64          `json:"observation_seq"`
-	DeadlineUnixMS   int64           `json:"deadline_unix_ms"`
+	Deadline         Timepoint       `json:"deadline"`
 }
 
 // ActionRunStatus is the lifecycle state of a host-owned operation.
@@ -235,22 +251,22 @@ const (
 
 // ActionRun reports monotonic progress for an accepted operation.
 type ActionRun struct {
-	OperationID   string          `json:"operation_id"`
-	Status        ActionRunStatus `json:"status"`
-	ProgressSeq   uint64          `json:"progress_seq"`
-	Progress      uint32          `json:"progress"`
-	UpdatedUnixMS int64           `json:"updated_unix_ms"`
-	Message       string          `json:"message,omitempty"`
+	OperationID string          `json:"operation_id"`
+	Status      ActionRunStatus `json:"status"`
+	ProgressSeq uint64          `json:"progress_seq"`
+	Progress    uint32          `json:"progress"`
+	UpdatedAt   Timepoint       `json:"updated_at"`
+	Message     string          `json:"message,omitempty"`
 }
 
 // ActionOutcome records the terminal effect observed by the host.
 type ActionOutcome struct {
-	OperationID    string          `json:"operation_id"`
-	Status         ActionRunStatus `json:"status"`
-	Code           string          `json:"code,omitempty"`
-	Summary        string          `json:"summary"`
-	Evidence       []HostRef       `json:"evidence,omitempty"`
-	Epoch          Epoch           `json:"epoch"`
-	WorldSeq       uint64          `json:"world_seq"`
-	OccurredUnixMS int64           `json:"occurred_unix_ms"`
+	OperationID string          `json:"operation_id"`
+	Status      ActionRunStatus `json:"status"`
+	Code        string          `json:"code,omitempty"`
+	Summary     string          `json:"summary"`
+	Evidence    []HostRef       `json:"evidence,omitempty"`
+	Epoch       Epoch           `json:"epoch"`
+	WorldSeq    uint64          `json:"world_seq"`
+	OccurredAt  Timepoint       `json:"occurred_at"`
 }

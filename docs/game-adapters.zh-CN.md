@@ -1,210 +1,98 @@
-# 游戏适配器
+# 游戏 Adapter
 
-[English](game-adapters.md) | [简体中文](game-adapters.zh-CN.md)
+[English](game-adapters.md) | [简体中文]
 
-适配器把引擎生命周期事件转换为 Rin `0.6.0` Preview 协议，同时保持相同的
-权威边界；Path 与 JSON Shape 来自
-[`api/openapi.json`](../api/openapi.json)：
+Adapter 把引擎生命周期事件转换成 Rin `0.7.0` **Preview** 协议对象，不会把游戏
+权威交给 Rin。
 
-1. 游戏只发送角色确实观察到的事件。
-2. 游戏提供一组当前合法且数量有限的动作。
-3. Rin 返回提案，但不会移动角色或修改世界。
-4. 游戏执行自己的规则，并提交接受或拒绝后的真实结果。
+## 最小 Host 循环
 
-适配器会在协议提案外增加两个本地字段：
+1. 网络工作前恢复稳定 Session 身份、Pending Turn、Applied Operation Marker
+   与 Report Outbox。
+2. 捕获一条权威 Observation、Epoch、Host Timepoint 和单调 Observation
+   Sequence。
+3. 创建 Decision Window 与 1–32 个完整绑定的 Action Offer。
+4. 先持久化完整 Pending Turn，再提交或恢复 Proposal。
+5. 将返回 Proposal 与持久 Session、Request、Actor、Window 和所选 Offer 匹配。
+6. 在权威线程再次检查 Epoch、Deadline、Capability Digest、Target 与游戏规则。
+7. 用稳定 Operation ID 执行，或拒绝。
+8. 将确切 `ReportActionRequest` 保存到 Outcome Outbox，直到确认成功。
 
-- `committable=true`：提案来自当前 Sidecar 会话，游戏处理后可以把结果发送到
-  `/v1/action/commit`；它不是 Rin 的执行授权。
-- `committable=false`：当前没有可 Commit 的 Rin Proposal。只有
-  `source=offline` 且返回 Proposal 时才能应用本地回退；canceled/error
-  结果没有可执行动作。不能把 `offline.*` ID 发送给 Rin，Sidecar 恢复后
-  应通过 `observe` 报告已经应用的 fallback。
+不得把传输错误或结果不明的 Job 当成执行第二个动作的许可。
 
-提交、轮询或取消响应超时/丢失时，结果属于 outcome-unknown，而不是 offline；
-应以相同 request/job 身份恢复，确认不存在在线 Proposal 前不得选择 fallback。
+## 线程
 
-这与已确认存活的 Sidecar Operation 内部 Provider 失败不同：Rin 可以让同一个
-Proposal Operation 使用 Deterministic Policy 完成。Sidecar 投递结果未决可能
-隐藏已经持久化的在线 Proposal，绝不能转换成第二个本地 Action。
+- Render、Input、Simulation 线程不得等待 HTTP 或模型完成。
+- 在所属线程捕获引擎对象，但只持久化普通有界数据与不透明 `HostRef`。
+- 只能在权威线程解析 `HostRef` 和执行 Capability。
+- Thread、Task、Future、Socket、HTTP Object 与 Token 不得进入游戏存档。
 
-首次提交前应持久化 Proposal Attempt，其中包含字节等价的完整 Propose
-Request、游戏 Operation/Sequence 身份，并在 `202` 返回后立即补上 Job ID。
-后续交互必须恢复这条 Attempt，不能创建新 Request。只有在同一个权威事务中
-应用或拒绝返回的 Proposal，并写入 Applied Marker 与 Outcome Outbox 后，才能
-移除 Attempt。未决 Proposal Attempt 与未清空的 Outcome Outbox 都会阻止新
-Turn。
+## 持久化
 
-新 Session 必须请求 `outcome-reporting-v1`，此时 Commit 才是已处理结果记账，
-而不是旧版的提交前语义。游戏应在同一个权威事务中应用
-或拒绝动作并写入本地 Outcome Outbox，再从 Outbox 向 Rin 回报。网络失败时只
-使用相同 `request_id` 重报，绝不能再次应用动作。详细规则见
-[动作结果记账](outcome-reporting.zh-CN.md)。
+复用 SDK Coordinator 负责 Workflow 顺序；游戏负责存储保证。应诚实选择
+[Host Durability Profile](host-durability.zh-CN.md)。独立 JSON 文件通常只能
+证明 `advisory`；只有游戏状态让 `operation_id` 可安全重试时才能声明
+`idempotent-action`；只有效果、Marker 与 Outbox Entry 共用一个游戏事务时
+才能声明 `transactional-action`。
 
-适配器必须把每个公共 JSON 整数保持在 `-9007199254740991` 至
-`9007199254740991`，并在 Commit 和每个 Batch Item 中显式序列化 `accepted`，
-包括 `false`。原始请求正文使用 UTF-8。非 2xx Error Envelope 与 HTTP-200 终态
-Job 的 `data.error` 是不同错误层，二者都必须处理。
+State Reader 必须区分：
 
-随附 Sidecar 会 lazy 打开 Session 历史。`/health` 只能证明进程可用，不能证明
-每个 Session 都通过了 genesis-to-head 审计；某 Session 的第一次请求可能承担
-索引/checkpoint 恢复成本，或暴露该 Session 的持久损坏。适配器必须保持权威
-startup recovery gate 关闭，直到 Session read 成功、明确返回 HTTP `404`
-且精确错误码为 `session_not_found`，或 fresh Restore 成功创建或恢复该
-Session。HTTP `500` `store_load_failed` 与 `replay_failed` 是存储/恢复错误，
-绝不能解释成新周目或离线动作结果。
+- `not_found`：可以初始化新身份；
+- 有效状态：恢复；
+- 不可读、格式错误、超限或不一致：Fail Closed。
+
+Pending Turn、Marker、Outbox Entry 与状态文件字节数都必须有上限。文件 Flush
+与 Replace 要跨平台，并在 Linux、Windows 测试中断替换。
 
 ## Ren'Py
 
-将以下文件复制到游戏的 `game/` 目录：
+从后台 Worker 使用
+[`adapters/renpy/rin_client.py`](../adapters/renpy/rin_client.py)，只把普通
+Dictionary 送回主线程。Registry 是进程内对象；持久剧情状态必须保存完整
+Pending Turn 与返回的 Job ID。Worker、Lock、HTTP Response 与 Token 都不得写入
+Rollback/Save Data。
 
-```text
-adapters/renpy/rin_client.py
-adapters/renpy/rin_bridge.rpy
-```
-
-客户端只使用 Python 标准库。需要显式启用：
-
-```bash
-export RIN_ENABLED=1
-export RIN_BASE_URL="http://127.0.0.1:7374"
-```
-
-远程 TLS 反向代理需要设置 `RIN_TOKEN`；适配器拒绝非 loopback HTTP
-以及无 Token 的远程端点。可选设置：
-
-| 变量 | 默认值 | 含义 |
-| --- | --- | --- |
-| `RIN_TIMEOUT_SECONDS` | `5` | 单次适配器 HTTP 请求 |
-| `RIN_JOB_DEADLINE_SECONDS` | `25` | 异步提案总等待时间 |
-| `RIN_POLL_INTERVAL_SECONDS` | `0.1` | Job 轮询间隔 |
-| `RIN_LIVE_TEST_ENABLED` | `0` | 显式允许 Ren'Py 原生测试访问网络 |
-
-在脚本中安排请求，继续渲染，再从 timer 或 call screen 消费结果：
-
-```python
-request_id = rin_schedule_proposal({
-    "protocol_version": "rin.protocol/v1",
-    "session_id": "playthrough-1",
-    "request_id": "propose.scene-12.lin",
-    "actor_id": "npc.lin",
-    "tick": 12,
-    "intent": "Choose how to answer.",
-    "tags": ["conversation"],
-    "candidate_actions": [
-        {"id": "respond.honest", "kind": "dialogue", "description": "Answer honestly."},
-        {"id": "respond.wait", "kind": "wait", "description": "Wait for now."},
-    ],
-}, fallback_action_id="respond.wait")
-```
-
-`rin_proposal_status(request_id)` 返回 `pending`、`ready`、`unresolved` 或
-`missing`；只有得到安全终态后，`rin_consume_proposal(request_id)` 才返回
-普通 JSON 兼容结果。状态为 `pending` 或 `unresolved` 时，应把
-`rin_proposal_attempt(request_id)` 返回的普通记录随游戏存档持久化；重启后
-把该记录交给 `rin_resume_proposal`，它会先恢复已知 Job，并且仅在 Rin 明确
-确认该 Job 不存在时最多重发一次完全相同的请求。未决 Attempt 既不能消费，
-也不能作为本地可确认取消处理。运行中的进程内 worker 则可由
-`rin_cancel_proposal` 把取消传递给 Job API。
-
-Python 客户端还提供 `commit_batch`、`set_actor_activity`、`arbitrate`、
-`timeline`、`replay` 和结构化生成方法。Generation 必须与 Proposal 一样
-使用进程内后台模式。`generate_json` 只接受不含供应商信息的 Rin 请求契约，
-返回一个解码后的 JSON Object 和受长度限制的运维元数据。若游戏持久化请求
-记录，应只允许所需字段；供应商模型名可用于显式探测，但不应写入玩法存档。
-
-线程、取消事件、HTTP 对象和注册表都只属于当前进程。不要把它们赋给
-`default`、persistent 数据、rollback 状态或存档对象。只保存已接受的协议
-Snapshot、普通结果字典，以及上文所述的普通稳定 Proposal Attempt 记录。
-
-即使开发者 shell 配置了端点，Ren'Py 原生测试也默认离线；只有
-`RIN_LIVE_TEST_ENABLED=1` 才允许真实网络。
+Adapter 与 Bridge 测试可在 macOS、Linux、Windows 运行而无需启动 Ren'Py。
+真实项目还必须在目标 Ren'Py Build 内验证 Save/Load、Rollback、Screen 更新、
+Shutdown 与 Sidecar Restart。
 
 ## Godot 4
 
-[参考目录](../examples/godot/README.zh-CN.md)是可直接运行的 Godot 4.7.1
-项目。把 `rin_client.gd` 添加为子 Node，并为每个 Save Slot 从
-`rin_workflow.gd` 创建一个 `RinWorkflow`。`RinClient` 等待
-`HTTPRequest` Signal 与 Timer Tick，不阻塞渲染。`RinWorkflow` 把有界 JSON
-保存到 `user://rin/<slot>.json`，并在网络工作前恢复稳定 Run/Session/Create
-Identity、Sequence、协议 Tick High-water、完整 Pending Turn/Observe、Job
-ID 与 Outcome Outbox。终态 Commit-to-Observe 转换和 ACK 后 Evict 都会落盘。
+[Godot Reference](../examples/godot/README.zh-CN.md) 使用 `HTTPRequest` Signal
+和每 Save Slot 一个 `RinWorkflow`。它把有界 JSON 存在
+`user://rin/<slot>.json`，网络前保存 Pending Turn 与 Outbox，而且 Transport
+Client 不修改世界。
 
-内置 File Store 的 Profile 是 `advisory`：它先 Flush 临时文件，再执行同目录
-Target/Backup 双重 Rename，因此也能从 Windows 的替换语义中恢复；但两次
-Rename 并非一个原子操作，也不能原子包含任意游戏世界效果。只有把 Store 边界
-替换成游戏事务，或让 Operation ID 对游戏效果真正幂等后，才能声明更强能力。
-I/O、解析、Schema、备份与替换失败都会 Fail Closed，不会生成新身份。
-`shutdown()` 会把取消传播给执行中的 Proposal Job，同时保留可恢复状态。
-只有存储确实 `not_found` 时才能初始化新身份；畸形或无法读取的既有状态绝不
-当作不存在。
-
-每次 Restore 都必须发送来自运行中游戏可信内容 manifest 的
-`expected_binding`，不得从存档读取。它必须等于存档 Snapshot 的 Binding；
-target Session 已存在时还必须与该 Session 的 Binding 一致。Snapshot 是可信、
-不透明的状态，必须按事件日志同等级别保护。SHA-256 canonical checksum 只能
-发现意外损坏，不能证明来源真实性，也不能阻止能重算 checksum 的一方。完整
-inline Snapshot compact JSON 上限为 16 MiB；服务端请求和随附客户端响应默认
-上限均为 32 MiB。`413 snapshot_too_large` 绝不截断存档。当前不提供流式
-Snapshot JSON 传输；完整大 lineage 迁移应使用 JavaScript/C# priority SDK 的
-Session Transfer。
-
-Godot 负责导航、动画、战斗、背包和对白渲染。精简的
-[NPC 示例](../examples/godot/example_npc.gd)只构造游戏拥有的 Request、验证
-Allowlist、应用显示效果，并把恢复流程委托给 Workflow。Activity、到期角色、
-仲裁、批量提交、时间线和回放 Helper 都是 Coroutine；只在模拟或区域变化时
-更新 Activity，不要每帧调用。Adapter 限制响应字节、禁用重定向，并只对精确
-Loopback Host 与合法端口接受明文 HTTP。CI 在 Linux 和 Windows 运行固定版本
-的 Headless 解析与重启测试。
+应从 Gameplay Event 或权威 Simulation Step 调用，不得在每帧 `_process()` 中
+调用。用于持久世界修改前，应替换 Advisory File Store 或让执行真正幂等。
 
 ## Unity
 
-安装 [UPM 包](../examples/unity/README.zh-CN.md)，再把 `RinClient` 与
-`RinUnityWorkflow` 挂到一个跨场景保留的 GameObject。Client 使用
-`UnityWebRequest` Coroutine 和有上限的流式下载处理器；Workflow 提供启动
-恢复门禁，并在 `Application.persistentDataPath` 保存有界状态。18 行的
-[RinNpcExample.cs](../examples/unity/RinNpcExample.cs)只保留游戏事件委托。
-恢复状态包含上述同一 Run ID、稳定 Create 请求、序号、Tick 高水位、
-Proposal Attempt、Applied Marker 与 Outcome Outbox。
+[Unity UPM Package](../examples/unity/README.zh-CN.md) 包含：
 
-File Store 会 Flush 临时文件，并在 Linux 与 Windows 使用可恢复的
-Target/Backup 双重 Rename。它仍是 `advisory`：这些操作无法原子包含任意
-Unity 世界效果。只有换成游戏存档事务，或让 Operation ID 对效果真正幂等后，
-才能声明更强 Profile。CI 会在 Linux 与 Windows 编译可导入包并执行重启/故障
-测试，但不会冒充需要许可证的 Unity Editor 运行。
+- `RinClient`：有界、禁止 Redirect 的 `UnityWebRequest` Coroutine Transport；
+- `RinUnityWorkflow`：Startup Recovery、Epoch、Pending Turn、Operation Marker
+  与 Report Outbox；
+- `IRinUnityHost`：游戏所有的 `CaptureTurn` 与幂等 `Execute` 边界。
 
-Unity 的 `JsonUtility` 适配器为 Activity、调度、仲裁、批量提交和时间线
-提供可序列化 DTO。由于 `JsonUtility` 无法表示以 Actor ID 为键的 map，
-Replay helper 只返回已验证的 Snapshot header；需要完整回放状态的项目应
-使用现有的字典型 JSON 包解析同一端点。使用动作参数 map 的游戏也可扩展
-可序列化请求类，无需修改线上协议。
+`ActionOffer.arguments` 保持任意 JSON Object，不强制使用对白或某个引擎专用 DTO。
+Harness 会在 Linux、Windows 编译 Package，并验证 Restart、Backup Recovery、
+损坏状态、磁盘写入失败与原始 Argument 保留。这不能替代有 License 的 Unity
+Editor/Player 测试。
 
-## 兼容性测试向量
+## Mod Host
 
-`compat/` 下的可执行测试向量覆盖完整使用流程，但不会把某个使用方写成
-Rin 公共定位的一部分。测试内容包括：
+Fabric、BepInEx Mono/IL2CPP 与 Luanti 示例展示 Server/Main Thread Dispatch 和
+持久 SDK Workflow Store。它们是 Advisory Reference，不证明生成 NPC 已适配
+每个游戏的存档与线程模型。用 [`rin init mod`](mod-scaffolding.zh-CN.md) 生成
+固定起点后，还要完成[真实 Host 验收矩阵](mod-integration-validation.zh-CN.md)。
 
-- 权限压力触发本地边界拒绝；
-- 角色特定的观察和认知可见性；
-- 目标驱动的可选内容；
-- 接受提交、冷却调度和过早提案拒绝。
+## 引擎无关审查
 
-参考流程还组合了：
-
-- 内容绑定与每次游戏运行一个 Rin Session；
-- 将权威游戏事件转为 Actor 范围的 Observation；
-- 将玩家自由文本转为显式 Observation；
-- 在结构化内容生成前提供仅候选的角色方向；
-- 接受方向并 Commit，再把 Snapshot 存入游戏存档；
-- 从运行中的可信内容 manifest 取得 Restore `expected_binding`；
-- 同时根据已存 Snapshot 与当前 Sidecar head 派生 Restore ID；
-- Sidecar Generation 不可用时使用确定性的 authored fallback。
-
-运行公共兼容性测试：
-
-```bash
-go test ./compat
-```
-
-测试向量只包含 ID、契约、哈希和短测试事件，不包含使用方的完整内容或任何
-供应商凭据。使用方专用的源码校验可以与测试向量放在一起，但不属于公共协议
-契约。
+- Offer 只包含捕获时已经合法的动作。
+- 高权威效果留在游戏代码。
+- 有引擎导航/物理 API 时优先使用；Vision Model 是可选 Observation 来源，不是
+  默认移动系统。
+- TTS 消费已经批准的对白；音频播放不改变动作权威。
+- 长 Operation 回报 Queued/Running/Terminal 进度，并在引擎支持时使用协作取消。
+- 根据 Session 预期寿命配置 Storage Metric、Retention、Snapshot/Export 与 Log。

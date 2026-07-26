@@ -20,8 +20,8 @@ ModStorage Adapter，`init.lua` 只保留 Luanti Transport、Session Wiring、
 4. 在聊天中执行 `/rin_npc` 或 `/rin_npc your message`。
 
 Mod 只在模块作用域调用 `core.request_http_api()`，把返回 API 保持为 local，
-通过 `HTTPApiTable.fetch` 异步请求，并用 `core.after` 调度轮询。它启用
-`outcome-reporting-v1`，应用前重新读取 Session；Proposal 必须仍是
+通过 `HTTPApiTable.fetch` 异步请求，并用 `core.after` 调度轮询。应用前会重新
+读取 Session；Proposal 必须仍是
 `pending`，而且 World Revision（非世界 Proposal 则为创建 Revision）必须
 匹配。过期 Proposal 不产生游戏效果，只报告 Rejected。Mod 只把 `talk`、
 `wait` 和 `refuse` 映射到游戏拥有的固定效果，并在实际 Accept/Reject 时
@@ -36,12 +36,10 @@ Mod 只在模块作用域调用 `core.request_http_api()`，把返回 API 保持
 Lua SDK Workflow 负责 Submit/Poll/Recovery、Job Identity 检查、终态无
 Proposal 处理、Freshness 与 Outbox Drain。首次请求前先保存 Pending Turn，
 首次 GET 前保存 Job ID。重启后的下一条命令复用同一 Request 和 Job；只有
-确认 Job 不存在时才允许一次 Resubmit。每条 Commit 都保留安全 Observe
-Fallback；临时报告错误保留原 Entry，明确的 Commit 终态错误会先持久转换为
-Observe 再重试。
+确认 Job 不存在时才允许一次 Resubmit。任何报告错误都会保留精确 Action
+Report 供重试，绝不会转换为 Observation。
 
-只有 Rin 尚未产生在线 Proposal 的冷启动不可用场景，Mod 才可能应用一条明确
-编写的 Offline Fallback；后续失败会 Fail Closed 或保留待办。由于 Luanti
+Rin 不可用时 Mod 会 Fail Closed 或保留待办。由于 Luanti
 无法把任意世界修改与 ModStorage 合并为原子事务，进程若恰好在聊天效果与
 状态发布之间崩溃，该效果仍可能重复。使用事务数据库的生产游戏应在自己的
 权威事务内实现同一 Workflow Store Contract，之后才能声明更强 Profile。

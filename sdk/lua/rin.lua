@@ -1,6 +1,6 @@
 local rin = {
-    VERSION = "0.6.0",
-    PROTOCOL_VERSION = "rin.protocol/v1",
+    VERSION = "0.7.0",
+    PROTOCOL_VERSION = "rin.protocol/v2",
     DEFAULT_BASE_URL = "http://127.0.0.1:7374",
     DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024,
 }
@@ -445,46 +445,44 @@ function Client:_post(path, payload, status, callback)
 end
 
 function Client:health(callback) self:_request("GET", "/health", nil, 200, callback) end
-function Client:create_session(payload, callback) self:_post("/v1/session/create", payload, 200, callback) end
-function Client:observe(payload, callback) self:_post("/v1/session/observe", payload, 200, callback) end
-function Client:propose(payload, callback) self:_post("/v1/agent/propose", payload, 200, callback) end
-function Client:submit_proposal_job(payload, callback) self:_post("/v1/jobs/propose", payload, 202, callback) end
+function Client:create_session(payload, callback) self:_post("/v2/session/create", payload, 200, callback) end
+function Client:observe(payload, callback) self:_post("/v2/session/observe", payload, 200, callback) end
+function Client:propose(payload, callback) self:_post("/v2/agent/propose", payload, 200, callback) end
+function Client:submit_proposal_job(payload, callback) self:_post("/v2/jobs/propose", payload, 202, callback) end
 function Client:get_proposal_job(job_id, callback)
     local id, err = path_id(job_id)
     if not id then callback(nil, err); return end
-    self:_request("GET", "/v1/jobs/" .. id, nil, 200, callback)
+    self:_request("GET", "/v2/jobs/" .. id, nil, 200, callback)
 end
 function Client:cancel_proposal_job(job_id, callback)
     local id, err = path_id(job_id)
     if not id then callback(nil, err); return end
-    self:_request("DELETE", "/v1/jobs/" .. id, nil, 200, callback)
+    self:_request("DELETE", "/v2/jobs/" .. id, nil, 200, callback)
 end
-function Client:submit_generation_job(payload, callback) self:_post("/v1/generation/jobs", payload, 202, callback) end
+function Client:submit_generation_job(payload, callback) self:_post("/v2/generation/jobs", payload, 202, callback) end
 function Client:get_generation_job(job_id, callback)
     local id, err = path_id(job_id)
     if not id then callback(nil, err); return end
-    self:_request("GET", "/v1/generation/jobs/" .. id, nil, 200, callback)
+    self:_request("GET", "/v2/generation/jobs/" .. id, nil, 200, callback)
 end
 function Client:cancel_generation_job(job_id, callback)
     local id, err = path_id(job_id)
     if not id then callback(nil, err); return end
-    self:_request("DELETE", "/v1/generation/jobs/" .. id, nil, 200, callback)
+    self:_request("DELETE", "/v2/generation/jobs/" .. id, nil, 200, callback)
 end
--- Report outcomes the game already applied or rejected; this does not execute them.
-function Client:commit(payload, callback) self:_post("/v1/action/commit", payload, 200, callback) end
--- Atomically report outcomes produced from one original world revision.
-function Client:commit_batch(payload, callback) self:_post("/v1/action/commit-batch", payload, 200, callback) end
-function Client:set_actor_activity(payload, callback) self:_post("/v1/session/activity", payload, 200, callback) end
-function Client:arbitrate(payload, callback) self:_post("/v1/world/arbitrate", payload, 200, callback) end
-function Client:state(payload, callback) self:_post("/v1/session/get", payload, 200, callback) end
-function Client:session_stats(payload, callback) self:_post("/v1/session/stats", payload, 200, callback) end
-function Client:archive_session(payload, callback) self:_post("/v1/session/archive", payload, 200, callback) end
-function Client:delete_session(payload, callback) self:_post("/v1/session/delete", payload, 200, callback) end
-function Client:snapshot(payload, callback) self:_post("/v1/session/snapshot", payload, 200, callback) end
-function Client:restore(payload, callback) self:_post("/v1/session/restore", payload, 200, callback) end
-function Client:timeline(payload, callback) self:_post("/v1/session/timeline", payload, 200, callback) end
-function Client:replay(payload, callback) self:_post("/v1/session/replay", payload, 200, callback) end
-function Client:due_agents(payload, callback) self:_post("/v1/scheduler/due", payload, 200, callback) end
+function Client:report_action(payload, callback) self:_post("/v2/action/report", payload, 200, callback) end
+function Client:report_action_batch(payload, callback) self:_post("/v2/action/report-batch", payload, 200, callback) end
+function Client:set_actor_activity(payload, callback) self:_post("/v2/session/activity", payload, 200, callback) end
+function Client:arbitrate(payload, callback) self:_post("/v2/world/arbitrate", payload, 200, callback) end
+function Client:state(payload, callback) self:_post("/v2/session/get", payload, 200, callback) end
+function Client:session_stats(payload, callback) self:_post("/v2/session/stats", payload, 200, callback) end
+function Client:archive_session(payload, callback) self:_post("/v2/session/archive", payload, 200, callback) end
+function Client:delete_session(payload, callback) self:_post("/v2/session/delete", payload, 200, callback) end
+function Client:snapshot(payload, callback) self:_post("/v2/session/snapshot", payload, 200, callback) end
+function Client:restore(payload, callback) self:_post("/v2/session/restore", payload, 200, callback) end
+function Client:timeline(payload, callback) self:_post("/v2/session/timeline", payload, 200, callback) end
+function Client:replay(payload, callback) self:_post("/v2/session/replay", payload, 200, callback) end
+function Client:due_agents(payload, callback) self:_post("/v2/scheduler/due", payload, 200, callback) end
 
 function Client:_wait_job(job_id, getter, canceler, options, callback, result_kind)
     options = options or {}
@@ -542,12 +540,6 @@ end
 local Workflow = {}
 Workflow.__index = Workflow
 
-local terminal_commit_errors = {
-    session_not_found = true,
-    unknown_proposal = true,
-    proposal_resolved = true,
-}
-
 local function workflow_error(code, message)
     return failure(code, message)
 end
@@ -587,7 +579,7 @@ function rin.new_workflow(client, store)
     end
     for _, method in ipairs({
         "load_attempt", "create_attempt", "save_attempt", "complete_attempt",
-        "list_outcomes", "replace_outcome", "acknowledge_outcome",
+        "list_outcomes", "acknowledge_outcome",
     }) do
         if type(store[method]) ~= "function" then
             return nil, workflow_error(
@@ -755,12 +747,17 @@ function Workflow:resume(key, callback)
 end
 
 local function valid_outcome_entry(entry)
-    return type(entry) == "table" and is_protocol_identifier(entry.key) and
-        (entry.kind == "commit" or entry.kind == "observe") and
-        type(entry.request) == "table" and
-        is_protocol_identifier(entry.request.session_id) and
-        is_protocol_identifier(entry.request.request_id) and
-        is_protocol_identifier(entry.request.event_id)
+    if type(entry) ~= "table" or not is_protocol_identifier(entry.key) or
+        entry.kind ~= "report" or
+        type(entry.request) ~= "table" then
+        return false
+    end
+    if not is_protocol_identifier(entry.request.session_id) or
+        not is_protocol_identifier(entry.request.request_id) then
+        return false
+    end
+    return type(entry.request.report) == "table" and
+        is_protocol_identifier(entry.request.report.event_id)
 end
 
 function Workflow:drain_outbox(key, callback)
@@ -793,32 +790,7 @@ function Workflow:drain_outbox(key, callback)
         end
         local function acknowledge(_, report_error)
             if report_error then
-                if entry.kind ~= "commit" or
-                    not terminal_commit_errors[tostring(report_error.code)] or
-                    type(entry.fallback_observe) ~= "table" then
-                    next_entry(report_error)
-                    return
-                end
-                local converted = {
-                    key = entry.key,
-                    owner = entry.owner,
-                    kind = "observe",
-                    request = entry.fallback_observe,
-                    fallback_observe = entry.fallback_observe,
-                }
-                if not valid_outcome_entry(converted) then
-                    next_entry(workflow_error("invalid_outbox", "Outcome fallback is malformed"))
-                    return
-                end
-                local replaced, replace_error =
-                    self.store:replace_outcome(key, entry, converted)
-                if not replaced then
-                    next_entry(replace_error or workflow_error(
-                        "outbox_conversion_failed", "Could not persist Outcome fallback"))
-                    return
-                end
-                entry = converted
-                self.client:observe(entry.request, acknowledge)
+                next_entry(report_error)
                 return
             end
             local removed, remove_error = self.store:acknowledge_outcome(key, entry)
@@ -830,11 +802,7 @@ function Workflow:drain_outbox(key, callback)
             acknowledged = acknowledged + 1
             next_entry(nil)
         end
-        if entry.kind == "observe" then
-            self.client:observe(entry.request, acknowledge)
-        else
-            self.client:commit(entry.request, acknowledge)
-        end
+        self.client:report_action(entry.request, acknowledge)
     end
     next_entry(nil)
 end
@@ -868,6 +836,78 @@ function Workflow:apply_and_enqueue(key, attempt, outcome, apply, callback)
         return
     end
     finish(true, nil)
+end
+
+-- Builds one fully bound, host-authored offer. Capability discovery is not
+-- authorization; callers still choose the arguments and targets for this
+-- exact Decision Window.
+function rin.action_offer(options, window)
+    return {
+        offer_id = options.offer_id,
+        decision_window_id = window.id,
+        actor_id = options.actor_id,
+        capability = {
+            id = options.capability_id,
+            version = options.capability_version or "1",
+        },
+        descriptor_digest = options.descriptor_digest,
+        description = options.description,
+        arguments = options.arguments or {},
+        targets = options.targets,
+        expected_epoch = window.epoch,
+        observation_seq = window.observation_seq,
+        deadline = window.deadline,
+    }
+end
+
+-- Builds the terminal projection for an immediate host action. It copies the
+-- selected offer verbatim into Invocation; Execute remains game-owned.
+function rin.immediate_action_report(options)
+    local report = {
+        proposal_id = options.proposal.id,
+        event_id = options.event_id,
+        decision = options.accepted and "accepted" or "rejected",
+        summary = options.summary,
+        tags = options.tags,
+    }
+    if options.accepted then
+        local offer = options.proposal.action
+        report.invocation = {
+            operation_id = options.operation_id,
+            offer_id = offer.offer_id,
+            decision_window_id = offer.decision_window_id,
+            actor_id = offer.actor_id,
+            capability = offer.capability,
+            descriptor_digest = offer.descriptor_digest,
+            arguments = offer.arguments,
+            targets = offer.targets,
+            expected_epoch = offer.expected_epoch,
+            observation_seq = offer.observation_seq,
+            deadline = offer.deadline,
+        }
+        report.run = {
+            operation_id = options.operation_id,
+            status = "succeeded",
+            progress_seq = 1,
+            progress = 100,
+            updated_at = options.occurred_at,
+        }
+        report.outcome = {
+            operation_id = options.operation_id,
+            status = "succeeded",
+            summary = options.summary,
+            epoch = options.epoch,
+            world_seq = options.world_seq,
+            occurred_at = options.occurred_at,
+        }
+    end
+    return {
+        protocol_version = rin.PROTOCOL_VERSION,
+        session_id = options.session_id,
+        request_id = options.request_id,
+        tick = options.tick,
+        report = report,
+    }
 end
 
 function rin.proposal_freshness(state, proposal)

@@ -21,7 +21,7 @@ import (
 	"github.com/sunrioa/rin/store"
 )
 
-var version = "0.6.0"
+var version = "0.7.0"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {

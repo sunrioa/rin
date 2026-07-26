@@ -5,7 +5,7 @@
 Rin is an engine-neutral control plane for agent state and decisions, not the
 authority that simulates or mutates the game world.
 
-This describes Rin `0.6.0` Preview. HTTP wire shapes are authoritative in
+This describes Rin `0.7.0` Preview. HTTP wire shapes are authoritative in
 [`api/openapi.json`](../api/openapi.json); this document explains component and
 trust boundaries.
 
@@ -15,7 +15,7 @@ trust boundaries.
 flowchart LR
     G["Game engine\nworld authority"] -->|Observation| R["Rin runtime\nmemory + goals + policy"]
     R -->|ActionProposal| V["Schema + boundary + freshness validation"]
-    V -->|candidate action only| G
+    V -->|action offer only| G
     G -->|Applied/rejected outcome report| R
     R --> E["Hash-chained event log"]
     R --> S["Checksummed snapshot"]
@@ -25,9 +25,10 @@ flowchart LR
 
 The game engine always owns world authority. Rin never directly changes
 scenes, quests, items, combat, character positions, critical choices, or
-saves. A policy may choose only from the current request's
-`candidate_actions`; the runtime also verifies actor, goal, memory references,
-boundaries, session revision, and content binding.
+saves. A policy may choose only from the current request's fully bound
+`offers`; the runtime also verifies actor, epoch, observation sequence,
+deadline, capability digest, goal and memory references, boundaries, session
+revision, and content binding.
 
 ## Components
 
@@ -41,23 +42,22 @@ and the adapter rechecks its schema, digest, expiry, epoch, and current
 registration immediately before dispatch onto the engine authority thread.
 
 The Host Contract currently exists as a local Go package. It neither changes
-the HTTP `rin.protocol/v1` wire shape nor claims that existing language
+the HTTP `rin.protocol/v2` wire shape nor claims that existing language
 adapters already implement the new registry.
 
 ### Protocol
 
 `protocol` is the only layer other languages need to reproduce. Every request
-explicitly carries `rin.protocol/v1`. The HTTP layer rejects unknown JSON
+explicitly carries `rin.protocol/v2`. The HTTP layer rejects unknown JSON
 fields, and identifiers cannot contain path separators.
 
 ### Runtime
 
-`runtime.Engine` is a deterministic state machine. Each session has its own
+`runtime.Engine` is a deterministic state machine. Each Session has its own
 lock. Policy execution happens outside that lock, so a slow remote model does
-not block new observations or state reads. Legacy sessions use revision and
-head hash to detect stale Proposals before application. Sessions opting into
-`outcome-reporting-v1` use the game-authoritative apply-then-report lifecycle
-and occurrence-time merge described below. Sessions with
+not block new observations or state reads. Protocol v2 always uses the
+game-authoritative typed action lifecycle and occurrence-time merge described
+below. Sessions with
 `arbitration-v1` use a `world_revision` that advances with authoritative
 Observations and settled Outcomes, allowing several actors to propose in
 parallel during one turn. Once the game has handled an Outcome, Rin records it
@@ -111,7 +111,7 @@ never published.
 
 The runtime is the single player-text information-flow gate. It always
 rebuilds `ActionProposal.summary` from the selected game-authored
-`ActionSpec.description` and `ActionProposal.rationale` from a fixed
+`ActionOffer.description` and `ActionProposal.rationale` from a fixed
 stance template. Goal, boundary, memory, belief, prompt, and provider text are
 not inputs to that function. This is a construction rule, not a secret-string
 blacklist. `goal_id`, `boundary_id`, `recalled_memory_ids`, and
@@ -164,7 +164,8 @@ model to refuse.
 The OpenAI-compatible client uses only the standard library. Each call has an
 attempt timeout and total timeout. Only temporary failures such as network
 errors, 429, 408, and 5xx responses are retried. Repeated failures open a
-circuit breaker; while open, calls immediately enter offline fallback.
+circuit breaker; while open, calls immediately use the bounded deterministic
+policy without issuing provider requests.
 Raw Provider HTTP bodies, prompts, and keys are never written to errors, logs,
 or durable Session state. A validated structured Generation result is retained
 in its bounded process-local Job record and semantic cache until returned; it
@@ -181,7 +182,7 @@ cannot match the new world state.
 ### Async jobs
 
 `jobs.Manager` uses bounded workers and a bounded queue. A game first submits
-`/v1/jobs/propose`, continues rendering and accepting input, then polls with
+`/v2/jobs/propose`, continues rendering and accepting input, then polls with
 GET. If the session changes while an actor is thinking, the job ends as
 `stale` and no obsolete proposal is written. Cancellation propagates through
 context to the HTTP provider.
@@ -210,14 +211,11 @@ local content. Model output never becomes canon automatically.
 ### Game adapters
 
 Ren'Py, Godot, and Unity adapters translate JSON/HTTP and engine-specific
-asynchrony without copying the runtime state machine. Online results have
-`committable=true`, meaning the game may report that Proposal ID after handling
-it, not that Rin authorizes execution. An adapter may choose an authored
-fallback from the current candidate list only when it knows submission never
-created an online Proposal (for example, the sidecar was disabled or the
-initial connection was refused), and marks it `committable=false`. A submit,
-poll, timeout, or cancellation with an unconfirmed outcome fails closed; the
-game must not send a local `offline.*` ID to `/commit`.
+asynchrony without copying the runtime state machine. The Host matches the
+selected Action Offer to its durable Pending Turn, revalidates epoch and
+deadline, executes or rejects under game rules, then persists an exact typed
+Report. Submit, poll, timeout, or cancellation ambiguity fails closed and is
+resumed with the exact request identity.
 
 JavaScript, C#, Java, Lua, Godot, and Unity `WorkflowCoordinator` implementations own this
 protocol-generic Pending Turn state machine, but they cannot create a storage
@@ -234,13 +232,12 @@ threads, futures, sockets, HTTP objects, or API tokens.
 
 The game supplies the upper bound and semantic scope of candidate goals. A
 policy may only recommend adopting one; the game applies it and reports an
-accepted Commit before Rin writes the goal into an actor. The game's region or
+accepted terminal action before Rin writes the goal into an actor. The game's region or
 simulation system updates activity state. Dormant actors never wake
 themselves. Arbitration stably sorts proposals at the same world revision and
-records conflicts, but it does not execute actions. With
-`outcome-reporting-v1`, the game may adjust or reject them and then report
-actual outcomes through an atomic Batch Commit.
-See [action outcome reporting](outcome-reporting.md) for the full transaction
+records conflicts, but it does not execute actions. The game may adjust or
+reject them and then report actual outcomes through an atomic Batch Action
+Report. See the [Host action lifecycle](action-lifecycle.md) for the full transaction
 and Outbox rules.
 
 This lets Rin support visual novels, RPG NPCs, and simulation residents
@@ -510,10 +507,10 @@ readable, but a later request cannot safely reuse that ID.
 ## NPC scheduling
 
 Each actor declares `think_every_ticks`. After the game applies an action and
-reports an accepted Commit,
-`next_think_tick = max(current, commit.tick + think_every_ticks)`, so a late
+reports an accepted terminal lifecycle,
+`next_think_tick = max(current, report.tick + think_every_ticks)`, so a late
 report cannot move scheduling backward. A game may call
-`/v1/scheduler/due` when entering a region, ending a turn, advancing time, or
+`/v2/scheduler/due` when entering a region, ending a turn, advancing time, or
 handling a critical event. It should never poll a model from render frames.
 
 An urgent event may set `urgent: true` on a propose request. Urgency bypasses
@@ -537,14 +534,12 @@ only scheduling time, never boundaries or the action allowlist.
   permanently incomplete: only IDs still discoverable from its bounded State
   can be seeded. `coverage_complete=false` is sticky across all later Snapshot
   and Restore merges.
-- With `outcome-reporting-v1`, Restore retains pending proposals so a saved,
-  unhandled Proposal Attempt can resume, and so a game-save Outcome Outbox can
+- Restore retains pending proposals so a saved, unhandled Proposal Attempt can
+  resume, and so a game-save Outcome Outbox can
   report actions already applied before the save. Restored proposals never
   authorize execution; the game must use its persisted Attempt and
   applied-operation marker to distinguish the states, revalidate any action
   that was not already handled, and never repeat one that was.
-- Sessions without that Feature retain legacy Restore behavior and clear
-  proposals.
 - Committed events, memories, facts, goal progress, and scheduling ticks are
   restored.
 - Restore starts a new local event-chain generation. Retained Proposal,

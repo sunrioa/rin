@@ -6,7 +6,7 @@ Rin 协调游戏进程与 Sidecar 之间的分布式流程，但世界状态只�
 接入必须按动作类别声明下列一种 Profile。Profile 描述宿主真实的持久化与应用
 边界，不取决于它调用了多少个 Rin API。
 
-本文描述 Rin `0.6.0` Preview，不修改 `rin.protocol/v1` Wire Schema。
+本文描述 Rin `0.7.0` Preview，不修改 `rin.protocol/v2` Wire Schema。
 
 ## Profile
 

@@ -58,7 +58,7 @@ func TestTransferFramesValidateAndHashDeterministically(t *testing.T) {
 		t.Fatalf("stream hashes differ: %s != %s", repeated, streamHash)
 	}
 	const expectedRecordHash = "0ac451364e53dcfd27de5cefd5b08a2b3b1a07b61eadffe09c8f2ee258aa4866"
-	const expectedStreamHash = "af5eca5a53ffe136f35656061f758fe0e45bd2b5a5d70f01d65bf53d2d8c50ba"
+	const expectedStreamHash = "184484d538ecdbb2283ad945a1e2d92837977ed57b303761a0bc9a69400e3e2e"
 	if recordHash != expectedRecordHash {
 		t.Fatalf("record hash = %s, want cross-language vector %s", recordHash, expectedRecordHash)
 	}

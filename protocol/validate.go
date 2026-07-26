@@ -1,11 +1,18 @@
 package protocol
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"mime"
+	"net/url"
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/sunrioa/rin/host"
 )
 
 var identifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$`)
@@ -209,22 +216,6 @@ func validateActor(field string, actor ActorSeed) error {
 }
 
 func ValidateCreateSession(request CreateSessionRequest) error {
-	if err := ValidateCreateSessionHistory(request); err != nil {
-		return err
-	}
-	if !HasFeature(request.Features, FeatureOutcomeReporting) {
-		return &ValidationError{
-			Field:   "features",
-			Message: "must include outcome-reporting-v1 for a new session",
-		}
-	}
-	return nil
-}
-
-// ValidateCreateSessionHistory validates a persisted v1 genesis request
-// without applying the stricter baseline for newly created Sessions. It exists
-// only so pre-baseline histories and their exact retries remain replayable.
-func ValidateCreateSessionHistory(request CreateSessionRequest) error {
 	if err := validateVersion(request.ProtocolVersion); err != nil {
 		return err
 	}
@@ -246,7 +237,6 @@ func ValidateCreateSessionHistory(request CreateSessionRequest) error {
 	if len(request.Actors) == 0 || len(request.Actors) > 128 {
 		return &ValidationError{Field: "actors", Message: "must contain 1-128 actors"}
 	}
-	outcomeReporting := HasFeature(request.Features, FeatureOutcomeReporting)
 	seen := make(map[string]struct{}, len(request.Actors))
 	for index, actor := range request.Actors {
 		if err := validateActor(fmt.Sprintf("actors[%d]", index), actor); err != nil {
@@ -263,10 +253,10 @@ func ValidateCreateSessionHistory(request CreateSessionRequest) error {
 					Message: "server-owned occurrence metadata must be zero when creating a session",
 				}
 			}
-			if outcomeReporting && goal.Status == "active" && goal.Progress >= goal.TargetProgress {
+			if goal.Status == "active" && goal.Progress >= goal.TargetProgress {
 				return &ValidationError{
 					Field:   fmt.Sprintf("actors[%d].goals[%d].status", index, goalIndex),
-					Message: "active status must match initial progress when outcome-reporting-v1 is enabled",
+					Message: "active status must match initial progress",
 				}
 			}
 		}
@@ -356,32 +346,30 @@ func ValidateObserve(request ObserveRequest) error {
 			return err
 		}
 	}
-	return nil
-}
-
-func validateAction(field string, action ActionSpec) error {
-	if err := validateID(field+".id", action.ID); err != nil {
-		return err
+	if err := request.Epoch.Validate("epoch"); err != nil {
+		return protocolHostError("", err)
 	}
-	if err := validateID(field+".kind", action.Kind); err != nil {
-		return err
+	if request.ObservationSeq == 0 ||
+		request.ObservationSeq > uint64(MaxJSONSafeInteger) {
+		return &ValidationError{Field: "observation_seq", Message: "must be a positive JSON-safe integer"}
 	}
-	if err := validateText(field+".description", action.Description, 300, true); err != nil {
-		return err
-	}
-	if err := validateTags(field+".target_ids", action.TargetIDs, 32); err != nil {
-		return err
-	}
-	if len(action.Parameters) > 32 {
-		return &ValidationError{Field: field + ".parameters", Message: "must contain at most 32 values"}
-	}
-	for key, value := range action.Parameters {
-		if err := validateID(field+".parameters key", key); err != nil {
+	if request.Payload != nil {
+		if err := validateStructuredPayload("payload", *request.Payload); err != nil {
 			return err
 		}
-		if err := validateText(field+".parameters."+key, value, 500, false); err != nil {
+	}
+	if len(request.Artifacts) > 16 {
+		return &ValidationError{Field: "artifacts", Message: "must contain at most 16 values"}
+	}
+	artifactIDs := make(map[string]struct{}, len(request.Artifacts))
+	for index, artifact := range request.Artifacts {
+		if err := validateArtifactRef(fmt.Sprintf("artifacts[%d]", index), artifact); err != nil {
 			return err
 		}
+		if _, exists := artifactIDs[artifact.ID]; exists {
+			return &ValidationError{Field: "artifacts", Message: "artifact ids must be unique"}
+		}
+		artifactIDs[artifact.ID] = struct{}{}
 	}
 	return nil
 }
@@ -404,18 +392,48 @@ func ValidatePropose(request ProposeRequest) error {
 	if err := validateTags("tags", request.Tags, 32); err != nil {
 		return err
 	}
-	if len(request.CandidateActions) == 0 || len(request.CandidateActions) > 32 {
-		return &ValidationError{Field: "candidate_actions", Message: "must contain 1-32 actions"}
+	if err := validateDecisionWindow("decision_window", request.DecisionWindow); err != nil {
+		return err
 	}
-	seen := make(map[string]struct{}, len(request.CandidateActions))
-	for index, action := range request.CandidateActions {
-		if err := validateAction(fmt.Sprintf("candidate_actions[%d]", index), action); err != nil {
-			return err
+	if !containsString(request.DecisionWindow.ActorIDs, request.ActorID) {
+		return &ValidationError{Field: "actor_id", Message: "must belong to decision_window.actor_ids"}
+	}
+	if len(request.Offers) == 0 || len(request.Offers) > 32 {
+		return &ValidationError{Field: "offers", Message: "must contain 1-32 action offers"}
+	}
+	seen := make(map[string]struct{}, len(request.Offers))
+	for index, offer := range request.Offers {
+		field := fmt.Sprintf("offers[%d]", index)
+		if err := host.ValidateActionOffer(offer); err != nil {
+			return protocolHostError(field, err)
 		}
-		if _, exists := seen[action.ID]; exists {
-			return &ValidationError{Field: "candidate_actions", Message: "action ids must be unique"}
+		if offer.ActorID != request.ActorID {
+			return &ValidationError{Field: field + ".actor_id", Message: "must equal actor_id"}
 		}
-		seen[action.ID] = struct{}{}
+		if offer.DecisionWindowID != request.DecisionWindow.ID {
+			return &ValidationError{Field: field + ".decision_window_id", Message: "must equal decision_window.id"}
+		}
+		if offer.ExpectedEpoch != request.DecisionWindow.Epoch {
+			return &ValidationError{Field: field + ".expected_epoch", Message: "must equal decision_window.epoch"}
+		}
+		if offer.ObservationSeq != request.DecisionWindow.ObservationSeq {
+			return &ValidationError{Field: field + ".observation_seq", Message: "must equal decision_window.observation_seq"}
+		}
+		if offer.Deadline.Clock != request.DecisionWindow.Deadline.Clock ||
+			offer.Deadline.Value > request.DecisionWindow.Deadline.Value {
+			return &ValidationError{Field: field + ".deadline", Message: "must not exceed decision_window.deadline"}
+		}
+		if _, exists := seen[offer.OfferID]; exists {
+			return &ValidationError{Field: "offers", Message: "offer ids must be unique"}
+		}
+		seen[offer.OfferID] = struct{}{}
+	}
+	if request.DecisionWindow.Mode == host.DecisionSequential &&
+		len(request.DecisionWindow.ActorIDs) != 1 {
+		return &ValidationError{
+			Field:   "decision_window.actor_ids",
+			Message: "sequential windows must contain exactly one actor",
+		}
 	}
 	if len(request.CandidateGoals) > 8 {
 		return &ValidationError{Field: "candidate_goals", Message: "must contain at most 8 goals"}
@@ -443,11 +461,15 @@ func ValidatePropose(request ProposeRequest) error {
 	return nil
 }
 
-func ValidateCommit(request CommitRequest) error {
+// ValidateReportAction validates one host-owned action lifecycle report.
+func ValidateReportAction(request ReportActionRequest) error {
 	if err := validateVersion(request.ProtocolVersion); err != nil {
 		return err
 	}
-	for field, value := range map[string]string{"session_id": request.SessionID, "request_id": request.RequestID, "proposal_id": request.ProposalID, "event_id": request.EventID} {
+	for field, value := range map[string]string{
+		"session_id": request.SessionID,
+		"request_id": request.RequestID,
+	} {
 		if err := validateID(field, value); err != nil {
 			return err
 		}
@@ -455,22 +477,93 @@ func ValidateCommit(request CommitRequest) error {
 	if err := validateJSONSafeTick("tick", request.Tick); err != nil {
 		return err
 	}
-	if err := validateText("outcome", request.Outcome, 1000, request.Accepted); err != nil {
+	return validateActionReport("report", request.Report)
+}
+
+func validateActionReport(field string, report ActionReport) error {
+	if err := validateID(field+".proposal_id", report.ProposalID); err != nil {
 		return err
 	}
-	if err := validateTags("tags", request.Tags, 32); err != nil {
+	if err := validateID(field+".event_id", report.EventID); err != nil {
 		return err
 	}
-	if len(request.Facts) > 64 || len(request.GoalUpdates) > 32 {
-		return &ValidationError{Field: "commit", Message: "contains too many updates"}
+	if report.Decision != ActionAccepted && report.Decision != ActionRejected {
+		return &ValidationError{Field: field + ".decision", Message: "must be accepted or rejected"}
 	}
-	for index, fact := range request.Facts {
-		if err := validateRequestFact(fmt.Sprintf("facts[%d]", index), fact); err != nil {
+	if err := validateText(field+".summary", report.Summary, 1000, true); err != nil {
+		return err
+	}
+	if err := validateTags(field+".tags", report.Tags, 32); err != nil {
+		return err
+	}
+	if len(report.Facts) > 64 || len(report.GoalUpdates) > 32 {
+		return &ValidationError{Field: field, Message: "contains too many updates"}
+	}
+	if report.Decision == ActionRejected {
+		if report.Invocation != nil || report.Run != nil || report.Outcome != nil {
+			return &ValidationError{
+				Field:   field + ".decision",
+				Message: "rejected reports must not include invocation, run, or outcome",
+			}
+		}
+		if len(report.Facts) > 0 || len(report.GoalUpdates) > 0 {
+			return &ValidationError{
+				Field:   field + ".decision",
+				Message: "rejected reports must not include effect updates",
+			}
+		}
+		return nil
+	}
+	if report.Invocation == nil {
+		return &ValidationError{Field: field + ".invocation", Message: "is required for accepted reports"}
+	}
+	if err := host.ValidateActionInvocation(*report.Invocation); err != nil {
+		return protocolHostError(field+".invocation", err)
+	}
+	if report.Run == nil {
+		return &ValidationError{Field: field + ".run", Message: "is required for accepted reports"}
+	}
+	if err := host.ValidateActionRun(*report.Run); err != nil {
+		return protocolHostError(field+".run", err)
+	}
+	if report.Invocation.OperationID != report.Run.OperationID {
+		return &ValidationError{Field: field + ".run.operation_id", Message: "must equal invocation.operation_id"}
+	}
+	terminal := isTerminalActionStatus(report.Run.Status)
+	if terminal && report.Outcome == nil {
+		return &ValidationError{Field: field + ".outcome", Message: "is required for a terminal run"}
+	}
+	if !terminal && report.Outcome != nil {
+		return &ValidationError{Field: field + ".outcome", Message: "must be absent until the run is terminal"}
+	}
+	if report.Outcome != nil {
+		if err := host.ValidateActionOutcome(*report.Outcome); err != nil {
+			return protocolHostError(field+".outcome", err)
+		}
+		if report.Outcome.OperationID != report.Run.OperationID {
+			return &ValidationError{Field: field + ".outcome.operation_id", Message: "must equal run.operation_id"}
+		}
+		if report.Outcome.Status != report.Run.Status {
+			return &ValidationError{Field: field + ".outcome.status", Message: "must equal run.status"}
+		}
+		if report.Outcome.Epoch != report.Invocation.ExpectedEpoch {
+			return &ValidationError{Field: field + ".outcome.epoch", Message: "must equal invocation.expected_epoch"}
+		}
+	}
+	if !terminal && (len(report.Facts) > 0 || len(report.GoalUpdates) > 0) {
+		return &ValidationError{
+			Field:   field + ".run.status",
+			Message: "effect updates require a terminal run",
+		}
+	}
+	for index, fact := range report.Facts {
+		if err := validateRequestFact(fmt.Sprintf("%s.facts[%d]", field, index), fact); err != nil {
 			return err
 		}
 	}
-	for index, update := range request.GoalUpdates {
-		base := fmt.Sprintf("goal_updates[%d]", index)
+	goalIDs := make(map[string]struct{}, len(report.GoalUpdates))
+	for index, update := range report.GoalUpdates {
+		base := fmt.Sprintf("%s.goal_updates[%d]", field, index)
 		if err := validateID(base+".goal_id", update.GoalID); err != nil {
 			return err
 		}
@@ -480,8 +573,130 @@ func ValidateCommit(request CommitRequest) error {
 		if update.Status != "" && update.Status != "active" && update.Status != "completed" && update.Status != "released" {
 			return &ValidationError{Field: base + ".status", Message: "must be active, completed, or released"}
 		}
+		if _, exists := goalIDs[update.GoalID]; exists {
+			return &ValidationError{Field: field + ".goal_updates", Message: "goal ids must be unique"}
+		}
+		goalIDs[update.GoalID] = struct{}{}
 	}
 	return nil
+}
+
+func validateDecisionWindow(field string, window DecisionWindow) error {
+	if err := validateID(field+".id", window.ID); err != nil {
+		return err
+	}
+	if window.Mode != host.DecisionSequential &&
+		window.Mode != host.DecisionSimultaneous &&
+		window.Mode != host.DecisionAsynchronous {
+		return &ValidationError{Field: field + ".mode", Message: "is not supported"}
+	}
+	if err := window.Epoch.Validate(field + ".epoch"); err != nil {
+		return protocolHostError("", err)
+	}
+	if window.ObservationSeq == 0 ||
+		window.ObservationSeq > uint64(MaxJSONSafeInteger) {
+		return &ValidationError{Field: field + ".observation_seq", Message: "must be a positive JSON-safe integer"}
+	}
+	if err := window.OpenedAt.Validate(field + ".opened_at"); err != nil {
+		return protocolHostError("", err)
+	}
+	if err := window.Deadline.Validate(field + ".deadline"); err != nil {
+		return protocolHostError("", err)
+	}
+	if window.OpenedAt.Clock != window.Deadline.Clock {
+		return &ValidationError{Field: field + ".deadline.clock", Message: "must equal opened_at.clock"}
+	}
+	if window.Deadline.Value <= window.OpenedAt.Value {
+		return &ValidationError{Field: field + ".deadline.value", Message: "must be after opened_at.value"}
+	}
+	if len(window.ActorIDs) == 0 || len(window.ActorIDs) > 128 {
+		return &ValidationError{Field: field + ".actor_ids", Message: "must contain 1-128 actors"}
+	}
+	return validateTags(field+".actor_ids", window.ActorIDs, 128)
+}
+
+func validateProtocolOffer(field string, offer ActionOffer) error {
+	if err := host.ValidateActionOffer(offer); err != nil {
+		return protocolHostError(field, err)
+	}
+	return nil
+}
+
+func validateStructuredPayload(field string, payload StructuredPayload) error {
+	if err := (host.CapabilityRef{
+		ID: payload.Schema.ID, Version: payload.Schema.Version,
+	}).Validate(field + ".schema"); err != nil {
+		return protocolHostError("", err)
+	}
+	if !hashPattern.MatchString(payload.Schema.Digest) {
+		return &ValidationError{Field: field + ".schema.digest", Message: "must be a lowercase SHA-256 hash"}
+	}
+	if len(payload.Data) == 0 || len(payload.Data) > 256<<10 {
+		return &ValidationError{Field: field + ".data", Message: "must contain 1-262144 bytes of JSON"}
+	}
+	decoder := json.NewDecoder(bytes.NewReader(payload.Data))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return &ValidationError{Field: field + ".data", Message: "must be valid JSON"}
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		return &ValidationError{Field: field + ".data", Message: "must contain exactly one JSON value"}
+	}
+	return nil
+}
+
+func validateArtifactRef(field string, artifact ArtifactRef) error {
+	if err := validateID(field+".id", artifact.ID); err != nil {
+		return err
+	}
+	mediaType, parameters, err := mime.ParseMediaType(artifact.MediaType)
+	if err != nil || mediaType == "" || len(parameters) != 0 {
+		return &ValidationError{Field: field + ".media_type", Message: "must be a canonical media type without parameters"}
+	}
+	if err := validateText(field+".uri", artifact.URI, 2048, true); err != nil {
+		return err
+	}
+	parsed, err := url.ParseRequestURI(artifact.URI)
+	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "rin-artifact") {
+		return &ValidationError{Field: field + ".uri", Message: "must use https or rin-artifact scheme"}
+	}
+	if !hashPattern.MatchString(artifact.SHA256) {
+		return &ValidationError{Field: field + ".sha256", Message: "must be a lowercase SHA-256 hash"}
+	}
+	if artifact.SizeBytes == 0 || artifact.SizeBytes > uint64(MaxJSONSafeInteger) {
+		return &ValidationError{Field: field + ".size_bytes", Message: "must be a positive JSON-safe integer"}
+	}
+	return nil
+}
+
+func protocolHostError(prefix string, err error) error {
+	var validation *host.ValidationError
+	if !errors.As(err, &validation) {
+		return err
+	}
+	field := validation.Field
+	if prefix != "" {
+		field = prefix + "." + field
+	}
+	return &ValidationError{Field: field, Message: validation.Message}
+}
+
+func containsString(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+func isTerminalActionStatus(status host.ActionRunStatus) bool {
+	return status == host.ActionSucceeded ||
+		status == host.ActionFailed ||
+		status == host.ActionCancelled ||
+		status == host.ActionInterrupted ||
+		status == host.ActionStale
 }
 
 func ValidateSessionRequest(request SessionRequest) error {

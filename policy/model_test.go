@@ -44,7 +44,7 @@ func TestModelPolicyUsesIsolatedDataPacket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if draft.ActionID != "talk" || draft.PolicySource != "model" || draft.GoalID != "goal.connect" {
+	if draft.OfferID != "talk" || draft.PolicySource != "model" || draft.GoalID != "goal.connect" {
 		t.Fatalf("unexpected draft: %+v", draft)
 	}
 	client.mu.Lock()
@@ -118,7 +118,7 @@ func TestModelPolicyMaySelectOnlyAdvertisedCandidateGoal(t *testing.T) {
 }
 
 func TestModelPolicyRejectsContractEscapeAndUnknownJSON(t *testing.T) {
-	client := &completionClient{response: strings.Replace(validModelJSON(), `"action_id":"talk"`, `"action_id":"execute"`, 1)}
+	client := &completionClient{response: strings.Replace(validModelJSON(), `"offer_id":"talk"`, `"offer_id":"execute"`, 1)}
 	_, err := (policy.Model{Client: client}).Propose(context.Background(), modelInput())
 	if err == nil || strings.Contains(err.Error(), client.response) {
 		t.Fatalf("unsafe action should fail without echoing output: %v", err)
@@ -137,7 +137,7 @@ func TestBoundaryGuardSkipsModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if client.callCount() != 0 || draft.ActionID != "refuse" || draft.PolicySource != "boundary-guard" ||
+	if client.callCount() != 0 || draft.OfferID != "refuse" || draft.PolicySource != "boundary-guard" ||
 		draft.BoundaryID != "boundary.private" {
 		t.Fatalf("boundary guard failed: calls=%d draft=%+v", client.callCount(), draft)
 	}
@@ -187,13 +187,13 @@ func TestFailoverUsesDeterministicPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if draft.ActionID != "talk" || draft.PolicySource != "deterministic-fallback" {
+	if draft.OfferID != "talk" || draft.PolicySource != "deterministic-fallback" {
 		t.Fatalf("unexpected fallback: %+v", draft)
 	}
 }
 
 func validModelJSON() string {
-	return `{"action_id":"talk","stance":"engage","recalled_memory_ids":["memory.relevant"],"goal_id":"goal.connect"}`
+	return `{"offer_id":"talk","stance":"engage","recalled_memory_ids":["memory.relevant"],"goal_id":"goal.connect"}`
 }
 
 func modelInput() rinruntime.PolicyContext {
@@ -213,10 +213,10 @@ func modelInput() rinruntime.PolicyContext {
 	request := protocol.ProposeRequest{
 		ProtocolVersion: protocol.Version, SessionID: "session.model", RequestID: "request.model", ActorID: actor.ID,
 		Tick: 2, Intent: "Respond", Tags: []string{"trust"},
-		CandidateActions: []protocol.ActionSpec{
-			{ID: "talk", Kind: "dialogue", Description: "ask a question"},
-			{ID: "refuse", Kind: "refuse", Description: "protect a boundary"},
-			{ID: "wait", Kind: "wait", Description: "wait"},
+		Offers: []protocol.ActionOffer{
+			policyOffer("talk", "dialogue", "ask a question"),
+			policyOffer("refuse", "refuse", "protect a boundary"),
+			policyOffer("wait", "wait", "wait"),
 		},
 	}
 	return rinruntime.PolicyContext{

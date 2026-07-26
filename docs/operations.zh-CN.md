@@ -12,7 +12,7 @@ Prompt/Response、凭据或文件系统路径。
 | --- | --- | --- |
 | `GET /health` | 无 | 廉价的进程 Liveness 与兼容身份；不访问 Store 或 Provider |
 | `GET /ready` | 无 | Session Store 可执行 List，且每个已配置 Job Manager 仍在运行 |
-| `GET /v1/diagnostics` | 设置 `RIN_TOKEN` 时使用 Bearer Token | Runtime、Queue、Retained Job、Checkpoint、Uncertainty 与 Provider Breaker 的有界 JSON Snapshot |
+| `GET /v2/diagnostics` | 设置 `RIN_TOKEN` 时使用 Bearer Token | Runtime、Queue、Retained Job、Checkpoint、Uncertainty 与 Provider Breaker 的有界 JSON Snapshot |
 | `GET /metrics` | 设置 `RIN_TOKEN` 时使用 Bearer Token | 无依赖的 Prometheus 文本；Metric Name 固定且没有高基数 Label |
 
 Liveness Probe 使用 `/health`，Readiness Probe 使用 `/ready`。Readiness 失败返回
@@ -24,7 +24,7 @@ Linux/macOS：
 curl --fail http://127.0.0.1:7374/health
 curl --fail http://127.0.0.1:7374/ready
 curl --fail -H "Authorization: Bearer $RIN_TOKEN" \
-  http://127.0.0.1:7374/v1/diagnostics
+  http://127.0.0.1:7374/v2/diagnostics
 ```
 
 Windows PowerShell：
@@ -33,7 +33,7 @@ Windows PowerShell：
 Invoke-RestMethod http://127.0.0.1:7374/health
 Invoke-RestMethod http://127.0.0.1:7374/ready
 $headers = @{ Authorization = "Bearer $env:RIN_TOKEN" }
-Invoke-RestMethod -Headers $headers http://127.0.0.1:7374/v1/diagnostics
+Invoke-RestMethod -Headers $headers http://127.0.0.1:7374/v2/diagnostics
 ```
 
 Windows 本地游戏接入可把 `rin.exe` 与可写的 `rin-data` 目录放在一起，并使用
@@ -49,7 +49,7 @@ Sidecar Exit Code。启动游戏前请检查 `/ready`。
 
 Diagnostics 与 Metrics 应按其他鉴权 API 数据保护。Sidecar 默认只绑定 Loopback；
 若 Reverse Proxy 对外暴露，必须使用 TLS，并避免把 `/metrics` 与
-`/v1/diagnostics` 放到公网 Route。
+`/v2/diagnostics` 放到公网 Route。
 
 ## 监控内容
 

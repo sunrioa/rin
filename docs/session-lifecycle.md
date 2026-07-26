@@ -16,7 +16,7 @@ active -> archived -> deleted tombstone
 An active Session accepts normal mutations. Archiving is a durable, idempotent
 transition that freezes the current event-chain anchor. An archived Session is
 read-only: State, Timeline, Replay, Snapshot, Stats, and Session Transfer
-export remain available, while Observe, Propose, Commit, activity, arbitration,
+export remain available, while Observe, Propose, Action Report, activity, arbitration,
 Restore, and import fail with `409 session_archived`.
 
 Archiving is not a backup. Operators must export the complete Session Transfer,
@@ -33,13 +33,13 @@ All lifecycle routes use the server's existing Bearer authentication. A server
 configured without a token remains suitable only for a trusted loopback
 boundary.
 
-`POST /v1/session/stats` accepts `protocol_version` and `session_id`. It returns
+`POST /v2/session/stats` accepts `protocol_version` and `session_id`. It returns
 lifecycle state, revision/head, event count, exact event-log bytes, artifact
 bytes, total managed bytes, configured soft/hard byte limits, and whether each
 limit is exceeded. Stats must not load player content merely to count bytes. A
 corrupt or unreadable Session fails closed and is never reported as absent.
 
-`POST /v1/session/archive` requires a stable `request_id`, `session_id`, the
+`POST /v2/session/archive` requires a stable `request_id`, `session_id`, the
 complete trusted expected Binding, and exact `expected_revision` and
 `expected_head_hash`. All preconditions must match one loaded, verified Session
 while its mutation gate is held. The Store persists an archive receipt with
@@ -47,7 +47,7 @@ the request identity, frozen anchor, timestamp, and canonical request digest.
 An exact retry returns it with `duplicate=true`; any changed request is
 `request_id_conflict`.
 
-`POST /v1/session/delete` requires a stable `request_id`, `session_id`, the same
+`POST /v2/session/delete` requires a stable `request_id`, `session_id`, the same
 trusted expected Binding, archive receipt ID, frozen revision/head, and
 `confirmation` equal to the exact Session ID. Confirmation is not
 authentication; it makes accidental broad or misdirected deletion harder.

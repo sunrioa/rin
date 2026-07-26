@@ -2,11 +2,14 @@ package jobs_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/jobs"
 	"github.com/sunrioa/rin/policy"
 	"github.com/sunrioa/rin/protocol"
@@ -213,6 +216,10 @@ func TestProposalJobBecomesStaleWhenStateChanges(t *testing.T) {
 		ProtocolVersion: protocol.Version, SessionID: "session.stale-job", RequestID: "observe.stale-job",
 		EventID: "event.stale-job", Tick: 0, ObserverIDs: []string{"npc.jobs"}, Source: "game", Kind: "world",
 		Summary: "The world changed while the model was thinking.", Importance: 3,
+		Epoch: protocol.Epoch{
+			SessionID: "session.stale-job", WorldID: "world.jobs", Host: 1, World: 1, Timeline: 1,
+		},
+		ObservationSeq: 1,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -344,7 +351,7 @@ func (p *blockingPolicy) Propose(ctx context.Context, _ rinruntime.PolicyContext
 	p.once.Do(func() { close(p.started) })
 	select {
 	case <-p.releaseChannel:
-		return rinruntime.ProposalDraft{ActionID: "talk", Stance: "engage", Summary: "reply", Rationale: "allowed", PolicySource: "test"}, nil
+		return rinruntime.ProposalDraft{OfferID: "talk", Stance: "engage", Summary: "reply", Rationale: "allowed", PolicySource: "test"}, nil
 	case <-ctx.Done():
 		return rinruntime.ProposalDraft{}, ctx.Err()
 	}
@@ -424,9 +431,37 @@ func jobEngine(t *testing.T, selectedPolicy rinruntime.Policy, sessionID string)
 }
 
 func jobRequest(sessionID, requestID string) protocol.ProposeRequest {
+	epoch := protocol.Epoch{
+		SessionID: sessionID,
+		WorldID:   "world.jobs",
+		Host:      1,
+		World:     1,
+		Timeline:  1,
+	}
+	window := protocol.DecisionWindow{
+		ID:             "window.jobs.0",
+		Mode:           host.DecisionSequential,
+		Epoch:          epoch,
+		ObservationSeq: 1,
+		OpenedAt:       protocol.Timepoint{Clock: host.ClockStep, Value: 0},
+		Deadline:       protocol.Timepoint{Clock: host.ClockStep, Value: 100},
+		ActorIDs:       []string{"npc.jobs"},
+	}
 	return protocol.ProposeRequest{
 		ProtocolVersion: protocol.Version, SessionID: sessionID, RequestID: requestID,
 		ActorID: "npc.jobs", Tick: 0, Intent: "Respond",
-		CandidateActions: []protocol.ActionSpec{{ID: "talk", Kind: "dialogue", Description: "say something"}},
+		DecisionWindow: window,
+		Offers: []protocol.ActionOffer{{
+			OfferID:          "talk",
+			DecisionWindowID: window.ID,
+			ActorID:          "npc.jobs",
+			Capability:       protocol.CapabilityRef{ID: "rin.dialogue.say", Version: "1.0.0"},
+			DescriptorDigest: strings.Repeat("a", 64),
+			Description:      "say something",
+			Arguments:        json.RawMessage(`{}`),
+			ExpectedEpoch:    epoch,
+			ObservationSeq:   1,
+			Deadline:         window.Deadline,
+		}},
 	}
 }

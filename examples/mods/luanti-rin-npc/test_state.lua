@@ -47,7 +47,7 @@ assert(state:world_id() == string.rep("a", 32))
 
 local function create_request(session_id, seed)
     return {
-        protocol_version = "rin.protocol/v1",
+        protocol_version = "rin.protocol/v2",
         request_id = "create." .. session_id,
         session_id = session_id,
         seed = seed,
@@ -96,20 +96,17 @@ attempt = cleared
 local outcome = {
     key = attempt.operation_id,
     owner = "player-one",
-    kind = "commit",
+    kind = "report",
     request = {
         session_id = player.session_id,
-        request_id = "commit." .. player.session_id,
-        proposal_id = "proposal.fixture",
-        event_id = "outcome." .. player.session_id,
+        request_id = "report." .. player.session_id,
         tick = 12,
-        accepted = true,
-    },
-    fallback_observe = {
-        session_id = player.session_id,
-        request_id = "fallback." .. player.session_id,
-        event_id = "outcome." .. player.session_id,
-        tick = 12,
+        report = {
+            proposal_id = "proposal.fixture",
+            event_id = "outcome." .. player.session_id,
+            decision = "rejected",
+            summary = "host rejected the offer",
+        },
     },
 }
 assert(restarted:complete_attempt("player-one", attempt, outcome))
@@ -119,22 +116,16 @@ assert(with_outcome:get_player("player-one").last_tick == 12)
 local retained = with_outcome:list_outcomes("player-one")
 assert(#retained == 1 and retained[1].request.request_id == outcome.request.request_id)
 
-local converted = copy(outcome)
-converted.kind = "observe"
-converted.request = converted.fallback_observe
-assert(with_outcome:replace_outcome("player-one", retained[1], converted))
-local after_conversion = assert(state_module.open(options))
-local degraded = after_conversion:list_outcomes("player-one")[1]
-assert(degraded.kind == "observe", "fallback conversion did not survive restart")
-assert(after_conversion:acknowledge_outcome("player-one", degraded))
-assert(#after_conversion:list_outcomes("player-one") == 0)
+assert(with_outcome:acknowledge_outcome("player-one", retained[1]))
+local after_acknowledgement = assert(state_module.open(options))
+assert(#after_acknowledgement:list_outcomes("player-one") == 0)
 
-local before_failed_write = after_conversion:get_player("player-one")
+local before_failed_write = after_acknowledgement:get_player("player-one")
 local next_observe = copy(observe)
 next_observe.tick = 13
 next_observe.request_id = "observe.second"
 next_observe.event_id = "event.second"
-assert(after_conversion:stage_turn(
+assert(after_acknowledgement:stage_turn(
     "player-one",
     before_failed_write.create_request,
     next_observe))
@@ -144,10 +135,10 @@ next_attempt.request.request_id = "propose.second"
 next_attempt.job_id = ""
 storage.fail_writes = true
 local persisted, persist_error =
-    after_conversion:create_attempt("player-one", next_attempt)
+    after_acknowledgement:create_attempt("player-one", next_attempt)
 assert(not persisted and persist_error.code == "state_write_failed")
-assert(after_conversion:load_attempt("player-one") == nil)
-assert(after_conversion:get_player("player-one").sequence == 1)
+assert(after_acknowledgement:load_attempt("player-one") == nil)
+assert(after_acknowledgement:get_player("player-one").sequence == 1)
 storage.fail_writes = false
 
 backing.workflow_state_v1 = encode({

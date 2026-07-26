@@ -30,10 +30,10 @@ func validateContractShape(
 		schemaName = "ObserveRequest"
 	case *protocol.ProposeRequest:
 		schemaName = "ProposeRequest"
-	case *protocol.CommitRequest:
-		schemaName = "CommitRequest"
-	case *protocol.BatchCommitRequest:
-		schemaName = "BatchCommitRequest"
+	case *protocol.ReportActionRequest:
+		schemaName = "ReportActionRequest"
+	case *protocol.BatchActionReportRequest:
+		schemaName = "BatchActionReportRequest"
 	case *protocol.SetActorActivityRequest:
 		schemaName = "SetActorActivityRequest"
 	case *protocol.ArbitrateRequest:

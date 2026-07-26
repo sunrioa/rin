@@ -114,7 +114,7 @@ func renderFabricFile(
 			text, "io.github.sunrioa.rin.example", options.JavaPackage)
 	case "gradle.properties":
 		text, err = replaceRequired(
-			text, "mod_version=0.6.0", "mod_version="+options.Version, relative)
+			text, "mod_version=0.7.0", "mod_version="+options.Version, relative)
 		if err != nil {
 			return nil, err
 		}
@@ -143,7 +143,7 @@ func renderFabricFile(
 				text, "io.github.sunrioa.rin.example", options.JavaPackage)
 			text = strings.ReplaceAll(text, `"rin-npc-example"`, javaString(options.ID))
 			text = strings.ReplaceAll(text, `"fabric-example"`, javaString(options.ID))
-			text = strings.ReplaceAll(text, `"0.6.0"`, javaString(options.Version))
+			text = strings.ReplaceAll(text, `"0.7.0"`, javaString(options.Version))
 			text = strings.ReplaceAll(text, `literal("rin-npc")`,
 				"literal("+javaString(options.CommandName)+")")
 			text = strings.ReplaceAll(text, `STORAGE_KEY = "rin_npc"`,

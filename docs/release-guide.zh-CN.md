@@ -2,13 +2,13 @@
 
 [English](release-guide.md) | [简体中文](release-guide.zh-CN.md)
 
-Rin `0.6.0` 是 Preview、pre-1.0 版本。本清单只从已经通过验证的精确主分支 Commit
-创建 `v0.6.0`，不承诺语言 Registry Package 或 Binary Artifact。
+Rin `0.7.0` 是 Preview、pre-1.0 版本。本清单只从已经通过验证的精确主分支 Commit
+创建 `v0.7.0`，不承诺语言 Registry Package 或 Binary Artifact。
 
 ## 发布不变量
 
-- `api/openapi.json` 是唯一 Wire Schema 来源，并标记版本 `0.6.0`、协议
-  `rin.protocol/v1` 和 Preview 状态。
+- `api/openapi.json` 是唯一 Wire Schema 来源，并标记版本 `0.7.0`、协议
+  `rin.protocol/v2` 和 Preview 状态。
 - README、Changelog、兼容矩阵、迁移指南、Roadmap、Security 与 Protocol 使用
   同一个发布状态。
 - Tag 指向已经存在于远程主分支的 Commit。
@@ -27,12 +27,12 @@ python3 -m unittest discover -s adapters/renpy -p 'test_*.py'
 make test-sdks
 make test-terminal-story
 CGO_ENABLED=0 go build -trimpath ./cmd/rin
-python3 tools/generate_contract.py --check --tag v0.6.0
-make build VERSION=0.6.0
+python3 tools/generate_contract.py --check --tag v0.7.0
+make build VERSION=0.7.0
 ./bin/rin version
 ```
 
-最后一条必须输出 `0.6.0`。还需确认：
+最后一条必须输出 `0.7.0`。还需确认：
 
 - 每个本地 Markdown Link 都能解析；
 - `api/openapi.json` 是合法 JSON，且包含与
@@ -58,15 +58,15 @@ make build VERSION=0.6.0
 ```bash
 git switch main
 git pull --ff-only origin main
-git tag -a v0.6.0 -m "Rin v0.6.0 Preview"
-git push origin v0.6.0
+git tag -a v0.7.0 -m "Rin v0.7.0 Preview"
+git push origin v0.7.0
 ```
 
 推送 Tag 前检查：
 
 ```bash
-git show --stat --oneline v0.6.0
-git rev-parse v0.6.0^{}
+git show --stat --oneline v0.7.0
+git rev-parse v0.7.0^{}
 git rev-parse origin/main
 ```
 
@@ -74,7 +74,7 @@ Tag 解引用后的 Commit 必须与计划发布的 `origin/main` Commit 相同�
 
 ## Release Notes
 
-使用[变更日志](../CHANGELOG.zh-CN.md)中的 `0.6.0` 章节，标题保留“Preview”，并包括：
+使用[变更日志](../CHANGELOG.zh-CN.md)中的 `0.7.0` 章节，标题保留“Preview”，并包括：
 
 - 精确 Tag 与 Commit；
 - 支持的语言/Runtime 下限；
@@ -92,6 +92,6 @@ Checksum。当前仓库不宣称具有自动 Binary Release Pipeline。
 
 ## 发布后
 
-确认 Fresh Clone 可以 Checkout `v0.6.0`、运行 `go test ./...`，并用
-`VERSION=0.6.0` 构建 CLI。发现缺陷时不得更改既有 Tag；应记录问题并准备新的
+确认 Fresh Clone 可以 Checkout `v0.7.0`、运行 `go test ./...`，并用
+`VERSION=0.7.0` 构建 CLI。发现缺陷时不得更改既有 Tag；应记录问题并准备新的
 Patch Release。

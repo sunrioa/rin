@@ -2,14 +2,14 @@ package protocol
 
 import "fmt"
 
-const IdentifierHistoryVersion = "identifier-history-v1"
+const IdentifierHistoryVersion = "identifier-history-v2"
 
 const (
 	identifierHistoryCreateKind      = "session.created"
 	identifierHistoryObservationKind = "observation.recorded"
 	identifierHistoryProposalKind    = "proposal.created"
-	identifierHistoryCommitKind      = "action.committed"
-	identifierHistoryBatchKind       = "action.batch-committed"
+	identifierHistoryReportKind      = "action.reported"
+	identifierHistoryBatchReportKind = "action.batch-reported"
 	identifierHistoryActivityKind    = "actor.activity-updated"
 	identifierHistoryArbitrationKind = "world.arbitrated"
 	identifierHistoryRestoreKind     = "session.restored"
@@ -189,7 +189,7 @@ func ValidateIdentifierHistory(history IdentifierHistory, sessionID string) erro
 			if !validIdentifierEventKind(identity.Kind) {
 				return &ValidationError{
 					Field:   field + ".kind",
-					Message: "must be observation.recorded, action.committed, or action.batch-committed",
+					Message: "must be observation.recorded, action.reported, or action.batch-reported",
 				}
 			}
 		}
@@ -244,8 +244,8 @@ func validIdentifierRequestKind(kind string) bool {
 	case identifierHistoryCreateKind,
 		identifierHistoryObservationKind,
 		identifierHistoryProposalKind,
-		identifierHistoryCommitKind,
-		identifierHistoryBatchKind,
+		identifierHistoryReportKind,
+		identifierHistoryBatchReportKind,
 		identifierHistoryActivityKind,
 		identifierHistoryArbitrationKind,
 		identifierHistoryRestoreKind:
@@ -258,8 +258,8 @@ func validIdentifierRequestKind(kind string) bool {
 func validIdentifierEventKind(kind string) bool {
 	switch kind {
 	case identifierHistoryObservationKind,
-		identifierHistoryCommitKind,
-		identifierHistoryBatchKind:
+		identifierHistoryReportKind,
+		identifierHistoryBatchReportKind:
 		return true
 	default:
 		return false
@@ -322,8 +322,19 @@ func validateHistoryProposal(
 			Message: "must be a lowercase SHA-256 hash",
 		}
 	}
-	if err := validateAction(field+".action", proposal.Action); err != nil {
+	if err := validateDecisionWindow(field+".decision_window", proposal.DecisionWindow); err != nil {
 		return err
+	}
+	if err := validateProtocolOffer(field+".action", proposal.Action); err != nil {
+		return err
+	}
+	if proposal.Action.DecisionWindowID != proposal.DecisionWindow.ID ||
+		proposal.Action.ExpectedEpoch != proposal.DecisionWindow.Epoch ||
+		proposal.Action.ObservationSeq != proposal.DecisionWindow.ObservationSeq {
+		return &ValidationError{
+			Field:   field + ".action",
+			Message: "must be bound to decision_window",
+		}
 	}
 	switch proposal.Stance {
 	case "engage", "partial", "redirect", "refuse", "wait":
@@ -381,10 +392,11 @@ func validateHistoryProposal(
 			Message: "an original proposal result must be pending",
 		}
 	}
-	if proposal.OutcomeEventID != "" || proposal.OutcomeTick != 0 {
+	if proposal.Invocation != nil || proposal.Run != nil || proposal.Outcome != nil ||
+		proposal.LastReportEventID != "" || proposal.LastReportTick != 0 {
 		return &ValidationError{
-			Field:   field + ".outcome_event_id",
-			Message: "an original proposal result cannot contain an outcome",
+			Field:   field + ".status",
+			Message: "an original proposal result cannot contain action lifecycle state",
 		}
 	}
 	return nil

@@ -1,4 +1,4 @@
-export const PROTOCOL_VERSION = "rin.protocol/v1";
+export const PROTOCOL_VERSION = "rin.protocol/v2";
 
 export const STORY_BINDING = Object.freeze({
   game_id: "rin-terminal-story",

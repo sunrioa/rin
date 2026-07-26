@@ -51,16 +51,51 @@ public sealed record ActorSeedInput(
     public bool? Enabled { get; init; }
 }
 
-public sealed record ActionSpecInput(
-    [property: JsonPropertyName("id")] string Id,
-    [property: JsonPropertyName("kind")] string Kind,
-    [property: JsonPropertyName("description")] string Description)
-{
-    [JsonPropertyName("target_ids")]
-    public IReadOnlyList<string>? TargetIds { get; init; }
+public sealed record Epoch(
+    [property: JsonPropertyName("session_id")] string SessionId,
+    [property: JsonPropertyName("world_id")] string WorldId,
+    [property: JsonPropertyName("host")] ulong Host,
+    [property: JsonPropertyName("world")] ulong World,
+    [property: JsonPropertyName("timeline")] ulong Timeline);
 
-    [JsonPropertyName("parameters")]
-    public IReadOnlyDictionary<string, string>? Parameters { get; init; }
+public sealed record Timepoint(
+    [property: JsonPropertyName("clock")] string Clock,
+    [property: JsonPropertyName("value")] long Value);
+
+public sealed record CapabilityRef(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("version")] string Version);
+
+public sealed record HostRef(
+    [property: JsonPropertyName("namespace")] string Namespace,
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("key")] string Key,
+    [property: JsonPropertyName("ephemeral")] bool Ephemeral,
+    [property: JsonPropertyName("epoch")] Epoch Epoch);
+
+public sealed record DecisionWindow(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("mode")] string Mode,
+    [property: JsonPropertyName("epoch")] Epoch Epoch,
+    [property: JsonPropertyName("observation_seq")] ulong ObservationSeq,
+    [property: JsonPropertyName("opened_at")] Timepoint OpenedAt,
+    [property: JsonPropertyName("deadline")] Timepoint Deadline,
+    [property: JsonPropertyName("actor_ids")] IReadOnlyList<string> ActorIds);
+
+public sealed record ActionOfferInput(
+    [property: JsonPropertyName("offer_id")] string OfferId,
+    [property: JsonPropertyName("decision_window_id")] string DecisionWindowId,
+    [property: JsonPropertyName("actor_id")] string ActorId,
+    [property: JsonPropertyName("capability")] CapabilityRef Capability,
+    [property: JsonPropertyName("descriptor_digest")] string DescriptorDigest,
+    [property: JsonPropertyName("description")] string Description,
+    [property: JsonPropertyName("arguments")] JsonElement Arguments,
+    [property: JsonPropertyName("expected_epoch")] Epoch ExpectedEpoch,
+    [property: JsonPropertyName("observation_seq")] ulong ObservationSeq,
+    [property: JsonPropertyName("deadline")] Timepoint Deadline)
+{
+    [JsonPropertyName("targets")]
+    public IReadOnlyList<HostRef>? Targets { get; init; }
 }
 
 public sealed record CreateSessionRequest(
@@ -84,7 +119,8 @@ public sealed record ProposeRequest(
     [property: JsonPropertyName("request_id")] string RequestId,
     [property: JsonPropertyName("actor_id")] string ActorId,
     [property: JsonPropertyName("intent")] string Intent,
-    [property: JsonPropertyName("candidate_actions")] IReadOnlyList<ActionSpecInput> CandidateActions)
+    [property: JsonPropertyName("decision_window")] DecisionWindow DecisionWindow,
+    [property: JsonPropertyName("offers")] IReadOnlyList<ActionOfferInput> Offers)
 {
     [JsonPropertyName("protocol_version")]
     public string ProtocolVersion { get; init; } = RinClient.ProtocolVersion;
@@ -127,21 +163,62 @@ public sealed record GoalUpdateInput(
     public string? Status { get; init; }
 }
 
-public sealed record CommitRequest(
-    [property: JsonPropertyName("session_id")] string SessionId,
-    [property: JsonPropertyName("request_id")] string RequestId,
+public sealed record ActionInvocation(
+    [property: JsonPropertyName("operation_id")] string OperationId,
+    [property: JsonPropertyName("offer_id")] string OfferId,
+    [property: JsonPropertyName("decision_window_id")] string DecisionWindowId,
+    [property: JsonPropertyName("actor_id")] string ActorId,
+    [property: JsonPropertyName("capability")] CapabilityRef Capability,
+    [property: JsonPropertyName("descriptor_digest")] string DescriptorDigest,
+    [property: JsonPropertyName("arguments")] JsonElement Arguments,
+    [property: JsonPropertyName("expected_epoch")] Epoch ExpectedEpoch,
+    [property: JsonPropertyName("observation_seq")] ulong ObservationSeq,
+    [property: JsonPropertyName("deadline")] Timepoint Deadline)
+{
+    [JsonPropertyName("targets")]
+    public IReadOnlyList<HostRef>? Targets { get; init; }
+}
+
+public sealed record ActionRun(
+    [property: JsonPropertyName("operation_id")] string OperationId,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("progress_seq")] ulong ProgressSeq,
+    [property: JsonPropertyName("progress")] uint Progress,
+    [property: JsonPropertyName("updated_at")] Timepoint UpdatedAt)
+{
+    [JsonPropertyName("message")]
+    public string? Message { get; init; }
+}
+
+public sealed record ActionOutcome(
+    [property: JsonPropertyName("operation_id")] string OperationId,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("summary")] string Summary,
+    [property: JsonPropertyName("epoch")] Epoch Epoch,
+    [property: JsonPropertyName("world_seq")] ulong WorldSeq,
+    [property: JsonPropertyName("occurred_at")] Timepoint OccurredAt)
+{
+    [JsonPropertyName("code")]
+    public string? Code { get; init; }
+
+    [JsonPropertyName("evidence")]
+    public IReadOnlyList<HostRef>? Evidence { get; init; }
+}
+
+public sealed record ActionReportInput(
     [property: JsonPropertyName("proposal_id")] string ProposalId,
     [property: JsonPropertyName("event_id")] string EventId,
-    [property: JsonPropertyName("accepted")] bool Accepted)
+    [property: JsonPropertyName("decision")] string Decision,
+    [property: JsonPropertyName("summary")] string Summary)
 {
-    [JsonPropertyName("protocol_version")]
-    public string ProtocolVersion { get; init; } = RinClient.ProtocolVersion;
+    [JsonPropertyName("invocation")]
+    public ActionInvocation? Invocation { get; init; }
 
-    [JsonPropertyName("tick")]
-    public long? Tick { get; init; }
+    [JsonPropertyName("run")]
+    public ActionRun? Run { get; init; }
 
     [JsonPropertyName("outcome")]
-    public string? Outcome { get; init; }
+    public ActionOutcome? Outcome { get; init; }
 
     [JsonPropertyName("tags")]
     public IReadOnlyList<string>? Tags { get; init; }
@@ -151,6 +228,16 @@ public sealed record CommitRequest(
 
     [JsonPropertyName("goal_updates")]
     public IReadOnlyList<GoalUpdateInput>? GoalUpdates { get; init; }
+}
+
+public sealed record ReportActionRequest(
+    [property: JsonPropertyName("session_id")] string SessionId,
+    [property: JsonPropertyName("request_id")] string RequestId,
+    [property: JsonPropertyName("tick")] long Tick,
+    [property: JsonPropertyName("report")] ActionReportInput Report)
+{
+    [JsonPropertyName("protocol_version")]
+    public string ProtocolVersion { get; init; } = RinClient.ProtocolVersion;
 }
 
 public sealed record SessionRequest(
@@ -237,7 +324,8 @@ public sealed record ActionProposal(
     [property: JsonPropertyName("based_on_revision")] long BasedOnRevision,
     [property: JsonPropertyName("based_on_head_hash")] string BasedOnHeadHash,
     [property: JsonPropertyName("created_revision")] long CreatedRevision,
-    [property: JsonPropertyName("action")] ActionSpecInput Action,
+    [property: JsonPropertyName("decision_window")] DecisionWindow DecisionWindow,
+    [property: JsonPropertyName("action")] ActionOfferInput Action,
     [property: JsonPropertyName("stance")] string Stance,
     [property: JsonPropertyName("summary")] string Summary,
     [property: JsonPropertyName("rationale")] string Rationale,
@@ -261,11 +349,20 @@ public sealed record ActionProposal(
     [JsonPropertyName("proposed_goal")]
     public JsonElement? ProposedGoal { get; init; }
 
-    [JsonPropertyName("outcome_event_id")]
-    public string? OutcomeEventId { get; init; }
+    [JsonPropertyName("invocation")]
+    public ActionInvocation? Invocation { get; init; }
 
-    [JsonPropertyName("outcome_tick")]
-    public long? OutcomeTick { get; init; }
+    [JsonPropertyName("run")]
+    public ActionRun? Run { get; init; }
+
+    [JsonPropertyName("outcome")]
+    public ActionOutcome? Outcome { get; init; }
+
+    [JsonPropertyName("last_report_event_id")]
+    public string? LastReportEventId { get; init; }
+
+    [JsonPropertyName("last_report_tick")]
+    public long? LastReportTick { get; init; }
 
     [JsonExtensionData]
     public IDictionary<string, JsonElement>? AdditiveFields { get; init; }

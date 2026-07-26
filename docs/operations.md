@@ -13,7 +13,7 @@ filesystem paths.
 | --- | --- | --- |
 | `GET /health` | None | Cheap process liveness and compatibility identity; it does not touch the Store or Provider |
 | `GET /ready` | None | The Session Store can be listed and each configured Job Manager is still running |
-| `GET /v1/diagnostics` | Bearer token when `RIN_TOKEN` is set | Bounded JSON snapshot of Runtime, queue, retained Job, checkpoint, uncertainty, and Provider-breaker state |
+| `GET /v2/diagnostics` | Bearer token when `RIN_TOKEN` is set | Bounded JSON snapshot of Runtime, queue, retained Job, checkpoint, uncertainty, and Provider-breaker state |
 | `GET /metrics` | Bearer token when `RIN_TOKEN` is set | Dependency-free Prometheus text exposition with fixed metric names and no high-cardinality labels |
 
 Use `/health` for a liveness probe and `/ready` for a readiness probe. A failed
@@ -26,7 +26,7 @@ Linux/macOS:
 curl --fail http://127.0.0.1:7374/health
 curl --fail http://127.0.0.1:7374/ready
 curl --fail -H "Authorization: Bearer $RIN_TOKEN" \
-  http://127.0.0.1:7374/v1/diagnostics
+  http://127.0.0.1:7374/v2/diagnostics
 ```
 
 Windows PowerShell:
@@ -35,7 +35,7 @@ Windows PowerShell:
 Invoke-RestMethod http://127.0.0.1:7374/health
 Invoke-RestMethod http://127.0.0.1:7374/ready
 $headers = @{ Authorization = "Bearer $env:RIN_TOKEN" }
-Invoke-RestMethod -Headers $headers http://127.0.0.1:7374/v1/diagnostics
+Invoke-RestMethod -Headers $headers http://127.0.0.1:7374/v2/diagnostics
 ```
 
 For a local Windows game integration, place `rin.exe` beside a writable
@@ -52,7 +52,7 @@ binds loopback by default, and propagates the Sidecar exit code. Check
 
 Treat diagnostics and metrics like other authenticated API data. Bind the
 Sidecar to loopback by default; if a reverse proxy exposes it remotely, require
-TLS and keep `/metrics` and `/v1/diagnostics` off public routes.
+TLS and keep `/metrics` and `/v2/diagnostics` off public routes.
 
 ## What to monitor
 

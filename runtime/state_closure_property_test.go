@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/protocol"
 )
 
@@ -81,23 +82,21 @@ func runMutationStateClosureSequence(t *testing.T, operations []byte) {
 				continue
 			}
 			before = mustEngineState(t, engine, sessionID)
-			_, err = engine.Commit(protocol.CommitRequest{
-				ProtocolVersion: protocol.Version,
-				SessionID:       sessionID,
-				RequestID:       "commit.property." + suffix,
-				ProposalID:      proposal.ID,
-				EventID:         "event.commit.property." + suffix,
-				Tick:            tick,
-				Accepted:        true,
-				Outcome:         "The property-test action occurred.",
-				Facts: []protocol.Fact{{
-					SubjectID:  "action." + suffix,
-					Predicate:  "outcome",
-					Object:     "accepted",
-					Visibility: []string{"npc.mira"},
-					Confidence: 100,
-				}},
-			})
+			report := invariantSuccessfulReport(
+				proposal,
+				"report.property."+suffix,
+				"event.report.property."+suffix,
+				tick,
+				"The property-test action occurred.",
+			)
+			report.Report.Facts = []protocol.Fact{{
+				SubjectID:  "action." + suffix,
+				Predicate:  "outcome",
+				Object:     "accepted",
+				Visibility: []string{"npc.mira"},
+				Confidence: 100,
+			}}
+			_, err = engine.ReportAction(report)
 			assertEngineTransitionClosure(t, engine, sessionID, before, err)
 
 		case 2:
@@ -106,6 +105,7 @@ func runMutationStateClosureSequence(t *testing.T, operations []byte) {
 			request := invariantPropose(sessionID, "propose.batch.property."+suffix, nil)
 			request.Tick = tick
 			request.Urgent = true
+			request.DecisionWindow.Mode = host.DecisionSimultaneous
 			proposal, _, err := engine.Propose(context.Background(), request)
 			assertEngineTransitionClosure(t, engine, sessionID, before, err)
 			if err != nil {
@@ -113,21 +113,31 @@ func runMutationStateClosureSequence(t *testing.T, operations []byte) {
 			}
 			before = mustEngineState(t, engine, sessionID)
 			accepted := (operation>>3)&1 == 0
-			outcome := ""
+			summary := "The property-test batch action was rejected."
+			var report protocol.ReportActionRequest
 			if accepted {
-				outcome = "The property-test batch action occurred."
+				summary = "The property-test batch action occurred."
+				report = invariantSuccessfulReport(
+					proposal,
+					"report.batch.property."+suffix,
+					"event.batch.property."+suffix,
+					tick,
+					summary,
+				)
+			} else {
+				report = invariantRejectedReport(
+					proposal,
+					"report.batch.property."+suffix,
+					"event.batch.property."+suffix,
+					tick,
+				)
 			}
-			_, err = engine.CommitBatch(protocol.BatchCommitRequest{
+			_, err = engine.ReportActionBatch(protocol.BatchActionReportRequest{
 				ProtocolVersion: protocol.Version,
 				SessionID:       sessionID,
 				RequestID:       "batch.property." + suffix,
 				Tick:            tick,
-				Items: []protocol.CommitItem{{
-					ProposalID: proposal.ID,
-					EventID:    "event.batch.property." + suffix,
-					Accepted:   accepted,
-					Outcome:    outcome,
-				}},
+				Reports:         []protocol.ActionReport{report.Report},
 			})
 			assertEngineTransitionClosure(t, engine, sessionID, before, err)
 
@@ -137,6 +147,7 @@ func runMutationStateClosureSequence(t *testing.T, operations []byte) {
 			request := invariantPropose(sessionID, "propose.arbitrate.property."+suffix, nil)
 			request.Tick = tick
 			request.Urgent = true
+			request.DecisionWindow.Mode = host.DecisionSimultaneous
 			proposal, _, err := engine.Propose(context.Background(), request)
 			assertEngineTransitionClosure(t, engine, sessionID, before, err)
 			if err != nil {
@@ -155,17 +166,19 @@ func runMutationStateClosureSequence(t *testing.T, operations []byte) {
 				continue
 			}
 			before = mustEngineState(t, engine, sessionID)
-			_, err = engine.CommitBatch(protocol.BatchCommitRequest{
+			report := invariantSuccessfulReport(
+				proposal,
+				"report.arbitrated.property."+suffix,
+				"event.arbitrated.property."+suffix,
+				tick,
+				"The arbitrated property-test action occurred.",
+			)
+			_, err = engine.ReportActionBatch(protocol.BatchActionReportRequest{
 				ProtocolVersion: protocol.Version,
 				SessionID:       sessionID,
 				RequestID:       "batch.arbitrated.property." + suffix,
 				Tick:            tick,
-				Items: []protocol.CommitItem{{
-					ProposalID: proposal.ID,
-					EventID:    "event.arbitrated.property." + suffix,
-					Accepted:   true,
-					Outcome:    "The arbitrated property-test action occurred.",
-				}},
+				Reports:         []protocol.ActionReport{report.Report},
 			})
 			assertEngineTransitionClosure(t, engine, sessionID, before, err)
 
@@ -212,15 +225,12 @@ func runMutationStateClosureSequence(t *testing.T, operations []byte) {
 				continue
 			}
 			before = mustEngineState(t, engine, sessionID)
-			_, err = engine.Commit(protocol.CommitRequest{
-				ProtocolVersion: protocol.Version,
-				SessionID:       sessionID,
-				RequestID:       "commit.reject.property." + suffix,
-				ProposalID:      proposal.ID,
-				EventID:         "event.reject.property." + suffix,
-				Tick:            tick,
-				Accepted:        false,
-			})
+			_, err = engine.ReportAction(invariantRejectedReport(
+				proposal,
+				"report.reject.property."+suffix,
+				"event.reject.property."+suffix,
+				tick,
+			))
 			assertEngineTransitionClosure(t, engine, sessionID, before, err)
 
 		case 7:
@@ -255,25 +265,29 @@ func runMutationStateClosureSequence(t *testing.T, operations []byte) {
 					}},
 				})
 			case 2:
-				_, err = engine.Commit(protocol.CommitRequest{
+				_, err = engine.ReportAction(protocol.ReportActionRequest{
 					ProtocolVersion: protocol.Version,
 					SessionID:       sessionID,
-					RequestID:       "commit.invalid.property." + suffix,
-					ProposalID:      "proposal.unknown." + suffix,
-					EventID:         "event.invalid.property." + suffix,
+					RequestID:       "report.invalid.property." + suffix,
 					Tick:            before.Tick,
-					Accepted:        false,
+					Report: protocol.ActionReport{
+						ProposalID: "proposal.unknown." + suffix,
+						EventID:    "event.invalid.property." + suffix,
+						Decision:   protocol.ActionRejected,
+						Summary:    "Rejected.",
+					},
 				})
 			case 3:
-				_, err = engine.CommitBatch(protocol.BatchCommitRequest{
+				_, err = engine.ReportActionBatch(protocol.BatchActionReportRequest{
 					ProtocolVersion: protocol.Version,
 					SessionID:       sessionID,
 					RequestID:       "batch.invalid.property." + suffix,
 					Tick:            before.Tick,
-					Items: []protocol.CommitItem{{
+					Reports: []protocol.ActionReport{{
 						ProposalID: "proposal.unknown." + suffix,
 						EventID:    "event.invalid.property." + suffix,
-						Accepted:   false,
+						Decision:   protocol.ActionRejected,
+						Summary:    "Rejected.",
 					}},
 				})
 			}

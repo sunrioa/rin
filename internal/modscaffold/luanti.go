@@ -63,11 +63,11 @@ func renderLuantiFile(
 	case "init.lua":
 		text = strings.ReplaceAll(text, "rin_npc_example", options.ID)
 		text = strings.ReplaceAll(
-			text, `"rin-luanti-example/0.6.0"`,
+			text, `"rin-luanti-example/0.7.0"`,
 			luaString("rin-"+options.ID+"/"+options.Version),
 		)
 		text = strings.ReplaceAll(text, `"rin-npc-example"`, luaString(options.ID))
-		text = strings.ReplaceAll(text, `"0.6.0"`, luaString(options.Version))
+		text = strings.ReplaceAll(text, `"0.7.0"`, luaString(options.Version))
 		text = strings.ReplaceAll(text, `"luanti-example"`, luaString(options.ID))
 		text = strings.ReplaceAll(text, `core.register_chatcommand("rin_npc"`,
 			"core.register_chatcommand("+luaString(options.ID))

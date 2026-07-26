@@ -4,7 +4,7 @@
 
 Rin 是管理智能体状态与决策的引擎中立控制层，不是模拟或修改游戏世界的权威。
 
-本文描述 Rin `0.6.0` Preview。HTTP Wire Shape 以
+本文描述 Rin `0.7.0` Preview。HTTP Wire Shape 以
 [`api/openapi.json`](../api/openapi.json) 为准；本文解释组件和 Trust Boundary。
 
 ## 权威边界
@@ -13,7 +13,7 @@ Rin 是管理智能体状态与决策的引擎中立控制层，不是模拟或�
 flowchart LR
     G["Game engine\nworld authority"] -->|Observation| R["Rin runtime\nmemory + goals + policy"]
     R -->|ActionProposal| V["Schema + boundary + freshness validation"]
-    V -->|candidate action only| G
+    V -->|action offer only| G
     G -->|Applied/rejected outcome report| R
     R --> E["Hash-chained event log"]
     R --> S["Checksummed snapshot"]
@@ -21,7 +21,7 @@ flowchart LR
     P -->|"structured draft"| V
 ```
 
-游戏引擎始终拥有世界权威。Rin 不直接修改场景、任务、物品、战斗、角色位置、关键选择或存档。Policy 只能从本次请求的 `candidate_actions` 中选择一个动作；运行时还会检查角色、目标、记忆引用、边界、会话 revision 和内容绑定。
+游戏引擎始终拥有世界权威。Rin 不直接修改场景、任务、物品、战斗、角色位置、关键选择或存档。Policy 只能从本次请求的 `offers` 中选择一个动作；运行时还会检查角色、目标、记忆引用、边界、会话 revision 和内容绑定。
 
 ## 组件
 
@@ -32,16 +32,20 @@ flowchart LR
 Action Authorization：Policy 只能选择由游戏绑定的 Offer；Adapter 在派发到引擎
 权威线程之前，还会重新检查 Schema、Digest、过期时间、Epoch 和当前注册状态。
 
-Host Contract 当前以本地 Go 包形式存在；它既没有改变 HTTP `rin.protocol/v1`
+Host Contract 当前以本地 Go 包形式存在；它既没有改变 HTTP `rin.protocol/v2`
 Wire Shape，也不声称既有语言 Adapter 已经实现新 Registry。
 
 ### 协议
 
-`protocol` 是唯一需要被其他语言复刻的层。所有请求显式携带 `rin.protocol/v1`，未知 JSON 字段会被 HTTP 层拒绝，标识符禁止路径分隔符。
+`protocol` 是唯一需要被其他语言复刻的层。所有请求显式携带 `rin.protocol/v2`，未知 JSON 字段会被 HTTP 层拒绝，标识符禁止路径分隔符。
 
 ### 运行时
 
-`runtime.Engine` 是确定性状态机。每个会话单独加锁；Policy 在锁外执行，因此远程模型变慢不会阻塞新的观察或读状态。旧会话继续用 revision/head hash 判断应用前的 Proposal 是否过期；显式启用 `outcome-reporting-v1` 的会话采用下文“游戏先处理、再回报”和发生时间合并语义。启用 `arbitration-v1` 的会话使用随权威 Observation 和 Outcome 结算前进的 `world_revision`，因此同一轮多个角色可以并行提出动作。游戏已经处理的 Outcome 即使延迟到达也会被记录，不再作为应用前 Proposal 重新判断新鲜度。
+`runtime.Engine` 是确定性状态机。每个 Session 单独加锁；Policy 在锁外执行，因此
+远程模型变慢不会阻塞新的 Observation 或 State Read。Protocol v2 始终使用游戏
+权威的类型化动作生命周期与发生时间合并语义。启用 `arbitration-v1` 的 Session
+使用随权威 Observation 和 Outcome 结算前进的 `world_revision`，因此同一轮多个
+Actor 可以并行提出动作。游戏已处理的 Outcome 即使延迟到达也会被记录。
 
 详细记忆保持固定窗口。`memory-archive-v1` 从较旧的一半中确定性选择低显著性
 批次，再生成带 tick 范围和代表性来源 ID 的有界、有损 Summary。分层文本会
@@ -78,7 +82,7 @@ Policy 接口只返回 `ProposalDraft`。运行时不信任实现：动作必须
 永远不会发布。
 
 运行时是唯一的玩家文本信息流门禁：`ActionProposal.summary` 一律由选中的、
-游戏编写的 `ActionSpec.description` 重建，`ActionProposal.rationale` 一律
+游戏编写的 `ActionOffer.description` 重建，`ActionProposal.rationale` 一律
 来自固定 stance 模板。Goal、Boundary、Memory、Belief、Prompt 和 Provider 文本
 都不是该函数的输入。这是按构造隔离，不是私密字符串黑名单。
 `goal_id`、`boundary_id`、`recalled_memory_ids`、`policy_source` 以及完整
@@ -122,7 +126,7 @@ Attempt 与 total deadline 依赖 `provider.Client` 的协作取消硬契约：�
 
 ### 异步任务
 
-`jobs.Manager` 使用有界 worker 和 queue。游戏先提交 `/v1/jobs/propose`，继续渲染与接收输入，再通过 GET 轮询。若思考期间 Session 变化，Job 结束为 `stale`，不会写入旧提案；取消会沿 context 传递到 HTTP Provider。
+`jobs.Manager` 使用有界 worker 和 queue。游戏先提交 `/v2/jobs/propose`，继续渲染与接收输入，再通过 GET 轮询。若思考期间 Session 变化，Job 结束为 `stale`，不会写入旧提案；取消会沿 context 传递到 HTTP Provider。
 
 Job 元数据只在进程内保留，并可能在 retention TTL 后淘汰。成功 Proposal 本身
 已经进入事件日志；Job 被淘汰或 Sidecar 重启后，客户端可以重新提交完全相同
@@ -141,7 +145,11 @@ Generation 只保证传输、大小和顶层 JSON Object 合法。各游戏仍�
 
 ### 游戏适配器
 
-Ren'Py、Godot 和 Unity 适配器只转换 JSON/HTTP 与各自的异步机制，不复制 Runtime 状态机。在线结果带 `committable=true`，表示游戏处理后可向 Sidecar 回报该 Proposal ID，而不是 Rin 授权执行。只有确定在线提交从未创建 Proposal（例如 Sidecar 已禁用或初始连接被拒绝）时，适配器才能从游戏本次候选列表选择 authored fallback，并标记 `committable=false`；提交、轮询、超时或取消结果尚未确认时必须 fail closed。游戏不得把本地 `offline.*` ID 发给 `/commit`。
+Ren'Py、Godot 和 Unity Adapter 只转换 JSON/HTTP 与各自异步机制，不复制
+Runtime 状态机。Host 将所选 Action Offer 与持久 Pending Turn 匹配，再验证
+Epoch 与 Deadline，按游戏规则执行或拒绝，并持久化确切类型化 Report。
+Submit、Poll、Timeout 或 Cancel 结果不明时必须 Fail Closed，并按确切请求
+身份恢复；Adapter 不得生成替代动作。
 
 JavaScript、C#、Java、Lua、Godot 与 Unity 的 `WorkflowCoordinator` 负责这套通用 Pending Turn
 状态机，但不能凭空创造存储保证。应用前，它会强制检查接入声明的
@@ -152,14 +160,19 @@ Ren'Py worker registry、Godot `HTTPRequest` 和 Unity coroutine 都只存在于
 
 ### 多角色协调
 
-候选目标仍由游戏提供上限和语义范围，Policy 只能建议采用；启用 `outcome-reporting-v1` 后，只有游戏已经应用并以 accepted Commit 回报的目标才写进 Actor。Activity 状态由游戏的区域或模拟系统更新，Dormant 角色不会自行唤醒。Arbitration 对同一 world revision 的 Proposal 做稳定排序并记录冲突，但不执行动作；游戏可以调整、拒绝，再以原子 Batch Commit 汇报实际结果。完整事务与 Outbox 规则见[动作结果记账](outcome-reporting.zh-CN.md)。
+候选目标由游戏提供上限和语义范围，Policy 只能建议；只有游戏已经应用并以
+Accepted Terminal Lifecycle 回报的目标才写进 Actor。Activity 由游戏区域或
+模拟系统更新，Dormant Actor 不会自行唤醒。Arbitration 对同一 World Revision
+的 Proposal 稳定排序并记录冲突，但不执行动作；游戏可以调整、拒绝，再用原子
+Batch Action Report 汇报实际结果。完整事务与 Outbox 规则见
+[Host 动作生命周期](action-lifecycle.zh-CN.md)。
 
 这使 Rin 可以服务视觉小说、RPG NPC 和模拟居民，同时不承担寻路、碰撞、任务规则或 Scene Tree 等引擎职责。
 
 ### 可观测性
 
 Timeline 只从事件 payload 提取 ID 和枚举状态，不返回玩家原话、剧情摘要、
-Commit outcome 或模型内容。在随附 File Store 上，Timeline 读取有界 revision
+Action Outcome 或模型内容。在随附 File Store 上，Timeline 读取有界 revision
 range，不会为每一页重新对完整日志运行 reducer。Replay 使用不晚于目标
 revision 的最新可用 checkpoint，再对剩余 tail 运行正常 reducer，生成完整且
 可验证的 Snapshot，但不会把导出的 Snapshot 写回 Store。Session 加载完成后，
@@ -366,10 +379,10 @@ ID。
 
 ## NPC 调度
 
-每个 Actor 声明 `think_every_ticks`。游戏应用动作并以 accepted Commit 回报后，
-`next_think_tick = max(current, commit.tick + think_every_ticks)`，因此延迟结果
+每个 Actor 声明 `think_every_ticks`。游戏应用动作并回报 Accepted Terminal
+Lifecycle 后，`next_think_tick = max(current, report.tick + think_every_ticks)`，因此延迟结果
 不会让调度倒退。游戏可在区域进入、回合结束、分钟推进或关键事件后调用
-`/v1/scheduler/due`，不应在渲染帧中轮询模型。
+`/v2/scheduler/due`，不应在渲染帧中轮询模型。
 
 紧急事件可在 propose 请求中设置 `urgent: true`，但它只绕过调度时间，不绕过边界和动作白名单。
 
@@ -388,12 +401,11 @@ ID。
 - 不带 History 的旧 Snapshot 仍可读取，但 coverage 永久不完整：只能从有界
   State 中仍可发现的 ID 建立索引。`coverage_complete=false` 会沿以后所有
   Snapshot 与 Restore 合并持续传播。
-- 启用 `outcome-reporting-v1` 后，Restore 会保留 pending Proposal，既让存档中
+- Restore 会保留 Pending Proposal，既让存档中
   尚未处理的 Proposal Attempt 能恢复，也让 Outcome Outbox 能补报读档前已经
   应用的动作。恢复出的 Proposal 不授权执行；游戏必须依赖持久化 Attempt 和
   applied-operation marker 区分两种状态，重新校验尚未处理的动作，并且绝不
   重做已经处理的动作。
-- 未启用该 Feature 的 Session 保留旧版 Restore 行为并清空 Proposal。
 - 已提交事件、记忆、事实、目标进度和调度 tick 会恢复。
 - Restore 会开始一个新的本地事件链 generation；保留的 Proposal、Memory、
   Belief、Activity 和 Arbitration revision 元数据会在发布恢复状态前重基到该

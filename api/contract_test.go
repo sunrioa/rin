@@ -93,8 +93,8 @@ func TestOpenAPIReferencesInputsAndResponseEvolutionRules(t *testing.T) {
 	schemas := document["components"].(map[string]any)["schemas"].(map[string]any)
 	closedInputs := []string{
 		"Binding", "BoundaryInput", "GoalSeedInput", "ActorSeedInput", "FactInput",
-		"ActionSpecInput", "CreateSessionRequest", "ObserveRequest", "ProposeRequest",
-		"GoalUpdateInput", "CommitRequest", "CommitItemInput", "BatchCommitRequest",
+		"ActionOfferInput", "CreateSessionRequest", "ObserveRequest", "ProposeRequest",
+		"GoalUpdateInput", "ReportActionRequest", "ActionReportInput", "BatchActionReportRequest",
 		"ActorActivityUpdateInput", "SetActorActivityRequest", "ArbitrateRequest",
 		"SessionRequest", "ArchiveSessionRequest", "DeleteSessionRequest",
 		"RestoreRequest", "TimelineRequest", "ReplayRequest",
@@ -107,20 +107,20 @@ func TestOpenAPIReferencesInputsAndResponseEvolutionRules(t *testing.T) {
 		}
 	}
 	zeroDefaultOptional := map[string][]string{
-		"BoundaryInput":           {"trigger_tags"},
-		"GoalSeedInput":           {"progress"},
-		"ActorSeedInput":          {"enabled"},
-		"FactInput":               {"confidence"},
-		"CreateSessionRequest":    {"seed"},
-		"ObserveRequest":          {"tick"},
-		"ProposeRequest":          {"tick"},
-		"GoalUpdateInput":         {"progress_delta"},
-		"CommitRequest":           {"tick"},
-		"BatchCommitRequest":      {"tick"},
-		"SetActorActivityRequest": {"tick"},
-		"ArbitrateRequest":        {"tick"},
-		"DueAgentsRequest":        {"tick"},
-		"GenerationRequest":       {"temperature"},
+		"BoundaryInput":            {"trigger_tags"},
+		"GoalSeedInput":            {"progress"},
+		"ActorSeedInput":           {"enabled"},
+		"FactInput":                {"confidence"},
+		"CreateSessionRequest":     {"seed"},
+		"ObserveRequest":           {"tick"},
+		"ProposeRequest":           {"tick"},
+		"GoalUpdateInput":          {"progress_delta"},
+		"ReportActionRequest":      {"tick"},
+		"BatchActionReportRequest": {"tick"},
+		"SetActorActivityRequest":  {"tick"},
+		"ArbitrateRequest":         {"tick"},
+		"DueAgentsRequest":         {"tick"},
+		"GenerationRequest":        {"temperature"},
 	}
 	for schemaName, fields := range zeroDefaultOptional {
 		required := requiredSet(schemas[schemaName].(map[string]any))
@@ -131,15 +131,15 @@ func TestOpenAPIReferencesInputsAndResponseEvolutionRules(t *testing.T) {
 		}
 	}
 	for schemaName, field := range map[string]string{
-		"CommitRequest":   "accepted",
-		"CommitItemInput": "accepted",
+		"ReportActionRequest": "report",
+		"ActionReportInput":   "decision",
 	} {
 		if !requiredSet(schemas[schemaName].(map[string]any))[field] {
-			t.Errorf("%s.%s must remain explicitly required", schemaName, field)
+			t.Errorf("%s.%s must be explicitly required", schemaName, field)
 		}
 	}
 	additiveState := []string{
-		"BindingState", "BoundaryState", "ActionSpecState", "GoalState", "FactState",
+		"BindingState", "BoundaryState", "ActionOfferState", "GoalState", "FactState",
 		"ActorState", "ActionProposalState", "SessionState", "Snapshot",
 		"MutationResult", "ProposalJob", "GenerationJob", "ErrorResponse",
 	}
@@ -199,16 +199,16 @@ func TestContractExamplesStrictGoRoundTripAndPresence(t *testing.T) {
 				return protocol.ValidatePropose(*value.(*protocol.ProposeRequest))
 			},
 		},
-		"CommitRequest": {
-			newValue: func() any { return &protocol.CommitRequest{} },
+		"ReportActionRequest": {
+			newValue: func() any { return &protocol.ReportActionRequest{} },
 			validate: func(value any) error {
-				return protocol.ValidateCommit(*value.(*protocol.CommitRequest))
+				return protocol.ValidateReportAction(*value.(*protocol.ReportActionRequest))
 			},
 		},
-		"BatchCommitRequest": {
-			newValue: func() any { return &protocol.BatchCommitRequest{} },
+		"BatchActionReportRequest": {
+			newValue: func() any { return &protocol.BatchActionReportRequest{} },
 			validate: func(value any) error {
-				return protocol.ValidateBatchCommit(*value.(*protocol.BatchCommitRequest))
+				return protocol.ValidateBatchActionReport(*value.(*protocol.BatchActionReportRequest))
 			},
 		},
 		"SessionRequest": {
@@ -324,8 +324,8 @@ func TestOptionalZeroDefaultsMatchTypedValidatorSemantics(t *testing.T) {
 			delete(value["facts"].([]any)[0].(map[string]any), "confidence")
 		}},
 		{"propose tick", "ProposeRequest", func(value map[string]any) { delete(value, "tick") }},
-		{"commit tick", "CommitRequest", func(value map[string]any) { delete(value, "tick") }},
-		{"batch tick", "BatchCommitRequest", func(value map[string]any) { delete(value, "tick") }},
+		{"commit tick", "ReportActionRequest", func(value map[string]any) { delete(value, "tick") }},
+		{"batch tick", "BatchActionReportRequest", func(value map[string]any) { delete(value, "tick") }},
 		{"generation temperature", "GenerationRequest", func(value map[string]any) {
 			delete(value, "temperature")
 		}},
@@ -352,7 +352,7 @@ func TestOptionalZeroDefaultsMatchTypedValidatorSemantics(t *testing.T) {
 	}
 }
 
-func TestAcceptedRemainsExplicitlyRequired(t *testing.T) {
+func TestActionDecisionRemainsExplicitlyRequired(t *testing.T) {
 	tests := []struct {
 		name       string
 		schemaName string
@@ -360,34 +360,34 @@ func TestAcceptedRemainsExplicitlyRequired(t *testing.T) {
 		field      string
 	}{
 		{
-			"commit missing",
-			"CommitRequest",
-			`{"protocol_version":"rin.protocol/v1"}`,
+			"report missing",
+			"ReportActionRequest",
+			`{"protocol_version":"rin.protocol/v2"}`,
 			"session_id",
 		},
 		{
-			"commit accepted missing",
-			"CommitRequest",
-			`{"protocol_version":"rin.protocol/v1","session_id":"s","request_id":"r","proposal_id":"p","event_id":"e"}`,
-			"accepted",
+			"report decision missing",
+			"ReportActionRequest",
+			`{"protocol_version":"rin.protocol/v2","session_id":"s","request_id":"r","report":{"proposal_id":"p","event_id":"e","summary":""}}`,
+			"report.decision",
 		},
 		{
-			"commit accepted null",
-			"CommitRequest",
-			`{"protocol_version":"rin.protocol/v1","session_id":"s","request_id":"r","proposal_id":"p","event_id":"e","accepted":null}`,
-			"accepted",
+			"report decision null",
+			"ReportActionRequest",
+			`{"protocol_version":"rin.protocol/v2","session_id":"s","request_id":"r","report":{"proposal_id":"p","event_id":"e","decision":null,"summary":""}}`,
+			"report.decision",
 		},
 		{
-			"batch accepted missing",
-			"BatchCommitRequest",
-			`{"protocol_version":"rin.protocol/v1","session_id":"s","request_id":"r","items":[{"proposal_id":"p","event_id":"e"}]}`,
-			"items[0].accepted",
+			"batch decision missing",
+			"BatchActionReportRequest",
+			`{"protocol_version":"rin.protocol/v2","session_id":"s","request_id":"r","reports":[{"proposal_id":"p","event_id":"e","summary":""}]}`,
+			"reports[0].decision",
 		},
 		{
-			"batch accepted null",
-			"BatchCommitRequest",
-			`{"protocol_version":"rin.protocol/v1","session_id":"s","request_id":"r","items":[{"proposal_id":"p","event_id":"e","accepted":null}]}`,
-			"items[0].accepted",
+			"batch decision null",
+			"BatchActionReportRequest",
+			`{"protocol_version":"rin.protocol/v2","session_id":"s","request_id":"r","reports":[{"proposal_id":"p","event_id":"e","decision":null,"summary":""}]}`,
+			"reports[0].decision",
 		},
 	}
 	for _, test := range tests {
@@ -401,15 +401,15 @@ func TestAcceptedRemainsExplicitlyRequired(t *testing.T) {
 			}
 		})
 	}
-	for _, accepted := range []string{"false", "true"} {
+	for _, decision := range []string{"accepted", "rejected"} {
 		payload := []byte(
-			`{"protocol_version":"rin.protocol/v1","session_id":"s","request_id":"r",` +
-				`"proposal_id":"p","event_id":"e","accepted":` + accepted + `}`,
+			`{"protocol_version":"rin.protocol/v2","session_id":"s","request_id":"r",` +
+				`"report":{"proposal_id":"p","event_id":"e","decision":"` + decision + `","summary":""}}`,
 		)
-		if requiredErr, err := rinapi.ValidateRequiredFields("CommitRequest", payload); err != nil {
+		if requiredErr, err := rinapi.ValidateRequiredFields("ReportActionRequest", payload); err != nil {
 			t.Fatal(err)
 		} else if requiredErr != nil {
-			t.Fatalf("explicit accepted=%s rejected: %v", accepted, requiredErr)
+			t.Fatalf("explicit decision=%s rejected: %v", decision, requiredErr)
 		}
 	}
 }

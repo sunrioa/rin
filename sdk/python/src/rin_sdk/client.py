@@ -1,4 +1,4 @@
-"""Strict standard-library client for Rin Protocol v1."""
+"""Strict standard-library client for Rin Protocol v2."""
 
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ from urllib.parse import quote, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
-SDK_VERSION = "0.6.0"
-PROTOCOL_VERSION = "rin.protocol/v1"
+SDK_VERSION = "0.7.0"
+PROTOCOL_VERSION = "rin.protocol/v2"
 DEFAULT_BASE_URL = "http://127.0.0.1:7374"
 DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 _MAX_GENERATION_CONTENT_BYTES = 4 * 1024 * 1024
@@ -82,72 +82,70 @@ class RinClient:
         return self._request("GET", "/health")
 
     def create_session(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return self._post("/v1/session/create", payload)
+        return self._post("/v2/session/create", payload)
 
     def observe(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return self._post("/v1/session/observe", payload)
+        return self._post("/v2/session/observe", payload)
 
     def propose(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return self._post("/v1/agent/propose", payload)
+        return self._post("/v2/agent/propose", payload)
 
     def submit_proposal_job(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return self._request("POST", "/v1/jobs/propose", payload, (202,))
+        return self._request("POST", "/v2/jobs/propose", payload, (202,))
 
     def get_proposal_job(self, job_id: str) -> Dict[str, Any]:
-        return self._request("GET", "/v1/jobs/" + _path_id(job_id))
+        return self._request("GET", "/v2/jobs/" + _path_id(job_id))
 
     def cancel_proposal_job(self, job_id: str) -> Dict[str, Any]:
-        return self._request("DELETE", "/v1/jobs/" + _path_id(job_id))
+        return self._request("DELETE", "/v2/jobs/" + _path_id(job_id))
 
     def submit_generation_job(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return self._request("POST", "/v1/generation/jobs", payload, (202,))
+        return self._request("POST", "/v2/generation/jobs", payload, (202,))
 
     def get_generation_job(self, job_id: str) -> Dict[str, Any]:
-        return self._request("GET", "/v1/generation/jobs/" + _path_id(job_id))
+        return self._request("GET", "/v2/generation/jobs/" + _path_id(job_id))
 
     def cancel_generation_job(self, job_id: str) -> Dict[str, Any]:
-        return self._request("DELETE", "/v1/generation/jobs/" + _path_id(job_id))
+        return self._request("DELETE", "/v2/generation/jobs/" + _path_id(job_id))
 
-    def commit(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Report a game-applied or rejected outcome; this does not execute it."""
-        return self._post("/v1/action/commit", payload)
+    def report_action(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return self._post("/v2/action/report", payload)
 
-    def commit_batch(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Atomically report game outcomes produced from one world revision."""
-        return self._post("/v1/action/commit-batch", payload)
+    def report_action_batch(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return self._post("/v2/action/report-batch", payload)
 
     def set_actor_activity(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return self._post("/v1/session/activity", payload)
+        return self._post("/v2/session/activity", payload)
 
     def arbitrate(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return self._post("/v1/world/arbitrate", payload)
+        return self._post("/v2/world/arbitrate", payload)
 
     def state(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return self._post("/v1/session/get", payload)
+        return self._post("/v2/session/get", payload)
 
     def session_stats(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return self._post("/v1/session/stats", payload)
+        return self._post("/v2/session/stats", payload)
 
     def archive_session(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return self._post("/v1/session/archive", payload)
+        return self._post("/v2/session/archive", payload)
 
     def delete_session(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return self._post("/v1/session/delete", payload)
+        return self._post("/v2/session/delete", payload)
 
     def snapshot(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return self._post("/v1/session/snapshot", payload)
+        return self._post("/v2/session/snapshot", payload)
 
     def restore(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return self._post("/v1/session/restore", payload)
+        return self._post("/v2/session/restore", payload)
 
     def timeline(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return self._post("/v1/session/timeline", payload)
+        return self._post("/v2/session/timeline", payload)
 
     def replay(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return self._post("/v1/session/replay", payload)
+        return self._post("/v2/session/replay", payload)
 
     def due_agents(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return self._post("/v1/scheduler/due", payload)
+        return self._post("/v2/scheduler/due", payload)
 
     def wait_for_proposal(self, job_id: str, *, deadline: float = 25.0, interval: float = 0.1) -> Dict[str, Any]:
         return self._wait_job(

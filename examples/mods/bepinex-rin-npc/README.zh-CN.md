@@ -40,8 +40,8 @@ dotnet build RinNpc.IL2CPP/RinNpc.IL2CPP.csproj -c Release --no-restore
 
 ```bash
 python package_bepinex.py
-python package_bepinex.py --verify-archive dist/rin-npc-bepinex-mono-0.6.0.zip
-python package_bepinex.py --verify-archive dist/rin-npc-bepinex-il2cpp-0.6.0.zip
+python package_bepinex.py --verify-archive dist/rin-npc-bepinex-mono-0.7.0.zip
+python package_bepinex.py --verify-archive dist/rin-npc-bepinex-il2cpp-0.7.0.zip
 ```
 
 仓库根目录的 `python tools/package_bepinex.py` 命令会委托给同一个规范 Helper。
@@ -81,12 +81,11 @@ F8 纵向切片虽然很小，但已不再只有对白。Rin 可以提出游戏�
 之后再推进它；Game Store 拥有 `0 -> 1 -> 2` 转换，并在 Settlement 前保存
 Operation ID，因此崩溃重试不会重复推进。当前 Quest Stage 会进入下一条
 Observation，让持久效果对后续记忆与规划可见。阶段不符、过期或未列入 Allowlist
-的动作会被拒绝，Authored Offline Fallback 仍固定为 `wait`。
+的动作会被拒绝；未决 Proposal 会 Fail Closed，不会编造离线动作。
 
 网络提交前先保存完整 Pending Turn，收到 `202` 后立即保存 Job ID；重启会
-恢复同一 Operation 与稳定 Session。动作应用后保存精确 Commit 及安全的绝对
-事实 Observe Fallback。临时错误保留 Commit；只有 `unknown_proposal` 等明确
-终态错误会先持久化转换，再发送 Observe。
+恢复同一 Operation 与稳定 Session。动作应用后保存精确 Action Report。任何
+报告错误都会保留同一 Entry 供重试，绝不会转换成 Observation。
 
 文件替换只能保证抗崩溃的执行顺序，不代表游戏事务已经持久化。进程或断电仍
 可能发生在游戏效果与状态文件替换之间。生产 Adapter 应让效果按 Operation

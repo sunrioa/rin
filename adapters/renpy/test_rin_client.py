@@ -51,12 +51,12 @@ class _Opener:
         self.last_path = path
         if request.data is not None:
             self.last_payload = json.loads(request.data.decode("utf-8"))
-        if request.get_method() == "POST" and path == "/v1/jobs/propose":
+        if request.get_method() == "POST" and path == "/v2/jobs/propose":
             return _Response(202, {
                 "ok": True,
                 "data": {"job_id": "job.fixture", "status": "queued", "duplicate": False},
             })
-        if request.get_method() == "GET" and path == "/v1/jobs/job.fixture":
+        if request.get_method() == "GET" and path == "/v2/jobs/job.fixture":
             self.polls += 1
             if self.polls == 1:
                 return _Response(200, {
@@ -67,17 +67,17 @@ class _Opener:
                 "ok": True,
                 "data": _proposal_job("succeeded"),
             })
-        if request.get_method() == "DELETE" and path == "/v1/jobs/job.fixture":
+        if request.get_method() == "DELETE" and path == "/v2/jobs/job.fixture":
             return _Response(200, {
                 "ok": True,
                 "data": _proposal_job("canceled"),
             })
-        if request.get_method() == "POST" and path == "/v1/generation/jobs":
+        if request.get_method() == "POST" and path == "/v2/generation/jobs":
             return _Response(202, {
                 "ok": True,
                 "data": {"job_id": "gen.fixture", "status": "queued", "duplicate": False},
             })
-        if request.get_method() == "GET" and path == "/v1/generation/jobs/gen.fixture":
+        if request.get_method() == "GET" and path == "/v2/generation/jobs/gen.fixture":
             self.generation_polls += 1
             if self.generation_polls == 1:
                 return _Response(200, {
@@ -100,7 +100,7 @@ class _Opener:
                     },
                 },
             })
-        if request.get_method() == "DELETE" and path == "/v1/generation/jobs/gen.fixture":
+        if request.get_method() == "DELETE" and path == "/v2/generation/jobs/gen.fixture":
             return _Response(200, {
                 "ok": True,
                 "data": {
@@ -122,6 +122,36 @@ class _Opener:
 
 
 def _proposal_request():
+    epoch = {
+        "session_id": "session.fixture",
+        "world_id": "world.fixture",
+        "host": 1,
+        "world": 1,
+        "timeline": 1,
+    }
+    deadline = {"clock": "event", "value": 3}
+    window = {
+        "id": "window.fixture",
+        "mode": "sequential",
+        "epoch": epoch,
+        "observation_seq": 2,
+        "opened_at": {"clock": "event", "value": 2},
+        "deadline": deadline,
+        "actor_ids": ["npc.mira"],
+    }
+    def offer(offer_id, capability_id, description):
+        return {
+            "offer_id": offer_id,
+            "decision_window_id": window["id"],
+            "actor_id": "npc.mira",
+            "capability": {"id": capability_id, "version": "1"},
+            "descriptor_digest": "a" * 64,
+            "description": description,
+            "arguments": {},
+            "expected_epoch": epoch,
+            "observation_seq": 2,
+            "deadline": deadline,
+        }
     return {
         "protocol_version": rin_client.PROTOCOL_VERSION,
         "session_id": "session.fixture",
@@ -129,9 +159,10 @@ def _proposal_request():
         "actor_id": "npc.mira",
         "tick": 2,
         "intent": "Respond",
-        "candidate_actions": [
-            {"id": "talk", "kind": "dialogue", "description": "Talk"},
-            {"id": "wait", "kind": "wait", "description": "Wait"},
+        "decision_window": window,
+        "offers": [
+            offer("offer.talk", "dialogue.talk", "Talk"),
+            offer("offer.wait", "world.wait", "Wait"),
         ],
     }
 
@@ -144,7 +175,8 @@ def _valid_proposal(request=None, **changes):
         "request_id": request["request_id"],
         "actor_id": request["actor_id"],
         "tick": request["tick"],
-        "action": json.loads(json.dumps(request["candidate_actions"][0])),
+        "decision_window": json.loads(json.dumps(request["decision_window"])),
+        "action": json.loads(json.dumps(request["offers"][0])),
         "policy_source": "deterministic",
     }
     proposal.update(changes)
@@ -205,7 +237,7 @@ class _AdvancingClock:
 
 class RinClientTests(unittest.TestCase):
     def test_contract_versions_and_user_agent(self):
-        self.assertEqual(rin_client.SDK_VERSION, "0.6.0")
+        self.assertEqual(rin_client.SDK_VERSION, "0.7.0")
         client = _client_with_opener()
         result = client.health()
         self.assertEqual(result["status"], "ok")
@@ -214,26 +246,29 @@ class RinClientTests(unittest.TestCase):
     def test_living_world_routes(self):
         client = _client_with_opener()
         cases = (
-            (client.commit_batch, "/v1/action/commit-batch"),
-            (client.set_actor_activity, "/v1/session/activity"),
-            (client.arbitrate, "/v1/world/arbitrate"),
-            (client.timeline, "/v1/session/timeline"),
-            (client.replay, "/v1/session/replay"),
+            (client.report_action_batch, "/v2/action/report-batch"),
+            (client.set_actor_activity, "/v2/session/activity"),
+            (client.arbitrate, "/v2/world/arbitrate"),
+            (client.timeline, "/v2/session/timeline"),
+            (client.replay, "/v2/session/replay"),
         )
         for method, expected_path in cases:
             with self.subTest(path=expected_path):
                 method({"protocol_version": rin_client.PROTOCOL_VERSION})
                 self.assertEqual(client._opener.last_path, expected_path)
 
-    def test_false_commit_flags_are_serialized(self):
+    def test_report_decisions_are_serialized(self):
         client = _client_with_opener()
-        client.commit({"accepted": False})
-        self.assertIn("accepted", client._opener.last_payload)
-        self.assertIs(client._opener.last_payload["accepted"], False)
-        client.commit_batch({"items": [{"accepted": False}]})
-        item = client._opener.last_payload["items"][0]
-        self.assertIn("accepted", item)
-        self.assertIs(item["accepted"], False)
+        client.report_action({"report": {"decision": "rejected"}})
+        self.assertEqual(
+            client._opener.last_payload["report"]["decision"],
+            "rejected",
+        )
+        client.report_action_batch({"reports": [{"decision": "rejected"}]})
+        self.assertEqual(
+            client._opener.last_payload["reports"][0]["decision"],
+            "rejected",
+        )
 
     def test_invalid_json_numbers_cycles_and_depth_fail_before_transport(self):
         client = _client_with_opener()
@@ -254,7 +289,7 @@ class RinClientTests(unittest.TestCase):
         for payload in invalid_payloads:
             with self.subTest(payload_type=type(payload).__name__):
                 with self.assertRaises(rin_client.RinProtocolError) as caught:
-                    client.commit(payload)
+                    client.report_action(payload)
                 self.assertEqual(caught.exception.code, "invalid_request")
         self.assertEqual(client._opener.calls, 0)
 
@@ -273,18 +308,18 @@ class RinClientTests(unittest.TestCase):
 
     def test_async_proposal_flow_and_token(self):
         client = _client_with_opener("fixture-token")
-        result = client.propose_with_fallback(
+        result = client.run_proposal_job(
             _proposal_request(),
             deadline_seconds=1,
             poll_interval=0.01,
         )
         self.assertEqual(result["source"], "sidecar")
-        self.assertTrue(result["committable"])
-        self.assertEqual(result["proposal"]["action"]["id"], "talk")
+        self.assertEqual(result["error_code"], "")
+        self.assertEqual(result["proposal"]["action"]["offer_id"], "offer.talk")
         self.assertEqual(client._opener.authorization, "Bearer fixture-token")
         self.assertEqual(client._opener.last_payload["request_id"], "request.fixture")
 
-    def test_definite_connection_refusal_uses_authored_fallback(self):
+    def test_definite_connection_refusal_fails_closed(self):
         client = rin_client.RinClient()
 
         class FailingOpener:
@@ -292,18 +327,11 @@ class RinClientTests(unittest.TestCase):
                 raise URLError(ConnectionRefusedError(errno.ECONNREFUSED, "connection refused"))
 
         client._opener = FailingOpener()
-        result = client.propose_with_fallback(
-            _proposal_request(),
-            fallback_action_id="wait",
-        )
-        self.assertEqual(result["source"], "offline")
-        self.assertFalse(result["committable"])
-        self.assertEqual(result["fallback_reason"], "transport_unavailable")
-        self.assertEqual(result["proposal"]["action"]["id"], "wait")
-        self.assertEqual(result["proposal"]["policy_source"], "adapter-offline")
-        self.assertNotIn("fixture-token", json.dumps(result))
+        with self.assertRaises(rin_client.RinJobError) as caught:
+            client.run_proposal_job(_proposal_request())
+        self.assertEqual(caught.exception.code, "proposal_outcome_unknown")
 
-    def test_ambiguous_submission_timeout_does_not_execute_fallback(self):
+    def test_ambiguous_submission_timeout_fails_closed(self):
         client = rin_client.RinClient()
 
         class TimingOutOpener:
@@ -312,13 +340,12 @@ class RinClientTests(unittest.TestCase):
 
         client._opener = TimingOutOpener()
         with self.assertRaises(rin_client.RinJobError) as caught:
-            client.propose_with_fallback(
+            client.run_proposal_job(
                 _proposal_request(),
-                fallback_action_id="wait",
             )
         self.assertEqual(caught.exception.code, "proposal_outcome_unknown")
 
-    def test_gateway_error_after_submission_does_not_execute_fallback(self):
+    def test_gateway_error_after_submission_fails_closed(self):
         client = rin_client.RinClient()
 
         class GatewayOpener:
@@ -337,9 +364,8 @@ class RinClientTests(unittest.TestCase):
 
         client._opener = GatewayOpener()
         with self.assertRaises(rin_client.RinJobError) as caught:
-            client.propose_with_fallback(
+            client.run_proposal_job(
                 _proposal_request(),
-                fallback_action_id="wait",
             )
         self.assertEqual(caught.exception.status, 504)
         self.assertEqual(caught.exception.code, "proposal_outcome_unknown")
@@ -415,7 +441,7 @@ class RinClientTests(unittest.TestCase):
                     def __init__(self):
                         self.calls = []
 
-                    def propose_with_fallback(self, request, **options):
+                    def run_proposal_job(self, request, **options):
                         self.calls.append({
                             "request": json.loads(json.dumps(request)),
                             "known_job_id": options.get("known_job_id", ""),
@@ -430,8 +456,7 @@ class RinClientTests(unittest.TestCase):
                             )
                         return {
                             "source": "sidecar",
-                            "committable": True,
-                            "fallback_reason": "",
+                            "error_code": "",
                             "job_id": "job.retained",
                             "proposal": {"id": "proposal.recovered"},
                         }
@@ -463,7 +488,7 @@ class RinClientTests(unittest.TestCase):
                 self.assertEqual(consumed["result"]["proposal"]["id"], "proposal.recovered")
                 self.assertEqual(consumed["job_id"], "job.retained")
 
-    def test_empty_job_attempt_resume_never_uses_offline_fallback(self):
+    def test_empty_job_attempt_resumes_fail_closed(self):
         request = _proposal_request()
 
         # The game persists this pending record before the worker's first POST,
@@ -472,7 +497,6 @@ class RinClientTests(unittest.TestCase):
         request_id = original.schedule(request, lambda _worker: None)
         persisted = original.attempt(request_id)
         self.assertEqual(persisted["job_id"], "")
-        self.assertFalse(persisted["allow_offline_before_submit"])
 
         class RefusingOpener:
             def open(self, _request, timeout):
@@ -486,9 +510,7 @@ class RinClientTests(unittest.TestCase):
         restarted.schedule(
             persisted["request"],
             lambda worker: worker(),
-            fallback_action_id=persisted["fallback_action_id"],
             known_job_id=persisted["job_id"],
-            allow_offline_before_submit=persisted["allow_offline_before_submit"],
         )
 
         self.assertEqual(restarted.status(request_id), "unresolved")
@@ -498,8 +520,7 @@ class RinClientTests(unittest.TestCase):
         self.assertEqual(unresolved["job_id"], "")
         self.assertEqual(unresolved["error_code"], "proposal_outcome_unknown")
 
-        # A later exact-request resume may recover normally, still with offline
-        # disabled because it is the same durable attempt.
+        # A later exact-request resume may recover normally.
         restarted_client._opener = _Opener()
         restarted.schedule(request, lambda worker: worker())
         self.assertEqual(restarted.status(request_id), "complete")
@@ -534,7 +555,7 @@ class RinClientTests(unittest.TestCase):
 
         client.get_proposal_job = get_job
         client.submit_proposal_job = submit
-        result = client.propose_with_fallback(
+        result = client.run_proposal_job(
             request,
             known_job_id="job.previous",
             persist_job_id=lambda job_id: retained.append(job_id) or True,
@@ -570,7 +591,7 @@ class RinClientTests(unittest.TestCase):
         )
 
         with self.assertRaises(rin_client.RinJobError) as caught:
-            client.propose_with_fallback(
+            client.run_proposal_job(
                 request,
                 known_job_id="job.previous",
             )
@@ -606,7 +627,7 @@ class RinClientTests(unittest.TestCase):
                     )
 
                     with self.assertRaises(rin_client.RinJobError) as caught:
-                        client.propose_with_fallback(
+                        client.run_proposal_job(
                             request,
                             known_job_id="job.fixture",
                         )
@@ -675,7 +696,7 @@ class RinClientTests(unittest.TestCase):
                 )
 
                 with self.assertRaises(rin_client.RinJobError) as caught:
-                    client.propose_with_fallback(
+                    client.run_proposal_job(
                         request,
                         known_job_id="job.fixture",
                     )
@@ -717,28 +738,20 @@ class RinClientTests(unittest.TestCase):
         )
 
         with self.assertRaises(rin_client.RinJobError) as caught:
-            client.propose_with_fallback(
+            client.run_proposal_job(
                 request,
-                fallback_action_id="wait",
                 cancel_event=canceled,
             )
 
         self.assertEqual(caught.exception.code, "job_outcome_unknown")
         self.assertEqual(caught.exception.job_id, "job.fixture")
 
-    def test_invalid_fallback_is_rejected(self):
-        with self.assertRaises(rin_client.RinProtocolError):
-            rin_client.offline_proposal_result(
-                _proposal_request(),
-                fallback_action_id="not-advertised",
-            )
-
     def test_cancellation_reaches_job_endpoint(self):
         client = _client_with_opener()
         canceled = threading.Event()
         canceled.set()
         with self.assertRaises(rin_client.RinJobError) as caught:
-            client.propose_with_fallback(
+            client.run_proposal_job(
                 _proposal_request(),
                 cancel_event=canceled,
             )
@@ -783,7 +796,7 @@ class RinClientTests(unittest.TestCase):
             client.wait_for_proposal("job.fixture", cancel_event=canceled)
         self.assertEqual(caught.exception.code, "job_cancel_unconfirmed")
 
-    def test_explicit_cancellation_never_turns_terminal_failure_into_fallback(self):
+    def test_explicit_cancellation_preserves_terminal_failure(self):
         client = rin_client.RinClient()
         request = _proposal_request()
         canceled = threading.Event()
@@ -795,14 +808,13 @@ class RinClientTests(unittest.TestCase):
             error={"code": "state_changed", "message": "World changed"},
         )
         with self.assertRaises(rin_client.RinJobError) as caught:
-            client.propose_with_fallback(
+            client.run_proposal_job(
                 request,
-                fallback_action_id="wait",
                 cancel_event=canceled,
             )
         self.assertEqual(caught.exception.code, "state_changed")
 
-    def test_terminal_unknown_outcome_from_poll_never_executes_fallback(self):
+    def test_terminal_unknown_outcome_from_poll_fails_closed(self):
         client = rin_client.RinClient()
         request = _proposal_request()
         client.submit_proposal_job = lambda _request: {"job_id": "job.fixture"}
@@ -816,14 +828,13 @@ class RinClientTests(unittest.TestCase):
         )
 
         with self.assertRaises(rin_client.RinJobError) as caught:
-            client.propose_with_fallback(
+            client.run_proposal_job(
                 request,
-                fallback_action_id="wait",
             )
 
         self.assertEqual(caught.exception.code, "proposal_outcome_unknown")
 
-    def test_terminal_unknown_outcome_from_delete_never_executes_fallback(self):
+    def test_terminal_unknown_outcome_from_delete_fails_closed(self):
         clock = _AdvancingClock()
         client = rin_client.RinClient(clock=clock.now, sleeper=clock.sleep)
         request = _proposal_request()
@@ -842,9 +853,8 @@ class RinClientTests(unittest.TestCase):
         )
 
         with self.assertRaises(rin_client.RinJobError) as caught:
-            client.propose_with_fallback(
+            client.run_proposal_job(
                 request,
-                fallback_action_id="wait",
                 deadline_seconds=0.05,
                 poll_interval=0.01,
             )
@@ -874,10 +884,9 @@ class RinClientTests(unittest.TestCase):
                         )
 
                     with self.assertRaises(rin_client.RinJobError) as caught:
-                        client.propose_with_fallback(
+                        client.run_proposal_job(
                             request,
                             known_job_id="job.fixture",
-                            fallback_action_id="wait",
                             cancel_event=canceled if route == "cancel" else None,
                         )
 
@@ -1115,7 +1124,7 @@ class RinClientTests(unittest.TestCase):
             )
         self.assertEqual(caught.exception.code, "job_timeout")
 
-    def test_unconfirmed_timeout_does_not_execute_fallback(self):
+    def test_unconfirmed_timeout_fails_closed(self):
         clock = _AdvancingClock()
         client = rin_client.RinClient(clock=clock.now, sleeper=clock.sleep)
         request = _proposal_request()
@@ -1130,9 +1139,8 @@ class RinClientTests(unittest.TestCase):
 
         client.cancel_proposal_job = fail_cancel
         with self.assertRaises(rin_client.RinJobError) as caught:
-            client.propose_with_fallback(
+            client.run_proposal_job(
                 request,
-                fallback_action_id="wait",
                 deadline_seconds=0.05,
                 poll_interval=0.01,
             )
@@ -1166,8 +1174,6 @@ class RinClientTests(unittest.TestCase):
         self.assertNotIn("default _RIN_", source)
         self.assertIn("def rin_proposal_attempt(", source)
         self.assertIn("def rin_resume_proposal(", source)
-        self.assertIn("resuming=True", source)
-        self.assertIn("allow_offline_before_submit=False", source)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
-"""Dependency-free Rin Protocol v1 client for Ren'Py and regular Python.
+"""Dependency-free Rin Protocol v2 client for Ren'Py and regular Python.
 
 The client deliberately keeps threads, cancellation events, and transport state
-outside Ren'Py saves. Call ``propose_with_fallback`` from a background worker,
+outside Ren'Py saves. Call ``run_proposal_job`` from a background worker,
 then store only its returned JSON-compatible dictionary on the main thread.
 """
 
@@ -21,8 +21,8 @@ from urllib.parse import urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
 
 
-SDK_VERSION = "0.6.0"
-PROTOCOL_VERSION = "rin.protocol/v1"
+SDK_VERSION = "0.7.0"
+PROTOCOL_VERSION = "rin.protocol/v2"
 DEFAULT_BASE_URL = "http://127.0.0.1:7374"
 DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 MAX_GENERATION_CONTENT_BYTES = 4 * 1024 * 1024
@@ -209,69 +209,69 @@ class RinClient:
         return self._request("GET", "/health")
 
     def create_session(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        return self._request("POST", "/v1/session/create", request)
+        return self._request("POST", "/v2/session/create", request)
 
     def observe(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        return self._request("POST", "/v1/session/observe", request)
+        return self._request("POST", "/v2/session/observe", request)
 
     def propose(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        return self._request("POST", "/v1/agent/propose", request)
+        return self._request("POST", "/v2/agent/propose", request)
 
     def submit_proposal_job(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        return self._request("POST", "/v1/jobs/propose", request, expected_statuses=(202,))
+        return self._request("POST", "/v2/jobs/propose", request, expected_statuses=(202,))
 
     def get_proposal_job(self, job_id: str) -> Dict[str, Any]:
-        return self._request("GET", "/v1/jobs/" + _path_identifier(job_id))
+        return self._request("GET", "/v2/jobs/" + _path_identifier(job_id))
 
     def cancel_proposal_job(self, job_id: str) -> Dict[str, Any]:
-        return self._request("DELETE", "/v1/jobs/" + _path_identifier(job_id))
+        return self._request("DELETE", "/v2/jobs/" + _path_identifier(job_id))
 
     def submit_generation_job(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        return self._request("POST", "/v1/generation/jobs", request, expected_statuses=(202,))
+        return self._request("POST", "/v2/generation/jobs", request, expected_statuses=(202,))
 
     def get_generation_job(self, job_id: str) -> Dict[str, Any]:
         expected_job_id = _path_identifier(job_id)
-        job = self._request("GET", "/v1/generation/jobs/" + expected_job_id)
+        job = self._request("GET", "/v2/generation/jobs/" + expected_job_id)
         _validate_generation_job_shape(job, expected_job_id)
         return job
 
     def cancel_generation_job(self, job_id: str) -> Dict[str, Any]:
         expected_job_id = _path_identifier(job_id)
-        job = self._request("DELETE", "/v1/generation/jobs/" + expected_job_id)
+        job = self._request("DELETE", "/v2/generation/jobs/" + expected_job_id)
         _validate_generation_job_shape(job, expected_job_id)
         return job
 
-    def commit(self, request: Dict[str, Any]) -> Dict[str, Any]:
+    def report_action(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Report a game-applied or rejected outcome; this does not execute it."""
-        return self._request("POST", "/v1/action/commit", request)
+        return self._request("POST", "/v2/action/report", request)
 
-    def commit_batch(self, request: Dict[str, Any]) -> Dict[str, Any]:
+    def report_action_batch(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Atomically report game outcomes produced from one world revision."""
-        return self._request("POST", "/v1/action/commit-batch", request)
+        return self._request("POST", "/v2/action/report-batch", request)
 
     def set_actor_activity(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        return self._request("POST", "/v1/session/activity", request)
+        return self._request("POST", "/v2/session/activity", request)
 
     def arbitrate(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        return self._request("POST", "/v1/world/arbitrate", request)
+        return self._request("POST", "/v2/world/arbitrate", request)
 
     def state(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        return self._request("POST", "/v1/session/get", request)
+        return self._request("POST", "/v2/session/get", request)
 
     def snapshot(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        return self._request("POST", "/v1/session/snapshot", request)
+        return self._request("POST", "/v2/session/snapshot", request)
 
     def restore(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        return self._request("POST", "/v1/session/restore", request)
+        return self._request("POST", "/v2/session/restore", request)
 
     def timeline(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        return self._request("POST", "/v1/session/timeline", request)
+        return self._request("POST", "/v2/session/timeline", request)
 
     def replay(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        return self._request("POST", "/v1/session/replay", request)
+        return self._request("POST", "/v2/session/replay", request)
 
     def due_agents(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        return self._request("POST", "/v1/scheduler/due", request)
+        return self._request("POST", "/v2/scheduler/due", request)
 
     def wait_for_proposal(
         self,
@@ -441,17 +441,10 @@ class RinClient:
         request: Dict[str, Any],
         persist_job_id: Optional[Callable[[str], bool]],
         previous_job_id: str,
-        allow_offline_before_submit: bool = True,
     ) -> str:
         try:
             submission = self.submit_proposal_job(request)
         except RinTransportError as exc:
-            if (
-                allow_offline_before_submit
-                and not previous_job_id
-                and exc.code == "transport_unavailable"
-            ):
-                raise
             raise RinJobError(
                 "job_outcome_unknown" if previous_job_id else "proposal_outcome_unknown",
                 "Proposal submission did not confirm a durable Job",
@@ -497,17 +490,15 @@ class RinClient:
                 )
         return job_id
 
-    def propose_with_fallback(
+    def run_proposal_job(
         self,
         request: Dict[str, Any],
         *,
-        fallback_action_id: str = "",
         deadline_seconds: float = 25.0,
         poll_interval: float = 0.1,
         cancel_event: Optional[threading.Event] = None,
         known_job_id: str = "",
         persist_job_id: Optional[Callable[[str], bool]] = None,
-        allow_offline_before_submit: bool = True,
     ) -> Dict[str, Any]:
         request = _stable_proposal_request(request)
         try:
@@ -519,101 +510,55 @@ class RinClient:
                 job_id=_safe_text(known_job_id, 96),
             ) from exc
         recovery_post_used = False
-        try:
-            if not job_id:
-                job_id = self._submit_proposal_attempt(
-                    request,
-                    persist_job_id,
-                    "",
-                    allow_offline_before_submit=allow_offline_before_submit,
+        if not job_id:
+            job_id = self._submit_proposal_attempt(request, persist_job_id, "")
+        while True:
+            try:
+                job = self.wait_for_proposal(
+                    job_id,
+                    deadline_seconds=deadline_seconds,
+                    poll_interval=poll_interval,
+                    cancel_event=cancel_event,
+                    expected_request=request,
                 )
-            while True:
-                try:
-                    job = self.wait_for_proposal(
-                        job_id,
-                        deadline_seconds=deadline_seconds,
-                        poll_interval=poll_interval,
-                        cancel_event=cancel_event,
-                        expected_request=request,
+            except RinJobError as exc:
+                if (
+                    exc.code == "proposal_outcome_unknown"
+                    and not recovery_post_used
+                    and not (cancel_event is not None and cancel_event.is_set())
+                ):
+                    recovery_post_used = True
+                    job_id = self._submit_proposal_attempt(
+                        request,
+                        persist_job_id,
+                        exc.job_id or job_id,
                     )
-                except RinJobError as exc:
-                    if (
-                        exc.code == "proposal_outcome_unknown"
-                        and not recovery_post_used
-                        and not (cancel_event is not None and cancel_event.is_set())
-                    ):
-                        recovery_post_used = True
-                        job_id = self._submit_proposal_attempt(
-                            request,
-                            persist_job_id,
-                            exc.job_id or job_id,
-                            allow_offline_before_submit=False,
-                        )
-                        continue
-                    raise
-                except RinAPIError as exc:
-                    if (
-                        exc.code == "job_not_found"
-                        and not recovery_post_used
-                        and not (cancel_event is not None and cancel_event.is_set())
-                    ):
-                        recovery_post_used = True
-                        job_id = self._submit_proposal_attempt(
-                            request,
-                            persist_job_id,
-                            job_id,
-                            allow_offline_before_submit=False,
-                        )
-                        continue
-                    raise RinJobError(
-                        "job_outcome_unknown",
-                        "Proposal Job could not be recovered",
-                        job_id=job_id,
-                    ) from exc
-                return {
-                    "source": "sidecar",
-                    "committable": True,
-                    "fallback_reason": "",
-                    "job_id": job_id,
-                    "proposal": _json_clone(job["proposal"]),
-                }
-        except RinJobError as exc:
-            job_id = exc.job_id or job_id
-            if (cancel_event is not None and cancel_event.is_set()) or exc.code in {
-                "job_canceled",
-                "job_cancel_unconfirmed",
-                "job_outcome_unknown",
-                "job_id_persistence_failed",
-                "job_timeout",
-                "proposal_outcome_unknown",
-            }:
+                    continue
                 raise
-            return offline_proposal_result(
-                request,
-                fallback_action_id=fallback_action_id,
-                reason=exc.code,
-                job_id=job_id,
-            )
-        except RinAPIError:
-            # An HTTP error after POST began may have been produced by a
-            # reverse proxy after Rin durably created the Job (notably
-            # 502/504). Only a transport error proven to occur before delivery
-            # can authorize the local fallback below.
-            raise
-        except RinTransportError as exc:
-            if (
-                (cancel_event is not None and cancel_event.is_set())
-                or job_id
-                or not allow_offline_before_submit
-                or exc.code != "transport_unavailable"
-            ):
-                raise
-            return offline_proposal_result(
-                request,
-                fallback_action_id=fallback_action_id,
-                reason=exc.code,
-                job_id="",
-            )
+            except RinAPIError as exc:
+                if (
+                    exc.code == "job_not_found"
+                    and not recovery_post_used
+                    and not (cancel_event is not None and cancel_event.is_set())
+                ):
+                    recovery_post_used = True
+                    job_id = self._submit_proposal_attempt(
+                        request,
+                        persist_job_id,
+                        job_id,
+                    )
+                    continue
+                raise RinJobError(
+                    "job_outcome_unknown",
+                    "Proposal Job could not be recovered",
+                    job_id=job_id,
+                ) from exc
+            return {
+                "source": "sidecar",
+                "error_code": "",
+                "job_id": job_id,
+                "proposal": _json_clone(job["proposal"]),
+            }
 
     def wait_for_generation(
         self,
@@ -899,23 +844,46 @@ def _strict_nonnegative_json_safe_integer(value: Any) -> bool:
     )
 
 
-def _normalized_action_spec(value: Any, *, field: str) -> Dict[str, Any]:
+def _normalized_action_offer(value: Any, *, field: str) -> Dict[str, Any]:
     if not isinstance(value, dict):
         raise RinProtocolError("invalid_job", field + " must be an object")
-    allowed = {"id", "kind", "description", "target_ids", "parameters"}
+    allowed = {
+        "offer_id",
+        "decision_window_id",
+        "actor_id",
+        "capability",
+        "descriptor_digest",
+        "description",
+        "arguments",
+        "targets",
+        "expected_epoch",
+        "observation_seq",
+        "deadline",
+    }
     if any(key not in allowed for key in value):
         raise RinProtocolError("invalid_job", field + " contains an unknown field")
 
-    action_id = value.get("id")
-    kind = value.get("kind")
+    for name in ("offer_id", "decision_window_id", "actor_id"):
+        try:
+            _path_identifier(value.get(name))
+        except (RinProtocolError, TypeError) as exc:
+            raise RinProtocolError("invalid_job", field + " contains an invalid " + name) from exc
+    capability = value.get("capability")
+    if not isinstance(capability, dict):
+        raise RinProtocolError("invalid_job", field + " contains an invalid capability")
+    for name in ("id", "version"):
+        try:
+            _path_identifier(capability.get(name))
+        except (RinProtocolError, TypeError) as exc:
+            raise RinProtocolError("invalid_job", field + " contains an invalid capability") from exc
+    digest = value.get("descriptor_digest")
+    if (
+        not isinstance(digest, str)
+        or len(digest) != 64
+        or any(char not in "0123456789abcdef" for char in digest)
+    ):
+        raise RinProtocolError("invalid_job", field + " contains an invalid descriptor digest")
     description = value.get("description")
-    if not isinstance(action_id, str) or not isinstance(kind, str):
-        raise RinProtocolError("invalid_job", field + " must include string id and kind")
-    try:
-        action_id = _path_identifier(action_id)
-        kind = _path_identifier(kind)
-    except RinProtocolError as exc:
-        raise RinProtocolError("invalid_job", field + " contains an invalid id or kind") from exc
     if (
         not isinstance(description, str)
         or not description.strip()
@@ -923,41 +891,21 @@ def _normalized_action_spec(value: Any, *, field: str) -> Dict[str, Any]:
         or "\x00" in description
     ):
         raise RinProtocolError("invalid_job", field + " contains an invalid description")
-
-    target_ids = value.get("target_ids", [])
-    if not isinstance(target_ids, list) or len(target_ids) > 32:
-        raise RinProtocolError("invalid_job", field + " contains invalid target ids")
-    normalized_targets = []
-    for target_id in target_ids:
-        if not isinstance(target_id, str):
-            raise RinProtocolError("invalid_job", field + " contains a non-string target id")
-        try:
-            normalized_targets.append(_path_identifier(target_id))
-        except RinProtocolError as exc:
-            raise RinProtocolError("invalid_job", field + " contains an invalid target id") from exc
-
-    parameters = value.get("parameters", {})
-    if not isinstance(parameters, dict) or len(parameters) > 32:
-        raise RinProtocolError("invalid_job", field + " contains invalid parameters")
-    normalized_parameters = {}
-    for key, parameter in parameters.items():
-        if not isinstance(key, str) or not isinstance(parameter, str):
-            raise RinProtocolError("invalid_job", field + " contains a non-string parameter")
-        try:
-            normalized_key = _path_identifier(key)
-        except RinProtocolError as exc:
-            raise RinProtocolError("invalid_job", field + " contains an invalid parameter key") from exc
-        if len(parameter) > 500 or "\x00" in parameter:
-            raise RinProtocolError("invalid_job", field + " contains an invalid parameter value")
-        normalized_parameters[normalized_key] = parameter
-
-    return {
-        "id": action_id,
-        "kind": kind,
-        "description": description,
-        "target_ids": normalized_targets,
-        "parameters": normalized_parameters,
-    }
+    if not isinstance(value.get("arguments"), dict):
+        raise RinProtocolError("invalid_job", field + " arguments must be an object")
+    if not _strict_nonnegative_json_safe_integer(value.get("observation_seq")):
+        raise RinProtocolError("invalid_job", field + " observation_seq is invalid")
+    if not isinstance(value.get("expected_epoch"), dict):
+        raise RinProtocolError("invalid_job", field + " expected_epoch is invalid")
+    deadline = value.get("deadline")
+    if (
+        not isinstance(deadline, dict)
+        or deadline.get("clock") not in ("event", "step", "realtime")
+        or not isinstance(deadline.get("value"), int)
+        or isinstance(deadline.get("value"), bool)
+    ):
+        raise RinProtocolError("invalid_job", field + " deadline is invalid")
+    return _json_clone(value)
 
 
 def _stable_proposal_request(request: Any) -> Dict[str, Any]:
@@ -984,23 +932,26 @@ def _stable_proposal_request(request: Any) -> Dict[str, Any]:
             "invalid_request",
             "tick must be a non-negative JSON-safe integer",
         )
-    actions = stable.get("candidate_actions")
-    if not isinstance(actions, list) or not 1 <= len(actions) <= 32:
+    window = stable.get("decision_window")
+    if not isinstance(window, dict) or not isinstance(window.get("id"), str):
+        raise RinProtocolError("invalid_request", "decision_window is invalid")
+    offers = stable.get("offers")
+    if not isinstance(offers, list) or not 1 <= len(offers) <= 32:
         raise RinProtocolError(
             "invalid_request",
-            "candidate_actions must contain 1-32 actions",
+            "offers must contain 1-32 authored actions",
         )
     try:
         normalized = [
-            _normalized_action_spec(action, field="candidate_actions")
-            for action in actions
+            _normalized_action_offer(offer, field="offers")
+            for offer in offers
         ]
     except RinProtocolError as exc:
         raise RinProtocolError("invalid_request", exc.safe_message) from exc
-    if len({action["id"] for action in normalized}) != len(normalized):
+    if len({offer["offer_id"] for offer in normalized}) != len(normalized):
         raise RinProtocolError(
             "invalid_request",
-            "candidate_actions must have unique ids",
+            "offers must have unique offer_id values",
         )
     return stable
 
@@ -1069,10 +1020,10 @@ def _validate_proposal_identity(
             "Proposal tick did not match the stable request",
         )
 
-    action = _normalized_action_spec(proposal.get("action"), field="proposal.action")
+    action = _normalized_action_offer(proposal.get("action"), field="proposal.action")
     expected_actions = [
-        _normalized_action_spec(candidate, field="candidate_actions")
-        for candidate in expected_request["candidate_actions"]
+        _normalized_action_offer(candidate, field="offers")
+        for candidate in expected_request["offers"]
     ]
     if action not in expected_actions:
         raise RinProtocolError(
@@ -1117,7 +1068,7 @@ def _validate_unbound_proposal_identity(
             "invalid_job",
             "Proposal tick must be a non-negative JSON-safe integer",
         )
-    _normalized_action_spec(proposal.get("action"), field="proposal.action")
+    _normalized_action_offer(proposal.get("action"), field="proposal.action")
 
 
 def _validate_generation_job_identity(
@@ -1216,72 +1167,6 @@ def _validate_generation_result(result: Any) -> None:
         )
 
 
-def offline_proposal_result(
-    request: Dict[str, Any],
-    *,
-    fallback_action_id: str = "",
-    reason: str = "offline",
-    job_id: str = "",
-) -> Dict[str, Any]:
-    """Build an authored, non-committable fallback from the candidate list.
-
-    Candidate order remains game-authored priority. Callers can name a safer
-    fallback action explicitly for consent, privacy, combat, or economy paths.
-    """
-
-    if not isinstance(request, dict):
-        raise RinProtocolError("invalid_request", "Proposal request must be an object")
-    actions = request.get("candidate_actions")
-    if not isinstance(actions, list) or not actions:
-        raise RinProtocolError("invalid_request", "Proposal request needs candidate actions")
-    normalized = [item for item in actions if isinstance(item, dict) and str(item.get("id", ""))]
-    if not normalized:
-        raise RinProtocolError("invalid_request", "Proposal request has no valid candidate action")
-    selected = None
-    if fallback_action_id:
-        selected = next(
-            (item for item in normalized if str(item.get("id")) == fallback_action_id),
-            None,
-        )
-        if selected is None:
-            raise RinProtocolError("invalid_fallback", "Fallback action is not in the candidate list")
-    if selected is None:
-        selected = normalized[0]
-    selected = _json_clone(selected)
-    kind = str(selected.get("kind", ""))
-    stance = kind if kind in ("engage", "partial", "redirect", "refuse", "wait") else "engage"
-    canonical = json.dumps(
-        {"request": request, "action_id": selected.get("id")},
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    proposal_id = "offline." + hashlib.sha256(canonical).hexdigest()[:24]
-    return {
-        "source": "offline",
-        "committable": False,
-        "fallback_reason": _safe_text(reason, 96) or "offline",
-        "job_id": _safe_text(job_id, 96),
-        "proposal": {
-            "id": proposal_id,
-            "session_id": _safe_text(request.get("session_id"), 96),
-            "request_id": _safe_text(request.get("request_id"), 96),
-            "actor_id": _safe_text(request.get("actor_id"), 96),
-            "tick": max(0, int(request.get("tick", 0) or 0)),
-            "based_on_revision": 0,
-            "based_on_head_hash": "offline",
-            "created_revision": 0,
-            "action": selected,
-            "stance": stance,
-            "summary": "The game used its authored offline fallback.",
-            "rationale": "The Rin Sidecar was unavailable; world state remains game-owned.",
-            "policy_source": "adapter-offline",
-            "recalled_memory_ids": [],
-            "status": "offline",
-        },
-    }
-
-
 class BackgroundProposalRegistry:
     """Process-local worker registry suitable for ``renpy.invoke_in_thread``."""
 
@@ -1296,11 +1181,9 @@ class BackgroundProposalRegistry:
         request: Dict[str, Any],
         launch: Callable[[Callable[[], None]], Any],
         *,
-        fallback_action_id: str = "",
         deadline_seconds: float = 25.0,
         poll_interval: float = 0.1,
         known_job_id: str = "",
-        allow_offline_before_submit: bool = True,
     ) -> str:
         request_id = _path_identifier(str(request.get("request_id", "")))
         if known_job_id:
@@ -1330,11 +1213,9 @@ class BackgroundProposalRegistry:
                 entry["result"] = None
                 entry["error_code"] = ""
                 request_snapshot = _json_clone(entry["request"])
-                fallback_action_id = str(entry["fallback_action_id"])
                 deadline_seconds = float(entry["deadline_seconds"])
                 poll_interval = float(entry["poll_interval"])
                 known_job_id = str(entry.get("job_id", ""))
-                allow_offline_before_submit = False
             else:
                 self._prune_locked()
                 if len(self._entries) >= self.maximum:
@@ -1344,11 +1225,9 @@ class BackgroundProposalRegistry:
                     "status": "pending",
                     "request_fingerprint": request_fingerprint,
                     "request": request_snapshot,
-                    "fallback_action_id": str(fallback_action_id),
                     "deadline_seconds": float(deadline_seconds),
                     "poll_interval": float(poll_interval),
                     "job_id": known_job_id,
-                    "allow_offline_before_submit": bool(allow_offline_before_submit),
                     "cancel_event": cancel_event,
                     "result": None,
                     "error_code": "",
@@ -1364,15 +1243,13 @@ class BackgroundProposalRegistry:
 
         def worker() -> None:
             try:
-                result = self.client.propose_with_fallback(
+                result = self.client.run_proposal_job(
                     request_snapshot,
-                    fallback_action_id=fallback_action_id,
                     deadline_seconds=deadline_seconds,
                     poll_interval=poll_interval,
                     cancel_event=cancel_event,
                     known_job_id=known_job_id,
                     persist_job_id=retain_job_id,
-                    allow_offline_before_submit=allow_offline_before_submit,
                 )
                 status = "complete"
                 error_code = ""
@@ -1435,12 +1312,8 @@ class BackgroundProposalRegistry:
             return {
                 "status": str(entry["status"]),
                 "request": _json_clone(entry["request"]),
-                "fallback_action_id": str(entry["fallback_action_id"]),
                 "job_id": str(entry.get("job_id", "")),
                 "error_code": str(entry.get("error_code", "")),
-                # Any game-persisted record is, by definition, a resumed
-                # attempt after reload and must never authorize offline work.
-                "allow_offline_before_submit": False,
             }
 
     def cancel(self, request_id: str) -> bool:

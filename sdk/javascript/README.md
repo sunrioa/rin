@@ -14,13 +14,13 @@ console.log(capabilities.release_version);
 ```
 
 `negotiateCapabilities()` fails closed unless the Runtime speaks
-`rin.protocol/v1` and supports the authoritative outcome-reporting preset.
+`rin.protocol/v2`.
 Use `createRinId("request")` and `createRinId("event")` once, persist the
 result with the operation, and reuse it for every exact retry.
 
 The bundled TypeScript declarations provide OpenAPI-aligned types for the
-authoritative create/propose/commit path, including `CreateSessionRequest`,
-`ProposeRequest`, `ProposalResult`, `CommitRequest`, and `MutationResult`.
+authoritative create/propose/report path, including `CreateSessionRequest`,
+`ProposeRequest`, `ProposalResult`, `ReportActionRequest`, and `MutationResult`.
 Response types deliberately tolerate additive fields.
 
 `WorkflowCoordinator` combines the compatible `ProposalAttemptCoordinator` and
@@ -55,7 +55,7 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { Readable, Writable } from "node:stream";
 
 const request = {
-  protocol_version: "rin.protocol/v1",
+  protocol_version: "rin.protocol/v2",
   session_id: "session.example",
 };
 const output = Writable.toWeb(createWriteStream("session.ndjson"));

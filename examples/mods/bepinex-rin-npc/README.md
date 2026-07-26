@@ -43,8 +43,8 @@ on Linux, macOS, or Windows:
 
 ```bash
 python package_bepinex.py
-python package_bepinex.py --verify-archive dist/rin-npc-bepinex-mono-0.6.0.zip
-python package_bepinex.py --verify-archive dist/rin-npc-bepinex-il2cpp-0.6.0.zip
+python package_bepinex.py --verify-archive dist/rin-npc-bepinex-mono-0.7.0.zip
+python package_bepinex.py --verify-archive dist/rin-npc-bepinex-il2cpp-0.7.0.zip
 ```
 
 The repository-root `python tools/package_bepinex.py` command delegates to this
@@ -90,14 +90,13 @@ the `0 -> 1 -> 2` transition and persists the operation ID before settlement,
 so a crash/retry cannot advance it twice. The current quest stage is included
 in the next Observation, making the durable effect visible to later memory and
 planning. Invalid-stage, stale, or non-allowlisted actions are rejected, while
-the authored offline fallback remains `wait`.
+an unresolved Proposal fails closed without inventing an offline action.
 
 The complete Pending Turn is persisted before network submission and its Job
 ID immediately after `202`. A restart resumes the same operation and stable
-Session. Applying an action stores the exact Commit plus a safe absolute-fact
-Observe fallback. Temporary failures retain the Commit; only explicit terminal
-errors such as `unknown_proposal` persist the conversion before sending
-Observe.
+Session. Applying an action stores the exact Action Report. Every reporting
+error retains that exact entry for retry; it is never converted into an
+Observation.
 
 File replacement is crash-resistant ordering, not a claim of a durable game
 transaction. A process or power failure can still occur between the game

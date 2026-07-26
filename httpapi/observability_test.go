@@ -53,7 +53,7 @@ func TestOperationalEndpointsAndRequestCorrelation(t *testing.T) {
 
 	diagnosticsRequest := httptest.NewRequest(
 		http.MethodGet,
-		"/v1/diagnostics",
+		"/v2/diagnostics",
 		nil,
 	)
 	diagnosticsRequest.Header.Set("Authorization", "Bearer secret-token")

@@ -14,7 +14,7 @@ an actual game transaction. The checked-in host examples already persist
 stable identity and bounded recovery state, but remain `advisory` because their
 storage cannot be made crash-atomic with an arbitrary game-world effect.
 
-This document describes Rin `0.6.0` Preview. The authoritative wire schema is
+This document describes Rin `0.7.0` Preview. The authoritative wire schema is
 [`api/openapi.json`](../api/openapi.json).
 
 ## Support matrix
@@ -69,28 +69,24 @@ replace the [real-host validation matrix](mod-integration-validation.md).
 
 ## Integration lifecycle
 
-Every newly created Session must request the `outcome-reporting-v1` safe
-baseline. Only pre-baseline histories retain legacy Commit and replay behavior.
-
 1. Capture a bounded game-owned event and call `observe`.
-2. Give Rin only candidate actions the game can safely implement.
+2. Build an Epoch, Decision Window, and only fully bound Offers the game can
+   safely implement.
 3. Use the asynchronous Proposal Job API from real-time games.
-4. Validate the returned action ID and payload against a local allowlist.
+4. Match the returned Offer to the durable host-authored request.
 5. Marshal to the engine's owning thread and apply the action.
 6. Persist the actual result in the game's Outcome Outbox as part of the apply
    transaction.
-7. Call `commit` from the Outbox, including a rejection when needed. Retry a
+7. Call `reportAction` from the Outbox, including a rejection when needed. Retry a
    failed report without applying the action again.
-8. Keep an authored or deterministic fallback for the confirmed no-online-
-   Proposal case.
 
 Treat an ambiguous Proposal submit, poll, timeout, or cancellation as
-outcome-unknown and fail closed. Retry the same identity; do not execute the
-fallback unless the integration has confirmed that no online Proposal exists.
-Persist the complete Propose request and operation identity before submission,
-then persist the Job ID immediately after `202`. Resume that record before any
-new turn or fallback. Clear it only in the same authoritative transaction that
-stores the game result, applied marker, and Outcome Outbox entry.
+outcome-unknown and fail closed. Retry the same identity; the transport layer
+must never invent a replacement action. Persist the complete Propose request
+and operation identity before submission, then persist the Job ID immediately
+after `202`. Resume that record before any new turn. Clear it only in the same
+authoritative transaction that stores the game result, applied marker, and
+Outcome Outbox entry.
 
 The JavaScript/TypeScript and C# SDKs retain their lower-level
 `ProposalAttemptCoordinator`, pluggable `OutcomeOutbox`, and opaque Snapshot
@@ -98,29 +94,28 @@ persistence helpers. JavaScript/TypeScript, C#, and Java also expose a
 higher-level `WorkflowCoordinator` that validates the declared Host Capability
 Profile before applying an action. They deliberately define storage contracts
 instead of shipping an in-memory production default. A transactional settlement
-hook must apply the game effect, persist the applied marker and exact Commit,
+hook must apply the game effect, persist the applied marker and exact Action Report,
 and remove the Pending Turn atomically. Idempotent hosts instead receive the
 stable operation ID before the Store completes the report transaction. Outbox
 drain acknowledges only a normal success or Rin's explicit exact-duplicate
-success. A Store may persist a pre-recorded, absolute-fact Observe fallback;
-the coordinator converts to it only for an explicit terminal Commit error.
-Transport and uncertainty errors leave the exact entry intact.
+success. All errors leave the exact Action Report entry intact; reports are
+never converted into Observations.
 `ProposalFreshness` centralizes the final pending/revision check.
 
-Provider failure inside a confirmed Sidecar Proposal operation can use Rin's
-deterministic Policy. Sidecar submit/poll/cancel uncertainty is different and
-must not be converted into a fallback action.
+Provider failure inside Rin may use its deterministic Policy before a Proposal
+is issued. Sidecar submit/poll/cancel uncertainty is different and must not be
+converted into a host action.
 
 Never call online proposal or generation endpoints from a render/update loop.
 One player interaction may start one job; ordinary frames should only poll a
 local future, coroutine, timer, or main-thread queue.
 
-Commit records an outcome rather than authorizing execution. See
-[action outcome reporting](outcome-reporting.md) for Outbox, late-outcome,
+Action Report records an outcome rather than authorizing execution. See
+[action outcome reporting](action-lifecycle.md) for Outbox, late-outcome,
 same-`request_id` retry, and offline reconciliation rules.
 
 All public JSON integers must remain in the exact interoperable range
-`-9007199254740991` through `9007199254740991`. Commit and each Batch item must
+`-9007199254740991` through `9007199254740991`. Each report and Batch item must
 serialize `accepted` explicitly, including `false`. SDKs must encode UTF-8
 request bodies, reject unsafe integers and non-JSON local values before
 transport, and tolerate additive response members. The OpenAPI-backed server
@@ -185,13 +180,13 @@ The Luanti example is a complete server mod. It calls
 requires `secure.http_mods = rin_npc_example`. Its ModStorage adapter retains a
 stable world/Session identity, complete Pending Turn, Job ID, monotonic tick
 floor, and bounded Outcome Outbox across restart. The Lua SDK Workflow owns
-submit/poll recovery, identity checks, freshness, terminal fallback conversion,
-and ACK-before-eviction. The profile remains `advisory` because ModStorage save
+submit/poll recovery, identity checks, freshness, exact report retry, and
+ACK-before-eviction. The profile remains `advisory` because ModStorage save
 timing and an arbitrary game effect do not form one synchronous transaction.
 
 The Godot 4.7.1 reference is a runnable project. Its reusable Workflow stores a
 stable save-slot identity, complete Pending Turn, Job ID, tick high-water, and
-bounded Outcome Outbox under `user://`, while the 225-line NPC host retains
+bounded Outcome Outbox under `user://`, while the sub-250-line NPC host retains
 only game-owned policy and effects. Official Godot binaries are SHA-512 pinned
 for headless parsing and restart tests on Linux and Windows.
 

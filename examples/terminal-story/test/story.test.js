@@ -40,7 +40,7 @@ test("Proposal settlement publishes game effect and Outcome Outbox together", as
   assert.equal(await store.createProposalAttempt(attempt), true);
   await store.settleProposalAttempt({
     attempt,
-    commit: { request_id: "commit.fixture" },
+    report: { request_id: "report.fixture" },
     apply: async () => store.applyRinAction({ id: "offer.tea" }),
   });
 
@@ -48,7 +48,7 @@ test("Proposal settlement publishes game effect and Outcome Outbox together", as
   assert.equal(persisted.attempt, null);
   assert.equal(persisted.game.pending_turn, null);
   assert.deepEqual(persisted.game.shown_action_ids, ["offer.tea"]);
-  assert.equal(persisted.outbox[0].key, "commit.fixture");
+  assert.equal(persisted.outbox[0].key, "report.fixture");
 });
 
 test("a restart reuses the durable Session and pending turn", async () => {
@@ -71,7 +71,7 @@ test("a restart reuses the durable Session and pending turn", async () => {
   );
 });
 
-test("auto mode falls back only when startup health has no transport", async () => {
+test("auto mode uses local content only before any Rin mutation", async () => {
   const store = await temporaryStore();
   const unavailable = new RinClient("http://127.0.0.1:7374", {
     fetch: async () => { throw new Error("offline"); },
@@ -84,11 +84,11 @@ test("auto mode falls back only when startup health has no transport", async () 
     client: unavailable,
     applyAction: async () => {},
   });
-  assert.equal(result.mode, "fallback");
+  assert.equal(result.mode, "local");
   assert.equal(result.action.id, "offer.coffee");
 });
 
-test("transport uncertainty after health never silently applies fallback", async () => {
+test("transport uncertainty after health never silently applies local", async () => {
   const store = await temporaryStore();
   let requests = 0;
   const client = new RinClient("http://127.0.0.1:7374", {
@@ -99,9 +99,9 @@ test("transport uncertainty after health never silently applies fallback", async
           ok: true,
           data: {
             status: "ok",
-            protocol_version: "rin.protocol/v1",
-            features: ["outcome-reporting-v1"],
-            recommended_features: ["outcome-reporting-v1"],
+            protocol_version: "rin.protocol/v2",
+            features: [],
+            recommended_features: [],
           },
         });
       }
@@ -115,7 +115,7 @@ test("transport uncertainty after health never silently applies fallback", async
       preference: "tea",
       store,
       client,
-      applyAction: async () => assert.fail("fallback action must not run"),
+      applyAction: async () => assert.fail("local action must not run"),
     }),
     (error) => error instanceof RinTransportError,
   );

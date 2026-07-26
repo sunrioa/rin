@@ -21,12 +21,34 @@ try
             "1",
             "sha256:" + new string('0', 64)),
         Array.Empty<ActorSeedInput>());
+    var epoch = new Epoch(sessionId, "unity.test", 1, 1, 1);
+    var window = new DecisionWindow(
+        "window." + sessionId,
+        "sequential",
+        epoch,
+        1,
+        new Timepoint("event", 1),
+        new Timepoint("event", 2),
+        new[] { "npc.test" });
+    var offer = new ActionOfferInput(
+        "offer.wait",
+        window.Id,
+        "npc.test",
+        new CapabilityRef("world.wait", "1"),
+        new string('a', 64),
+        "wait",
+        System.Text.Json.JsonSerializer.SerializeToElement(
+            new Dictionary<string, object?>()),
+        epoch,
+        1,
+        window.Deadline);
     var propose = new ProposeRequest(
         sessionId,
         "propose." + sessionId,
         "npc.test",
         "test",
-        new[] { new ActionSpecInput("wait", "wait", "wait") });
+        window,
+        new[] { offer });
     var observe = new
     {
         session_id = sessionId,
@@ -47,12 +69,12 @@ try
     var pending = await restarted.LoadAsync();
     Require(pending?.JobId == "job.stable", "Pending Job identity was lost");
     Require(
-        restarted.ApplyQuestEffect(pending!.OperationId, "offer_quest"),
+        restarted.ApplyQuestEffect(pending!.OperationId, "offer.quest"),
         "Quest transition was not persisted");
     var afterQuestRestart = BepInExWorkflowState.Open(directory, product, save);
     Require(afterQuestRestart.QuestStage == 1, "Quest stage did not survive restart");
     Require(
-        afterQuestRestart.ApplyQuestEffect(pending.OperationId, "offer_quest"),
+        afterQuestRestart.ApplyQuestEffect(pending.OperationId, "offer.quest"),
         "Idempotent quest replay failed");
     Require(afterQuestRestart.QuestStage == 1, "Quest replay duplicated its effect");
     restarted = afterQuestRestart;
@@ -66,53 +88,44 @@ try
         1,
         "sha256:" + new string('1', 64),
         2,
-        new ActionSpecInput("wait", "wait", "wait"),
+        window,
+        offer,
         "neutral",
         "wait",
         "test",
         "ready");
-    var commit = new CommitRequest(
+    var report = new ReportActionRequest(
         sessionId,
-        "commit." + sessionId,
-        proposal.Id,
-        "outcome." + sessionId,
-        true);
-    var fallback = new
-    {
-        session_id = sessionId,
-        request_id = "fallback." + sessionId,
-        event_id = commit.EventId,
-    };
-    await restarted.CompleteWithFallbackAsync(
+        "report." + sessionId,
+        2,
+        new ActionReportInput(
+            proposal.Id,
+            "outcome." + sessionId,
+            "rejected",
+            "host rejected the offer"));
+    await restarted.CompleteAsync(
         pending,
         proposal,
-        commit,
-        fallback);
+        report);
 
     var withOutcome = BepInExWorkflowState.Open(directory, product, save);
     Require(await withOutcome.LoadAsync() is null, "Completed Pending Turn survived");
     var outcomes = await withOutcome.ListAsync();
     Require(outcomes.Count == 1, "Outcome did not survive restart");
-    Require(outcomes[0].Commit.RequestId == commit.RequestId, "Commit changed");
-    Require(outcomes[0].FallbackObserve is not null, "Fallback Observe was lost");
-
-    var converted = await withOutcome.ReplaceWithFallbackAsync(outcomes[0]);
-    var afterConversion = BepInExWorkflowState.Open(directory, product, save);
-    var degraded = (await afterConversion.ListAsync()).Single();
-    Require(degraded.IsDegradedObserve, "Fallback conversion was not durable");
-    await afterConversion.AcknowledgeAsync(
-        degraded,
+    Require(outcomes[0].Report.RequestId == report.RequestId, "report changed");
+    await withOutcome.AcknowledgeAsync(
+        outcomes[0],
         new MutationResult(sessionId, 3, "sha256:" + new string('2', 64), false));
-    Require((await afterConversion.ListAsync()).Count == 0, "ACK did not remove Outcome");
+    Require((await withOutcome.ListAsync()).Count == 0, "ACK did not remove Outcome");
 
-    afterConversion.StageTurnContext(create, observe);
+    withOutcome.StageTurnContext(create, observe);
     var secondAttempt = ProposalAttempt.Create(
         sessionId + ".2",
         propose with { RequestId = "propose.second" });
     Directory.CreateDirectory(stateFile + ".next");
     try
     {
-        await afterConversion.CreateAsync(secondAttempt);
+        await withOutcome.CreateAsync(secondAttempt);
         throw new InvalidOperationException("Blocked state replacement was accepted");
     }
     catch (Exception exception)
@@ -120,8 +133,8 @@ try
     {
         // Expected: failed persistence must not publish the candidate in memory.
     }
-    Require(afterConversion.Sequence == 1, "Failed persistence advanced in-memory sequence");
-    Require(await afterConversion.LoadAsync() is null, "Failed persistence published Pending Turn");
+    Require(withOutcome.Sequence == 1, "Failed persistence advanced in-memory sequence");
+    Require(await withOutcome.LoadAsync() is null, "Failed persistence published Pending Turn");
     Directory.Delete(stateFile + ".next");
 
     var same = BepInExWorkflowState.Open(directory, product, save);

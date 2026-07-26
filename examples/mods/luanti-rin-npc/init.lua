@@ -40,7 +40,7 @@ end
 local function fetch(request, callback)
     if request.headers.Authorization then callback({}); return end
     local extra_headers = {}
-    local user_agent = "rin-luanti-example/0.6.0"
+    local user_agent = "rin-luanti-example/0.7.0"
     for key, value in pairs(request.headers) do
         if key:lower() == "user-agent" then
             user_agent = value
@@ -99,9 +99,9 @@ end
 
 local actor_id = "npc.rin.guide"
 local allowed_actions = {
-    talk = "Guide: Check your supplies, then choose a route with a clear return path.",
-    wait = "Guide: Let us observe one more cycle before acting.",
-    refuse = "Guide: I cannot help with an action that breaks the world rules.",
+    ["offer.talk"] = "Guide: Check your supplies, then choose a route with a clear return path.",
+    ["offer.wait"] = "Guide: Let us observe one more cycle before acting.",
+    ["offer.refuse"] = "Guide: I cannot help with an action that breaks the world rules.",
 }
 local ready, creating, waiters, busy = {}, {}, {}, {}
 
@@ -137,11 +137,10 @@ local function create_session_request(session_id, seed)
         binding = {
             game_id = "luanti",
             content_id = "rin-npc-example",
-            content_version = "0.6.0",
+            content_version = "0.7.0",
             content_hash = "sha256:" .. string.rep("0", 64),
         },
         seed = seed,
-        features = { "outcome-reporting-v1" },
         actors = {
             {
                 id = actor_id,
@@ -194,59 +193,40 @@ local function ensure_session(name, callback)
     end)
 end
 
-local function safe_observe(session_id, operation_id, tick, applied)
+local function epoch(session_id)
     return {
-        protocol_version = rin.PROTOCOL_VERSION,
         session_id = session_id,
-        request_id = "fallback.observe." .. operation_id,
-        event_id = "outcome." .. operation_id,
-        tick = tick,
-        observer_ids = { actor_id },
-        source = "luanti-example",
-        kind = "action_outcome",
-        summary = applied.outcome,
-        tags = { "outcome", "degraded-report" },
-        importance = 3,
-        facts = {
-            {
-                subject_id = actor_id,
-                predicate = "last_action_outcome",
-                object = applied.accepted and "accepted" or "rejected",
-                visibility = { actor_id },
-                confidence = 100,
-            },
-        },
+        world_id = workflow_state:world_id(),
+        host = 1,
+        world = 1,
+        timeline = 1,
     }
 end
 
-local function outcome_entry(name, operation_id, proposal_id, tick, applied)
+local function timepoint(tick)
+    return { clock = "realtime", value = tick }
+end
+
+local function outcome_entry(name, operation_id, proposal_id, tick, applied, offer)
     local player = workflow_state:get_player(name)
-    local fallback = safe_observe(player.session_id, operation_id, tick, applied)
-    if not proposal_id then
-        return {
-            key = operation_id,
-            owner = name,
-            kind = "observe",
-            request = fallback,
-            fallback_observe = fallback,
-        }
-    end
     return {
         key = operation_id,
         owner = name,
-        kind = "commit",
-        request = {
-            protocol_version = rin.PROTOCOL_VERSION,
+        kind = "report",
+        request = rin.immediate_action_report({
             session_id = player.session_id,
-            request_id = "commit." .. operation_id,
-            proposal_id = proposal_id,
+            request_id = "report." .. operation_id,
             event_id = "outcome." .. operation_id,
             tick = tick,
+            proposal = { id = proposal_id, action = offer },
+            operation_id = operation_id,
             accepted = applied.accepted,
-            outcome = applied.outcome,
+            summary = applied.outcome,
+            epoch = epoch(player.session_id),
+            world_seq = tick,
+            occurred_at = timepoint(tick),
             tags = { "luanti-example", "conversation" },
-        },
-        fallback_observe = fallback,
+        }),
     }
 end
 
@@ -259,7 +239,7 @@ end
 
 local function settle(name, attempt, proposal, freshness)
     local action = type(proposal.action) == "table" and proposal.action or {}
-    local action_id = tostring(action.id or "")
+    local action_id = tostring(action.offer_id or "")
     local line = allowed_actions[action_id]
     local applied
     if freshness ~= "fresh" then
@@ -285,7 +265,8 @@ local function settle(name, attempt, proposal, freshness)
         attempt.operation_id,
         proposal.id,
         occurrence_tick,
-        applied)
+        applied,
+        action)
     workflow:apply_and_enqueue(
         name,
         attempt,
@@ -309,41 +290,6 @@ local function settle(name, attempt, proposal, freshness)
         end)
 end
 
-local function apply_offline(name, player, attempt)
-    local sequence = attempt and player.sequence or (player.sequence + 1)
-    local operation_id = attempt and
-        (attempt.operation_id .. ".offline") or
-        (player.session_id .. ".offline." .. sequence)
-    local line = "Guide (offline): Stay safe, preserve resources, and observe before acting."
-    local applied = { accepted = true, outcome = line }
-    local pending = outcome_entry(name, operation_id, nil, game_tick(player), applied)
-    if attempt then
-        workflow:apply_and_enqueue(
-            name,
-            attempt,
-            pending,
-            function() notify(name, line) end,
-            function(_, err)
-                busy[name] = nil
-                if err then
-                    notify(name, "Offline outcome was not persisted: " .. tostring(err.code))
-                else
-                    notify(name, "Offline outcome is queued until Rin becomes available.")
-                end
-            end)
-        return
-    end
-    notify(name, line)
-    local persisted, persist_error =
-        workflow_state:complete_offline(name, sequence, pending)
-    busy[name] = nil
-    if not persisted then
-        notify(name, "Offline outcome was not persisted: " .. tostring(persist_error.code))
-    else
-        notify(name, "Offline outcome is queued until Rin becomes available.")
-    end
-end
-
 local function resume(name)
     local observe = workflow_state:pending_observe(name)
     if not observe then
@@ -361,7 +307,10 @@ local function resume(name)
                 return
             end
             if resolution.kind == "no_proposal" then
-                apply_offline(name, workflow_state:get_player(name), resolution.attempt)
+                finish_error(
+                    name,
+                    "Proposal remains unresolved: ",
+                    { code = "proposal_outcome_unknown" })
                 return
             end
             local proposal = resolution.job.proposal
@@ -397,7 +346,28 @@ local function begin_turn(name, message, player)
         summary = message,
         tags = { "conversation", "player-request" },
         importance = 3,
+        epoch = epoch(player.session_id),
+        observation_seq = observed_tick,
     }
+    local decision_window = {
+        id = "window." .. operation_id,
+        mode = "sequential",
+        epoch = epoch(player.session_id),
+        observation_seq = observed_tick,
+        opened_at = timepoint(observed_tick + 1),
+        deadline = timepoint(observed_tick + 2),
+        actor_ids = { actor_id },
+    }
+    local function offer(offer_id, capability_id, description)
+        return rin.action_offer({
+            offer_id = offer_id,
+            actor_id = actor_id,
+            capability_id = capability_id,
+            descriptor_digest = string.rep("a", 64),
+            description = description,
+            arguments = {},
+        }, decision_window)
+    end
     local propose = {
         protocol_version = rin.PROTOCOL_VERSION,
         session_id = player.session_id,
@@ -406,10 +376,11 @@ local function begin_turn(name, message, player)
         tick = observed_tick + 1,
         intent = "Choose one bounded response to the player.",
         tags = { "conversation" },
-        candidate_actions = {
-            { id = "talk", kind = "dialogue", description = "offer one concrete hint" },
-            { id = "wait", kind = "wait", description = "ask the player to observe first" },
-            { id = "refuse", kind = "refuse", description = "decline an unsafe request" },
+        decision_window = decision_window,
+        offers = {
+            offer("offer.talk", "dialogue.talk", "offer one concrete hint"),
+            offer("offer.wait", "world.wait", "ask the player to observe first"),
+            offer("offer.refuse", "dialogue.refuse", "decline an unsafe request"),
         },
     }
     local staged, stage_error =
@@ -437,12 +408,7 @@ local function request_turn(name, message)
             elseif retained then
                 finish_error(name, "Proposal remains unresolved: ", session_error)
             else
-                local offline_player = workflow_state:get_player(name)
-                if offline_player then
-                    apply_offline(name, offline_player, nil)
-                else
-                    finish_error(name, "Session unavailable: ", session_error)
-                end
+                finish_error(name, "Session unavailable: ", session_error)
             end
             return
         end

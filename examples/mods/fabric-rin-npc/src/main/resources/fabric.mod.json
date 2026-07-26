@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "rin_npc_example",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "name": "Rin NPC Example",
   "description": "Server-side integration reference for the Rin agent runtime.",
   "authors": ["sunrioa"],

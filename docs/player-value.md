@@ -27,9 +27,9 @@ performance promise. The raw evidence is
 The benchmark reloads the game save between every turn. Sidecar readiness took
 40.81 ms. Rin retained 604,954 bytes after 100 turns;
 the deliberately conservative linear projection at 60 turns/hour is
-36,297,240 bytes for 100 hours. Startup-only fallback completed in 9.63 ms and
-preserved the authored tea result. A failure after Rin mutation begins does
-not fall back because absence of a response is not proof of absence.
+36,297,240 bytes for 100 hours. Startup-only local mode completed in 9.63 ms
+and preserved the authored tea result. A failure after Rin mutation begins
+fails closed because absence of a response is not proof of absence.
 
 ## Honest conclusion
 

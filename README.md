@@ -13,10 +13,10 @@ JSON Schema 2020-12 校验库；依赖与许可见
 
 文档索引：[简体中文](docs/README.zh-CN.md) | [English](docs/README.md)
 
-**发布状态：** `0.6.0` Preview（pre-1.0）。项目会记录迁移行为，但不承诺后续
+**发布状态：** `0.7.0` Preview（pre-1.0）。项目会记录迁移行为，但不承诺后续
 每个 minor 版本都保持兼容。接入方应固定精确仓库 Revision 或已验证 Release Tag。
 另见[变更日志](CHANGELOG.zh-CN.md)、[兼容矩阵](docs/compatibility.zh-CN.md)、
-[v0.6 迁移指南](docs/migration-v0.6.zh-CN.md)和
+[协议 v2 指南](docs/protocol-v2.zh-CN.md)和
 [发布指南](docs/release-guide.zh-CN.md)。
 
 ## 核心能力
@@ -26,7 +26,7 @@ Rin 将“角色思考”和“游戏世界事实”拆开：
 - 游戏提交角色实际看见的 `Observation`，而不是把整个存档交给模型。
 - 角色根据记忆、目标、边界和当前允许动作生成 `ActionProposal`。
 - 提案不能直接改变剧情、背包、任务或关系；游戏验证并应用或拒绝后，
-  用 `commit` 向 Rin 回报实际结果。
+  向 Rin 回报类型化动作生命周期。
 - 每次状态变化写入带哈希链的 JSONL 事件日志，可重放、可检查。
 - 快照绑定 `game/content/version/hash`；其 SHA-256 canonical checksum 可发现
   意外损坏或未同步修改，Restore 则拒绝 Binding 不匹配。
@@ -34,10 +34,8 @@ Rin 将“角色思考”和“游戏世界事实”拆开：
 - 在线模型通过异步 Job 预取，慢请求、取消和状态过期不会冻结游戏主线程。
 - 通用结构化 Generation Job 让剧情、任务描述和受限对白也经过 Sidecar，而不是让游戏保存供应商 Key。
 - 模型不可用时自动回退确定性 Policy，并用 `policy_source` 标明来源。
-- 每个新 Session 都必须显式请求 `outcome-reporting-v1` 安全基线；未启用它的
-  旧 History 为保持 Replay 与 Exact Retry 兼容，继续使用旧版 Commit/stale
-  语义。
-- Ren'Py、Godot 4 和 Unity 适配器保持同一套 observe / propose / commit 权威边界。
+- Ren'Py、Godot 4 和 Unity 适配器保持同一套
+  observe / propose / execute / report 权威边界。
 - 引擎无关 `host` Contract 区分静态 Capability、每轮 `ActionOffer`、带 Epoch
   的 Invocation 与长动作终态；当前已交付 Go Registry，跨语言接入仍在开发。
 - Python、JavaScript、C#、Java、Lua SDK 与 Fabric、BepInEx、Luanti 示例 Mod 提供快速接入层。
@@ -104,37 +102,37 @@ go run ./cmd/rin serve
 | `GET` | `/health` | 无鉴权、无依赖的 Liveness |
 | `GET` | `/ready` | 无鉴权的 Store/Worker Readiness |
 | `GET` | `/metrics` | 经过鉴权的无依赖 Prometheus Metrics |
-| `GET` | `/v1/diagnostics` | 经过鉴权且不含玩家内容的有界运维状态 |
-| `POST` | `/v1/session/create` | 创建绑定游戏内容版本的会话 |
-| `POST` | `/v1/session/observe` | 提交一个或多个角色确实观察到的事件 |
-| `POST` | `/v1/agent/propose` | 从游戏白名单动作中产生角色提案 |
-| `POST` | `/v1/jobs/propose` | 异步提交角色提案任务 |
-| `GET` | `/v1/jobs/{job_id}` | 查询任务状态与结果 |
-| `DELETE` | `/v1/jobs/{job_id}` | 取消排队或执行中的任务 |
-| `POST` | `/v1/generation/jobs` | 异步提交结构化 JSON 生成任务 |
-| `GET` | `/v1/generation/jobs/{job_id}` | 查询生成任务与安全元数据 |
-| `DELETE` | `/v1/generation/jobs/{job_id}` | 取消生成任务 |
-| `POST` | `/v1/action/commit` | 记录游戏已经应用或拒绝的实际结果 |
-| `POST` | `/v1/action/commit-batch` | 原子记录同一原始世界版本的多角色结果 |
-| `POST` | `/v1/session/activity` | 更新角色区域与 awake/dormant 状态 |
-| `POST` | `/v1/world/arbitrate` | 对并行角色提案进行确定性冲突仲裁 |
-| `POST` | `/v1/scheduler/due` | 查询当前 tick 应思考的角色 |
-| `POST` | `/v1/session/get` | 读取会话状态 |
-| `POST` | `/v1/session/stats` | 读取生命周期与受管存储用量 |
-| `POST` | `/v1/session/archive` | 按 Binding 与 Head 前置条件冻结为只读 |
-| `POST` | `/v1/session/delete` | 删除已归档 Session 并保留最小 Tombstone |
-| `POST` | `/v1/session/snapshot` | 创建并原子保存快照 |
-| `POST` | `/v1/session/restore` | 校验并恢复快照 |
-| `POST` | `/v1/session/timeline` | 读取脱敏事件时间线 |
-| `POST` | `/v1/session/replay` | 重放到指定 revision 并返回 Snapshot |
+| `GET` | `/v2/diagnostics` | 经过鉴权且不含玩家内容的有界运维状态 |
+| `POST` | `/v2/session/create` | 创建绑定游戏内容版本的会话 |
+| `POST` | `/v2/session/observe` | 提交一个或多个角色确实观察到的事件 |
+| `POST` | `/v2/agent/propose` | 从游戏白名单动作中产生角色提案 |
+| `POST` | `/v2/jobs/propose` | 异步提交角色提案任务 |
+| `GET` | `/v2/jobs/{job_id}` | 查询任务状态与结果 |
+| `DELETE` | `/v2/jobs/{job_id}` | 取消排队或执行中的任务 |
+| `POST` | `/v2/generation/jobs` | 异步提交结构化 JSON 生成任务 |
+| `GET` | `/v2/generation/jobs/{job_id}` | 查询生成任务与安全元数据 |
+| `DELETE` | `/v2/generation/jobs/{job_id}` | 取消生成任务 |
+| `POST` | `/v2/action/report` | 记录 Host 的决定、Invocation、Run 与 Outcome |
+| `POST` | `/v2/action/report-batch` | 原子记录同一 Simultaneous Decision Window 的结果 |
+| `POST` | `/v2/session/activity` | 更新角色区域与 awake/dormant 状态 |
+| `POST` | `/v2/world/arbitrate` | 对并行角色提案进行确定性冲突仲裁 |
+| `POST` | `/v2/scheduler/due` | 查询当前 tick 应思考的角色 |
+| `POST` | `/v2/session/get` | 读取会话状态 |
+| `POST` | `/v2/session/stats` | 读取生命周期与受管存储用量 |
+| `POST` | `/v2/session/archive` | 按 Binding 与 Head 前置条件冻结为只读 |
+| `POST` | `/v2/session/delete` | 删除已归档 Session 并保留最小 Tombstone |
+| `POST` | `/v2/session/snapshot` | 创建并原子保存快照 |
+| `POST` | `/v2/session/restore` | 校验并恢复快照 |
+| `POST` | `/v2/session/timeline` | 读取脱敏事件时间线 |
+| `POST` | `/v2/session/replay` | 重放到指定 revision 并返回 Snapshot |
 
 上表只是概览。[`api/openapi.json`](api/openapi.json) 是 Path、Method、状态码、
-必填字段和 JSON Shape 的唯一 Wire Schema 来源；[协议文档](docs/protocol-v1.zh-CN.md)
+必填字段和 JSON Shape 的唯一 Wire Schema 来源；[协议文档](docs/protocol-v2.zh-CN.md)
 定义事务、重试与持久语义。请求拒绝未知字段，Client 则必须容忍响应中的增量字段。
 
 每个公共 JSON 整数都必须能在 `-9007199254740991` 至 `9007199254740991` 内精确
-表示；Tick、Revision 等字段还具有更窄的非负约束。Commit 和每个 Batch Commit
-Item 都必须显式携带 `accepted`，包括 `accepted=false`；省略或 `null` 均非法。
+表示；Tick、Revision 等字段还具有更窄的非负约束。Action Report 和每个 Batch
+Item 都必须显式携带 `decision`；省略或 `null` 均非法。
 非 2xx 失败使用 Rin Error Envelope。Job Query 也可能返回 HTTP `200`，但终态
 `data.error` 表示异步 Operation 失败，因此 HTTP 成功不等于 Job 成功。
 
@@ -142,7 +140,7 @@ Item 都必须显式携带 `accepted`，包括 `accepted=false`；省略或 `nul
 lineage 内，Rin 会把该 ID 永久绑定到 mutation 类型、canonical typed JSON
 payload 和首次持久结果。完全相同的重试不会修改状态，而是返回首次结果的
 revision/head（或原始 Proposal/Arbitration），并设置 `duplicate=true`；同一 ID
-用于不同操作或 payload 时返回 `409 request_id_conflict`。Observe、Commit 与
+用于不同操作或 payload 时返回 `409 request_id_conflict`。Observe、Action Report 与
 Batch 的每个 Item 共用一个永久、Session-scoped 的 `event_id` 命名空间。有界
 State Receipt 只是这份历史的热投影。
 
@@ -154,8 +152,8 @@ Proposal 写入继续使用兼容错误码 `proposal_outcome_unknown`，恢复�
 
 在线 Rin Proposal Operation 内部的 Provider 失败可以选择确定性 Policy；
 Sidecar Submit、Poll、Timeout 或 Cancel 结果丢失则不同，此时在线 Proposal 可能
-已经存在。游戏必须保留并恢复完全相同的 Proposal Attempt/Job 身份，阻塞新 Turn，
-只有确认不存在在线 Proposal 后才能应用 Offline Fallback。
+已经存在。游戏必须保留并恢复完全相同的 Proposal Attempt/Job 身份并阻塞新 Turn；
+Transport 层不得自行编造替代动作。
 
 Proposal 与 Generation Job 记录采用独立的、有界进程内保留策略。特别是
 Generation Job 被淘汰或 Sidecar 重启后，同一请求可能再次执行；持久 Session
@@ -175,13 +173,13 @@ Inline Snapshot 的 compact JSON 上限为 16 MiB；超限时 Rin 返回
 `413 snapshot_too_large`，绝不截断 Snapshot。服务端默认请求正文上限与所有
 随附客户端默认响应上限均为 32 MiB，为 API envelope、Restore 元数据和持久
 EventRecord framing 预留空间。超过 inline 上限的 lineage 不能使用这些 JSON
-endpoint；应改用 Bearer 保护的 `/v1/session/export` 与
-`/v1/session/import` NDJSON Session Transfer。JavaScript 和 C# SDK 提供调用方
+endpoint；应改用 Bearer 保护的 `/v2/session/export` 与
+`/v2/session/import` NDJSON Session Transfer。JavaScript 和 C# SDK 提供调用方
 拥有的流式 source/sink helper。
 
-完整字段和错误语义见 [协议文档](docs/protocol-v1.zh-CN.md)，职责边界见
+完整字段和错误语义见 [协议文档](docs/protocol-v2.zh-CN.md)，职责边界见
 [架构文档](docs/architecture.zh-CN.md)，应用、结果记账和重试顺序见
-[动作结果记账](docs/outcome-reporting.zh-CN.md)。
+[动作结果记账](docs/action-lifecycle.zh-CN.md)。
 
 离线检查一个会话（会校验请求所经过的恢复路径，并只打印脱敏时间线；健康
 revision index 会直接定位请求的尾部窗口，不会从 genesis 向前分页）：

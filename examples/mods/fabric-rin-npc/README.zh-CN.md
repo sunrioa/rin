@@ -21,7 +21,7 @@ Windows PowerShell 或命令提示符：
 gradlew.bat clean build
 ```
 
-把 `build/libs/rin-fabric-npc-0.6.0.jar` 和匹配版本的 Fabric API JAR 放入
+把 `build/libs/rin-fabric-npc-0.7.0.jar` 和匹配版本的 Fabric API JAR 放入
 专用服务器的 `mods` 目录。启动 Rin，并按需在服务器进程环境中设置
 `RIN_URL`、`RIN_TOKEN`，然后由玩家执行 `/rin-npc ask`。Mod JAR 已包含 Rin
 Java Client 类，不要再安装第二份 SDK JAR。
@@ -33,8 +33,8 @@ Mod 在主世界 Saved Data
 中保存生成一次的 World UUID、稳定序列、完整且身份不变的
 Create/Observe/Propose 请求、Pending Turn/Job 身份和有上限的 Outcome
 Outbox。同一存档重启后会恢复保留工作，不会创建新 Session。每个 Outbox
-Entry 同时保存精确 Commit 和预先记录、仅含绝对事实的安全 Observe；只有明确
-终态 Commit 错误才允许持久转换。
+Entry 会保留精确 Action Report 直到 Rin 确认，Report 永远不会转换为
+Observation。
 
 `PersistentState.markDirty()` 只是安排稍后存盘，不是同步的网络前持久屏障，
 也不能把游戏修改与 Outbox 原子提交。因此本参考只提供可逆的聊天、等待和拒绝
@@ -48,7 +48,7 @@ Revision 上处于 Pending。State 缺失、过期、畸形或不可用都会 Fa
 世界修改。Minecraft API 和 Saved Data 访问都通过 `MinecraftServer.execute`
 切回服务器线程。
 
-宿主编排入口现为 250 行（原为 1,046 行）。Authored Protocol Payload、
+宿主编排入口现为少于 160 行（原为 1,046 行）。Authored Protocol Payload、
 Saved Data、`WorkflowStore` 和服务器线程调度分别位于有上限的独立类中，
 Mod 作者可以单独审查或替换每个边界，无需复制 SDK 状态机。
 

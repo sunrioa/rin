@@ -4,7 +4,7 @@
 
 模型接入是可选且有界的；没有供应商时，本地验证与确定性策略仍然可用。
 
-本文描述 Rin `0.6.0` Preview。Provider Response 是独立于游戏侧 HTTP Request
+本文描述 Rin `0.7.0` Preview。Provider Response 是独立于游戏侧 HTTP Request
 契约的另一条不可信边界。
 
 ## 启用

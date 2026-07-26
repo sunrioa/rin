@@ -4,7 +4,7 @@
 
 These conventions let RPGs, simulations, tactics games, and open-area NPC systems use Rin without giving an agent world authority.
 
-They describe Rin `0.6.0` Preview. Wire fields and required members come from
+They describe Rin `0.7.0` Preview. Wire fields and required members come from
 [`api/openapi.json`](../api/openapi.json).
 
 ## Identity and ticks
@@ -49,7 +49,7 @@ Quest state remains in the game. Rin may remember bounded facts such as:
 Use an observation when a task changes, then advertise only actions legal in the current stage. A proposal such as `offer-next-step` is dialogue intent; the game still decides whether the quest advances, rewards are granted, or inventory changes.
 
 Rin derives each stored Fact's `source_event_id` from the enclosing
-Observation or Commit `event_id`; callers omit it in requests. Rumors should
+Observation or Action Report `event_id`; callers omit it in requests. Rumors should
 use lower confidence. When two actors disagree, keep both observations rather
 than silently promoting one to world truth.
 
@@ -68,26 +68,21 @@ Put target IDs and bounded parameters in the action spec. Do not advertise an ac
 
 For high-impact actions, advertise an intent such as `request-trade` or `attempt-attack`; the authoritative game system calculates price, hit result, damage, ownership, and consequences after proposal validation.
 
-## Apply and commit
-
-This sequence is for Sessions that explicitly enable
-`outcome-reporting-v1`; legacy Sessions retain their previous Commit
-semantics.
+## Execute and report
 
 1. Reject a stale proposal if the target moved, died, left visibility, changed faction, or lost required resources.
 2. Apply the selected action through normal gameplay systems, or decide to reject it.
 3. Persist the actual result in the game's Outcome Outbox as part of the same authoritative transaction.
-4. Commit from the Outbox. A later Rin head does not invalidate an outcome that already happened.
+4. Report from the Outbox. A later Rin head does not invalidate an outcome that already happened.
 5. Send resulting observations only to actors who perceived them.
 
-Rejected proposals are useful audit history. Commit with `accepted=false` when the action was still a valid character intention but the game denied it. Do not commit adapter-local `offline.*` proposals; report their actual outcome later through `observe`.
+Rejected proposals are useful audit history. Use a `rejected` action decision
+when the intention was valid but the game denied it. Transport failure must not
+create an action or an action report.
 
-`accepted` must be present explicitly in Commit and every Batch item; an
-omitted value is invalid rather than equivalent to `false`.
-
-On a Commit timeout or temporary failure, report the same Outbox entry again;
+On a report timeout or temporary failure, send the same Outbox entry again;
 never execute the action again. See
-[action outcome reporting](outcome-reporting.md) for the complete rules.
+[action outcome reporting](action-lifecycle.md) for the complete rules.
 
 ## Boundaries and player safety
 
@@ -97,7 +92,7 @@ An NPC can refuse, misunderstand, delay, or pursue a small goal, but it cannot c
 
 ## Scaling many actors
 
-- Query `/v1/scheduler/due` on simulation ticks or region activation, not every frame.
+- Query `/v2/scheduler/due` on simulation ticks or region activation, not every frame.
 - Submit Jobs only for loaded, relevant actors and cap concurrency in the game as well as Rin.
 - Batch world events into one concise observation when every listed observer perceived the same outcome.
 - Keep important named NPCs at higher frequency; use deterministic policies for crowds.

@@ -1,5 +1,5 @@
 local rin = dofile("sdk/lua/rin.lua")
-assert(rin.VERSION == "0.6.0", "client version projection is stale")
+assert(rin.VERSION == "0.7.0", "client version projection is stale")
 assert(
     rin.DEFAULT_MAX_RESPONSE_BYTES == 32 * 1024 * 1024,
     "default response limit does not match the inline transport budget"
@@ -14,7 +14,7 @@ local payload = {
 }
 local function fetch(request, callback)
     last_request = request
-    local accepted = request.url:match("/v1/jobs/propose$") or request.url:match("/v1/generation/jobs$")
+    local accepted = request.url:match("/v2/jobs/propose$") or request.url:match("/v2/generation/jobs$")
     last_response_status = accepted and 202 or 200
     callback({ status = last_response_status, body = "{}", headers = { ["Content-Length"] = "2" } })
 end
@@ -35,28 +35,28 @@ assert(client, config_error and config_error.message)
 
 local cases = {
     { "health", function(done) client:health(done) end, "GET", "/health" },
-    { "create_session", function(done) client:create_session(payload, done) end, "POST", "/v1/session/create" },
-    { "observe", function(done) client:observe(payload, done) end, "POST", "/v1/session/observe" },
-    { "propose", function(done) client:propose(payload, done) end, "POST", "/v1/agent/propose" },
-    { "submit_proposal_job", function(done) client:submit_proposal_job(payload, done) end, "POST", "/v1/jobs/propose" },
-    { "get_proposal_job", function(done) client:get_proposal_job("job.fixture", done) end, "GET", "/v1/jobs/job.fixture" },
-    { "cancel_proposal_job", function(done) client:cancel_proposal_job("job.fixture", done) end, "DELETE", "/v1/jobs/job.fixture" },
-    { "submit_generation_job", function(done) client:submit_generation_job(payload, done) end, "POST", "/v1/generation/jobs" },
-    { "get_generation_job", function(done) client:get_generation_job("job.fixture", done) end, "GET", "/v1/generation/jobs/job.fixture" },
-    { "cancel_generation_job", function(done) client:cancel_generation_job("job.fixture", done) end, "DELETE", "/v1/generation/jobs/job.fixture" },
-    { "commit", function(done) client:commit(payload, done) end, "POST", "/v1/action/commit" },
-    { "commit_batch", function(done) client:commit_batch(payload, done) end, "POST", "/v1/action/commit-batch" },
-    { "set_actor_activity", function(done) client:set_actor_activity(payload, done) end, "POST", "/v1/session/activity" },
-    { "arbitrate", function(done) client:arbitrate(payload, done) end, "POST", "/v1/world/arbitrate" },
-    { "state", function(done) client:state(payload, done) end, "POST", "/v1/session/get" },
-    { "session_stats", function(done) client:session_stats(payload, done) end, "POST", "/v1/session/stats" },
-    { "archive_session", function(done) client:archive_session(payload, done) end, "POST", "/v1/session/archive" },
-    { "delete_session", function(done) client:delete_session(payload, done) end, "POST", "/v1/session/delete" },
-    { "snapshot", function(done) client:snapshot(payload, done) end, "POST", "/v1/session/snapshot" },
-    { "restore", function(done) client:restore(payload, done) end, "POST", "/v1/session/restore" },
-    { "timeline", function(done) client:timeline(payload, done) end, "POST", "/v1/session/timeline" },
-    { "replay", function(done) client:replay(payload, done) end, "POST", "/v1/session/replay" },
-    { "due_agents", function(done) client:due_agents(payload, done) end, "POST", "/v1/scheduler/due" },
+    { "create_session", function(done) client:create_session(payload, done) end, "POST", "/v2/session/create" },
+    { "observe", function(done) client:observe(payload, done) end, "POST", "/v2/session/observe" },
+    { "propose", function(done) client:propose(payload, done) end, "POST", "/v2/agent/propose" },
+    { "submit_proposal_job", function(done) client:submit_proposal_job(payload, done) end, "POST", "/v2/jobs/propose" },
+    { "get_proposal_job", function(done) client:get_proposal_job("job.fixture", done) end, "GET", "/v2/jobs/job.fixture" },
+    { "cancel_proposal_job", function(done) client:cancel_proposal_job("job.fixture", done) end, "DELETE", "/v2/jobs/job.fixture" },
+    { "submit_generation_job", function(done) client:submit_generation_job(payload, done) end, "POST", "/v2/generation/jobs" },
+    { "get_generation_job", function(done) client:get_generation_job("job.fixture", done) end, "GET", "/v2/generation/jobs/job.fixture" },
+    { "cancel_generation_job", function(done) client:cancel_generation_job("job.fixture", done) end, "DELETE", "/v2/generation/jobs/job.fixture" },
+    { "report_action", function(done) client:report_action(payload, done) end, "POST", "/v2/action/report" },
+    { "report_action_batch", function(done) client:report_action_batch(payload, done) end, "POST", "/v2/action/report-batch" },
+    { "set_actor_activity", function(done) client:set_actor_activity(payload, done) end, "POST", "/v2/session/activity" },
+    { "arbitrate", function(done) client:arbitrate(payload, done) end, "POST", "/v2/world/arbitrate" },
+    { "state", function(done) client:state(payload, done) end, "POST", "/v2/session/get" },
+    { "session_stats", function(done) client:session_stats(payload, done) end, "POST", "/v2/session/stats" },
+    { "archive_session", function(done) client:archive_session(payload, done) end, "POST", "/v2/session/archive" },
+    { "delete_session", function(done) client:delete_session(payload, done) end, "POST", "/v2/session/delete" },
+    { "snapshot", function(done) client:snapshot(payload, done) end, "POST", "/v2/session/snapshot" },
+    { "restore", function(done) client:restore(payload, done) end, "POST", "/v2/session/restore" },
+    { "timeline", function(done) client:timeline(payload, done) end, "POST", "/v2/session/timeline" },
+    { "replay", function(done) client:replay(payload, done) end, "POST", "/v2/session/replay" },
+    { "due_agents", function(done) client:due_agents(payload, done) end, "POST", "/v2/scheduler/due" },
 }
 
 local observed_routes = {}
@@ -105,29 +105,38 @@ for index, expected in ipairs(expected_routes) do
     )
 end
 
-local false_bodies = {}
-local false_client = assert(rin.new({
+local decision_bodies = {}
+local decision_client = assert(rin.new({
     http_fetch = function(request, callback)
-        table.insert(false_bodies, request.body)
+        table.insert(decision_bodies, request.body)
         callback({ status = 200, body = "{}", headers = {} })
     end,
     json_encode = function(value)
-        if value.accepted ~= nil then
-            assert(value.accepted == false, "commit accepted=false changed before codec")
-            return '{"accepted":false}'
+        if value.report ~= nil then
+            assert(value.report.decision == "rejected", "report decision changed before codec")
+            return '{"report":{"decision":"rejected"}}'
         end
-        assert(type(value.items) == "table" and value.items[1].accepted == false)
-        return '{"items":[{"accepted":false}]}'
+        assert(type(value.reports) == "table" and value.reports[1].decision == "rejected")
+        return '{"reports":[{"decision":"rejected"}]}'
     end,
     json_decode = function() return { ok = true, data = {} } end,
 }))
-false_client:commit({ accepted = false }, function(data, err) assert(data and not err) end)
-false_client:commit_batch(
-    { items = { { accepted = false } } },
+decision_client:report_action(
+    { report = { decision = "rejected" } },
     function(data, err) assert(data and not err) end
 )
-assert(false_bodies[1]:find('"accepted":false', 1, true), "commit accepted=false was omitted")
-assert(false_bodies[2]:find('"accepted":false', 1, true), "batch accepted=false was omitted")
+decision_client:report_action_batch(
+    { reports = { { decision = "rejected" } } },
+    function(data, err) assert(data and not err) end
+)
+assert(
+    decision_bodies[1]:find('"decision":"rejected"', 1, true),
+    "report decision was omitted"
+)
+assert(
+    decision_bodies[2]:find('"decision":"rejected"', 1, true),
+    "batch report decision was omitted"
+)
 
 local invalid_transport_calls = 0
 local invalid_codec_calls = 0
@@ -165,7 +174,7 @@ local invalid_payloads = {
 }
 for _, invalid_payload in ipairs(invalid_payloads) do
     local callback_called = false
-    invalid_client:commit(invalid_payload, function(data, err)
+    invalid_client:report_action(invalid_payload, function(data, err)
         callback_called = true
         assert(not data and err.code == "invalid_request")
     end)
@@ -182,7 +191,7 @@ local invalid_encoded_client = assert(rin.new({
     json_encode = function() return string.char(0xff) end,
     json_decode = function() return { ok = true, data = {} } end,
 }))
-invalid_encoded_client:commit({}, function(data, err)
+invalid_encoded_client:report_action({}, function(data, err)
     assert(not data and err.code == "invalid_request", "invalid encoded UTF-8 returned wrong error")
 end)
 assert(invalid_encoded_transport_calls == 0, "invalid encoded UTF-8 reached the transport")
@@ -230,7 +239,6 @@ end)
 local workflow_store = {
     attempt = nil,
     outcomes = {},
-    fallback_conversions = 0,
 }
 function workflow_store:load_attempt() return self.attempt end
 function workflow_store:create_attempt(_, attempt)
@@ -250,12 +258,6 @@ function workflow_store:complete_attempt(_, attempt, outcome)
     return true
 end
 function workflow_store:list_outcomes() return self.outcomes end
-function workflow_store:replace_outcome(_, original, converted)
-    assert(self.outcomes[1] == original)
-    self.outcomes[1] = converted
-    self.fallback_conversions = self.fallback_conversions + 1
-    return true
-end
 function workflow_store:acknowledge_outcome(_, entry)
     assert(self.outcomes[1] == entry)
     table.remove(self.outcomes, 1)
@@ -263,20 +265,18 @@ function workflow_store:acknowledge_outcome(_, entry)
 end
 
 local workflow_requests = 0
-local workflow_observes = 0
+local workflow_reports = 0
 local workflow_client = assert(rin.new({
     http_fetch = function(request, callback)
         workflow_requests = workflow_requests + 1
-        if request.url:match("/v1/jobs/propose$") then
+        if request.url:match("/v2/jobs/propose$") then
             callback({ status = 202, body = "queued", headers = {} })
-        elseif request.url:match("/v1/jobs/job%.workflow$") then
+        elseif request.url:match("/v2/jobs/job%.workflow$") then
             assert(workflow_store.attempt.job_id == "job.workflow")
             callback({ status = 200, body = "succeeded", headers = {} })
-        elseif request.url:match("/v1/action/commit$") then
-            callback({ status = 409, body = "terminal-commit", headers = {} })
-        elseif request.url:match("/v1/session/observe$") then
-            workflow_observes = workflow_observes + 1
-            callback({ status = 200, body = "observed", headers = {} })
+        elseif request.url:match("/v2/action/report$") then
+            workflow_reports = workflow_reports + 1
+            callback({ status = 200, body = "reported", headers = {} })
         else
             error("unexpected workflow route " .. request.url)
         end
@@ -302,12 +302,6 @@ local workflow_client = assert(rin.new({
                         tick = 2,
                     },
                 },
-            }
-        end
-        if body == "terminal-commit" then
-            return {
-                ok = false,
-                error = { code = "unknown_proposal", message = "evicted" },
             }
         end
         return {
@@ -340,12 +334,6 @@ workflow:resume("player.fixture", function(result, err)
     workflow_resolution = result
 end)
 assert(workflow_resolution, "Proposal workflow did not resolve")
-local fallback_observe = {
-    protocol_version = rin.PROTOCOL_VERSION,
-    session_id = "session.workflow",
-    request_id = "observe.workflow",
-    event_id = "event.workflow",
-}
 local applied_operation
 workflow:apply_and_enqueue(
     "player.fixture",
@@ -353,16 +341,18 @@ workflow:apply_and_enqueue(
     {
         key = "operation.workflow",
         owner = "player.fixture",
-        kind = "commit",
+        kind = "report",
         request = {
             protocol_version = rin.PROTOCOL_VERSION,
             session_id = "session.workflow",
-            request_id = "commit.workflow",
-            proposal_id = "proposal.workflow",
-            event_id = "event.workflow",
-            accepted = true,
+            request_id = "report.workflow",
+            report = {
+                proposal_id = "proposal.workflow",
+                event_id = "event.workflow",
+                decision = "rejected",
+                summary = "host declined the offer",
+            },
         },
-        fallback_observe = fallback_observe,
     },
     function(operation_id) applied_operation = operation_id end,
     function(ok, err) assert(ok and not err) end
@@ -371,8 +361,7 @@ assert(applied_operation == "operation.workflow", "Apply lost the stable operati
 workflow:drain_outbox("player.fixture", function(count, err)
     assert(count == 1 and not err)
 end)
-assert(workflow_store.fallback_conversions == 1, "fallback conversion was not persisted")
-assert(#workflow_store.outcomes == 0 and workflow_observes == 1)
+assert(#workflow_store.outcomes == 0 and workflow_reports == 1)
 assert(
     rin.proposal_freshness(
         {
@@ -526,5 +515,44 @@ local malformed_delete = make_race_client(proposal_job("succeeded", {
 malformed_delete:wait_for_proposal("job.fixture", { deadline = 0.05, interval = 0.01 }, function(data, err)
     assert(not data and err.code == "invalid_job", "malformed DELETE proposal identity was accepted")
 end)
+
+local helper_epoch = {
+    session_id = "session.helper",
+    world_id = "world.helper",
+    host = 1,
+    world = 2,
+    timeline = 3,
+}
+local helper_timepoint = { clock = "event", value = 8 }
+local helper_window = {
+    id = "window.helper",
+    epoch = helper_epoch,
+    observation_seq = 7,
+    deadline = helper_timepoint,
+}
+local helper_offer = rin.action_offer({
+    offer_id = "offer.helper",
+    actor_id = "actor.helper",
+    capability_id = "dialogue.say",
+    descriptor_digest = string.rep("a", 64),
+    description = "Say one line",
+    arguments = { line = "hello" },
+}, helper_window)
+local helper_report = rin.immediate_action_report({
+    session_id = "session.helper",
+    request_id = "report.helper",
+    event_id = "event.helper",
+    tick = 8,
+    proposal = { id = "proposal.helper", action = helper_offer },
+    operation_id = "operation.helper",
+    accepted = true,
+    summary = "applied",
+    epoch = helper_epoch,
+    world_seq = 8,
+    occurred_at = helper_timepoint,
+})
+assert(helper_report.report.invocation.offer_id == "offer.helper")
+assert(helper_report.report.run.status == "succeeded")
+assert(helper_report.report.outcome.operation_id == "operation.helper")
 
 print("Rin Lua SDK tests passed")

@@ -27,11 +27,11 @@ test("default response limit matches the inline transport budget", () => {
 });
 
 test("stable ID helper is protocol-safe and validates its entropy source", () => {
-  const value = createRinId("commit", (length) => {
+  const value = createRinId("report", (length) => {
     assert.equal(length, 16);
     return Uint8Array.from({ length }, (_, index) => index);
   });
-  assert.equal(value, "commit.000102030405060708090a0b0c0d0e0f");
+  assert.equal(value, "report.000102030405060708090a0b0c0d0e0f");
   assert.match(value, /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/);
   assert.throws(
     () => createRinId("bad prefix", () => new Uint8Array(16)),
@@ -63,7 +63,7 @@ test("capability negotiation requires protocol and the safe baseline", async () 
 
   data = { ...data, features: [] };
   await assert.rejects(
-    client.negotiateCapabilities(),
+    client.negotiateCapabilities(["memory-archive-v1"]),
     (error) => error instanceof RinConfigurationError && error.code === "missing_features",
   );
   data = { ...data, protocol_version: "rin.protocol/future" };
@@ -99,7 +99,7 @@ test("WorkflowCoordinator gives idempotent apply a stable operation ID", async (
     },
     async saveProposalAttempt(value) { attempt = structuredClone(value); },
     async completeProposalAttempt(input) {
-      entries.push({ key: "outcome.workflow", commit: structuredClone(input.commit) });
+      entries.push({ key: "outcome.workflow", report: structuredClone(input.report) });
       attempt = null;
     },
     async listOutcomeReports() { return entries.slice(); },
@@ -121,26 +121,15 @@ test("WorkflowCoordinator gives idempotent apply a stable operation ID", async (
     store,
     HostDurability.idempotentAction(),
   );
-  const pending = await workflow.begin("operation.stable", {
-    protocol_version: PROTOCOL_VERSION,
-    session_id: "session.fixture",
-    request_id: "request.fixture",
-    actor_id: "actor.fixture",
-    intent: "Talk",
-    candidate_actions: [{ id: "talk", kind: "dialogue", description: "Talk" }],
-  });
+  const pending = await workflow.begin(
+    "operation.stable",
+    proposeRequest("request.fixture"),
+  );
   let appliedOperation = "";
   await workflow.applyAndEnqueueOutcome({
     pendingTurn: pending,
     proposal: proposal(),
-    commit: {
-      protocol_version: PROTOCOL_VERSION,
-      session_id: "session.fixture",
-      request_id: "commit.fixture",
-      proposal_id: "proposal.fixture",
-      event_id: "event.fixture",
-      accepted: true,
-    },
+    report: rejectedReport("report.fixture", "event.fixture"),
     requiredDurability: HOST_DURABILITY_PROFILES.idempotentAction,
     async apply(operationId) { appliedOperation = operationId; },
   });
@@ -149,26 +138,15 @@ test("WorkflowCoordinator gives idempotent apply a stable operation ID", async (
   assert.equal(entries.length, 1);
   assert.equal(await workflow.drainOutbox(), 1);
 
-  const failed = await workflow.begin("operation.failed", {
-    protocol_version: PROTOCOL_VERSION,
-    session_id: "session.fixture",
-    request_id: "request.failed",
-    actor_id: "actor.fixture",
-    intent: "Talk",
-    candidate_actions: [{ id: "talk", kind: "dialogue", description: "Talk" }],
-  });
+  const failed = await workflow.begin(
+    "operation.failed",
+    proposeRequest("request.failed"),
+  );
   await assert.rejects(
     workflow.applyAndEnqueueOutcome({
       pendingTurn: failed,
       proposal: proposal({ request_id: "request.failed" }),
-      commit: {
-        protocol_version: PROTOCOL_VERSION,
-        session_id: "session.fixture",
-        request_id: "commit.failed",
-        proposal_id: "proposal.fixture",
-        event_id: "event.failed",
-        accepted: true,
-      },
+      report: rejectedReport("report.failed", "event.failed"),
       requiredDurability: HOST_DURABILITY_PROFILES.idempotentAction,
       async apply() { throw new Error("game save failed"); },
     }),
@@ -224,7 +202,7 @@ test("Proposal Attempt settles game effect and Outbox atomically", async () => {
     async settleProposalAttempt(input) {
       assert.equal(input.attempt.operation_id, "operation.fixture");
       await input.apply();
-      outbox.push({ key: "outcome.fixture", commit: structuredClone(input.commit) });
+      outbox.push({ key: "outcome.fixture", report: structuredClone(input.report) });
       attempt = null;
     },
   };
@@ -232,7 +210,7 @@ test("Proposal Attempt settles game effect and Outbox atomically", async () => {
   const client = new RinClient(undefined, {
     fetch: async (url) => {
       const path = new URL(url).pathname;
-      if (path === "/v1/jobs/propose") {
+      if (path === "/v2/jobs/propose") {
         return response(202, {
           ok: true,
           data: {
@@ -252,14 +230,7 @@ test("Proposal Attempt settles game effect and Outbox atomically", async () => {
     sleep: async () => {},
   });
   const coordinator = new ProposalAttemptCoordinator(client, store);
-  const request = {
-    protocol_version: PROTOCOL_VERSION,
-    session_id: "session.fixture",
-    request_id: "request.fixture",
-    actor_id: "actor.fixture",
-    intent: "Talk",
-    candidate_actions: [{ id: "talk", kind: "dialogue", description: "Talk" }],
-  };
+  const request = proposeRequest("request.fixture");
   await coordinator.begin("operation.fixture", request);
   request.intent = "mutated after persistence";
   assert.equal(attempt.request.intent, "Talk");
@@ -269,14 +240,7 @@ test("Proposal Attempt settles game effect and Outbox atomically", async () => {
   await coordinator.settle(
     resolved.attempt,
     resolved.proposal,
-    {
-      protocol_version: PROTOCOL_VERSION,
-      session_id: "session.fixture",
-      request_id: "commit.fixture",
-      proposal_id: "proposal.fixture",
-      event_id: "event.fixture",
-      accepted: true,
-    },
+    rejectedReport("report.fixture", "event.fixture"),
     async () => { applied++; },
   );
   assert.equal(applied, 1);
@@ -284,17 +248,10 @@ test("Proposal Attempt settles game effect and Outbox atomically", async () => {
   assert.equal(outbox.length, 1);
 });
 
-test("Outcome Outbox acknowledges only confirmed exact Commit success", async () => {
+test("Outcome Outbox acknowledges only confirmed exact Action Report success", async () => {
   const entries = [{
     key: "outcome.fixture",
-    commit: {
-      protocol_version: PROTOCOL_VERSION,
-      session_id: "session.fixture",
-      request_id: "commit.fixture",
-      proposal_id: "proposal.fixture",
-      event_id: "event.fixture",
-      accepted: false,
-    },
+    report: rejectedReport("report.fixture", "event.fixture"),
   }];
   let fail = true;
   const client = new RinClient(undefined, {
@@ -370,6 +327,59 @@ function proposal(overrides = {}) {
   };
 }
 
+function proposeRequest(requestId) {
+  const epoch = {
+    session_id: "session.fixture",
+    world_id: "world.fixture",
+    host: 1,
+    world: 1,
+    timeline: 1,
+  };
+  const window = {
+    id: `window.${requestId}`,
+    mode: "sequential",
+    epoch,
+    observation_seq: 1,
+    opened_at: { clock: "step", value: 0 },
+    deadline: { clock: "step", value: 100 },
+    actor_ids: ["actor.fixture"],
+  };
+  return {
+    protocol_version: PROTOCOL_VERSION,
+    session_id: "session.fixture",
+    request_id: requestId,
+    actor_id: "actor.fixture",
+    intent: "Talk",
+    decision_window: window,
+    offers: [{
+      offer_id: "talk",
+      decision_window_id: window.id,
+      actor_id: "actor.fixture",
+      capability: { id: "rin.dialogue.say", version: "1.0.0" },
+      descriptor_digest: "a".repeat(64),
+      description: "Talk",
+      arguments: {},
+      expected_epoch: epoch,
+      observation_seq: 1,
+      deadline: window.deadline,
+    }],
+  };
+}
+
+function rejectedReport(requestId, eventId) {
+  return {
+    protocol_version: PROTOCOL_VERSION,
+    session_id: "session.fixture",
+    request_id: requestId,
+    report: {
+      proposal_id: "proposal.fixture",
+      event_id: eventId,
+      decision: "rejected",
+      summary: "The host rejected the action.",
+    },
+  };
+}
+
 function proposalJob(status = "running", overrides = {}) {
   return {
     job_id: "job.fixture",
@@ -393,14 +403,14 @@ test("all protocol routes use the expected method and bearer token", async () =>
   const requests = [];
   const fetch = async (url, options) => {
     const path = new URL(url).pathname;
-    if (path === "/v1/session/export") {
+    if (path === "/v2/session/export") {
       requests.push({ url: new URL(url), options, status: 200 });
       return new Response(validTransfer(), {
         status: 200,
         headers: { "content-type": "application/x-ndjson" },
       });
     }
-    const accepted = url.endsWith("/v1/jobs/propose") || url.endsWith("/v1/generation/jobs") ? 202 : 200;
+    const accepted = url.endsWith("/v2/jobs/propose") || url.endsWith("/v2/generation/jobs") ? 202 : 200;
     requests.push({ url: new URL(url), options, status: accepted });
     return response(accepted, { ok: true, data: { status: "ok" } });
   };
@@ -425,32 +435,32 @@ test("all protocol routes use the expected method and bearer token", async () =>
   };
   const cases = [
     ["health", () => client.health(), "GET", "/health"],
-    ["create_session", () => client.createSession(payload), "POST", "/v1/session/create"],
-    ["observe", () => client.observe(payload), "POST", "/v1/session/observe"],
-    ["propose", () => client.propose(payload), "POST", "/v1/agent/propose"],
-    ["submit_proposal_job", () => client.submitProposalJob(payload), "POST", "/v1/jobs/propose"],
-    ["get_proposal_job", () => client.getProposalJob("job.fixture"), "GET", "/v1/jobs/job.fixture"],
-    ["cancel_proposal_job", () => client.cancelProposalJob("job.fixture"), "DELETE", "/v1/jobs/job.fixture"],
-    ["submit_generation_job", () => client.submitGenerationJob(payload), "POST", "/v1/generation/jobs"],
-    ["get_generation_job", () => client.getGenerationJob("job.fixture"), "GET", "/v1/generation/jobs/job.fixture"],
-    ["cancel_generation_job", () => client.cancelGenerationJob("job.fixture"), "DELETE", "/v1/generation/jobs/job.fixture"],
-    ["commit", () => client.commit(payload), "POST", "/v1/action/commit"],
-    ["commit_batch", () => client.commitBatch(payload), "POST", "/v1/action/commit-batch"],
-    ["set_actor_activity", () => client.setActorActivity(payload), "POST", "/v1/session/activity"],
-    ["arbitrate", () => client.arbitrate(payload), "POST", "/v1/world/arbitrate"],
-    ["state", () => client.state(payload), "POST", "/v1/session/get"],
-    ["session_stats", () => client.sessionStats(payload), "POST", "/v1/session/stats"],
-    ["archive_session", () => client.archiveSession(payload), "POST", "/v1/session/archive"],
-    ["delete_session", () => client.deleteSession(payload), "POST", "/v1/session/delete"],
-    ["snapshot", () => client.snapshot(payload), "POST", "/v1/session/snapshot"],
-    ["restore", () => client.restore(payload), "POST", "/v1/session/restore"],
+    ["create_session", () => client.createSession(payload), "POST", "/v2/session/create"],
+    ["observe", () => client.observe(payload), "POST", "/v2/session/observe"],
+    ["propose", () => client.propose(payload), "POST", "/v2/agent/propose"],
+    ["submit_proposal_job", () => client.submitProposalJob(payload), "POST", "/v2/jobs/propose"],
+    ["get_proposal_job", () => client.getProposalJob("job.fixture"), "GET", "/v2/jobs/job.fixture"],
+    ["cancel_proposal_job", () => client.cancelProposalJob("job.fixture"), "DELETE", "/v2/jobs/job.fixture"],
+    ["submit_generation_job", () => client.submitGenerationJob(payload), "POST", "/v2/generation/jobs"],
+    ["get_generation_job", () => client.getGenerationJob("job.fixture"), "GET", "/v2/generation/jobs/job.fixture"],
+    ["cancel_generation_job", () => client.cancelGenerationJob("job.fixture"), "DELETE", "/v2/generation/jobs/job.fixture"],
+    ["report_action", () => client.reportAction(payload), "POST", "/v2/action/report"],
+    ["report_action_batch", () => client.reportActionBatch(payload), "POST", "/v2/action/report-batch"],
+    ["set_actor_activity", () => client.setActorActivity(payload), "POST", "/v2/session/activity"],
+    ["arbitrate", () => client.arbitrate(payload), "POST", "/v2/world/arbitrate"],
+    ["state", () => client.state(payload), "POST", "/v2/session/get"],
+    ["session_stats", () => client.sessionStats(payload), "POST", "/v2/session/stats"],
+    ["archive_session", () => client.archiveSession(payload), "POST", "/v2/session/archive"],
+    ["delete_session", () => client.deleteSession(payload), "POST", "/v2/session/delete"],
+    ["snapshot", () => client.snapshot(payload), "POST", "/v2/session/snapshot"],
+    ["restore", () => client.restore(payload), "POST", "/v2/session/restore"],
     ["export_session", () => client.exportSession(payload, {
       write: (chunk) => transferChunks.push(chunk),
-    }), "POST", "/v1/session/export"],
-    ["import_session", () => client.importSession(importSource(), binding), "POST", "/v1/session/import"],
-    ["timeline", () => client.timeline(payload), "POST", "/v1/session/timeline"],
-    ["replay", () => client.replay(payload), "POST", "/v1/session/replay"],
-    ["due_agents", () => client.dueAgents(payload), "POST", "/v1/scheduler/due"],
+    }), "POST", "/v2/session/export"],
+    ["import_session", () => client.importSession(importSource(), binding), "POST", "/v2/session/import"],
+    ["timeline", () => client.timeline(payload), "POST", "/v2/session/timeline"],
+    ["replay", () => client.replay(payload), "POST", "/v2/session/replay"],
+    ["due_agents", () => client.dueAgents(payload), "POST", "/v2/scheduler/due"],
   ];
   for (const [, call, method, path] of cases) {
     const result = await call();
@@ -460,7 +470,7 @@ test("all protocol routes use the expected method and bearer token", async () =>
     assert.equal(request.options.headers.Authorization, "Bearer fixture");
     assert.equal(request.options.headers["User-Agent"], `rin-javascript/${SDK_VERSION}`);
     assert.equal(request.options.redirect, "error");
-    if (request.url.pathname === "/v1/session/import") {
+    if (request.url.pathname === "/v2/session/import") {
       assert.equal(request.options.headers["Content-Type"], "application/x-ndjson");
       assert.equal(request.options.headers["Rin-Expected-Game-Id"], binding.game_id);
     } else {
@@ -469,7 +479,7 @@ test("all protocol routes use the expected method and bearer token", async () =>
         method === "POST" ? payload : undefined,
       );
     }
-    if (request.url.pathname === "/v1/session/export") {
+    if (request.url.pathname === "/v2/session/export") {
       assert.equal(result.type, "complete");
     } else {
       assert.equal(result.status, "ok");
@@ -524,7 +534,7 @@ function validTransfer() {
   ].join("\n");
 }
 
-test("false commit flags are serialized explicitly", async () => {
+test("action decisions are serialized explicitly", async () => {
   const bodies = [];
   const client = new RinClient(undefined, {
     fetch: async (_url, options) => {
@@ -532,12 +542,10 @@ test("false commit flags are serialized explicitly", async () => {
       return response(200, { ok: true, data: {} });
     },
   });
-  await client.commit({ accepted: false });
-  await client.commitBatch({ items: [{ accepted: false }] });
-  assert.equal(Object.hasOwn(bodies[0], "accepted"), true);
-  assert.equal(bodies[0].accepted, false);
-  assert.equal(Object.hasOwn(bodies[1].items[0], "accepted"), true);
-  assert.equal(bodies[1].items[0].accepted, false);
+  await client.reportAction({ report: { decision: "rejected" } });
+  await client.reportActionBatch({ reports: [{ decision: "rejected" }] });
+  assert.equal(bodies[0].report.decision, "rejected");
+  assert.equal(bodies[1].reports[0].decision, "rejected");
 });
 
 test("transfer export applies sink backpressure and requires complete", async () => {
@@ -642,7 +650,7 @@ test("invalid JSON numbers, cycles, and depth fail before transport", async () =
   ];
   for (const payload of invalidPayloads) {
     await assert.rejects(
-      client.commit(payload),
+      client.reportAction(payload),
       (error) => error instanceof RinProtocolError && error.code === "invalid_request",
     );
   }
@@ -723,7 +731,7 @@ test("proposal completion returned by timeout cancellation wins the race", async
       const data = options.method === "DELETE"
         ? proposalJob("succeeded", { proposal: proposal({ id: "proposal.race" }) })
         : proposalJob();
-      assert.equal(path, "/v1/jobs/job.fixture");
+      assert.equal(path, "/v2/jobs/job.fixture");
       return response(200, { ok: true, data });
     },
   });
@@ -743,7 +751,7 @@ test("generation completion returned by timeout cancellation wins the race", asy
       const data = options.method === "DELETE"
         ? generationJob("succeeded", { result: { content: "finished at the deadline" } })
         : generationJob("queued");
-      assert.equal(path, "/v1/generation/jobs/job.fixture");
+      assert.equal(path, "/v2/generation/jobs/job.fixture");
       return response(200, { ok: true, data });
     },
   });

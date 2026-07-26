@@ -22,7 +22,7 @@ var capabilities = await rin.NegotiateCapabilitiesAsync();
 Console.WriteLine(capabilities.ReleaseVersion);
 ```
 
-能力协商会在 Runtime 不是 `rin.protocol/v1` 或不支持权威 Outcome Reporting
+能力协商会在 Runtime 不是 `rin.protocol/v2` 或不支持权威 Outcome Reporting
 preset 时 Fail Closed。请通过 `RinIds.Create("request")` 和
 `RinIds.Create("event")` 生成一次稳定 ID，将其随操作持久化，并在每次 exact
 retry 中复用。
@@ -33,15 +33,12 @@ retry 中复用。
 
 `WorkflowCoordinator` 把兼容保留的 `ProposalAttemptCoordinator` 与
 `OutcomeOutbox` 组合为 `BeginAsync`、`ResumePendingWorkAsync`、
-`ApplyAndEnqueueOutcomeAsync` 和 `DrainOutboxAsync`。实现
-`IWorkflowFallbackStore` 的 Store 还可以使用
-`ApplyAndEnqueueOutcomeWithFallbackAsync`；终态 Commit 错误只有在安全
-Observe 转换已经持久化后才会降级。接入方提供
+`ApplyAndEnqueueOutcomeAsync` 和 `DrainOutboxAsync`。接入方提供
 `IWorkflowStore` 与已校验的 `HostDurability`。幂等 Apply 会收到稳定
 Operation ID；只有 `transactional-action` 才把
 `IProposalAttemptStore.SettleAsync` 当作一个游戏事务调用。只有普通成功或
-明确 duplicate Commit 成功后才能确认 Outbox 项。SDK 不提供会误用于生产的
-内存默认实现。参见
+明确 duplicate Report 成功后才能确认 Outbox 项。错误会保留精确 Report，
+绝不把它转换为 Observation。SDK 不提供会误用于生产的内存默认实现。参见
 [宿主持久保证分级](../../docs/host-durability.zh-CN.md)。
 
 `OpaqueSnapshotPersistence` 通过 `IOpaqueSnapshotStore` 保存有界 JSON 字节，

@@ -6,11 +6,11 @@ using Rin.Client;
 Require(
     new RinClientOptions().MaxResponseBytes == 32 * 1024 * 1024,
     "default response limit does not match the inline transport budget");
-Require(RinClient.ClientVersion == "0.6.0", "client version projection is stale");
-var stableId = RinIds.Create("commit");
+Require(RinClient.ClientVersion == "0.7.0", "client version projection is stale");
+var stableId = RinIds.Create("report");
 Require(
-    stableId.StartsWith("commit.", StringComparison.Ordinal) &&
-    stableId.Length == "commit.".Length + 32,
+    stableId.StartsWith("report.", StringComparison.Ordinal) &&
+    stableId.Length == "report.".Length + 32,
     "stable ID helper did not produce a protocol-safe identifier");
 Require(
     RinIds.IsValid("a" + new string('b', 95)) &&
@@ -25,6 +25,65 @@ catch (RinConfigurationException exception)
 {
     Require(exception.Code == "invalid_id_prefix", "invalid ID prefix code changed");
 }
+
+var helperWindow = TestWindow("session.helper", "actor.helper", 7);
+var helperOffer = HostActions.Offer(
+    "offer.helper",
+    "actor.helper",
+    new CapabilityRef("dialogue.say", "1"),
+    new string('a', 64),
+    "Say one line",
+    helperWindow,
+    JsonSerializer.SerializeToElement(new { line = "hello" }));
+var helperProposal = new ActionProposal(
+    "proposal.helper",
+    "session.helper",
+    "request.helper",
+    "actor.helper",
+    7,
+    1,
+    string.Empty,
+    2,
+    helperWindow,
+    helperOffer,
+    "engage",
+    "Say one line",
+    "Useful",
+    "pending");
+var helperReport = HostActions.ImmediateReport(
+    "session.helper",
+    "report.helper",
+    "event.helper",
+    8,
+    helperProposal,
+    "operation.helper",
+    true,
+    "applied",
+    helperProposal.DecisionWindow.Epoch,
+    8,
+    new Timepoint("event", 8));
+Require(
+    helperReport.Report.Invocation?.OfferId == helperProposal.Action.OfferId &&
+    helperReport.Report.Run?.Status == "succeeded" &&
+    helperReport.Report.Outcome?.OperationId == "operation.helper",
+    "host action helper did not preserve the selected offer lifecycle");
+var rejectedHelperReport = HostActions.ImmediateReport(
+    "session.helper",
+    "report.rejected",
+    "event.rejected",
+    9,
+    helperProposal,
+    "operation.rejected",
+    false,
+    "rejected",
+    helperProposal.DecisionWindow.Epoch,
+    9,
+    new Timepoint("event", 9));
+Require(
+    rejectedHelperReport.Report.Invocation is null &&
+    rejectedHelperReport.Report.Run is null &&
+    rejectedHelperReport.Report.Outcome is null,
+    "rejected host action incorrectly emitted an execution lifecycle");
 
 var capabilityHandler = new RecordingHandler
 {
@@ -49,40 +108,8 @@ using (var capabilityClient = new RinClient(new RinClientOptions(), capabilityHa
 {
     var capabilities = await capabilityClient.NegotiateCapabilitiesAsync();
     Require(
-        capabilities.Features.Contains(RinFeatures.OutcomeReporting),
-        "authoritative feature negotiation lost outcome reporting");
-}
-
-var missingFeatureHandler = new RecordingHandler
-{
-    ResponseBodyFactory = _ => JsonSerializer.Serialize(new
-    {
-        ok = true,
-        data = new
-        {
-            status = "ok",
-            protocol_version = RinClient.ProtocolVersion,
-            release_version = RinClient.ClientVersion,
-            release_status = "preview",
-            policy_mode = "deterministic",
-            async_jobs = true,
-            structured_generation = true,
-            features = Array.Empty<string>(),
-            recommended_features = RinFeatures.SafeBaselinePreset,
-        },
-    }),
-};
-using (var missingFeatureClient = new RinClient(new RinClientOptions(), missingFeatureHandler))
-{
-    try
-    {
-        await missingFeatureClient.NegotiateCapabilitiesAsync();
-        throw new InvalidOperationException("missing authoritative feature was accepted");
-    }
-    catch (RinConfigurationException exception)
-    {
-        Require(exception.Code == "missing_features", "missing feature code changed");
-    }
+        capabilities.RecommendedFeatures.Count == 0,
+        "protocol v2 should not require an optional feature flag");
 }
 
 var typedMutationHandler = new RecordingHandler
@@ -123,40 +150,44 @@ using (var typedClient = new RinClient(new RinClientOptions(), typedMutationHand
         "Fixture",
         "typed actor did not use OpenAPI property names");
 
-    var committed = await typedClient.CommitAsync(new CommitRequest(
-        "session.fixture",
-        "commit.fixture",
-        "proposal.fixture",
-        "event.fixture",
-        false));
-    Require(committed.Revision == 3, "typed Commit response was not decoded");
-    using var commitBody = JsonDocument.Parse(typedMutationHandler.Body);
+    var reported = await typedClient.ReportActionAsync(
+        RejectedReport("session.fixture", "report.fixture", "proposal.fixture", "event.fixture"));
+    Require(reported.Revision == 3, "typed report response was not decoded");
+    using var reportBody = JsonDocument.Parse(typedMutationHandler.Body);
     Require(
-        commitBody.RootElement.GetProperty("accepted").ValueKind == JsonValueKind.False,
-        "typed Commit omitted an explicit false accepted value");
+        reportBody.RootElement.GetProperty("report").GetProperty("decision").GetString() ==
+        "rejected",
+        "typed report omitted the host decision");
 }
 
 var typedProposalHandler = new RecordingHandler
 {
-    ResponseBodyFactory = _ =>
-        "{\"ok\":true,\"data\":{\"duplicate\":false,\"future\":\"ok\",\"proposal\":{" +
-        "\"id\":\"proposal.fixture\",\"session_id\":\"session.fixture\"," +
-        "\"request_id\":\"propose.fixture\",\"actor_id\":\"actor.fixture\",\"tick\":4," +
-        "\"based_on_revision\":1,\"based_on_head_hash\":\"\",\"created_revision\":2," +
-        "\"action\":{\"id\":\"talk\",\"kind\":\"dialogue\",\"description\":\"Talk\"}," +
-        "\"stance\":\"engage\",\"summary\":\"Talk\",\"rationale\":\"Useful\"," +
-        "\"status\":\"pending\"}}}",
+    ResponseBodyFactory = _ => JsonSerializer.Serialize(new
+    {
+        ok = true,
+        data = new
+        {
+            duplicate = false,
+            future = "ok",
+            proposal = TestProposal(
+                "proposal.fixture",
+                "session.fixture",
+                "propose.fixture",
+                "actor.fixture",
+                4),
+        },
+    }),
 };
 using (var typedProposalClient = new RinClient(
     new RinClientOptions(),
     typedProposalHandler))
 {
-    var result = await typedProposalClient.ProposeAsync(new ProposeRequest(
-        "session.fixture",
-        "propose.fixture",
-        "actor.fixture",
-        "Talk",
-        new[] { new ActionSpecInput("talk", "dialogue", "Talk") }));
+    var result = await typedProposalClient.ProposeAsync(
+        TestProposeRequest(
+            "session.fixture",
+            "propose.fixture",
+            "actor.fixture",
+            4));
     Require(result.Proposal.Id == "proposal.fixture", "typed Proposal was not decoded");
     Require(
         result.AdditiveFields?.ContainsKey("future") == true,
@@ -188,24 +219,33 @@ var workflowHandler = new RecordingHandler
     ResponseBodyFactory = request =>
     {
         var path = request.RequestUri?.AbsolutePath;
-        if (path == "/v1/jobs/propose")
+        if (path == "/v2/jobs/propose")
         {
-            return "{\"ok\":true,\"data\":{\"protocol_version\":\"rin.protocol/v1\"," +
+            return "{\"ok\":true,\"data\":{\"protocol_version\":\"rin.protocol/v2\"," +
                 "\"job_id\":\"job.workflow\",\"status\":\"queued\",\"duplicate\":false}}";
         }
-        if (path == "/v1/jobs/job.workflow")
+        if (path == "/v2/jobs/job.workflow")
         {
-            return "{\"ok\":true,\"data\":{\"protocol_version\":\"rin.protocol/v1\"," +
-                "\"job_id\":\"job.workflow\",\"session_id\":\"session.workflow\"," +
-                "\"request_id\":\"request.workflow\",\"status\":\"succeeded\"," +
-                "\"submitted_at\":\"2026-01-01T00:00:00Z\",\"duplicate\":false," +
-                "\"proposal\":{\"id\":\"proposal.workflow\"," +
-                "\"session_id\":\"session.workflow\",\"request_id\":\"request.workflow\"," +
-                "\"actor_id\":\"actor.workflow\",\"tick\":5,\"based_on_revision\":1," +
-                "\"based_on_head_hash\":\"\",\"created_revision\":2," +
-                "\"action\":{\"id\":\"talk\",\"kind\":\"dialogue\",\"description\":\"Talk\"}," +
-                "\"stance\":\"engage\",\"summary\":\"Talk\",\"rationale\":\"Useful\"," +
-                "\"status\":\"pending\"}}}";
+            return JsonSerializer.Serialize(new
+            {
+                ok = true,
+                data = new
+                {
+                    protocol_version = RinClient.ProtocolVersion,
+                    job_id = "job.workflow",
+                    session_id = "session.workflow",
+                    request_id = "request.workflow",
+                    status = "succeeded",
+                    submitted_at = "2026-01-01T00:00:00Z",
+                    duplicate = false,
+                    proposal = TestProposal(
+                        "proposal.workflow",
+                        "session.workflow",
+                        "request.workflow",
+                        "actor.workflow",
+                        5),
+                },
+            });
         }
         return "{\"ok\":true,\"data\":{\"session_id\":\"session.workflow\"," +
             "\"revision\":3,\"head_hash\":\"" + new string('a', 64) +
@@ -216,12 +256,11 @@ using (var workflowClient = new RinClient(new RinClientOptions(), workflowHandle
 {
     var workflowStore = new TestAuthoritativeStore();
     var coordinator = new ProposalAttemptCoordinator(workflowClient, workflowStore);
-    var proposeRequest = new ProposeRequest(
+    var proposeRequest = TestProposeRequest(
         "session.workflow",
         "request.workflow",
         "actor.workflow",
-        "Talk",
-        new[] { new ActionSpecInput("talk", "dialogue", "Talk") });
+        5);
     await coordinator.BeginAsync("operation.workflow", proposeRequest);
     var resolved = await coordinator.ResumeAsync(
         TimeSpan.FromMilliseconds(100),
@@ -233,12 +272,11 @@ using (var workflowClient = new RinClient(new RinClientOptions(), workflowHandle
     await coordinator.SettleAsync(
         resolved.Attempt,
         resolved.Proposal,
-        new CommitRequest(
+        RejectedReport(
             "session.workflow",
-            "commit.workflow",
+            "report.workflow",
             "proposal.workflow",
-            "event.workflow",
-            true),
+            "event.workflow"),
         _ =>
         {
             applied++;
@@ -281,12 +319,11 @@ using (var workflowClient = new RinClient(new RinClientOptions(), workflowHandle
     await workflow.ApplyAndEnqueueOutcomeAsync(
         pendingTurn,
         resolved.Proposal,
-        new CommitRequest(
+        RejectedReport(
             "session.workflow",
-            "commit.workflow",
+            "report.workflow",
             "proposal.workflow",
-            "event.workflow",
-            true),
+            "event.workflow"),
         HostDurabilityProfile.IdempotentAction,
         (operationId, _) =>
         {
@@ -307,12 +344,11 @@ using (var workflowClient = new RinClient(new RinClientOptions(), workflowHandle
         await workflow.ApplyAndEnqueueOutcomeAsync(
             failedTurn,
             resolved.Proposal with { RequestId = "request.failed" },
-            new CommitRequest(
+            RejectedReport(
                 "session.workflow",
-                "commit.failed",
+                "report.failed",
                 "proposal.workflow",
-                "event.failed",
-                true),
+                "event.failed"),
             HostDurabilityProfile.IdempotentAction,
             (_, _) => throw new InvalidOperationException("game save failed"));
         throw new InvalidOperationException("failed apply was accepted");
@@ -326,73 +362,6 @@ using (var workflowClient = new RinClient(new RinClientOptions(), workflowHandle
         "failed apply removed the Pending Turn");
     Require(idempotentStore.Outcomes.Count == 0, "failed apply enqueued an Outcome");
 
-    var invalidFallbackStore = new TestAuthoritativeStore();
-    var invalidFallbackWorkflow = new WorkflowCoordinator(
-        workflowClient,
-        invalidFallbackStore,
-        HostDurability.Advisory());
-    var invalidFallbackRequest = proposeRequest with { RequestId = "request.invalid" };
-    var invalidFallbackTurn = await invalidFallbackWorkflow.BeginAsync(
-        "operation.invalid",
-        invalidFallbackRequest);
-    var invalidFallbackApplied = false;
-    try
-    {
-        await invalidFallbackWorkflow.ApplyAndEnqueueOutcomeWithFallbackAsync(
-            invalidFallbackTurn,
-            resolved.Proposal with { RequestId = "request.invalid" },
-            new CommitRequest(
-                "session.workflow",
-                "commit.invalid",
-                "proposal.workflow",
-                "event.invalid",
-                true),
-            new
-            {
-                session_id = "session.workflow",
-                request_id = "observe.invalid",
-            },
-            HostDurabilityProfile.Advisory,
-            (_, _) =>
-            {
-                invalidFallbackApplied = true;
-                return ValueTask.CompletedTask;
-            });
-        throw new InvalidOperationException("invalid Outcome fallback was accepted");
-    }
-    catch (RinConfigurationException exception)
-    {
-        Require(exception.Code == "invalid_outbox", "invalid fallback code changed");
-    }
-    Require(!invalidFallbackApplied, "invalid fallback was rejected after game apply");
-    Require(
-        invalidFallbackStore.Attempt?.OperationId == invalidFallbackTurn.OperationId,
-        "invalid fallback removed the Pending Turn");
-}
-
-var fallbackHandler = new TerminalFallbackHandler();
-using (var fallbackClient = new RinClient(new RinClientOptions(), fallbackHandler))
-{
-    var fallbackStore = new TestAuthoritativeStore();
-    fallbackStore.Outcomes.Add(new OutcomeOutboxEntry(
-        "outcome.fallback",
-        new CommitRequest(
-            "session.workflow",
-            "commit.fallback",
-            "proposal.fallback",
-            "event.fallback",
-            true),
-        new
-        {
-            session_id = "session.workflow",
-            request_id = "observe.fallback",
-            event_id = "event.fallback",
-        }));
-    var fallbackOutbox = new OutcomeOutbox(fallbackClient, fallbackStore);
-    Require(await fallbackOutbox.DrainAsync() == 1, "fallback Outcome did not drain");
-    Require(fallbackHandler.ObserveCount == 1, "terminal Commit did not send Observe");
-    Require(fallbackStore.FallbackConversions == 1, "fallback was not persisted first");
-    Require(fallbackStore.Outcomes.Count == 0, "fallback Observe was not acknowledged");
 }
 
 var opaqueStore = new TestOpaqueSnapshotStore();
@@ -432,30 +401,30 @@ var transferBinding = new RinBinding(
 var cases = new (string Name, Func<Task<JsonElement>> Call, HttpMethod Method, string Path)[]
 {
     ("health", () => client.HealthAsync(), HttpMethod.Get, "/health"),
-    ("create_session", () => client.CreateSessionAsync(payload), HttpMethod.Post, "/v1/session/create"),
-    ("observe", () => client.ObserveAsync(payload), HttpMethod.Post, "/v1/session/observe"),
-    ("propose", () => client.ProposeAsync(payload), HttpMethod.Post, "/v1/agent/propose"),
-    ("submit_proposal_job", () => client.SubmitProposalJobAsync(payload), HttpMethod.Post, "/v1/jobs/propose"),
-    ("get_proposal_job", () => client.GetProposalJobAsync("job.fixture"), HttpMethod.Get, "/v1/jobs/job.fixture"),
-    ("cancel_proposal_job", () => client.CancelProposalJobAsync("job.fixture"), HttpMethod.Delete, "/v1/jobs/job.fixture"),
-    ("submit_generation_job", () => client.SubmitGenerationJobAsync(payload), HttpMethod.Post, "/v1/generation/jobs"),
-    ("get_generation_job", () => client.GetGenerationJobAsync("job.fixture"), HttpMethod.Get, "/v1/generation/jobs/job.fixture"),
-    ("cancel_generation_job", () => client.CancelGenerationJobAsync("job.fixture"), HttpMethod.Delete, "/v1/generation/jobs/job.fixture"),
-    ("commit", () => client.CommitAsync(payload), HttpMethod.Post, "/v1/action/commit"),
-    ("commit_batch", () => client.CommitBatchAsync(payload), HttpMethod.Post, "/v1/action/commit-batch"),
-    ("set_actor_activity", () => client.SetActorActivityAsync(payload), HttpMethod.Post, "/v1/session/activity"),
-    ("arbitrate", () => client.ArbitrateAsync(payload), HttpMethod.Post, "/v1/world/arbitrate"),
-    ("state", () => client.StateAsync(payload), HttpMethod.Post, "/v1/session/get"),
-    ("session_stats", () => client.SessionStatsAsync(payload), HttpMethod.Post, "/v1/session/stats"),
-    ("archive_session", () => client.ArchiveSessionAsync(payload), HttpMethod.Post, "/v1/session/archive"),
-    ("delete_session", () => client.DeleteSessionAsync(payload), HttpMethod.Post, "/v1/session/delete"),
-    ("snapshot", () => client.SnapshotAsync(payload), HttpMethod.Post, "/v1/session/snapshot"),
-    ("restore", () => client.RestoreAsync(payload), HttpMethod.Post, "/v1/session/restore"),
-    ("export_session", () => client.ExportSessionAsync(payload, transferOutput), HttpMethod.Post, "/v1/session/export"),
-    ("import_session", () => client.ImportSessionAsync(transferInput, transferBinding), HttpMethod.Post, "/v1/session/import"),
-    ("timeline", () => client.TimelineAsync(payload), HttpMethod.Post, "/v1/session/timeline"),
-    ("replay", () => client.ReplayAsync(payload), HttpMethod.Post, "/v1/session/replay"),
-    ("due_agents", () => client.DueAgentsAsync(payload), HttpMethod.Post, "/v1/scheduler/due"),
+    ("create_session", () => client.CreateSessionAsync(payload), HttpMethod.Post, "/v2/session/create"),
+    ("observe", () => client.ObserveAsync(payload), HttpMethod.Post, "/v2/session/observe"),
+    ("propose", () => client.ProposeAsync(payload), HttpMethod.Post, "/v2/agent/propose"),
+    ("submit_proposal_job", () => client.SubmitProposalJobAsync(payload), HttpMethod.Post, "/v2/jobs/propose"),
+    ("get_proposal_job", () => client.GetProposalJobAsync("job.fixture"), HttpMethod.Get, "/v2/jobs/job.fixture"),
+    ("cancel_proposal_job", () => client.CancelProposalJobAsync("job.fixture"), HttpMethod.Delete, "/v2/jobs/job.fixture"),
+    ("submit_generation_job", () => client.SubmitGenerationJobAsync(payload), HttpMethod.Post, "/v2/generation/jobs"),
+    ("get_generation_job", () => client.GetGenerationJobAsync("job.fixture"), HttpMethod.Get, "/v2/generation/jobs/job.fixture"),
+    ("cancel_generation_job", () => client.CancelGenerationJobAsync("job.fixture"), HttpMethod.Delete, "/v2/generation/jobs/job.fixture"),
+    ("report_action", () => client.ReportActionAsync(payload), HttpMethod.Post, "/v2/action/report"),
+    ("report_action_batch", () => client.ReportActionBatchAsync(payload), HttpMethod.Post, "/v2/action/report-batch"),
+    ("set_actor_activity", () => client.SetActorActivityAsync(payload), HttpMethod.Post, "/v2/session/activity"),
+    ("arbitrate", () => client.ArbitrateAsync(payload), HttpMethod.Post, "/v2/world/arbitrate"),
+    ("state", () => client.StateAsync(payload), HttpMethod.Post, "/v2/session/get"),
+    ("session_stats", () => client.SessionStatsAsync(payload), HttpMethod.Post, "/v2/session/stats"),
+    ("archive_session", () => client.ArchiveSessionAsync(payload), HttpMethod.Post, "/v2/session/archive"),
+    ("delete_session", () => client.DeleteSessionAsync(payload), HttpMethod.Post, "/v2/session/delete"),
+    ("snapshot", () => client.SnapshotAsync(payload), HttpMethod.Post, "/v2/session/snapshot"),
+    ("restore", () => client.RestoreAsync(payload), HttpMethod.Post, "/v2/session/restore"),
+    ("export_session", () => client.ExportSessionAsync(payload, transferOutput), HttpMethod.Post, "/v2/session/export"),
+    ("import_session", () => client.ImportSessionAsync(transferInput, transferBinding), HttpMethod.Post, "/v2/session/import"),
+    ("timeline", () => client.TimelineAsync(payload), HttpMethod.Post, "/v2/session/timeline"),
+    ("replay", () => client.ReplayAsync(payload), HttpMethod.Post, "/v2/session/replay"),
+    ("due_agents", () => client.DueAgentsAsync(payload), HttpMethod.Post, "/v2/scheduler/due"),
 };
 
 var observedRoutes = new List<string>();
@@ -466,7 +435,7 @@ foreach (var test in cases)
     Require(handler.Path == test.Path, "wrong path for " + test.Path);
     Require(handler.Authorization == "Bearer fixture", "missing bearer token");
     Require(handler.UserAgent == "rin-csharp/" + RinClient.ClientVersion, "wrong user agent");
-    if (test.Path == "/v1/session/export")
+    if (test.Path == "/v2/session/export")
     {
         Require(
             result.GetProperty("type").GetString() == "complete",
@@ -476,7 +445,7 @@ foreach (var test in cases)
     {
         Require(result.GetProperty("status").GetString() == "ok", "response envelope was not decoded");
     }
-    if (test.Path == "/v1/session/import")
+    if (test.Path == "/v2/session/import")
     {
         Require(
             handler.ExpectedGameId == transferBinding.GameId,
@@ -562,25 +531,30 @@ using (var truncatedTransferClient = new RinClient(
     }
 }
 
-await client.CommitAsync(new Dictionary<string, object?> { ["accepted"] = false });
-using (var sent = JsonDocument.Parse(handler.Body))
+await client.ReportActionAsync(new Dictionary<string, object?>
 {
-    Require(
-        sent.RootElement.TryGetProperty("accepted", out var accepted) &&
-        accepted.ValueKind == JsonValueKind.False,
-        "commit accepted=false was omitted or changed");
-}
-await client.CommitBatchAsync(new Dictionary<string, object?>
-{
-    ["items"] = new object?[] { new Dictionary<string, object?> { ["accepted"] = false } },
+    ["report"] = new Dictionary<string, object?> { ["decision"] = "rejected" },
 });
 using (var sent = JsonDocument.Parse(handler.Body))
 {
-    var item = sent.RootElement.GetProperty("items").EnumerateArray().Single();
     Require(
-        item.TryGetProperty("accepted", out var accepted) &&
-        accepted.ValueKind == JsonValueKind.False,
-        "batch accepted=false was omitted or changed");
+        sent.RootElement.GetProperty("report").GetProperty("decision").GetString() ==
+        "rejected",
+        "report decision was omitted or changed");
+}
+await client.ReportActionBatchAsync(new Dictionary<string, object?>
+{
+    ["reports"] = new object?[]
+    {
+        new Dictionary<string, object?> { ["decision"] = "rejected" },
+    },
+});
+using (var sent = JsonDocument.Parse(handler.Body))
+{
+    var item = sent.RootElement.GetProperty("reports").EnumerateArray().Single();
+    Require(
+        item.GetProperty("decision").GetString() == "rejected",
+        "batch report decision was omitted or changed");
 }
 
 var cyclicPayload = new Dictionary<string, object?>();
@@ -603,7 +577,7 @@ foreach (var invalidPayload in invalidPayloads)
 {
     try
     {
-        await client.CommitAsync(invalidPayload);
+        await client.ReportActionAsync(invalidPayload);
         throw new InvalidOperationException("invalid JSON payload was accepted");
     }
     catch (RinProtocolException exception)
@@ -1002,6 +976,98 @@ static string ContractManifestPath()
     throw new FileNotFoundException("cannot locate sdk/conformance/routes.json");
 }
 
+static Epoch TestEpoch(string sessionId) =>
+    new(sessionId, "world.fixture", 1, 1, 1);
+
+static DecisionWindow TestWindow(string sessionId, string actorId, long tick)
+{
+    var epoch = TestEpoch(sessionId);
+    return new DecisionWindow(
+        "window.fixture",
+        "sequential",
+        epoch,
+        (ulong)tick,
+        new Timepoint("event", tick),
+        new Timepoint("event", tick + 1),
+        new[] { actorId });
+}
+
+static ActionOfferInput TestOffer(string sessionId, string actorId, long tick)
+{
+    var window = TestWindow(sessionId, actorId, tick);
+    return new ActionOfferInput(
+        "offer.talk",
+        window.Id,
+        actorId,
+        new CapabilityRef("dialogue.talk", "1"),
+        new string('a', 64),
+        "Talk",
+        JsonSerializer.SerializeToElement(new Dictionary<string, object?>()),
+        window.Epoch,
+        window.ObservationSeq,
+        window.Deadline);
+}
+
+static ProposeRequest TestProposeRequest(
+    string sessionId,
+    string requestId,
+    string actorId,
+    long tick)
+{
+    var window = TestWindow(sessionId, actorId, tick);
+    return new ProposeRequest(
+        sessionId,
+        requestId,
+        actorId,
+        "Talk",
+        window,
+        new[] { TestOffer(sessionId, actorId, tick) })
+    {
+        Tick = tick,
+    };
+}
+
+static ReportActionRequest RejectedReport(
+    string sessionId,
+    string requestId,
+    string proposalId,
+    string eventId) =>
+    new(
+        sessionId,
+        requestId,
+        5,
+        new ActionReportInput(
+            proposalId,
+            eventId,
+            "rejected",
+            "host rejected the offer"));
+
+static Dictionary<string, object?> TestProposal(
+    string proposalId,
+    string sessionId,
+    string requestId,
+    string actorId,
+    long tick)
+{
+    return new Dictionary<string, object?>
+    {
+        ["id"] = proposalId,
+        ["session_id"] = sessionId,
+        ["request_id"] = requestId,
+        ["actor_id"] = actorId,
+        ["tick"] = tick,
+        ["based_on_revision"] = 1,
+        ["based_on_head_hash"] = string.Empty,
+        ["created_revision"] = 2,
+        ["decision_window"] = TestWindow(sessionId, actorId, tick),
+        ["action"] = TestOffer(sessionId, actorId, tick),
+        ["stance"] = "engage",
+        ["summary"] = "Talk",
+        ["rationale"] = "Useful",
+        ["status"] = "pending",
+    };
+}
+
 static string ProposalJobBody(
     string status,
     string suffix = "",
@@ -1061,19 +1127,19 @@ sealed class RecordingHandler : HttpMessageHandler
         Body = request.Content is null
             ? string.Empty
             : await request.Content.ReadAsStringAsync(cancellationToken);
-        var status = ForcedStatus ?? (Path is "/v1/jobs/propose" or "/v1/generation/jobs"
+        var status = ForcedStatus ?? (Path is "/v2/jobs/propose" or "/v2/generation/jobs"
             ? HttpStatusCode.Accepted
             : HttpStatusCode.OK);
         Status = status;
         var responseBodyFactory = ResponseBodyFactory;
-        var content = Path == "/v1/session/export"
+        var content = Path == "/v2/session/export"
             ? new ByteArrayContent(Encoding.UTF8.GetBytes(
                 TransferResponseBody ?? TransferFixture.Body()))
             : responseBodyFactory is not null
             ? new ByteArrayContent(Encoding.UTF8.GetBytes(responseBodyFactory(request)))
             : ContentFactory?.Invoke() ??
               new ByteArrayContent(Encoding.UTF8.GetBytes("{\"ok\":true,\"data\":{\"status\":\"ok\"}}"));
-        if (Path == "/v1/session/export")
+        if (Path == "/v2/session/export")
         {
             content.Headers.ContentType =
                 new System.Net.Http.Headers.MediaTypeHeaderValue(
@@ -1084,36 +1150,11 @@ sealed class RecordingHandler : HttpMessageHandler
     }
 }
 
-sealed class TerminalFallbackHandler : HttpMessageHandler
-{
-    public int ObserveCount { get; private set; }
-
-    protected override Task<HttpResponseMessage> SendAsync(
-        HttpRequestMessage request,
-        CancellationToken cancellationToken)
-    {
-        var commit = request.RequestUri?.AbsolutePath == "/v1/action/commit";
-        if (!commit) ObserveCount++;
-        var body = commit
-            ? "{\"ok\":false,\"error\":{\"code\":\"unknown_proposal\"," +
-                "\"message\":\"proposal was evicted\"}}"
-            : "{\"ok\":true,\"data\":{\"session_id\":\"session.workflow\"," +
-                "\"revision\":4,\"head_hash\":\"" + new string('b', 64) +
-                "\",\"duplicate\":true}}";
-        return Task.FromResult(new HttpResponseMessage(
-            commit ? HttpStatusCode.Conflict : HttpStatusCode.OK)
-        {
-            Content = new StringContent(body, Encoding.UTF8, "application/json"),
-        });
-    }
-}
-
-sealed class TestAuthoritativeStore : IWorkflowFallbackStore
+sealed class TestAuthoritativeStore : IWorkflowStore
 {
     public ProposalAttempt? Attempt { get; private set; }
 
     public List<OutcomeOutboxEntry> Outcomes { get; } = new();
-    public int FallbackConversions { get; private set; }
 
     public ValueTask<ProposalAttempt?> LoadAsync(
         CancellationToken cancellationToken = default) =>
@@ -1142,7 +1183,7 @@ sealed class TestAuthoritativeStore : IWorkflowFallbackStore
     public async ValueTask SettleAsync(
         ProposalAttempt attempt,
         ActionProposal proposal,
-        CommitRequest commit,
+        ReportActionRequest commit,
         Func<CancellationToken, ValueTask> apply,
         CancellationToken cancellationToken = default)
     {
@@ -1159,7 +1200,7 @@ sealed class TestAuthoritativeStore : IWorkflowFallbackStore
     public ValueTask CompleteAsync(
         ProposalAttempt attempt,
         ActionProposal proposal,
-        CommitRequest commit,
+        ReportActionRequest commit,
         CancellationToken cancellationToken = default)
     {
         if (Attempt != attempt)
@@ -1168,24 +1209,6 @@ sealed class TestAuthoritativeStore : IWorkflowFallbackStore
                 "completion did not use the stored Attempt");
         }
         Outcomes.Add(new OutcomeOutboxEntry("outcome.workflow", commit));
-        Attempt = null;
-        return ValueTask.CompletedTask;
-    }
-
-    public ValueTask CompleteWithFallbackAsync(
-        ProposalAttempt attempt,
-        ActionProposal proposal,
-        CommitRequest commit,
-        object fallbackObserve,
-        CancellationToken cancellationToken = default)
-    {
-        if (Attempt != attempt)
-        {
-            throw new InvalidOperationException(
-                "fallback completion did not use the stored Attempt");
-        }
-        Outcomes.Add(
-            new OutcomeOutboxEntry("outcome.workflow", commit, fallbackObserve));
         Attempt = null;
         return ValueTask.CompletedTask;
     }
@@ -1208,17 +1231,6 @@ sealed class TestAuthoritativeStore : IWorkflowFallbackStore
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask<OutcomeOutboxEntry> ReplaceWithFallbackAsync(
-        OutcomeOutboxEntry entry,
-        CancellationToken cancellationToken = default)
-    {
-        var index = Outcomes.IndexOf(entry);
-        if (index < 0) throw new InvalidOperationException("fallback entry changed");
-        var converted = entry.AsDegradedObserve();
-        Outcomes[index] = converted;
-        FallbackConversions++;
-        return ValueTask.FromResult(converted);
-    }
 }
 
 sealed class TestOpaqueSnapshotStore : IOpaqueSnapshotStore

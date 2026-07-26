@@ -22,27 +22,13 @@ public interface IWorkflowStore : IProposalAttemptStore, IOutcomeOutboxStore
 {
     /// <summary>
     /// After an advisory or operation-keyed idempotent apply, atomically
-    /// persists the marker and exact Commit, then removes the Pending Turn.
+    /// persists the marker and exact Report, then removes the Pending Turn.
     /// This method must not apply the game effect.
     /// </summary>
     ValueTask CompleteAsync(
         ProposalAttempt attempt,
         ActionProposal proposal,
-        CommitRequest commit,
-        CancellationToken cancellationToken = default);
-}
-
-public interface IWorkflowFallbackStore : IWorkflowStore, IOutcomeFallbackStore
-{
-    /// <summary>
-    /// After apply, atomically persists the exact Commit and a safe
-    /// absolute-fact Observe fallback, then removes the Pending Turn.
-    /// </summary>
-    ValueTask CompleteWithFallbackAsync(
-        ProposalAttempt attempt,
-        ActionProposal proposal,
-        CommitRequest commit,
-        object fallbackObserve,
+        ReportActionRequest report,
         CancellationToken cancellationToken = default);
 }
 
@@ -107,7 +93,7 @@ public sealed class WorkflowCoordinator
     public async ValueTask ApplyAndEnqueueOutcomeAsync(
         PendingTurn pendingTurn,
         ActionProposal proposal,
-        CommitRequest commit,
+        ReportActionRequest report,
         HostDurabilityProfile requiredDurability,
         Func<string, CancellationToken, ValueTask> apply,
         CancellationToken cancellationToken = default)
@@ -124,13 +110,13 @@ public sealed class WorkflowCoordinator
         {
             durability.Require(requiredDurability);
             var attempt = pendingTurn.ToAttempt();
-            ProposalAttemptCoordinator.ValidateSettlement(attempt, proposal, commit);
+            ProposalAttemptCoordinator.ValidateSettlement(attempt, proposal, report);
             if (durability.Profile == HostDurabilityProfile.TransactionalAction)
             {
                 await attempts.SettleAsync(
                     attempt,
                     proposal,
-                    commit,
+                    report,
                     token => apply(attempt.OperationId, token),
                     cancellationToken).ConfigureAwait(false);
                 return;
@@ -140,57 +126,7 @@ public sealed class WorkflowCoordinator
             await store.CompleteAsync(
                 attempt,
                 proposal,
-                commit,
-                cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            Volatile.Write(ref settling, 0);
-        }
-    }
-
-    public async ValueTask ApplyAndEnqueueOutcomeWithFallbackAsync(
-        PendingTurn pendingTurn,
-        ActionProposal proposal,
-        CommitRequest commit,
-        object fallbackObserve,
-        HostDurabilityProfile requiredDurability,
-        Func<string, CancellationToken, ValueTask> apply,
-        CancellationToken cancellationToken = default)
-    {
-        Guard.NotNull(fallbackObserve, nameof(fallbackObserve));
-        var safeFallback = OutcomeOutboxEntry.ValidateFallback(fallbackObserve);
-        if (store is not IWorkflowFallbackStore fallbackStore)
-        {
-            throw new RinConfigurationException(
-                "outcome_fallback_unsupported",
-                "Workflow Store cannot persist safe Outcome fallbacks");
-        }
-        Guard.NotNull(pendingTurn, nameof(pendingTurn));
-        Guard.NotNull(apply, nameof(apply));
-        if (Interlocked.Exchange(ref settling, 1) != 0)
-        {
-            throw new RinConfigurationException(
-                "workflow_busy",
-                "A Pending Turn is already being settled");
-        }
-        try
-        {
-            durability.Require(requiredDurability);
-            var attempt = pendingTurn.ToAttempt();
-            ProposalAttemptCoordinator.ValidateSettlement(attempt, proposal, commit);
-            if (durability.Profile == HostDurabilityProfile.TransactionalAction)
-            {
-                throw new RinConfigurationException(
-                    "outcome_fallback_unsupported",
-                    "Transactional stores must define fallback settlement in their transaction");
-            }
-            await apply(attempt.OperationId, cancellationToken).ConfigureAwait(false);
-            await fallbackStore.CompleteWithFallbackAsync(
-                attempt,
-                proposal,
-                commit,
-                safeFallback,
+                report,
                 cancellationToken).ConfigureAwait(false);
         }
         finally

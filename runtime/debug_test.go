@@ -25,11 +25,15 @@ func TestTimelineIsBoundedAndRedacted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := engine.Commit(protocol.CommitRequest{
-		ProtocolVersion: protocol.Version, SessionID: "session.timeline", RequestID: "commit.timeline",
-		ProposalID: proposal.ID, EventID: "event.commit.timeline", Tick: 2, Accepted: true,
-		Outcome: "SECRET_OUTCOME model-authored response", Tags: []string{"conversation"},
-	}); err != nil {
+	report := successfulReportRequest(
+		proposal,
+		"report.timeline",
+		"event.report.timeline",
+		2,
+		"SECRET_OUTCOME model-authored response",
+	)
+	report.Report.Tags = []string{"conversation"}
+	if _, err := engine.ReportAction(report); err != nil {
 		t.Fatal(err)
 	}
 
@@ -49,7 +53,7 @@ func TestTimelineIsBoundedAndRedacted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(second.Entries) != 2 || second.HasMore || second.Entries[1].Status != "accepted" {
+	if len(second.Entries) != 2 || second.HasMore || second.Entries[1].Status != "succeeded" {
 		t.Fatalf("unexpected second page: %+v", second)
 	}
 	payload, err := json.Marshal([]protocol.TimelineResponse{page, second})

@@ -1,8 +1,11 @@
 package protocol
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/sunrioa/rin/host"
 )
 
 func TestSessionStateProposalGenerationInvariants(t *testing.T) {
@@ -226,7 +229,6 @@ func TestSessionStateBeliefClosureAndSemanticVisibility(t *testing.T) {
 
 func TestSessionStateGoalAndTemporalBounds(t *testing.T) {
 	state := invariantTestState(
-		FeatureOutcomeReporting,
 		FeatureMemoryArchive,
 		FeatureBeliefConflicts,
 		FeatureActorActivity,
@@ -350,7 +352,6 @@ func TestSessionStateGoalAndTemporalBounds(t *testing.T) {
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
 			invalid := invariantTestState(
-				FeatureOutcomeReporting,
 				FeatureMemoryArchive,
 				FeatureBeliefConflicts,
 				FeatureActorActivity,
@@ -376,8 +377,8 @@ func TestSessionStateReceiptKindsMatchDurableMutations(t *testing.T) {
 		identifierHistoryCreateKind,
 		identifierHistoryObservationKind,
 		identifierHistoryProposalKind,
-		identifierHistoryCommitKind,
-		identifierHistoryBatchKind,
+		identifierHistoryReportKind,
+		identifierHistoryBatchReportKind,
 		identifierHistoryActivityKind,
 		identifierHistoryArbitrationKind,
 		identifierHistoryRestoreKind,
@@ -463,7 +464,6 @@ func TestCreateSessionOutcomeGoalStatusStartsCoherently(t *testing.T) {
 		RequestID:       "create.test",
 		SessionID:       "session.test",
 		Binding:         invariantTestBinding(),
-		Features:        []string{FeatureOutcomeReporting},
 		Actors: []ActorSeed{{
 			ID: "npc.test", Kind: "npc", DisplayName: "Test",
 			ThinkEveryTicks: 1, Enabled: true,
@@ -524,6 +524,8 @@ func invariantTestState(features ...string) SessionState {
 }
 
 func invariantTestProposal(state SessionState, id, status string) ActionProposal {
+	window := testDecisionWindow(state.SessionID, "npc.test", 1)
+	offer := testActionOffer(state.SessionID, "npc.test", "wait", 1)
 	proposal := ActionProposal{
 		ID:              id,
 		SessionID:       state.SessionID,
@@ -533,20 +535,51 @@ func invariantTestProposal(state SessionState, id, status string) ActionProposal
 		BasedOnRevision: 2,
 		BasedOnHeadHash: invariantTestHash(),
 		CreatedRevision: 3,
-		Action: ActionSpec{
-			ID: "action.wait", Kind: "wait", Description: "Wait.",
-		},
-		Stance:    "wait",
-		Summary:   "Wait.",
-		Rationale: "A deterministic test action.",
-		Status:    status,
+		DecisionWindow:  window,
+		Action:          offer,
+		Stance:          "wait",
+		Summary:         "Wait.",
+		Rationale:       "A deterministic test action.",
+		Status:          status,
 	}
 	if HasFeature(state.Features, FeatureArbitration) {
 		proposal.BasedOnWorldRevision = state.WorldRevision
 	}
-	if status != "pending" && HasFeature(state.Features, FeatureOutcomeReporting) {
-		proposal.OutcomeEventID = "event.outcome." + id
-		proposal.OutcomeTick = 2
+	if status != "pending" {
+		proposal.LastReportEventID = "event.report." + id
+		proposal.LastReportTick = 2
+	}
+	if status == "accepted" {
+		invocation := ActionInvocation{
+			OperationID:      "operation." + id,
+			OfferID:          offer.OfferID,
+			DecisionWindowID: offer.DecisionWindowID,
+			ActorID:          offer.ActorID,
+			Capability:       offer.Capability,
+			DescriptorDigest: offer.DescriptorDigest,
+			Arguments:        json.RawMessage(`{}`),
+			ExpectedEpoch:    offer.ExpectedEpoch,
+			ObservationSeq:   offer.ObservationSeq,
+			Deadline:         offer.Deadline,
+		}
+		run := ActionRun{
+			OperationID: invocation.OperationID,
+			Status:      host.ActionSucceeded,
+			ProgressSeq: 1,
+			Progress:    100,
+			UpdatedAt:   Timepoint{Clock: host.ClockStep, Value: 2},
+		}
+		outcome := ActionOutcome{
+			OperationID: invocation.OperationID,
+			Status:      host.ActionSucceeded,
+			Summary:     "Succeeded.",
+			Epoch:       offer.ExpectedEpoch,
+			WorldSeq:    1,
+			OccurredAt:  Timepoint{Clock: host.ClockStep, Value: 2},
+		}
+		proposal.Invocation = &invocation
+		proposal.Run = &run
+		proposal.Outcome = &outcome
 	}
 	return proposal
 }

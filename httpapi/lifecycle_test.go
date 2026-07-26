@@ -16,7 +16,7 @@ func TestSessionLifecycleHTTPIsAuthenticatedAndFailClosed(t *testing.T) {
 	t.Parallel()
 	server := newServer(t, httpapi.Options{Token: "lifecycle-token"})
 	create := `{
-		"protocol_version":"rin.protocol/v1",
+		"protocol_version":"rin.protocol/v2",
 		"request_id":"create.http.lifecycle",
 		"session_id":"session.http.lifecycle",
 		"binding":{
@@ -25,7 +25,6 @@ func TestSessionLifecycleHTTPIsAuthenticatedAndFailClosed(t *testing.T) {
 			"content_version":"1",
 			"content_hash":"hash"
 		},
-		"features":["outcome-reporting-v1"],
 		"actors":[{
 			"id":"npc.lifecycle",
 			"kind":"npc",
@@ -36,7 +35,7 @@ func TestSessionLifecycleHTTPIsAuthenticatedAndFailClosed(t *testing.T) {
 	}`
 	createdResponse := performAuthorizedJSON(
 		server,
-		"/v1/session/create",
+		"/v2/session/create",
 		create,
 		"lifecycle-token",
 	)
@@ -49,14 +48,14 @@ func TestSessionLifecycleHTTPIsAuthenticatedAndFailClosed(t *testing.T) {
 	if createdResponse.Code != http.StatusOK {
 		t.Fatalf("create: %d %s", createdResponse.Code, createdResponse.Body.String())
 	}
-	session := `{"protocol_version":"rin.protocol/v1","session_id":"session.http.lifecycle"}`
-	unauthorized := performRawJSON(server, http.MethodPost, "/v1/session/stats", session)
+	session := `{"protocol_version":"rin.protocol/v2","session_id":"session.http.lifecycle"}`
+	unauthorized := performRawJSON(server, http.MethodPost, "/v2/session/stats", session)
 	if unauthorized.Code != http.StatusUnauthorized {
 		t.Fatalf("stats without token = %d", unauthorized.Code)
 	}
 	stats := performAuthorizedJSON(
 		server,
-		"/v1/session/stats",
+		"/v2/session/stats",
 		session,
 		"lifecycle-token",
 	)
@@ -66,14 +65,14 @@ func TestSessionLifecycleHTTPIsAuthenticatedAndFailClosed(t *testing.T) {
 	}
 	binding := `"expected_binding":{"game_id":"game.lifecycle","content_id":"base",` +
 		`"content_version":"1","content_hash":"hash"}`
-	archive := `{"protocol_version":"rin.protocol/v1",` +
+	archive := `{"protocol_version":"rin.protocol/v2",` +
 		`"session_id":"session.http.lifecycle","request_id":"archive.http.lifecycle",` +
 		binding + `,"expected_revision":` +
 		jsonNumber(createdEnvelope.Data.Revision) + `,"expected_head_hash":"` +
 		createdEnvelope.Data.HeadHash + `"}`
 	archived := performAuthorizedJSON(
 		server,
-		"/v1/session/archive",
+		"/v2/session/archive",
 		archive,
 		"lifecycle-token",
 	)
@@ -86,13 +85,15 @@ func TestSessionLifecycleHTTPIsAuthenticatedAndFailClosed(t *testing.T) {
 	if err := json.Unmarshal(archived.Body.Bytes(), &archiveEnvelope); err != nil {
 		t.Fatal(err)
 	}
-	observe := `{"protocol_version":"rin.protocol/v1",` +
+	observe := `{"protocol_version":"rin.protocol/v2",` +
 		`"session_id":"session.http.lifecycle","request_id":"observe.archived",` +
 		`"event_id":"event.archived","observer_ids":["npc.lifecycle"],` +
-		`"source":"player","kind":"dialogue","summary":"Blocked","importance":1}`
+		`"source":"player","kind":"dialogue","summary":"Blocked","importance":1,` +
+		`"epoch":{"session_id":"session.http.lifecycle","world_id":"world.http",` +
+		`"host":1,"world":1,"timeline":1},"observation_seq":1}`
 	blocked := performAuthorizedJSON(
 		server,
-		"/v1/session/observe",
+		"/v2/session/observe",
 		observe,
 		"lifecycle-token",
 	)
@@ -100,7 +101,7 @@ func TestSessionLifecycleHTTPIsAuthenticatedAndFailClosed(t *testing.T) {
 		!strings.Contains(blocked.Body.String(), `"code":"session_archived"`) {
 		t.Fatalf("archived mutation: %d %s", blocked.Code, blocked.Body.String())
 	}
-	deletion := `{"protocol_version":"rin.protocol/v1",` +
+	deletion := `{"protocol_version":"rin.protocol/v2",` +
 		`"session_id":"session.http.lifecycle","request_id":"delete.http.lifecycle",` +
 		binding + `,"expected_revision":` +
 		jsonNumber(createdEnvelope.Data.Revision) + `,"expected_head_hash":"` +
@@ -109,7 +110,7 @@ func TestSessionLifecycleHTTPIsAuthenticatedAndFailClosed(t *testing.T) {
 		`","confirmation":"session.http.lifecycle"}`
 	deleted := performAuthorizedJSON(
 		server,
-		"/v1/session/delete",
+		"/v2/session/delete",
 		deletion,
 		"lifecycle-token",
 	)
@@ -119,7 +120,7 @@ func TestSessionLifecycleHTTPIsAuthenticatedAndFailClosed(t *testing.T) {
 	}
 	retry := performAuthorizedJSON(
 		server,
-		"/v1/session/delete",
+		"/v2/session/delete",
 		deletion,
 		"lifecycle-token",
 	)

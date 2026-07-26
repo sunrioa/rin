@@ -23,7 +23,7 @@ Console.WriteLine(capabilities.ReleaseVersion);
 ```
 
 Capability negotiation fails closed unless the Runtime speaks
-`rin.protocol/v1` and supports the authoritative outcome-reporting preset.
+`rin.protocol/v2` and supports the authoritative outcome-reporting preset.
 Create stable identities once with `RinIds.Create("request")` and
 `RinIds.Create("event")`, persist them with the operation, and reuse them for
 every exact retry.
@@ -34,14 +34,12 @@ additive response fields through `AdditiveFields`.
 
 `WorkflowCoordinator` combines the compatible `ProposalAttemptCoordinator` and
 `OutcomeOutbox` primitives behind `BeginAsync`, `ResumePendingWorkAsync`,
-`ApplyAndEnqueueOutcomeAsync`, and `DrainOutboxAsync`. Stores that implement
-`IWorkflowFallbackStore` can use
-`ApplyAndEnqueueOutcomeWithFallbackAsync`; terminal Commit errors are converted
-to the pre-recorded safe Observe only after that conversion is durable. Supply an
+`ApplyAndEnqueueOutcomeAsync`, and `DrainOutboxAsync`. Supply an
 `IWorkflowStore` and validated `HostDurability`. An idempotent apply receives
 the stable operation ID; only `transactional-action` calls
 `IProposalAttemptStore.SettleAsync` as one game transaction. Entries are
-acknowledged only after normal or explicit duplicate Commit success. The SDK
+acknowledged only after normal or explicit duplicate report success. Errors
+retain the exact report; it is never converted into an Observation. The SDK
 does not ship an in-memory production default. See
 [Host durability profiles](../../docs/host-durability.md).
 

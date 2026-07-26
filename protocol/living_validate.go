@@ -63,7 +63,7 @@ func ValidateArbitrate(request ArbitrateRequest) error {
 	return validateTags("exclusive_target_ids", request.ExclusiveTargetIDs, 64)
 }
 
-func ValidateBatchCommit(request BatchCommitRequest) error {
+func ValidateBatchActionReport(request BatchActionReportRequest) error {
 	if err := validateVersion(request.ProtocolVersion); err != nil {
 		return err
 	}
@@ -75,60 +75,24 @@ func ValidateBatchCommit(request BatchCommitRequest) error {
 	if err := validateJSONSafeTick("tick", request.Tick); err != nil {
 		return err
 	}
-	if len(request.Items) == 0 || len(request.Items) > 64 {
-		return &ValidationError{Field: "items", Message: "must contain 1-64 commit items"}
+	if len(request.Reports) == 0 || len(request.Reports) > 64 {
+		return &ValidationError{Field: "reports", Message: "must contain 1-64 action reports"}
 	}
-	proposalIDs := make(map[string]struct{}, len(request.Items))
-	eventIDs := make(map[string]struct{}, len(request.Items))
-	for index, item := range request.Items {
-		field := fmt.Sprintf("items[%d]", index)
-		if err := validateCommitItem(field, item); err != nil {
+	proposalIDs := make(map[string]struct{}, len(request.Reports))
+	eventIDs := make(map[string]struct{}, len(request.Reports))
+	for index, report := range request.Reports {
+		field := fmt.Sprintf("reports[%d]", index)
+		if err := validateActionReport(field, report); err != nil {
 			return err
 		}
-		if _, exists := proposalIDs[item.ProposalID]; exists {
-			return &ValidationError{Field: "items", Message: "proposal ids must be unique"}
+		if _, exists := proposalIDs[report.ProposalID]; exists {
+			return &ValidationError{Field: "reports", Message: "proposal ids must be unique"}
 		}
-		if _, exists := eventIDs[item.EventID]; exists {
-			return &ValidationError{Field: "items", Message: "event ids must be unique"}
+		if _, exists := eventIDs[report.EventID]; exists {
+			return &ValidationError{Field: "reports", Message: "event ids must be unique"}
 		}
-		proposalIDs[item.ProposalID] = struct{}{}
-		eventIDs[item.EventID] = struct{}{}
-	}
-	return nil
-}
-
-func validateCommitItem(field string, item CommitItem) error {
-	if err := validateID(field+".proposal_id", item.ProposalID); err != nil {
-		return err
-	}
-	if err := validateID(field+".event_id", item.EventID); err != nil {
-		return err
-	}
-	if err := validateText(field+".outcome", item.Outcome, 1000, item.Accepted); err != nil {
-		return err
-	}
-	if err := validateTags(field+".tags", item.Tags, 32); err != nil {
-		return err
-	}
-	if len(item.Facts) > 64 || len(item.GoalUpdates) > 32 {
-		return &ValidationError{Field: field, Message: "contains too many updates"}
-	}
-	for index, fact := range item.Facts {
-		if err := validateRequestFact(fmt.Sprintf("%s.facts[%d]", field, index), fact); err != nil {
-			return err
-		}
-	}
-	for index, update := range item.GoalUpdates {
-		base := fmt.Sprintf("%s.goal_updates[%d]", field, index)
-		if err := validateID(base+".goal_id", update.GoalID); err != nil {
-			return err
-		}
-		if update.ProgressDelta < -1000 || update.ProgressDelta > 1000 {
-			return &ValidationError{Field: base + ".progress_delta", Message: "must be between -1000 and 1000"}
-		}
-		if update.Status != "" && update.Status != "active" && update.Status != "completed" && update.Status != "released" {
-			return &ValidationError{Field: base + ".status", Message: "must be active, completed, or released"}
-		}
+		proposalIDs[report.ProposalID] = struct{}{}
+		eventIDs[report.EventID] = struct{}{}
 	}
 	return nil
 }

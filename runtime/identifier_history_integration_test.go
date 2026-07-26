@@ -437,10 +437,10 @@ func TestSnapshotIdentifierHistoryRejectsRehashedCrossProjectionTampering(t *tes
 			name: "observation event kind",
 			mutate: func(snapshot *protocol.Snapshot) {
 				request := snapshot.IdentifierHistory.Requests[observation.RequestID]
-				request.Kind = rinruntime.EventCommitted
+				request.Kind = rinruntime.EventActionReported
 				snapshot.IdentifierHistory.Requests[observation.RequestID] = request
 				event := snapshot.IdentifierHistory.Events[observation.EventID]
-				event.Kind = rinruntime.EventCommitted
+				event.Kind = rinruntime.EventActionReported
 				snapshot.IdentifierHistory.Events[observation.EventID] = event
 			},
 		},
@@ -493,17 +493,14 @@ func TestSnapshotIdentifierHistoryRejectsWrongRetainedEventRole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	commit := protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       sessionID,
-		RequestID:       "commit.identifier-event-role",
-		ProposalID:      proposal.ID,
-		EventID:         "event.identifier-event-role",
-		Tick:            0,
-		Accepted:        true,
-		Outcome:         "The action occurred.",
-	}
-	if _, err := engine.Commit(commit); err != nil {
+	report := successfulReportRequest(
+		proposal,
+		"report.identifier-event-role",
+		"event.identifier-event-role",
+		0,
+		"The action occurred.",
+	)
+	if _, err := engine.ReportAction(report); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := engine.SetActorActivity(identifierActivityRequest(
@@ -518,13 +515,13 @@ func TestSnapshotIdentifierHistoryRejectsWrongRetainedEventRole(t *testing.T) {
 		t.Fatal(err)
 	}
 	tampered := cloneIdentifierSnapshot(t, snapshot)
-	delete(tampered.State.Receipts, commit.RequestID)
-	request := tampered.IdentifierHistory.Requests[commit.RequestID]
+	delete(tampered.State.Receipts, report.RequestID)
+	request := tampered.IdentifierHistory.Requests[report.RequestID]
 	request.Kind = rinruntime.EventObserved
-	tampered.IdentifierHistory.Requests[commit.RequestID] = request
-	event := tampered.IdentifierHistory.Events[commit.EventID]
+	tampered.IdentifierHistory.Requests[report.RequestID] = request
+	event := tampered.IdentifierHistory.Events[report.Report.EventID]
 	event.Kind = rinruntime.EventObserved
-	tampered.IdentifierHistory.Events[commit.EventID] = event
+	tampered.IdentifierHistory.Events[report.Report.EventID] = event
 	rehashSnapshotState(t, &tampered)
 	rehashIdentifierHistory(t, &tampered)
 	assertInvalidCrossProjectionSnapshot(t, tampered)
@@ -1006,7 +1003,7 @@ func TestIdentifierHistoryRejectsAlteredPayloadForEveryMutation(t *testing.T) {
 		}
 	})
 
-	t.Run("commit", func(t *testing.T) {
+	t.Run("report", func(t *testing.T) {
 		const sessionID = "session.identifier-altered-commit"
 		engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
 		if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
@@ -1019,32 +1016,29 @@ func TestIdentifierHistoryRejectsAlteredPayloadForEveryMutation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		request := protocol.CommitRequest{
-			ProtocolVersion: protocol.Version,
-			SessionID:       sessionID,
-			RequestID:       "commit.identifier-altered",
-			ProposalID:      proposal.ID,
-			EventID:         "event.identifier-altered-commit",
-			Tick:            0,
-			Accepted:        false,
-			Outcome:         "The game rejected the action.",
-		}
-		first, err := engine.Commit(request)
+		request := rejectedReportRequest(
+			proposal,
+			"report.identifier-altered",
+			"event.identifier-altered-report",
+			0,
+			"The game rejected the action.",
+		)
+		first, err := engine.ReportAction(request)
 		if err != nil {
 			t.Fatal(err)
 		}
 		altered := request
-		altered.Outcome = "A different rejection outcome."
-		if _, err := engine.Commit(altered); err == nil {
+		altered.Report.Summary = "A different rejection outcome."
+		if _, err := engine.ReportAction(altered); err == nil {
 			t.Fatal("altered commit unexpectedly succeeded")
 		} else {
 			assertIdentifierRequestConflict(t, err)
 		}
-		repeated, err := engine.Commit(request)
+		repeated, err := engine.ReportAction(request)
 		if err != nil || !repeated.Duplicate ||
 			repeated.Revision != first.Revision ||
 			repeated.HeadHash != first.HeadHash {
-			t.Fatalf("commit exact retry mismatch: first=%+v repeated=%+v err=%v", first, repeated, err)
+			t.Fatalf("report exact retry mismatch: first=%+v repeated=%+v err=%v", first, repeated, err)
 		}
 	})
 
@@ -1069,29 +1063,32 @@ func TestIdentifierHistoryRejectsAlteredPayloadForEveryMutation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		request := protocol.BatchCommitRequest{
+		miraReport := rejectedReportRequest(
+			mira, "unused", "event.identifier-altered-batch-mira", 0, "Mira was rejected.",
+		).Report
+		orenReport := rejectedReportRequest(
+			oren, "unused", "event.identifier-altered-batch-oren", 0, "Oren was rejected.",
+		).Report
+		request := protocol.BatchActionReportRequest{
 			ProtocolVersion: protocol.Version,
 			SessionID:       sessionID,
-			RequestID:       "batch.identifier-altered",
+			RequestID:       "report-batch.identifier-altered",
 			Tick:            0,
-			Items: []protocol.CommitItem{
-				{ProposalID: mira.ID, EventID: "event.identifier-altered-batch-mira", Accepted: false},
-				{ProposalID: oren.ID, EventID: "event.identifier-altered-batch-oren", Accepted: false},
-			},
+			Reports:         []protocol.ActionReport{miraReport, orenReport},
 		}
-		first, err := engine.CommitBatch(request)
+		first, err := engine.ReportActionBatch(request)
 		if err != nil {
 			t.Fatal(err)
 		}
 		altered := request
-		altered.Items = append([]protocol.CommitItem(nil), request.Items...)
-		altered.Items[0].Outcome = "A different batch outcome."
-		if _, err := engine.CommitBatch(altered); err == nil {
+		altered.Reports = append([]protocol.ActionReport(nil), request.Reports...)
+		altered.Reports[0].Summary = "A different batch outcome."
+		if _, err := engine.ReportActionBatch(altered); err == nil {
 			t.Fatal("altered batch unexpectedly succeeded")
 		} else {
 			assertIdentifierRequestConflict(t, err)
 		}
-		repeated, err := engine.CommitBatch(request)
+		repeated, err := engine.ReportActionBatch(request)
 		if err != nil || !repeated.Duplicate ||
 			repeated.Revision != first.Revision ||
 			repeated.HeadHash != first.HeadHash {
@@ -1330,6 +1327,8 @@ func identifierObserveRequest(
 		Kind:            "world",
 		Summary:         "A compact identifier-history observation.",
 		Importance:      1,
+		Epoch:           testEpoch(sessionID),
+		ObservationSeq:  uint64(tick) + 1,
 	}
 }
 

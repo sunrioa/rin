@@ -14,24 +14,28 @@ import (
 	rinruntime "github.com/sunrioa/rin/runtime"
 )
 
-func TestCommitAcceptedPresenceIsRequiredAndBooleanValuesRemainValid(t *testing.T) {
+func TestActionDecisionPresenceIsRequiredAndRejectedReachesRuntime(t *testing.T) {
 	server := newServer(t, httpapi.Options{})
-	commitBase := `{
-		"protocol_version":"rin.protocol/v1",
+	reportBase := `{
+		"protocol_version":"rin.protocol/v2",
 		"session_id":"session.missing",
-		"request_id":"request.commit.presence",
-		"proposal_id":"proposal.missing",
-		"event_id":"event.commit.presence",
-		"tick":0%s
+		"request_id":"request.report.presence",
+		"tick":0,
+		"report":{
+			"proposal_id":"proposal.missing",
+			"event_id":"event.report.presence",
+			"summary":"Host decision."%s
+		}
 	}`
 	batchBase := `{
-		"protocol_version":"rin.protocol/v1",
+		"protocol_version":"rin.protocol/v2",
 		"session_id":"session.missing",
 		"request_id":"request.batch.presence",
 		"tick":0,
-		"items":[{
+		"reports":[{
 			"proposal_id":"proposal.missing",
-			"event_id":"event.batch.presence"%s
+			"event_id":"event.batch.presence",
+			"summary":"Host decision."%s
 		}]
 	}`
 	tests := []struct {
@@ -41,14 +45,12 @@ func TestCommitAcceptedPresenceIsRequiredAndBooleanValuesRemainValid(t *testing.
 		wantStatus int
 		wantField  string
 	}{
-		{"commit missing", "/v1/action/commit", fmt.Sprintf(commitBase, ""), http.StatusBadRequest, "accepted"},
-		{"commit null", "/v1/action/commit", fmt.Sprintf(commitBase, `,"accepted":null`), http.StatusBadRequest, "accepted"},
-		{"commit false", "/v1/action/commit", fmt.Sprintf(commitBase, `,"accepted":false`), http.StatusNotFound, ""},
-		{"commit true", "/v1/action/commit", fmt.Sprintf(commitBase, `,"accepted":true,"outcome":"shown"`), http.StatusNotFound, ""},
-		{"batch missing", "/v1/action/commit-batch", fmt.Sprintf(batchBase, ""), http.StatusBadRequest, "items[0].accepted"},
-		{"batch null", "/v1/action/commit-batch", fmt.Sprintf(batchBase, `,"accepted":null`), http.StatusBadRequest, "items[0].accepted"},
-		{"batch false", "/v1/action/commit-batch", fmt.Sprintf(batchBase, `,"accepted":false`), http.StatusNotFound, ""},
-		{"batch true", "/v1/action/commit-batch", fmt.Sprintf(batchBase, `,"accepted":true,"outcome":"shown"`), http.StatusNotFound, ""},
+		{"report missing", "/v2/action/report", fmt.Sprintf(reportBase, ""), http.StatusBadRequest, "report.decision"},
+		{"report null", "/v2/action/report", fmt.Sprintf(reportBase, `,"decision":null`), http.StatusBadRequest, "report.decision"},
+		{"report rejected", "/v2/action/report", fmt.Sprintf(reportBase, `,"decision":"rejected"`), http.StatusNotFound, ""},
+		{"batch missing", "/v2/action/report-batch", fmt.Sprintf(batchBase, ""), http.StatusBadRequest, "reports[0].decision"},
+		{"batch null", "/v2/action/report-batch", fmt.Sprintf(batchBase, `,"decision":null`), http.StatusBadRequest, "reports[0].decision"},
+		{"batch rejected", "/v2/action/report-batch", fmt.Sprintf(batchBase, `,"decision":"rejected"`), http.StatusNotFound, ""},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -67,7 +69,7 @@ func TestCommitAcceptedPresenceIsRequiredAndBooleanValuesRemainValid(t *testing.
 					t.Fatalf("error=%+v, want invalid_request field %s", envelope.Error, test.wantField)
 				}
 			} else if envelope.Error == nil || envelope.Error.Code != "session_not_found" {
-				t.Fatalf("explicit boolean did not reach runtime validation: %+v", envelope.Error)
+				t.Fatalf("explicit decision did not reach runtime validation: %+v", envelope.Error)
 			}
 		})
 	}
@@ -76,7 +78,7 @@ func TestCommitAcceptedPresenceIsRequiredAndBooleanValuesRemainValid(t *testing.
 func TestOpenAPIRequiredLegalZeroValuesReachHandlers(t *testing.T) {
 	server := newServer(t, httpapi.Options{})
 	payload := `{
-		"protocol_version":"rin.protocol/v1",
+		"protocol_version":"rin.protocol/v2",
 		"request_id":"request.create.zero-values",
 		"session_id":"session.zero-values",
 		"binding":{
@@ -86,7 +88,6 @@ func TestOpenAPIRequiredLegalZeroValuesReachHandlers(t *testing.T) {
 			"content_hash":"hash"
 		},
 		"seed":0,
-		"features":["outcome-reporting-v1"],
 		"actors":[{
 			"id":"actor.zero",
 			"kind":"npc",
@@ -101,7 +102,7 @@ func TestOpenAPIRequiredLegalZeroValuesReachHandlers(t *testing.T) {
 			"enabled":false
 		}]
 	}`
-	response := performRawJSON(server, http.MethodPost, "/v1/session/create", payload)
+	response := performRawJSON(server, http.MethodPost, "/v2/session/create", payload)
 	if response.Code != http.StatusOK {
 		t.Fatalf("legal zero values were rejected: %d %s", response.Code, response.Body.String())
 	}
@@ -119,11 +120,11 @@ func TestOpenAPIRequiredLegalZeroValuesReachHandlers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	omittedResponse := performRawJSON(server, http.MethodPost, "/v1/session/create", string(omittedPayload))
+	omittedResponse := performRawJSON(server, http.MethodPost, "/v2/session/create", string(omittedPayload))
 	if omittedResponse.Code != http.StatusOK {
 		t.Fatalf("compatible zero-value omissions were rejected: %d %s", omittedResponse.Code, omittedResponse.Body.String())
 	}
-	stateResponse := perform(t, server, "/v1/session/get", protocol.SessionRequest{
+	stateResponse := perform(t, server, "/v2/session/get", protocol.SessionRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       "session.zero-values",
 	})
@@ -152,7 +153,7 @@ func TestOpenAPIRequiredLegalZeroValuesReachHandlers(t *testing.T) {
 		field string
 	}{
 		{
-			"/v1/session/timeline",
+			"/v2/session/timeline",
 			protocol.TimelineRequest{
 				ProtocolVersion: protocol.Version,
 				SessionID:       "session.zero-values",
@@ -162,7 +163,7 @@ func TestOpenAPIRequiredLegalZeroValuesReachHandlers(t *testing.T) {
 			"entries",
 		},
 		{
-			"/v1/scheduler/due",
+			"/v2/scheduler/due",
 			protocol.DueAgentsRequest{
 				ProtocolVersion: protocol.Version,
 				SessionID:       "session.zero-values",
@@ -195,10 +196,10 @@ func TestJobPathIdentifiersAreValidatedBeforeManagerAvailability(t *testing.T) {
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/v1/jobs/bad!"},
-		{http.MethodDelete, "/v1/jobs/bad!"},
-		{http.MethodGet, "/v1/generation/jobs/bad!"},
-		{http.MethodDelete, "/v1/generation/jobs/bad!"},
+		{http.MethodGet, "/v2/jobs/bad!"},
+		{http.MethodDelete, "/v2/jobs/bad!"},
+		{http.MethodGet, "/v2/generation/jobs/bad!"},
+		{http.MethodDelete, "/v2/generation/jobs/bad!"},
 	} {
 		response := httptest.NewRecorder()
 		server.ServeHTTP(response, httptest.NewRequest(test.method, test.path, nil))
@@ -275,7 +276,7 @@ func TestHTTPUnknownFieldsFollowContractAndSnapshotHash(t *testing.T) {
 		t.Run("closed "+test.name, func(t *testing.T) {
 			payload := toJSONMap(t, apiCreateRequest())
 			test.mutate(payload)
-			assertUnknown(t, closedServer, "/v1/session/create", payload, test.field)
+			assertUnknown(t, closedServer, "/v2/session/create", payload, test.field)
 		})
 	}
 
@@ -283,10 +284,10 @@ func TestHTTPUnknownFieldsFollowContractAndSnapshotHash(t *testing.T) {
 	create := apiCreateRequest()
 	create.SessionID = "session.additive-snapshot"
 	create.RequestID = "request.create.additive-snapshot"
-	if response := perform(t, source, "/v1/session/create", create); response.Code != http.StatusOK {
+	if response := perform(t, source, "/v2/session/create", create); response.Code != http.StatusOK {
 		t.Fatalf("create: %d %s", response.Code, response.Body.String())
 	}
-	snapshotResponse := perform(t, source, "/v1/session/snapshot", protocol.SessionRequest{
+	snapshotResponse := perform(t, source, "/v2/session/snapshot", protocol.SessionRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       create.SessionID,
 	})
@@ -317,7 +318,7 @@ func TestHTTPUnknownFieldsFollowContractAndSnapshotHash(t *testing.T) {
 	missingKnownResponse := performRawJSON(
 		newServer(t, httpapi.Options{}),
 		http.MethodPost,
-		"/v1/session/restore",
+		"/v2/session/restore",
 		string(missingKnownEncoded),
 	)
 	if missingKnownResponse.Code != http.StatusBadRequest {
@@ -360,7 +361,7 @@ func TestHTTPUnknownFieldsFollowContractAndSnapshotHash(t *testing.T) {
 			assertUnknown(
 				t,
 				newServer(t, httpapi.Options{}),
-				"/v1/session/restore",
+				"/v2/session/restore",
 				payload,
 				test.field,
 			)
@@ -379,7 +380,7 @@ func TestHTTPUnknownFieldsFollowContractAndSnapshotHash(t *testing.T) {
 	oversizedResponse := performRawJSON(
 		newServer(t, httpapi.Options{}),
 		http.MethodPost,
-		"/v1/session/restore",
+		"/v2/session/restore",
 		string(oversizedEncoded),
 	)
 	if oversizedResponse.Code != http.StatusRequestEntityTooLarge {
@@ -422,7 +423,7 @@ func TestHTTPUnknownFieldsFollowContractAndSnapshotHash(t *testing.T) {
 	additiveResponse := performRawJSON(
 		target,
 		http.MethodPost,
-		"/v1/session/restore",
+		"/v2/session/restore",
 		string(additiveEncoded),
 	)
 	if additiveResponse.Code != http.StatusOK {
@@ -432,7 +433,7 @@ func TestHTTPUnknownFieldsFollowContractAndSnapshotHash(t *testing.T) {
 			additiveResponse.Body.String(),
 		)
 	}
-	if stateResponse := perform(t, target, "/v1/session/get", protocol.SessionRequest{
+	if stateResponse := perform(t, target, "/v2/session/get", protocol.SessionRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       create.SessionID,
 	}); stateResponse.Code != http.StatusOK {
@@ -456,7 +457,7 @@ func TestHTTPUnknownFieldsFollowContractAndSnapshotHash(t *testing.T) {
 	inclusiveResponse := performRawJSON(
 		newServer(t, httpapi.Options{}),
 		http.MethodPost,
-		"/v1/session/restore",
+		"/v2/session/restore",
 		string(inclusiveEncoded),
 	)
 	if inclusiveResponse.Code != http.StatusBadRequest {

@@ -51,7 +51,7 @@ final class FabricWorkflowStore implements WorkflowStore {
     public CompletionStage<Void> settleTransactional(
             PendingTurn pendingTurn,
             Map<String, Object> proposal,
-            Map<String, Object> commit,
+            Map<String, Object> report,
             Function<String, CompletionStage<Void>> apply) {
         return CompletableFuture.failedFuture(new RinConfigurationException(
                 "host_durability_insufficient",
@@ -61,7 +61,7 @@ final class FabricWorkflowStore implements WorkflowStore {
     public CompletionStage<Void> completePendingTurn(
             PendingTurn pendingTurn,
             Map<String, Object> proposal,
-            Map<String, Object> commit) {
+            Map<String, Object> report) {
         return FabricServerTasks.call(server, () -> {
             requireMatching(pendingTurn);
             if (session.outcomes.size() >= RinFabricState.MAX_OUTCOMES_PER_SESSION) {
@@ -70,8 +70,7 @@ final class FabricWorkflowStore implements WorkflowStore {
             String operationId = pendingTurn.operationId();
             OutcomeOutboxEntry entry = new OutcomeOutboxEntry(
                     operationId,
-                    commit,
-                    RinNpcRequests.safeObserve(commit, operationId));
+                    report);
             session.outcomes.putIfAbsent(operationId, entry);
             session.pendingTurn = null;
             session.pendingObserve = Map.of();
@@ -82,20 +81,6 @@ final class FabricWorkflowStore implements WorkflowStore {
 
     public CompletionStage<List<OutcomeOutboxEntry>> listOutcomeReports() {
         return FabricServerTasks.call(server, () -> List.copyOf(session.outcomes.values()));
-    }
-
-    public CompletionStage<OutcomeOutboxEntry> replaceOutcomeWithFallback(
-            OutcomeOutboxEntry entry) {
-        return FabricServerTasks.call(server, () -> {
-            OutcomeOutboxEntry retained = session.outcomes.get(entry.key());
-            if (!entry.equals(retained)) {
-                throw new IllegalStateException("Outcome changed before fallback conversion");
-            }
-            OutcomeOutboxEntry converted = entry.asDegradedObserve();
-            session.outcomes.put(entry.key(), converted);
-            state.markDirty();
-            return converted;
-        });
     }
 
     public CompletionStage<Void> acknowledgeOutcome(

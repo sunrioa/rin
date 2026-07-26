@@ -117,7 +117,7 @@ func renderBepInExFile(
 			versionProperties += "\n    <Authors>" + escaped.String() + "</Authors>"
 		}
 		text, err = replaceRequired(
-			text, "<Version>0.6.0</Version>",
+			text, "<Version>0.7.0</Version>",
 			versionProperties, relative)
 		if err != nil {
 			return nil, err
@@ -149,7 +149,7 @@ func renderBepInExFile(
 	text = strings.ReplaceAll(text, `"rin-npc-example"`, csharpString(options.ID))
 	if strings.HasSuffix(relative, "RinNpcRuntime.cs") {
 		text, err = replaceRequired(
-			text, `"0.6.0"`, csharpString(options.Version), relative)
+			text, `"0.7.0"`, csharpString(options.Version), relative)
 		if err != nil {
 			return nil, err
 		}
@@ -170,7 +170,7 @@ func renderBepInExFile(
 			return nil, err
 		}
 		text, err = replaceRequired(
-			text, `public const string PluginVersion = "0.6.0";`,
+			text, `public const string PluginVersion = "0.7.0";`,
 			"public const string PluginVersion = "+csharpString(options.Version)+";", relative)
 		if err != nil {
 			return nil, err

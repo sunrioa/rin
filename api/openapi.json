@@ -3,12 +3,12 @@
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "info": {
     "title": "Rin HTTP API",
-    "version": "0.6.0",
-    "description": "Authoritative preview wire contract for Rin Protocol v1. Bearer authentication is required only when the server is configured with a token; liveness and readiness probes are always unauthenticated."
+    "version": "0.7.0",
+    "description": "Authoritative preview wire contract for Rin Protocol v2. Bearer authentication is required only when the server is configured with a token; liveness and readiness probes are always unauthenticated."
   },
-  "x-rin-protocol-version": "rin.protocol/v1",
+  "x-rin-protocol-version": "rin.protocol/v2",
   "x-rin-release-status": "preview",
-  "x-rin-luanti-release": 6,
+  "x-rin-luanti-release": 7,
   "x-rin-example-fixtures": "examples/contract_examples.json",
   "servers": [
     {
@@ -66,7 +66,7 @@
         }
       }
     },
-    "/v1/diagnostics": {
+    "/v2/diagnostics": {
       "get": {
         "operationId": "diagnostics",
         "x-rin-sdk-profile": "operational",
@@ -83,7 +83,7 @@
         }
       }
     },
-    "/v1/session/create": {
+    "/v2/session/create": {
       "post": {
         "operationId": "create_session",
         "requestBody": {
@@ -117,7 +117,7 @@
         }
       }
     },
-    "/v1/session/observe": {
+    "/v2/session/observe": {
       "post": {
         "operationId": "observe",
         "requestBody": {
@@ -154,7 +154,7 @@
         }
       }
     },
-    "/v1/agent/propose": {
+    "/v2/agent/propose": {
       "post": {
         "operationId": "propose",
         "requestBody": {
@@ -197,7 +197,7 @@
         }
       }
     },
-    "/v1/jobs/propose": {
+    "/v2/jobs/propose": {
       "post": {
         "operationId": "submit_proposal_job",
         "requestBody": {
@@ -225,16 +225,16 @@
           "429": {
             "$ref": "#/components/responses/TooManyRequests"
           },
-          "503": {
-            "$ref": "#/components/responses/ServiceUnavailable"
-          },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
           }
         }
       }
     },
-    "/v1/jobs/{job_id}": {
+    "/v2/jobs/{job_id}": {
       "parameters": [
         {
           "$ref": "#/components/parameters/JobId"
@@ -255,11 +255,11 @@
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
-          "503": {
-            "$ref": "#/components/responses/ServiceUnavailable"
-          },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
           }
         }
       },
@@ -278,16 +278,16 @@
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
-          "503": {
-            "$ref": "#/components/responses/ServiceUnavailable"
-          },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
           }
         }
       }
     },
-    "/v1/generation/jobs": {
+    "/v2/generation/jobs": {
       "post": {
         "operationId": "submit_generation_job",
         "requestBody": {
@@ -315,16 +315,16 @@
           "429": {
             "$ref": "#/components/responses/TooManyRequests"
           },
-          "503": {
-            "$ref": "#/components/responses/ServiceUnavailable"
-          },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
           }
         }
       }
     },
-    "/v1/generation/jobs/{job_id}": {
+    "/v2/generation/jobs/{job_id}": {
       "parameters": [
         {
           "$ref": "#/components/parameters/JobId"
@@ -345,11 +345,11 @@
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
-          "503": {
-            "$ref": "#/components/responses/ServiceUnavailable"
-          },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
           }
         }
       },
@@ -368,90 +368,16 @@
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
-          },
-          "500": {
-            "$ref": "#/components/responses/InternalError"
           }
         }
       }
     },
-    "/v1/action/commit": {
-      "post": {
-        "operationId": "commit",
-        "requestBody": {
-          "$ref": "#/components/requestBodies/Commit"
-        },
-        "responses": {
-          "200": {
-            "$ref": "#/components/responses/MutationResult"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
-          },
-          "413": {
-            "$ref": "#/components/responses/RequestTooLarge"
-          },
-          "415": {
-            "$ref": "#/components/responses/UnsupportedMediaType"
-          },
-          "500": {
-            "$ref": "#/components/responses/InternalError"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
-          }
-        }
-      }
-    },
-    "/v1/action/commit-batch": {
-      "post": {
-        "operationId": "commit_batch",
-        "requestBody": {
-          "$ref": "#/components/requestBodies/BatchCommit"
-        },
-        "responses": {
-          "200": {
-            "$ref": "#/components/responses/MutationResult"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
-          },
-          "409": {
-            "$ref": "#/components/responses/Conflict"
-          },
-          "413": {
-            "$ref": "#/components/responses/RequestTooLarge"
-          },
-          "415": {
-            "$ref": "#/components/responses/UnsupportedMediaType"
-          },
-          "500": {
-            "$ref": "#/components/responses/InternalError"
-          },
-          "507": {
-            "$ref": "#/components/responses/InsufficientStorage"
-          }
-        }
-      }
-    },
-    "/v1/session/activity": {
+    "/v2/session/activity": {
       "post": {
         "operationId": "set_actor_activity",
         "requestBody": {
@@ -488,7 +414,7 @@
         }
       }
     },
-    "/v1/world/arbitrate": {
+    "/v2/world/arbitrate": {
       "post": {
         "operationId": "arbitrate",
         "requestBody": {
@@ -525,7 +451,7 @@
         }
       }
     },
-    "/v1/session/get": {
+    "/v2/session/get": {
       "post": {
         "operationId": "state",
         "requestBody": {
@@ -556,7 +482,7 @@
         }
       }
     },
-    "/v1/session/stats": {
+    "/v2/session/stats": {
       "post": {
         "operationId": "session_stats",
         "requestBody": {
@@ -587,7 +513,7 @@
         }
       }
     },
-    "/v1/session/archive": {
+    "/v2/session/archive": {
       "post": {
         "operationId": "archive_session",
         "requestBody": {
@@ -621,7 +547,7 @@
         }
       }
     },
-    "/v1/session/delete": {
+    "/v2/session/delete": {
       "post": {
         "operationId": "delete_session",
         "requestBody": {
@@ -655,7 +581,7 @@
         }
       }
     },
-    "/v1/session/snapshot": {
+    "/v2/session/snapshot": {
       "post": {
         "operationId": "snapshot",
         "requestBody": {
@@ -689,7 +615,7 @@
         }
       }
     },
-    "/v1/session/restore": {
+    "/v2/session/restore": {
       "post": {
         "operationId": "restore",
         "requestBody": {
@@ -723,7 +649,7 @@
         }
       }
     },
-    "/v1/session/export": {
+    "/v2/session/export": {
       "post": {
         "operationId": "export_session",
         "x-rin-sdk-profile": "streaming",
@@ -755,7 +681,7 @@
         }
       }
     },
-    "/v1/session/import": {
+    "/v2/session/import": {
       "post": {
         "operationId": "import_session",
         "x-rin-sdk-profile": "streaming",
@@ -807,7 +733,7 @@
         }
       }
     },
-    "/v1/session/timeline": {
+    "/v2/session/timeline": {
       "post": {
         "operationId": "timeline",
         "requestBody": {
@@ -838,7 +764,7 @@
         }
       }
     },
-    "/v1/session/replay": {
+    "/v2/session/replay": {
       "post": {
         "operationId": "replay",
         "requestBody": {
@@ -869,7 +795,7 @@
         }
       }
     },
-    "/v1/scheduler/due": {
+    "/v2/scheduler/due": {
       "post": {
         "operationId": "due_agents",
         "requestBody": {
@@ -896,6 +822,80 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/v2/action/report": {
+      "post": {
+        "operationId": "report_action",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/ReportAction"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/MutationResult"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "507": {
+            "$ref": "#/components/responses/InsufficientStorage"
+          }
+        }
+      }
+    },
+    "/v2/action/report-batch": {
+      "post": {
+        "operationId": "report_action_batch",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/BatchActionReport"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/MutationResult"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "507": {
+            "$ref": "#/components/responses/InsufficientStorage"
           }
         }
       }
@@ -992,26 +992,6 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/GenerationRequest"
-            }
-          }
-        }
-      },
-      "Commit": {
-        "required": true,
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/CommitRequest"
-            }
-          }
-        }
-      },
-      "BatchCommit": {
-        "required": true,
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/BatchCommitRequest"
             }
           }
         }
@@ -1114,6 +1094,26 @@
             "schema": {
               "type": "string",
               "contentMediaType": "application/x-ndjson"
+            }
+          }
+        }
+      },
+      "ReportAction": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ReportActionRequest"
+            }
+          }
+        }
+      },
+      "BatchActionReport": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/BatchActionReportRequest"
             }
           }
         }
@@ -1351,7 +1351,7 @@
     "schemas": {
       "ProtocolVersion": {
         "type": "string",
-        "const": "rin.protocol/v1"
+        "const": "rin.protocol/v2"
       },
       "Identifier": {
         "type": "string",
@@ -1833,41 +1833,6 @@
           }
         }
       },
-      "ActionSpecInput": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "id",
-          "kind",
-          "description"
-        ],
-        "properties": {
-          "id": {
-            "$ref": "#/components/schemas/Identifier"
-          },
-          "kind": {
-            "$ref": "#/components/schemas/Identifier"
-          },
-          "description": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 300
-          },
-          "target_ids": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/IdentifierArray"
-              },
-              {
-                "maxItems": 32
-              }
-            ]
-          },
-          "parameters": {
-            "$ref": "#/components/schemas/StringMap"
-          }
-        }
-      },
       "CreateSessionRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -1895,10 +1860,10 @@
             "$ref": "#/components/schemas/JSONSafeSignedInteger"
           },
           "features": {
-            "description": "Fresh Session creation must include outcome-reporting-v1. The field remains optional in the wire shape only so an exact retry of a pre-baseline durable Create can be reconciled.",
+            "description": "Optional, explicitly negotiated session features.",
             "type": "array",
             "uniqueItems": true,
-            "maxItems": 6,
+            "maxItems": 5,
             "items": {
               "type": "string",
               "enum": [
@@ -1906,8 +1871,7 @@
                 "belief-conflicts-v1",
                 "goal-candidates-v1",
                 "actor-activity-v1",
-                "arbitration-v1",
-                "outcome-reporting-v1"
+                "arbitration-v1"
               ]
             }
           },
@@ -1933,7 +1897,9 @@
           "source",
           "kind",
           "summary",
-          "importance"
+          "importance",
+          "epoch",
+          "observation_seq"
         ],
         "properties": {
           "protocol_version": {
@@ -1998,6 +1964,29 @@
             "items": {
               "$ref": "#/components/schemas/FactInput"
             }
+          },
+          "epoch": {
+            "$ref": "#/components/schemas/Epoch"
+          },
+          "observation_seq": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          },
+          "payload": {
+            "$ref": "#/components/schemas/StructuredPayload"
+          },
+          "artifacts": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "$ref": "#/components/schemas/ArtifactRef"
+            }
           }
         }
       },
@@ -2010,7 +1999,8 @@
           "request_id",
           "actor_id",
           "intent",
-          "candidate_actions"
+          "decision_window",
+          "offers"
         ],
         "properties": {
           "protocol_version": {
@@ -2043,14 +2033,6 @@
               }
             ]
           },
-          "candidate_actions": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 32,
-            "items": {
-              "$ref": "#/components/schemas/ActionSpecInput"
-            }
-          },
           "candidate_goals": {
             "type": "array",
             "maxItems": 8,
@@ -2060,6 +2042,17 @@
           },
           "urgent": {
             "type": "boolean"
+          },
+          "decision_window": {
+            "$ref": "#/components/schemas/DecisionWindow"
+          },
+          "offers": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/ActionOfferInput"
+            }
           }
         }
       },
@@ -2085,149 +2078,6 @@
               "completed",
               "released"
             ]
-          }
-        }
-      },
-      "CommitRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "protocol_version",
-          "session_id",
-          "request_id",
-          "proposal_id",
-          "event_id",
-          "accepted"
-        ],
-        "properties": {
-          "protocol_version": {
-            "$ref": "#/components/schemas/ProtocolVersion"
-          },
-          "session_id": {
-            "$ref": "#/components/schemas/Identifier"
-          },
-          "request_id": {
-            "$ref": "#/components/schemas/Identifier"
-          },
-          "proposal_id": {
-            "$ref": "#/components/schemas/Identifier"
-          },
-          "event_id": {
-            "$ref": "#/components/schemas/Identifier"
-          },
-          "tick": {
-            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
-          },
-          "accepted": {
-            "type": "boolean"
-          },
-          "outcome": {
-            "type": "string",
-            "maxLength": 1000
-          },
-          "tags": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/IdentifierArray"
-              },
-              {
-                "maxItems": 32
-              }
-            ]
-          },
-          "facts": {
-            "type": "array",
-            "maxItems": 64,
-            "items": {
-              "$ref": "#/components/schemas/FactInput"
-            }
-          },
-          "goal_updates": {
-            "type": "array",
-            "maxItems": 32,
-            "items": {
-              "$ref": "#/components/schemas/GoalUpdateInput"
-            }
-          }
-        }
-      },
-      "CommitItemInput": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "proposal_id",
-          "event_id",
-          "accepted"
-        ],
-        "properties": {
-          "proposal_id": {
-            "$ref": "#/components/schemas/Identifier"
-          },
-          "event_id": {
-            "$ref": "#/components/schemas/Identifier"
-          },
-          "accepted": {
-            "type": "boolean"
-          },
-          "outcome": {
-            "type": "string",
-            "maxLength": 1000
-          },
-          "tags": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/IdentifierArray"
-              },
-              {
-                "maxItems": 32
-              }
-            ]
-          },
-          "facts": {
-            "type": "array",
-            "maxItems": 64,
-            "items": {
-              "$ref": "#/components/schemas/FactInput"
-            }
-          },
-          "goal_updates": {
-            "type": "array",
-            "maxItems": 32,
-            "items": {
-              "$ref": "#/components/schemas/GoalUpdateInput"
-            }
-          }
-        }
-      },
-      "BatchCommitRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "protocol_version",
-          "session_id",
-          "request_id",
-          "items"
-        ],
-        "properties": {
-          "protocol_version": {
-            "$ref": "#/components/schemas/ProtocolVersion"
-          },
-          "session_id": {
-            "$ref": "#/components/schemas/Identifier"
-          },
-          "request_id": {
-            "$ref": "#/components/schemas/Identifier"
-          },
-          "tick": {
-            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
-          },
-          "items": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 64,
-            "items": {
-              "$ref": "#/components/schemas/CommitItemInput"
-            }
           }
         }
       },
@@ -2831,32 +2681,6 @@
           }
         }
       },
-      "ActionSpecState": {
-        "type": "object",
-        "required": [
-          "id",
-          "kind",
-          "description"
-        ],
-        "properties": {
-          "id": {
-            "$ref": "#/components/schemas/Identifier"
-          },
-          "kind": {
-            "$ref": "#/components/schemas/Identifier"
-          },
-          "description": {
-            "type": "string",
-            "maxLength": 300
-          },
-          "target_ids": {
-            "$ref": "#/components/schemas/IdentifierArray"
-          },
-          "parameters": {
-            "$ref": "#/components/schemas/StringMap"
-          }
-        }
-      },
       "GoalState": {
         "type": "object",
         "required": [
@@ -3158,10 +2982,11 @@
           "based_on_revision",
           "based_on_head_hash",
           "created_revision",
-          "action",
           "stance",
           "summary",
           "rationale",
+          "decision_window",
+          "action",
           "status"
         ],
         "properties": {
@@ -3200,7 +3025,7 @@
             "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
           },
           "action": {
-            "$ref": "#/components/schemas/ActionSpecState"
+            "$ref": "#/components/schemas/ActionOfferState"
           },
           "stance": {
             "type": "string",
@@ -3243,10 +3068,22 @@
               "rejected"
             ]
           },
-          "outcome_event_id": {
+          "decision_window": {
+            "$ref": "#/components/schemas/DecisionWindow"
+          },
+          "invocation": {
+            "$ref": "#/components/schemas/ActionInvocationState"
+          },
+          "run": {
+            "$ref": "#/components/schemas/ActionRunState"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/ActionOutcomeState"
+          },
+          "last_report_event_id": {
             "$ref": "#/components/schemas/Identifier"
           },
-          "outcome_tick": {
+          "last_report_tick": {
             "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
           }
         }
@@ -3984,7 +3821,7 @@
             "$ref": "#/components/schemas/ProtocolVersion"
           },
           "release_version": {
-            "const": "0.6.0"
+            "const": "0.7.0"
           },
           "release_status": {
             "const": "preview"
@@ -4371,6 +4208,830 @@
             }
           }
         ]
+      },
+      "Epoch": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "session_id",
+          "world_id",
+          "host",
+          "world",
+          "timeline"
+        ],
+        "properties": {
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "world_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "host": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          },
+          "world": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          },
+          "timeline": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          }
+        }
+      },
+      "Timepoint": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "clock",
+          "value"
+        ],
+        "properties": {
+          "clock": {
+            "type": "string",
+            "enum": [
+              "event",
+              "step",
+              "realtime"
+            ]
+          },
+          "value": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          }
+        }
+      },
+      "CapabilityRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        }
+      },
+      "HostRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "namespace",
+          "type",
+          "key",
+          "ephemeral",
+          "epoch"
+        ],
+        "properties": {
+          "namespace": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "type": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "ephemeral": {
+            "type": "boolean"
+          },
+          "epoch": {
+            "$ref": "#/components/schemas/Epoch"
+          }
+        }
+      },
+      "SchemaRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "digest"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "digest": {
+            "$ref": "#/components/schemas/SHA256"
+          }
+        }
+      },
+      "StructuredPayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema",
+          "data"
+        ],
+        "properties": {
+          "schema": {
+            "$ref": "#/components/schemas/SchemaRef"
+          },
+          "data": {}
+        }
+      },
+      "ArtifactRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "media_type",
+          "uri",
+          "sha256",
+          "size_bytes"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "media_type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "uri": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "sha256": {
+            "$ref": "#/components/schemas/SHA256"
+          },
+          "size_bytes": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          }
+        }
+      },
+      "DecisionWindow": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "mode",
+          "epoch",
+          "observation_seq",
+          "opened_at",
+          "deadline",
+          "actor_ids"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "sequential",
+              "simultaneous",
+              "asynchronous"
+            ]
+          },
+          "epoch": {
+            "$ref": "#/components/schemas/Epoch"
+          },
+          "observation_seq": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          },
+          "opened_at": {
+            "$ref": "#/components/schemas/Timepoint"
+          },
+          "deadline": {
+            "$ref": "#/components/schemas/Timepoint"
+          },
+          "actor_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 128,
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          }
+        }
+      },
+      "ActionOfferInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "offer_id",
+          "decision_window_id",
+          "actor_id",
+          "capability",
+          "descriptor_digest",
+          "arguments",
+          "description",
+          "expected_epoch",
+          "observation_seq",
+          "deadline"
+        ],
+        "properties": {
+          "offer_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "decision_window_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "capability": {
+            "$ref": "#/components/schemas/CapabilityRef"
+          },
+          "descriptor_digest": {
+            "$ref": "#/components/schemas/SHA256"
+          },
+          "arguments": {},
+          "targets": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/HostRef"
+            }
+          },
+          "expected_epoch": {
+            "$ref": "#/components/schemas/Epoch"
+          },
+          "observation_seq": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          },
+          "deadline": {
+            "$ref": "#/components/schemas/Timepoint"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        }
+      },
+      "ActionOfferState": {
+        "type": "object",
+        "required": [
+          "offer_id",
+          "decision_window_id",
+          "actor_id",
+          "capability",
+          "descriptor_digest",
+          "arguments",
+          "description",
+          "expected_epoch",
+          "observation_seq",
+          "deadline"
+        ],
+        "properties": {
+          "offer_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "decision_window_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "capability": {
+            "$ref": "#/components/schemas/CapabilityRef"
+          },
+          "descriptor_digest": {
+            "$ref": "#/components/schemas/SHA256"
+          },
+          "arguments": {},
+          "targets": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/HostRef"
+            }
+          },
+          "expected_epoch": {
+            "$ref": "#/components/schemas/Epoch"
+          },
+          "observation_seq": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          },
+          "deadline": {
+            "$ref": "#/components/schemas/Timepoint"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        }
+      },
+      "ActionInvocationInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation_id",
+          "offer_id",
+          "decision_window_id",
+          "actor_id",
+          "capability",
+          "descriptor_digest",
+          "arguments",
+          "expected_epoch",
+          "observation_seq",
+          "deadline"
+        ],
+        "properties": {
+          "operation_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "offer_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "decision_window_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "capability": {
+            "$ref": "#/components/schemas/CapabilityRef"
+          },
+          "descriptor_digest": {
+            "$ref": "#/components/schemas/SHA256"
+          },
+          "arguments": {},
+          "targets": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/HostRef"
+            }
+          },
+          "expected_epoch": {
+            "$ref": "#/components/schemas/Epoch"
+          },
+          "observation_seq": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          },
+          "deadline": {
+            "$ref": "#/components/schemas/Timepoint"
+          }
+        }
+      },
+      "ActionInvocationState": {
+        "type": "object",
+        "required": [
+          "operation_id",
+          "offer_id",
+          "decision_window_id",
+          "actor_id",
+          "capability",
+          "descriptor_digest",
+          "arguments",
+          "expected_epoch",
+          "observation_seq",
+          "deadline"
+        ],
+        "properties": {
+          "operation_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "offer_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "decision_window_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "capability": {
+            "$ref": "#/components/schemas/CapabilityRef"
+          },
+          "descriptor_digest": {
+            "$ref": "#/components/schemas/SHA256"
+          },
+          "arguments": {},
+          "targets": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/HostRef"
+            }
+          },
+          "expected_epoch": {
+            "$ref": "#/components/schemas/Epoch"
+          },
+          "observation_seq": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          },
+          "deadline": {
+            "$ref": "#/components/schemas/Timepoint"
+          }
+        }
+      },
+      "ActionRunInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation_id",
+          "status",
+          "progress_seq",
+          "progress",
+          "updated_at"
+        ],
+        "properties": {
+          "operation_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "interrupted",
+              "stale",
+              "outcome-unknown"
+            ]
+          },
+          "progress_seq": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          },
+          "progress": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/Timepoint"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      },
+      "ActionRunState": {
+        "type": "object",
+        "required": [
+          "operation_id",
+          "status",
+          "progress_seq",
+          "progress",
+          "updated_at"
+        ],
+        "properties": {
+          "operation_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "interrupted",
+              "stale",
+              "outcome-unknown"
+            ]
+          },
+          "progress_seq": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          },
+          "progress": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/Timepoint"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      },
+      "ActionOutcomeInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation_id",
+          "status",
+          "summary",
+          "epoch",
+          "world_seq",
+          "occurred_at"
+        ],
+        "properties": {
+          "operation_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "succeeded",
+              "failed",
+              "cancelled",
+              "interrupted",
+              "stale",
+              "outcome-unknown"
+            ]
+          },
+          "code": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "evidence": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/HostRef"
+            }
+          },
+          "epoch": {
+            "$ref": "#/components/schemas/Epoch"
+          },
+          "world_seq": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          },
+          "occurred_at": {
+            "$ref": "#/components/schemas/Timepoint"
+          }
+        }
+      },
+      "ActionOutcomeState": {
+        "type": "object",
+        "required": [
+          "operation_id",
+          "status",
+          "summary",
+          "epoch",
+          "world_seq",
+          "occurred_at"
+        ],
+        "properties": {
+          "operation_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "succeeded",
+              "failed",
+              "cancelled",
+              "interrupted",
+              "stale",
+              "outcome-unknown"
+            ]
+          },
+          "code": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "evidence": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/HostRef"
+            }
+          },
+          "epoch": {
+            "$ref": "#/components/schemas/Epoch"
+          },
+          "world_seq": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          },
+          "occurred_at": {
+            "$ref": "#/components/schemas/Timepoint"
+          }
+        }
+      },
+      "ActionReportInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "proposal_id",
+          "event_id",
+          "decision",
+          "summary"
+        ],
+        "properties": {
+          "proposal_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "event_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "rejected"
+            ]
+          },
+          "invocation": {
+            "$ref": "#/components/schemas/ActionInvocationInput"
+          },
+          "run": {
+            "$ref": "#/components/schemas/ActionRunInput"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/ActionOutcomeInput"
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "tags": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          },
+          "facts": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/components/schemas/FactInput"
+            }
+          },
+          "goal_updates": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/GoalUpdateInput"
+            }
+          }
+        }
+      },
+      "ReportActionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "protocol_version",
+          "session_id",
+          "request_id",
+          "report"
+        ],
+        "properties": {
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "report": {
+            "$ref": "#/components/schemas/ActionReportInput"
+          }
+        }
+      },
+      "BatchActionReportRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "protocol_version",
+          "session_id",
+          "request_id",
+          "reports"
+        ],
+        "properties": {
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "reports": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/components/schemas/ActionReportInput"
+            }
+          }
+        }
       }
     }
   },

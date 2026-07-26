@@ -11,7 +11,7 @@ public sealed class Plugin : BaseUnityPlugin, IRinNpcHost
 {
     public const string PluginGuid = "io.github.sunrioa.rin.npc-example.mono";
     public const string PluginName = "Rin NPC Example (Mono)";
-    public const string PluginVersion = "0.6.0";
+    public const string PluginVersion = "0.7.0";
 
     private readonly ConcurrentQueue<Action> mainThread = new();
     private readonly CancellationTokenSource shutdown = new();

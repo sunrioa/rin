@@ -30,7 +30,48 @@ public final class RinClientTest {
         require(
                 RinClient.DEFAULT_MAX_RESPONSE_BYTES == 32 * 1024 * 1024,
                 "default response limit does not match the inline transport budget");
-        require("0.6.0".equals(RinClient.VERSION), "client version projection is stale");
+        require("0.7.0".equals(RinClient.VERSION), "client version projection is stale");
+        Map<String, Object> epoch = Map.of(
+                "session_id", "session.helper",
+                "world_id", "world.helper",
+                "host", 1L,
+                "world", 2L,
+                "timeline", 3L);
+        Map<String, Object> timepoint = Map.of("clock", "event", "value", 8L);
+        Map<String, Object> window = Map.of(
+                "id", "window.helper",
+                "epoch", epoch,
+                "observation_seq", 7L,
+                "deadline", timepoint);
+        Map<String, Object> offer = HostActions.offer(
+                "offer.helper",
+                "actor.helper",
+                "dialogue.say",
+                "1",
+                "a".repeat(64),
+                "Say one line",
+                Map.of("line", "hello"),
+                window);
+        Map<String, Object> helperReport = HostActions.immediateReport(
+                "session.helper",
+                "report.helper",
+                "event.helper",
+                8L,
+                Map.of("id", "proposal.helper", "action", offer),
+                "operation.helper",
+                true,
+                "applied",
+                epoch,
+                8L,
+                timepoint,
+                List.of("test"));
+        Map<?, ?> report = (Map<?, ?>) helperReport.get("report");
+        Map<?, ?> invocation = (Map<?, ?>) report.get("invocation");
+        require(
+                "offer.helper".equals(invocation.get("offer_id"))
+                        && report.containsKey("run")
+                        && report.containsKey("outcome"),
+                "host action helper did not preserve the selected offer lifecycle");
         String[] lastRequest = new String[5];
         int[] lastResponseStatus = new int[1];
         int[] transportCalls = new int[1];
@@ -81,8 +122,8 @@ public final class RinClientTest {
             }
             int status = mode[0].equals("api-error")
                     ? 400
-                    : (lastRequest[1].equals("/v1/jobs/propose")
-                            || lastRequest[1].equals("/v1/generation/jobs"))
+                    : (lastRequest[1].equals("/v2/jobs/propose")
+                            || lastRequest[1].equals("/v2/generation/jobs"))
                             ? 202
                             : 200;
             lastResponseStatus[0] = status;
@@ -100,22 +141,25 @@ public final class RinClientTest {
                         "codec did not receive protocol_version");
                 require("request.fixture".equals(value.get("request_id")), "codec did not receive request_id");
                 require("雨".equals(value.get("utf8")), "codec did not receive UTF-8 text");
-                if (value.containsKey("accepted")) {
-                    require(Boolean.FALSE.equals(value.get("accepted")), "commit accepted=false changed before codec");
-                    return "{\"protocol_version\":\"" + RinClient.PROTOCOL_VERSION
-                            + "\",\"request_id\":\"request.fixture\",\"utf8\":\"雨\",\"accepted\":false}";
-                }
-                if (value.containsKey("items")) {
-                    Object itemsValue = value.get("items");
-                    require(itemsValue instanceof List<?>, "batch items did not reach codec");
-                    List<?> items = (List<?>) itemsValue;
-                    require(items.size() == 1 && items.get(0) instanceof Map<?, ?>, "batch item changed before codec");
+                if (value.containsKey("report")) {
                     require(
-                            Boolean.FALSE.equals(((Map<?, ?>) items.get(0)).get("accepted")),
-                            "batch accepted=false changed before codec");
+                            "rejected".equals(((Map<?, ?>) value.get("report")).get("decision")),
+                            "report decision changed before codec");
                     return "{\"protocol_version\":\"" + RinClient.PROTOCOL_VERSION
                             + "\",\"request_id\":\"request.fixture\",\"utf8\":\"雨\","
-                            + "\"items\":[{\"accepted\":false}]}";
+                            + "\"report\":{\"decision\":\"rejected\"}}";
+                }
+                if (value.containsKey("reports")) {
+                    Object reportsValue = value.get("reports");
+                    require(reportsValue instanceof List<?>, "batch reports did not reach codec");
+                    List<?> reports = (List<?>) reportsValue;
+                    require(reports.size() == 1 && reports.get(0) instanceof Map<?, ?>, "batch report changed before codec");
+                    require(
+                            "rejected".equals(((Map<?, ?>) reports.get(0)).get("decision")),
+                            "batch report decision changed before codec");
+                    return "{\"protocol_version\":\"" + RinClient.PROTOCOL_VERSION
+                            + "\",\"request_id\":\"request.fixture\",\"utf8\":\"雨\","
+                            + "\"reports\":[{\"decision\":\"rejected\"}]}";
                 }
                 return "{\"protocol_version\":\"" + RinClient.PROTOCOL_VERSION
                         + "\",\"request_id\":\"request.fixture\",\"utf8\":\"雨\"}";
@@ -216,28 +260,28 @@ public final class RinClientTest {
                 "utf8", "雨");
         List<RequestCase> cases = List.of(
                 new RequestCase("health", client::health, "GET", "/health"),
-                new RequestCase("create_session", () -> client.createSession(payload), "POST", "/v1/session/create"),
-                new RequestCase("observe", () -> client.observe(payload), "POST", "/v1/session/observe"),
-                new RequestCase("propose", () -> client.propose(payload), "POST", "/v1/agent/propose"),
-                new RequestCase("submit_proposal_job", () -> client.submitProposalJob(payload), "POST", "/v1/jobs/propose"),
-                new RequestCase("get_proposal_job", () -> client.getProposalJob("job.fixture"), "GET", "/v1/jobs/job.fixture"),
-                new RequestCase("cancel_proposal_job", () -> client.cancelProposalJob("job.fixture"), "DELETE", "/v1/jobs/job.fixture"),
-                new RequestCase("submit_generation_job", () -> client.submitGenerationJob(payload), "POST", "/v1/generation/jobs"),
-                new RequestCase("get_generation_job", () -> client.getGenerationJob("job.fixture"), "GET", "/v1/generation/jobs/job.fixture"),
-                new RequestCase("cancel_generation_job", () -> client.cancelGenerationJob("job.fixture"), "DELETE", "/v1/generation/jobs/job.fixture"),
-                new RequestCase("commit", () -> client.commit(payload), "POST", "/v1/action/commit"),
-                new RequestCase("commit_batch", () -> client.commitBatch(payload), "POST", "/v1/action/commit-batch"),
-                new RequestCase("set_actor_activity", () -> client.setActorActivity(payload), "POST", "/v1/session/activity"),
-                new RequestCase("arbitrate", () -> client.arbitrate(payload), "POST", "/v1/world/arbitrate"),
-                new RequestCase("state", () -> client.state(payload), "POST", "/v1/session/get"),
-                new RequestCase("session_stats", () -> client.sessionStats(payload), "POST", "/v1/session/stats"),
-                new RequestCase("archive_session", () -> client.archiveSession(payload), "POST", "/v1/session/archive"),
-                new RequestCase("delete_session", () -> client.deleteSession(payload), "POST", "/v1/session/delete"),
-                new RequestCase("snapshot", () -> client.snapshot(payload), "POST", "/v1/session/snapshot"),
-                new RequestCase("restore", () -> client.restore(payload), "POST", "/v1/session/restore"),
-                new RequestCase("timeline", () -> client.timeline(payload), "POST", "/v1/session/timeline"),
-                new RequestCase("replay", () -> client.replay(payload), "POST", "/v1/session/replay"),
-                new RequestCase("due_agents", () -> client.dueAgents(payload), "POST", "/v1/scheduler/due")
+                new RequestCase("create_session", () -> client.createSession(payload), "POST", "/v2/session/create"),
+                new RequestCase("observe", () -> client.observe(payload), "POST", "/v2/session/observe"),
+                new RequestCase("propose", () -> client.propose(payload), "POST", "/v2/agent/propose"),
+                new RequestCase("submit_proposal_job", () -> client.submitProposalJob(payload), "POST", "/v2/jobs/propose"),
+                new RequestCase("get_proposal_job", () -> client.getProposalJob("job.fixture"), "GET", "/v2/jobs/job.fixture"),
+                new RequestCase("cancel_proposal_job", () -> client.cancelProposalJob("job.fixture"), "DELETE", "/v2/jobs/job.fixture"),
+                new RequestCase("submit_generation_job", () -> client.submitGenerationJob(payload), "POST", "/v2/generation/jobs"),
+                new RequestCase("get_generation_job", () -> client.getGenerationJob("job.fixture"), "GET", "/v2/generation/jobs/job.fixture"),
+                new RequestCase("cancel_generation_job", () -> client.cancelGenerationJob("job.fixture"), "DELETE", "/v2/generation/jobs/job.fixture"),
+                new RequestCase("report_action", () -> client.reportAction(payload), "POST", "/v2/action/report"),
+                new RequestCase("report_action_batch", () -> client.reportActionBatch(payload), "POST", "/v2/action/report-batch"),
+                new RequestCase("set_actor_activity", () -> client.setActorActivity(payload), "POST", "/v2/session/activity"),
+                new RequestCase("arbitrate", () -> client.arbitrate(payload), "POST", "/v2/world/arbitrate"),
+                new RequestCase("state", () -> client.state(payload), "POST", "/v2/session/get"),
+                new RequestCase("session_stats", () -> client.sessionStats(payload), "POST", "/v2/session/stats"),
+                new RequestCase("archive_session", () -> client.archiveSession(payload), "POST", "/v2/session/archive"),
+                new RequestCase("delete_session", () -> client.deleteSession(payload), "POST", "/v2/session/delete"),
+                new RequestCase("snapshot", () -> client.snapshot(payload), "POST", "/v2/session/snapshot"),
+                new RequestCase("restore", () -> client.restore(payload), "POST", "/v2/session/restore"),
+                new RequestCase("timeline", () -> client.timeline(payload), "POST", "/v2/session/timeline"),
+                new RequestCase("replay", () -> client.replay(payload), "POST", "/v2/session/replay"),
+                new RequestCase("due_agents", () -> client.dueAgents(payload), "POST", "/v2/scheduler/due")
         );
         List<String> observedRoutes = new ArrayList<>();
         try {
@@ -268,14 +312,14 @@ public final class RinClientTest {
                     observedRoutes.equals(contractRouteKeys()),
                     "actual SDK request method/path/status set differs from sdk/conformance/routes.json");
 
-            Map<String, Object> falseCommit = new LinkedHashMap<>(payload);
-            falseCommit.put("accepted", false);
-            client.commit(falseCommit).join();
-            require(lastRequest[4].contains("\"accepted\":false"), "commit accepted=false was omitted");
-            Map<String, Object> falseBatch = new LinkedHashMap<>(payload);
-            falseBatch.put("items", List.of(Map.of("accepted", false)));
-            client.commitBatch(falseBatch).join();
-            require(lastRequest[4].contains("\"accepted\":false"), "batch accepted=false was omitted");
+            Map<String, Object> rejectedReport = new LinkedHashMap<>(payload);
+            rejectedReport.put("report", Map.of("decision", "rejected"));
+            client.reportAction(rejectedReport).join();
+            require(lastRequest[4].contains("\"decision\":\"rejected\""), "report decision was omitted");
+            Map<String, Object> rejectedBatch = new LinkedHashMap<>(payload);
+            rejectedBatch.put("reports", List.of(Map.of("decision", "rejected")));
+            client.reportActionBatch(rejectedBatch).join();
+            require(lastRequest[4].contains("\"decision\":\"rejected\""), "batch report decision was omitted");
 
             Map<String, Object> cyclicPayload = new LinkedHashMap<>();
             cyclicPayload.put("self", cyclicPayload);
@@ -292,7 +336,7 @@ public final class RinClientTest {
             int codecCallsBeforeInvalidPayloads = codecEncodeCalls[0];
             for (Map<String, ?> invalidPayload : invalidPayloads) {
                 try {
-                    client.commit(invalidPayload);
+                    client.reportAction(invalidPayload);
                     throw new AssertionError("invalid JSON payload was accepted");
                 } catch (RinProtocolException expected) {
                     require("invalid_request".equals(expected.code()), "invalid JSON payload returned wrong error");

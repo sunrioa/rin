@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using Rin.Client;
 
 namespace RinNpcExample;
@@ -17,10 +15,11 @@ public interface IRinNpcHost
 public sealed class RinNpcRuntime : IDisposable
 {
     private const string ActorId = "npc.rin.companion";
-    private static readonly HashSet<string> AllowedActions =
+    private static readonly HashSet<string> AllowedOffers =
         new(StringComparer.Ordinal)
         {
-            "talk", "wait", "refuse", "offer_quest", "advance_quest",
+            "offer.talk", "offer.wait", "offer.refuse",
+            "offer.quest", "offer.advance-quest",
         };
 
     private readonly IRinNpcHost host;
@@ -64,6 +63,7 @@ public sealed class RinNpcRuntime : IDisposable
             var next = store.Sequence + 1;
             var operationId = sessionId + "." + next;
             var create = Create(sessionId);
+            var epoch = Epoch(sessionId);
             var observe = new
             {
                 protocol_version = RinClient.ProtocolVersion,
@@ -77,19 +77,31 @@ public sealed class RinNpcRuntime : IDisposable
                 summary = observation + " Quest stage is " + store.QuestStage + ".",
                 tags = new[] { "conversation", "player-request", "quest-stage-" + store.QuestStage },
                 importance = 3,
+                epoch,
+                observation_seq = (ulong)observedTick,
             };
+            var decisionTick = checked(observedTick + 1);
+            var window = new DecisionWindow(
+                "window." + operationId,
+                "sequential",
+                epoch,
+                (ulong)observedTick,
+                new Timepoint("realtime", decisionTick),
+                new Timepoint("realtime", checked(decisionTick + 1)),
+                new[] { ActorId });
             var propose = new ProposeRequest(
                 sessionId,
                 "propose." + operationId,
                 ActorId,
                 "Choose one bounded response to the player.",
+                window,
                 new[]
                 {
-                    new ActionSpecInput("talk", "dialogue", "offer one concrete hint"),
-                    new ActionSpecInput("wait", "wait", "ask the player to observe first"),
-                    new ActionSpecInput("refuse", "refuse", "decline an unsafe request"),
-                    new ActionSpecInput("offer_quest", "quest", "offer the authored beacon quest"),
-                    new ActionSpecInput("advance_quest", "quest", "mark the beacon quest complete"),
+                    Offer("offer.talk", "dialogue.talk", "offer one concrete hint", window),
+                    Offer("offer.wait", "world.wait", "ask the player to observe first", window),
+                    Offer("offer.refuse", "dialogue.refuse", "decline an unsafe request", window),
+                    Offer("offer.quest", "quest.offer", "offer the authored beacon quest", window),
+                    Offer("offer.advance-quest", "quest.advance", "mark the beacon quest complete", window),
                 })
             {
                 Tick = checked(observedTick + 1),
@@ -123,56 +135,45 @@ public sealed class RinNpcRuntime : IDisposable
                 freshness = ProposalFreshnessDecision.Stale;
             }
 
-            var actionId = resolved.Proposal.Action.Id;
+            var actionId = resolved.Proposal.Action.OfferId;
             var allowed = freshness == ProposalFreshnessDecision.Fresh &&
-                AllowedActions.Contains(actionId) &&
-                (actionId != "offer_quest" || store.QuestStage == 0) &&
-                (actionId != "advance_quest" || store.QuestStage == 1);
+                AllowedOffers.Contains(actionId) &&
+                (actionId != "offer.quest" || store.QuestStage == 0) &&
+                (actionId != "offer.advance-quest" || store.QuestStage == 1);
             var line = actionId switch
             {
-                "talk" => "Companion: Check the terrain, then choose a route with cover.",
-                "wait" => "Companion: Let us observe one more cycle before acting.",
-                "refuse" => "Companion: I cannot help with actions that break the rules.",
-                "offer_quest" => "Companion: Find the ridge beacon and report back.",
-                "advance_quest" => "Companion: The beacon is secure; the route is now open.",
+                "offer.talk" => "Companion: Check the terrain, then choose a route with cover.",
+                "offer.wait" => "Companion: Let us observe one more cycle before acting.",
+                "offer.refuse" => "Companion: I cannot help with actions that break the rules.",
+                "offer.quest" => "Companion: Find the ridge beacon and report back.",
+                "offer.advance-quest" => "Companion: The beacon is secure; the route is now open.",
                 _ => string.Empty,
             };
-            var commit = new CommitRequest(
+            var tick = Math.Max(host.CurrentTick, resolved.Proposal.Tick);
+            var summary = allowed
+                ? line
+                : "The game rejected a stale, unavailable, or non-allowlisted action.";
+            var report = HostActions.ImmediateReport(
                 sessionId,
-                "commit." + resolved.PendingTurn.OperationId,
-                resolved.Proposal.Id,
+                "report." + resolved.PendingTurn.OperationId,
                 "outcome." + resolved.PendingTurn.OperationId,
-                allowed)
-            {
-                Tick = Math.Max(host.CurrentTick, resolved.Proposal.Tick),
-                Outcome = allowed
-                    ? line
-                    : "The game rejected a stale, unavailable, or non-allowlisted action.",
-                Tags = new[] { "bepinex-example", "conversation" },
-            };
-            var fallbackObserve = new
-            {
-                protocol_version = RinClient.ProtocolVersion,
-                session_id = sessionId,
-                request_id = "outcome.observe." + resolved.PendingTurn.OperationId,
-                event_id = commit.EventId,
-                tick = commit.Tick,
-                observer_ids = new[] { ActorId },
-                source = "bepinex-example",
-                kind = "action_outcome",
-                summary = commit.Outcome,
-                tags = new[] { "conversation", "outcome", allowed ? "applied" : "rejected" },
-                importance = 3,
-            };
-            await workflow.ApplyAndEnqueueOutcomeWithFallbackAsync(
+                tick,
+                resolved.Proposal,
+                resolved.PendingTurn.OperationId,
+                allowed,
+                summary,
+                epoch,
+                (ulong)tick,
+                new Timepoint("realtime", tick),
+                new[] { "bepinex-example", "conversation" });
+            await workflow.ApplyAndEnqueueOutcomeAsync(
                 resolved.PendingTurn,
                 resolved.Proposal,
-                commit,
-                fallbackObserve,
+                report,
                 HostDurabilityProfile.Advisory,
                 async (_, token) =>
                 {
-                    if (allowed && (actionId == "offer_quest" || actionId == "advance_quest"))
+                    if (allowed && (actionId == "offer.quest" || actionId == "offer.advance-quest"))
                     {
                         if (!store.ApplyQuestEffect(
                             resolved.PendingTurn.OperationId,
@@ -207,10 +208,7 @@ public sealed class RinNpcRuntime : IDisposable
         }
     }
 
-    public void Dispose()
-    {
-        client.Dispose();
-    }
+    public void Dispose() => client.Dispose();
 
     private static CreateSessionRequest Create(string sessionId) =>
         new(
@@ -219,7 +217,7 @@ public sealed class RinNpcRuntime : IDisposable
             new RinBinding(
                 "unity-bepinex",
                 "rin-npc-example",
-                "0.6.0",
+                "0.7.0",
                 "sha256:" + new string('0', 64)),
             new[]
             {
@@ -230,18 +228,22 @@ public sealed class RinNpcRuntime : IDisposable
                 },
             })
         {
-            Seed = StableSeed(sessionId),
-            Features = new[] { RinFeatures.OutcomeReporting },
+            Features = RinFeatures.SafeBaselinePreset,
         };
 
-    private static uint StableSeed(string sessionId)
-    {
-        using var sha256 = SHA256.Create();
-        var digest = sha256.ComputeHash(Encoding.UTF8.GetBytes(sessionId));
-        return (uint)(
-            digest[0] |
-            digest[1] << 8 |
-            digest[2] << 16 |
-            digest[3] << 24);
-    }
+    private static Epoch Epoch(string sessionId) =>
+        new(sessionId, "unity.game", 1, 1, 1);
+
+    private static ActionOfferInput Offer(
+        string offerId,
+        string capabilityId,
+        string description,
+        DecisionWindow window) =>
+        HostActions.Offer(
+            offerId,
+            ActorId,
+            new CapabilityRef(capabilityId, "1"),
+            new string('a', 64),
+            description,
+            window);
 }

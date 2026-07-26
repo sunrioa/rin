@@ -2,7 +2,7 @@
 
 [简体中文](CHANGELOG.zh-CN.md) | [English](CHANGELOG.md)
 
-This changelog records repository-level changes. Rin `0.6.0` is a Preview
+This changelog records repository-level changes. Rin `0.7.0` is a Preview
 release: it is pre-1.0, and compatibility is documented rather than guaranteed
 across every future minor release.
 
@@ -21,6 +21,15 @@ across every future minor release.
 
 ### Changed
 
+- The wire contract is now `rin.protocol/v2`. Decision Windows, fully bound
+  Action Offers, Epochs, typed Invocation/Run/Outcome reports, and
+  `/v2/action/report[-batch]` replace v1 ActionSpec/Commit semantics.
+- The v1 wire, reducer compatibility branches, old recovery example, obsolete
+  semantic-baseline/migration documents, and compatibility aliases were
+  deleted. Development users must start a new lineage or use explicit
+  export/import.
+- Unity now exposes a compact `IRinUnityHost` boundary, preserves arbitrary
+  JSON arguments, and uses a durable Pending Turn plus exact report outbox.
 - Runtime/server code remains standard-library-only, while the separate Host
   Contract uses the maintained `santhosh-tekuri/jsonschema` validator. License
   metadata is recorded in `THIRD-PARTY-NOTICES.md`.
@@ -59,9 +68,8 @@ release checklist passes. See the [release guide](docs/release-guide.md).
   BepInEx Mono/IL2CPP, and Luanti projects, with vendored SDK sources, pinned
   dependencies, deterministic file hashes, Windows-safe paths, and no-overwrite
   output.
-- An OpenAPI 3.1 wire schema at [`api/openapi.json`](api/openapi.json), a
-  [compatibility matrix](docs/compatibility.md), and a
-  [v0.6 migration guide](docs/migration-v0.6.md).
+- An OpenAPI 3.1 wire schema at [`api/openapi.json`](api/openapi.json) and a
+  [compatibility matrix](docs/compatibility.md).
 - Bounded-frame NDJSON Session Transfer with immutable export boundaries,
   per-event and stream checksums, trusted Binding headers, same-root staged
   import, atomic publication, terminal error frames, and caller-owned

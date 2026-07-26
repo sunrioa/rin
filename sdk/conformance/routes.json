@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "release_version": "0.6.0",
+  "release_version": "0.7.0",
   "release_status": "preview",
-  "protocol_version": "rin.protocol/v1",
+  "protocol_version": "rin.protocol/v2",
   "operations": [
     {
       "name": "health",
@@ -28,175 +28,175 @@
     {
       "name": "diagnostics",
       "method": "GET",
-      "path": "/v1/diagnostics",
+      "path": "/v2/diagnostics",
       "status": 200,
       "profile": "operational"
     },
     {
       "name": "create_session",
       "method": "POST",
-      "path": "/v1/session/create",
+      "path": "/v2/session/create",
       "status": 200,
       "profile": "transport"
     },
     {
       "name": "observe",
       "method": "POST",
-      "path": "/v1/session/observe",
+      "path": "/v2/session/observe",
       "status": 200,
       "profile": "transport"
     },
     {
       "name": "propose",
       "method": "POST",
-      "path": "/v1/agent/propose",
+      "path": "/v2/agent/propose",
       "status": 200,
       "profile": "transport"
     },
     {
       "name": "submit_proposal_job",
       "method": "POST",
-      "path": "/v1/jobs/propose",
+      "path": "/v2/jobs/propose",
       "status": 202,
       "profile": "transport"
     },
     {
       "name": "get_proposal_job",
       "method": "GET",
-      "path": "/v1/jobs/{job_id}",
+      "path": "/v2/jobs/{job_id}",
       "status": 200,
       "profile": "transport"
     },
     {
       "name": "cancel_proposal_job",
       "method": "DELETE",
-      "path": "/v1/jobs/{job_id}",
+      "path": "/v2/jobs/{job_id}",
       "status": 200,
       "profile": "transport"
     },
     {
       "name": "submit_generation_job",
       "method": "POST",
-      "path": "/v1/generation/jobs",
+      "path": "/v2/generation/jobs",
       "status": 202,
       "profile": "transport"
     },
     {
       "name": "get_generation_job",
       "method": "GET",
-      "path": "/v1/generation/jobs/{job_id}",
+      "path": "/v2/generation/jobs/{job_id}",
       "status": 200,
       "profile": "transport"
     },
     {
       "name": "cancel_generation_job",
       "method": "DELETE",
-      "path": "/v1/generation/jobs/{job_id}",
-      "status": 200,
-      "profile": "transport"
-    },
-    {
-      "name": "commit",
-      "method": "POST",
-      "path": "/v1/action/commit",
-      "status": 200,
-      "profile": "transport"
-    },
-    {
-      "name": "commit_batch",
-      "method": "POST",
-      "path": "/v1/action/commit-batch",
+      "path": "/v2/generation/jobs/{job_id}",
       "status": 200,
       "profile": "transport"
     },
     {
       "name": "set_actor_activity",
       "method": "POST",
-      "path": "/v1/session/activity",
+      "path": "/v2/session/activity",
       "status": 200,
       "profile": "transport"
     },
     {
       "name": "arbitrate",
       "method": "POST",
-      "path": "/v1/world/arbitrate",
+      "path": "/v2/world/arbitrate",
       "status": 200,
       "profile": "transport"
     },
     {
       "name": "state",
       "method": "POST",
-      "path": "/v1/session/get",
+      "path": "/v2/session/get",
       "status": 200,
       "profile": "transport"
     },
     {
       "name": "session_stats",
       "method": "POST",
-      "path": "/v1/session/stats",
+      "path": "/v2/session/stats",
       "status": 200,
       "profile": "transport"
     },
     {
       "name": "archive_session",
       "method": "POST",
-      "path": "/v1/session/archive",
+      "path": "/v2/session/archive",
       "status": 200,
       "profile": "transport"
     },
     {
       "name": "delete_session",
       "method": "POST",
-      "path": "/v1/session/delete",
+      "path": "/v2/session/delete",
       "status": 200,
       "profile": "transport"
     },
     {
       "name": "snapshot",
       "method": "POST",
-      "path": "/v1/session/snapshot",
+      "path": "/v2/session/snapshot",
       "status": 200,
       "profile": "transport"
     },
     {
       "name": "restore",
       "method": "POST",
-      "path": "/v1/session/restore",
+      "path": "/v2/session/restore",
       "status": 200,
       "profile": "transport"
     },
     {
       "name": "export_session",
       "method": "POST",
-      "path": "/v1/session/export",
+      "path": "/v2/session/export",
       "status": 200,
       "profile": "streaming"
     },
     {
       "name": "import_session",
       "method": "POST",
-      "path": "/v1/session/import",
+      "path": "/v2/session/import",
       "status": 200,
       "profile": "streaming"
     },
     {
       "name": "timeline",
       "method": "POST",
-      "path": "/v1/session/timeline",
+      "path": "/v2/session/timeline",
       "status": 200,
       "profile": "transport"
     },
     {
       "name": "replay",
       "method": "POST",
-      "path": "/v1/session/replay",
+      "path": "/v2/session/replay",
       "status": 200,
       "profile": "transport"
     },
     {
       "name": "due_agents",
       "method": "POST",
-      "path": "/v1/scheduler/due",
+      "path": "/v2/scheduler/due",
+      "status": 200,
+      "profile": "transport"
+    },
+    {
+      "name": "report_action",
+      "method": "POST",
+      "path": "/v2/action/report",
+      "status": 200,
+      "profile": "transport"
+    },
+    {
+      "name": "report_action_batch",
+      "method": "POST",
+      "path": "/v2/action/report-batch",
       "status": 200,
       "profile": "transport"
     }

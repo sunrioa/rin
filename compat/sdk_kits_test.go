@@ -91,8 +91,8 @@ func TestReleaseDocumentationMatchesGeneratedIdentity(t *testing.T) {
 		"../SECURITY.md",
 		"../docs/compatibility.md",
 		"../docs/compatibility.zh-CN.md",
-		"../docs/protocol-v1.md",
-		"../docs/protocol-v1.zh-CN.md",
+		"../docs/protocol-v2.md",
+		"../docs/protocol-v2.zh-CN.md",
 		"../docs/release-guide.md",
 		"../docs/release-guide.zh-CN.md",
 	}
@@ -188,7 +188,6 @@ func TestClientDefaultResponseLimitsMatchInlineTransportBudget(t *testing.T) {
 		{"../examples/godot/rin_client.gd", "max_response_bytes := 33554432"},
 		{"../examples/unity/RinClient.cs", "maxResponseBytes = 32 * 1024 * 1024"},
 		{"../examples/mods/luanti-rin-npc/rin.lua", "DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024"},
-		{"../examples/recovery/main.go", "defaultMaxRinResponseBytes = 32 << 20"},
 	}
 	for _, test := range tests {
 		payload, err := os.ReadFile(test.path)
@@ -378,7 +377,7 @@ func TestExampleModsPreserveGameAuthority(t *testing.T) {
 		{
 			path: "../examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/RinNpcMod.java",
 			required: []string{
-				"ALLOWED_ACTIONS", "activePlayers", "WorkflowCoordinator",
+				"ALLOWED_OFFERS", "activePlayers", "WorkflowCoordinator",
 				"FabricServerTasks.call", "ProposalFreshness.evaluate",
 				"HostDurabilityProfile.ADVISORY", "RinNpcRequests",
 			},
@@ -391,9 +390,9 @@ func TestExampleModsPreserveGameAuthority(t *testing.T) {
 		{
 			path: "../examples/mods/bepinex-rin-npc/RinNpc.Core/RinNpcRuntime.cs",
 			required: []string{
-				"AllowedActions", "WorkflowCoordinator", "ProposalFreshness.Evaluate",
+				"AllowedOffers", "WorkflowCoordinator", "ProposalFreshness.Evaluate",
 				"host.ApplyDialogueAsync", "HostDurabilityProfile.Advisory",
-				"ApplyAndEnqueueOutcomeWithFallbackAsync",
+				"ApplyAndEnqueueOutcomeAsync",
 			},
 			forbidden: []string{
 				"Process.Start", ".Result", ".Wait()", "WaitForProposalAsync",
@@ -428,7 +427,7 @@ func TestExampleModsPreserveGameAuthority(t *testing.T) {
 			required: []string{
 				"function State:create_attempt", "function State:save_attempt",
 				"function State:complete_attempt", "function State:list_outcomes",
-				"function State:replace_outcome", "function State:acknowledge_outcome",
+				"function State:acknowledge_outcome",
 			},
 			forbidden: []string{"core."},
 		},

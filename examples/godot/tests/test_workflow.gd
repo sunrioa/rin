@@ -1,6 +1,7 @@
 extends SceneTree
 
 const WorkflowScript = preload("res://rin_workflow.gd")
+const ClientScript = preload("res://rin_client.gd")
 const SLOT := "test-workflow"
 const PATH := "user://rin/" + SLOT + ".json"
 
@@ -9,30 +10,27 @@ class FakeClient:
 	extends RefCounted
 
 	var known_jobs: Array[String] = []
-	var commits := 0
+	var reports := 0
 	var observes := 0
 
 	func observe(_request: Dictionary) -> Dictionary:
 		observes += 1
 		return {"ok": true, "data": {}}
 
-	func propose_with_fallback(
+	func propose(
 		request: Dictionary,
-		_fallback_action_id: String,
 		_cancel_check: Callable,
 		known_job_id: String,
 		persist_job_id: Callable,
-		_allow_offline_before_submit: bool,
 	) -> Dictionary:
 		known_jobs.append(known_job_id)
 		var job_id := known_job_id
 		if job_id.is_empty():
 			job_id = "job.fixture"
 			if not persist_job_id.call(job_id):
-				return {"fallback_reason": "job_id_persistence_failed"}
+				return {"error_code": "job_id_persistence_failed"}
 		return {
 			"source": "sidecar",
-			"committable": true,
 			"job_id": job_id,
 			"proposal": {
 				"id": "proposal.fixture",
@@ -44,22 +42,64 @@ class FakeClient:
 				"based_on_head_hash": "fixture-head",
 				"based_on_world_revision": 0,
 				"created_revision": 2,
-				"action": {"id": "talk", "kind": "dialogue"},
+				"action": {"offer_id": "offer.talk"},
 			},
 		}
 
-	func commit(_request: Dictionary) -> Dictionary:
-		commits += 1
-		return {"ok": false, "error_code": "unknown_proposal"}
+	func report_action(_request: Dictionary) -> Dictionary:
+		reports += 1
+		return {"ok": true, "data": {}}
 
 
 func _initialize() -> void:
+	var epoch := {
+		"session_id": "session.helper",
+		"world_id": "world.helper",
+		"host": 1,
+		"world": 2,
+		"timeline": 3,
+	}
+	var timepoint := {"clock": "event", "value": 8}
+	var window := {
+		"id": "window.helper",
+		"epoch": epoch,
+		"observation_seq": 7,
+		"deadline": timepoint,
+	}
+	var offer := ClientScript.action_offer({
+		"offer_id": "offer.helper",
+		"actor_id": "actor.helper",
+		"capability_id": "dialogue.say",
+		"descriptor_digest": "a".repeat(64),
+		"description": "Say one line",
+		"arguments": {"line": "hello"},
+	}, window)
+	var report := ClientScript.immediate_action_report({
+		"session_id": "session.helper",
+		"request_id": "report.helper",
+		"event_id": "event.helper",
+		"tick": 8,
+		"proposal": {"id": "proposal.helper", "action": offer},
+		"operation_id": "operation.helper",
+		"accepted": true,
+		"summary": "applied",
+		"epoch": epoch,
+		"world_seq": 8,
+		"occurred_at": timepoint,
+	})
+	_check(report["report"]["invocation"]["offer_id"] == "offer.helper",
+		"host action helper changed the selected offer")
+	_check(report["report"]["run"]["status"] == "succeeded",
+		"host action helper omitted the terminal run")
 	DirAccess.remove_absolute(PATH)
 	DirAccess.remove_absolute(PATH + ".tmp")
 	DirAccess.remove_absolute(PATH + ".bak")
 	var client := FakeClient.new()
 	var workflow := WorkflowScript.new()
-	_check(workflow.open(client, SLOT, _create_request), "fresh state did not open")
+	_check(
+		workflow.open(client, SLOT, _create_request),
+		"fresh state did not open: " + workflow.last_error,
+	)
 	var stable_session := workflow.session_id()
 	_check(DirAccess.rename_absolute(PATH, PATH + ".tmp") == OK,
 		"could not stage interrupted initialization")
@@ -90,17 +130,17 @@ func _initialize() -> void:
 		"actor_id": "actor.fixture",
 		"tick": tick + 1,
 	}
-	var attempt := workflow.begin(propose, observe, "wait")
+	var attempt := workflow.begin(propose, observe)
 	_check(not attempt.is_empty(), "Pending Turn was not persisted")
 	var result: Dictionary = await workflow.resume()
-	_check(result.get("committable", false), "Proposal did not resolve")
+	_check(result.get("proposal") is Dictionary, "Proposal did not resolve")
 	_check(workflow.current_attempt()["job_id"] == "job.fixture", "Job ID was not persisted")
 
 	var restarted := WorkflowScript.new()
 	_check(restarted.open(client, SLOT, _create_request), "restart state did not open")
 	_check(restarted.session_id() == stable_session, "Session identity changed after restart")
 	var resumed: Dictionary = await restarted.resume()
-	_check(resumed.get("committable", false), "retained Job did not resume")
+	_check(resumed.get("proposal") is Dictionary, "retained Job did not resume")
 	_check(client.known_jobs[-1] == "job.fixture", "restart resubmitted instead of using Job")
 	var proposal: Dictionary = resumed["proposal"]
 	var retained := proposal.duplicate(true)
@@ -111,31 +151,27 @@ func _initialize() -> void:
 		"proposals": {"proposal.fixture": retained},
 	}, proposal) == "fresh", "matching Proposal was marked stale")
 	var mismatched := retained.duplicate(true)
-	mismatched["action"] = {"id": "wait", "kind": "wait"}
+	mismatched["action"] = {"offer_id": "offer.wait"}
 	_check(WorkflowScript.proposal_freshness({
 		"revision": 2,
 		"world_revision": 0,
 		"proposals": {"proposal.fixture": mismatched},
 	}, proposal) == "stale", "mismatched retained Proposal was accepted")
 	var current := restarted.current_attempt()
-	var fallback := {
-		"session_id": stable_session,
-		"request_id": "fallback." + operation_id,
-		"event_id": "outcome." + operation_id,
-		"tick": tick + 2,
-	}
 	var outcome := {
 		"key": operation_id,
-		"kind": "commit",
+		"kind": "report",
 		"request": {
 			"session_id": stable_session,
-			"request_id": "commit." + operation_id,
-			"proposal_id": "proposal.fixture",
-			"event_id": "outcome." + operation_id,
+			"request_id": "report." + operation_id,
 			"tick": tick + 2,
-			"accepted": true,
+			"report": {
+				"proposal_id": "proposal.fixture",
+				"event_id": "outcome." + operation_id,
+				"decision": "rejected",
+				"summary": "host rejected the offer",
+			},
 		},
-		"fallback_observe": fallback,
 	}
 	var applied := {"count": 0}
 	_check(restarted.complete(current, outcome, func(_key: String) -> bool:
@@ -146,12 +182,12 @@ func _initialize() -> void:
 
 	var with_outbox := WorkflowScript.new()
 	_check(with_outbox.open(client, SLOT, _create_request), "outbox restart did not open")
-	_check(await with_outbox.drain_outbox(), "terminal fallback did not drain")
-	_check(client.commits == 1 and client.observes >= 3, "fallback report path was incomplete")
+	_check(await with_outbox.drain_outbox(), "report Outbox did not drain")
+	_check(client.reports == 1 and client.observes >= 2, "report path was incomplete")
 	var after_ack := WorkflowScript.new()
 	_check(after_ack.open(client, SLOT, _create_request), "ack restart did not open")
 	_check(await after_ack.drain_outbox(), "acknowledged Outbox reappeared")
-	_check(client.commits == 1, "acknowledged Commit was retried")
+	_check(client.reports == 1, "acknowledged report was retried")
 
 	var before_failed_begin := after_ack.next_operation_id()
 	var original_path: String = after_ack._path
@@ -170,7 +206,6 @@ func _initialize() -> void:
 			"event_id": "event." + before_failed_begin,
 			"tick": failed_tick,
 		},
-		"wait",
 	)
 	_check(failed.is_empty(), "failed file write published Pending Turn")
 	_check(after_ack.next_operation_id() == before_failed_begin, "failed write consumed sequence")

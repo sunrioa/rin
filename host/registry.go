@@ -129,29 +129,32 @@ func (registry *Registry) Snapshot() RegistrySnapshot {
 // ValidateOffer checks a game-authored offer against current host state.
 func (registry *Registry) ValidateOffer(
 	offer ActionOffer,
-	nowUnixMS int64,
+	now Timepoint,
 	currentEpoch Epoch,
 ) error {
-	_, err := registry.validateOffer(offer, nowUnixMS, currentEpoch)
+	_, err := registry.validateOffer(offer, now, currentEpoch)
 	return err
 }
 
 func (registry *Registry) validateOffer(
 	offer ActionOffer,
-	nowUnixMS int64,
+	now Timepoint,
 	currentEpoch Epoch,
 ) (registeredCapability, error) {
 	if err := ValidateActionOffer(offer); err != nil {
 		return registeredCapability{}, err
 	}
-	if nowUnixMS <= 0 {
-		return registeredCapability{}, invalid("now_unix_ms", "must be positive")
+	if err := now.Validate("now"); err != nil {
+		return registeredCapability{}, err
 	}
-	if nowUnixMS >= offer.ExpiresAtUnixMS {
-		return registeredCapability{}, invalid("expires_at_unix_ms", "offer has expired")
+	if now.Clock != offer.Deadline.Clock {
+		return registeredCapability{}, invalid("deadline.clock", "must match the current host clock")
 	}
-	if offer.Epoch != currentEpoch {
-		return registeredCapability{}, invalid("epoch", "offer belongs to a stale host epoch")
+	if now.Value >= offer.Deadline.Value {
+		return registeredCapability{}, invalid("deadline", "offer has expired")
+	}
+	if offer.ExpectedEpoch != currentEpoch {
+		return registeredCapability{}, invalid("expected_epoch", "offer belongs to a stale host epoch")
 	}
 	registered, err := registry.lookupForExecution(
 		offer.Capability,
@@ -177,36 +180,51 @@ func (registry *Registry) validateOffer(
 func (registry *Registry) NewInvocation(
 	offer ActionOffer,
 	operationID string,
-	nowUnixMS int64,
-	deadlineUnixMS int64,
+	now Timepoint,
+	deadline Timepoint,
 	currentEpoch Epoch,
 ) (ActionInvocation, error) {
-	registered, err := registry.validateOffer(offer, nowUnixMS, currentEpoch)
+	registered, err := registry.validateOffer(offer, now, currentEpoch)
 	if err != nil {
 		return ActionInvocation{}, err
 	}
 	if err := validateHostID("operation_id", operationID, false); err != nil {
 		return ActionInvocation{}, err
 	}
-	latestDeadline := nowUnixMS + int64(registered.descriptor.TimeoutMS)
-	if deadlineUnixMS <= nowUnixMS || deadlineUnixMS > latestDeadline ||
-		deadlineUnixMS > offer.ExpiresAtUnixMS {
+	if err := deadline.Validate("deadline"); err != nil {
+		return ActionInvocation{}, err
+	}
+	if deadline.Clock != now.Clock ||
+		registered.descriptor.ExecutionBudget.Clock != now.Clock {
 		return ActionInvocation{}, invalid(
-			"deadline_unix_ms",
-			"must be after now and within capability timeout and offer expiry",
+			"deadline.clock",
+			"must match the current host clock and capability execution budget",
+		)
+	}
+	budget := int64(registered.descriptor.ExecutionBudget.Value)
+	if now.Value > maxInteroperableInteger-budget {
+		return ActionInvocation{}, invalid("now.value", "cannot add execution budget safely")
+	}
+	latestDeadline := now.Value + budget
+	if deadline.Value <= now.Value || deadline.Value > latestDeadline ||
+		deadline.Value > offer.Deadline.Value {
+		return ActionInvocation{}, invalid(
+			"deadline",
+			"must be after now and within the capability budget and offer deadline",
 		)
 	}
 	invocation := ActionInvocation{
 		OperationID:      operationID,
 		OfferID:          offer.OfferID,
+		DecisionWindowID: offer.DecisionWindowID,
 		ActorID:          offer.ActorID,
 		Capability:       offer.Capability,
 		DescriptorDigest: offer.DescriptorDigest,
 		Arguments:        append([]byte(nil), offer.Arguments...),
 		Targets:          cloneRefs(offer.Targets),
-		ExpectedEpoch:    offer.Epoch,
+		ExpectedEpoch:    offer.ExpectedEpoch,
 		ObservationSeq:   offer.ObservationSeq,
-		DeadlineUnixMS:   deadlineUnixMS,
+		Deadline:         deadline,
 	}
 	return invocation, nil
 }
@@ -215,17 +233,20 @@ func (registry *Registry) NewInvocation(
 // an adapter dispatches onto the authority thread.
 func (registry *Registry) AuthorizeInvocation(
 	invocation ActionInvocation,
-	nowUnixMS int64,
+	now Timepoint,
 	currentEpoch Epoch,
 ) error {
 	if err := ValidateActionInvocation(invocation); err != nil {
 		return err
 	}
-	if nowUnixMS <= 0 {
-		return invalid("now_unix_ms", "must be positive")
+	if err := now.Validate("now"); err != nil {
+		return err
 	}
-	if nowUnixMS >= invocation.DeadlineUnixMS {
-		return invalid("deadline_unix_ms", "invocation has expired")
+	if now.Clock != invocation.Deadline.Clock {
+		return invalid("deadline.clock", "must match the current host clock")
+	}
+	if now.Value >= invocation.Deadline.Value {
+		return invalid("deadline", "invocation has expired")
 	}
 	if invocation.ExpectedEpoch != currentEpoch {
 		return invalid("expected_epoch", "invocation belongs to a stale host epoch")

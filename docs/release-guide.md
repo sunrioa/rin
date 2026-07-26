@@ -2,14 +2,14 @@
 
 [English](release-guide.md) | [简体中文](release-guide.zh-CN.md)
 
-Rin `0.6.0` is a Preview, pre-1.0 release. This checklist creates `v0.6.0`
+Rin `0.7.0` is a Preview, pre-1.0 release. This checklist creates `v0.7.0`
 only from the exact main-branch commit that passed verification. It does not
 promise registry packages or binary artifacts.
 
 ## Release invariants
 
 - `api/openapi.json` is the single wire-schema source and identifies version
-  `0.6.0`, protocol `rin.protocol/v1`, and Preview status.
+  `0.7.0`, protocol `rin.protocol/v2`, and Preview status.
 - README, Changelog, compatibility matrix, migration guide, Roadmap, Security,
   and Protocol use the same release status.
 - The tag points to a commit already present on the remote main branch.
@@ -30,12 +30,12 @@ python3 -m unittest discover -s adapters/renpy -p 'test_*.py'
 make test-sdks
 make test-terminal-story
 CGO_ENABLED=0 go build -trimpath ./cmd/rin
-python3 tools/generate_contract.py --check --tag v0.6.0
-make build VERSION=0.6.0
+python3 tools/generate_contract.py --check --tag v0.7.0
+make build VERSION=0.7.0
 ./bin/rin version
 ```
 
-The last command must print `0.6.0`. Also verify:
+The last command must print `0.7.0`. Also verify:
 
 - every local Markdown link resolves;
 - `api/openapi.json` parses as JSON and contains the same 28 route operations as
@@ -65,15 +65,15 @@ checks pass:
 ```bash
 git switch main
 git pull --ff-only origin main
-git tag -a v0.6.0 -m "Rin v0.6.0 Preview"
-git push origin v0.6.0
+git tag -a v0.7.0 -m "Rin v0.7.0 Preview"
+git push origin v0.7.0
 ```
 
 Before pushing the tag, inspect it:
 
 ```bash
-git show --stat --oneline v0.6.0
-git rev-parse v0.6.0^{}
+git show --stat --oneline v0.7.0
+git rev-parse v0.7.0^{}
 git rev-parse origin/main
 ```
 
@@ -81,7 +81,7 @@ The peeled tag commit and intended `origin/main` commit must match.
 
 ## Release notes
 
-Use the `0.6.0` section of the [Changelog](../CHANGELOG.md). Keep the word
+Use the `0.7.0` section of the [Changelog](../CHANGELOG.md). Keep the word
 “Preview” in the title and include:
 
 - the exact tag and commit;
@@ -103,6 +103,6 @@ repository does not currently claim an automated binary-release pipeline.
 
 ## After release
 
-Verify that a fresh clone can check out `v0.6.0`, run `go test ./...`, and build
-the CLI with `VERSION=0.6.0`. Do not change the existing tag if a defect is
+Verify that a fresh clone can check out `v0.7.0`, run `go test ./...`, and build
+the CLI with `VERSION=0.7.0`. Do not change the existing tag if a defect is
 found; document it and prepare a new patch release.

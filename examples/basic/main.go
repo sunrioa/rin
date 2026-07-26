@@ -77,7 +77,6 @@ func runQuickstart(client *quickClient, output io.Writer, unique int64) error {
 			ContentVersion: "1",
 			ContentHash:    "quickstart-only",
 		},
-		Features: []string{protocol.FeatureOutcomeReporting},
 		Actors: []protocol.ActorSeed{{
 			ID:              "npc.mira",
 			Kind:            "npc",
@@ -87,7 +86,7 @@ func runQuickstart(client *quickClient, output io.Writer, unique int64) error {
 		}},
 	}
 	var created protocol.MutationResult
-	if err := client.post("/v1/session/create", create, &created); err != nil {
+	if err := client.post("/v2/session/create", create, &created); err != nil {
 		return fmt.Errorf("create Session: %w", err)
 	}
 
@@ -102,9 +101,17 @@ func runQuickstart(client *quickClient, output io.Writer, unique int64) error {
 		Kind:            "dialogue",
 		Summary:         "The player greeted Mira.",
 		Importance:      2,
+		Epoch: protocol.Epoch{
+			SessionID: sessionID,
+			WorldID:   "world.quickstart",
+			Host:      1,
+			World:     1,
+			Timeline:  1,
+		},
+		ObservationSeq: 1,
 	}
 	var observed protocol.MutationResult
-	if err := client.post("/v1/session/observe", observe, &observed); err != nil {
+	if err := client.post("/v2/session/observe", observe, &observed); err != nil {
 		return fmt.Errorf("observe event: %w", err)
 	}
 	_, err := fmt.Fprintf(

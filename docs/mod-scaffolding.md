@@ -4,7 +4,7 @@
 
 `rin init mod` creates a self-contained starting project for one supported game
 host. It removes mechanical SDK vendoring and manifest wiring; it does not
-guess game-specific save, thread, or world-mutation APIs. Rin `0.6.0` and the
+guess game-specific save, thread, or world-mutation APIs. Rin `0.7.0` and the
 generated projects are Preview software, and every generated integration starts
 with the `advisory` host durability profile.
 

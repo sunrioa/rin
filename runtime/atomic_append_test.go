@@ -29,19 +29,16 @@ func TestCommitAppendFailureDoesNotMutateLiveStateAndRetryReplays(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       sessionID,
-		RequestID:       "commit.atomic-commit",
-		ProposalID:      proposal.ID,
-		EventID:         "event.atomic-commit",
-		Tick:            proposal.Tick,
-		Accepted:        true,
-		Outcome:         "The game applied the action before reporting it.",
-	}
+	request := successfulReportRequest(
+		proposal,
+		"report.atomic-commit",
+		"event.atomic-commit",
+		proposal.Tick,
+		"The game applied the action before reporting it.",
+	)
 
 	eventStore.failNextAppend()
-	if _, err := engine.Commit(request); !errors.Is(err, errInjectedAppend) || rinruntime.ErrorCode(err) != "store_append_failed" {
+	if _, err := engine.ReportAction(request); !errors.Is(err, errInjectedAppend) || rinruntime.ErrorCode(err) != "store_append_failed" {
 		t.Fatalf("expected injected store_append_failed, got %v", err)
 	}
 	afterFailure, err := engine.State(sessionRequest(sessionID))
@@ -52,16 +49,16 @@ func TestCommitAppendFailureDoesNotMutateLiveStateAndRetryReplays(t *testing.T) 
 		t.Fatalf("failed append mutated live state:\nbefore=%+v\nafter=%+v", before, afterFailure)
 	}
 
-	result, err := engine.Commit(request)
+	result, err := engine.ReportAction(request)
 	if err != nil {
 		t.Fatalf("same request id should retry after an unpersisted failure: %v", err)
 	}
 	if result.Duplicate {
 		t.Fatalf("retry of an unpersisted request was incorrectly reported as duplicate: %+v", result)
 	}
-	assertAcceptedOutcomeOnce(t, engine, sessionID, proposal.ActorID, proposal.ID, request.EventID)
+	assertAcceptedOutcomeOnce(t, engine, sessionID, proposal.ActorID, proposal.ID, request.Report.EventID)
 
-	repeated, err := engine.Commit(request)
+	repeated, err := engine.ReportAction(request)
 	if err != nil {
 		t.Fatalf("persisted request should be idempotent: %v", err)
 	}
@@ -70,7 +67,7 @@ func TestCommitAppendFailureDoesNotMutateLiveStateAndRetryReplays(t *testing.T) 
 	}
 
 	reopened := newEngine(t, eventStore, policy.Deterministic{})
-	assertAcceptedOutcomeOnce(t, reopened, sessionID, proposal.ActorID, proposal.ID, request.EventID)
+	assertAcceptedOutcomeOnce(t, reopened, sessionID, proposal.ActorID, proposal.ID, request.Report.EventID)
 	replayed, err := reopened.State(sessionRequest(sessionID))
 	if err != nil {
 		t.Fatal(err)
@@ -100,29 +97,33 @@ func TestBatchCommitAppendFailureDoesNotMutateLiveStateAndRetryReplays(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := protocol.BatchCommitRequest{
+	miraReport := successfulReportRequest(
+		mira,
+		"report.atomic-mira",
+		"event.atomic-mira",
+		mira.Tick,
+		"Mira completed the coordinated action.",
+	)
+	orenReport := successfulReportRequest(
+		oren,
+		"report.atomic-oren",
+		"event.atomic-oren",
+		oren.Tick,
+		"Oren completed the coordinated action.",
+	)
+	request := protocol.BatchActionReportRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       create.SessionID,
-		RequestID:       "commit.atomic-batch",
+		RequestID:       "report.atomic-batch",
 		Tick:            mira.Tick,
-		Items: []protocol.CommitItem{
-			{
-				ProposalID: mira.ID,
-				EventID:    "event.atomic-mira",
-				Accepted:   true,
-				Outcome:    "Mira completed the coordinated action.",
-			},
-			{
-				ProposalID: oren.ID,
-				EventID:    "event.atomic-oren",
-				Accepted:   true,
-				Outcome:    "Oren completed the coordinated action.",
-			},
+		Reports: []protocol.ActionReport{
+			miraReport.Report,
+			orenReport.Report,
 		},
 	}
 
 	eventStore.failNextAppend()
-	if _, err := engine.CommitBatch(request); !errors.Is(err, errInjectedAppend) || rinruntime.ErrorCode(err) != "store_append_failed" {
+	if _, err := engine.ReportActionBatch(request); !errors.Is(err, errInjectedAppend) || rinruntime.ErrorCode(err) != "store_append_failed" {
 		t.Fatalf("expected injected store_append_failed, got %v", err)
 	}
 	afterFailure, err := engine.State(sessionRequest(create.SessionID))
@@ -133,17 +134,17 @@ func TestBatchCommitAppendFailureDoesNotMutateLiveStateAndRetryReplays(t *testin
 		t.Fatalf("failed batch append mutated live state:\nbefore=%+v\nafter=%+v", before, afterFailure)
 	}
 
-	result, err := engine.CommitBatch(request)
+	result, err := engine.ReportActionBatch(request)
 	if err != nil {
 		t.Fatalf("same batch request id should retry after an unpersisted failure: %v", err)
 	}
 	if result.Duplicate {
 		t.Fatalf("retry of an unpersisted batch was incorrectly reported as duplicate: %+v", result)
 	}
-	assertAcceptedOutcomeOnce(t, engine, create.SessionID, mira.ActorID, mira.ID, request.Items[0].EventID)
-	assertAcceptedOutcomeOnce(t, engine, create.SessionID, oren.ActorID, oren.ID, request.Items[1].EventID)
+	assertAcceptedOutcomeOnce(t, engine, create.SessionID, mira.ActorID, mira.ID, request.Reports[0].EventID)
+	assertAcceptedOutcomeOnce(t, engine, create.SessionID, oren.ActorID, oren.ID, request.Reports[1].EventID)
 
-	repeated, err := engine.CommitBatch(request)
+	repeated, err := engine.ReportActionBatch(request)
 	if err != nil {
 		t.Fatalf("persisted batch should be idempotent: %v", err)
 	}
@@ -152,8 +153,8 @@ func TestBatchCommitAppendFailureDoesNotMutateLiveStateAndRetryReplays(t *testin
 	}
 
 	reopened := newEngine(t, eventStore, policy.Deterministic{})
-	assertAcceptedOutcomeOnce(t, reopened, create.SessionID, mira.ActorID, mira.ID, request.Items[0].EventID)
-	assertAcceptedOutcomeOnce(t, reopened, create.SessionID, oren.ActorID, oren.ID, request.Items[1].EventID)
+	assertAcceptedOutcomeOnce(t, reopened, create.SessionID, mira.ActorID, mira.ID, request.Reports[0].EventID)
+	assertAcceptedOutcomeOnce(t, reopened, create.SessionID, oren.ActorID, oren.ID, request.Reports[1].EventID)
 	replayed, err := reopened.State(sessionRequest(create.SessionID))
 	if err != nil {
 		t.Fatal(err)
@@ -177,19 +178,16 @@ func TestCommitReconcilesPostWriteAppendErrorWithoutDuplicateLogEntry(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       sessionID,
-		RequestID:       "commit.atomic-post-write",
-		ProposalID:      proposal.ID,
-		EventID:         "event.atomic-post-write",
-		Tick:            0,
-		Accepted:        true,
-		Outcome:         "The game already applied this action.",
-	}
+	request := successfulReportRequest(
+		proposal,
+		"report.atomic-post-write",
+		"event.atomic-post-write",
+		0,
+		"The game already applied this action.",
+	)
 
 	eventStore.failAfterNextAppend()
-	result, err := engine.Commit(request)
+	result, err := engine.ReportAction(request)
 	if err != nil {
 		t.Fatalf("engine should reconcile an exact event written before an append error: %v", err)
 	}
@@ -206,10 +204,10 @@ func TestCommitReconcilesPostWriteAppendErrorWithoutDuplicateLogEntry(t *testing
 	if len(events) != 3 {
 		t.Fatalf("post-write reconciliation appended %d log events, want 3", len(events))
 	}
-	assertAcceptedOutcomeOnce(t, engine, sessionID, proposal.ActorID, proposal.ID, request.EventID)
+	assertAcceptedOutcomeOnce(t, engine, sessionID, proposal.ActorID, proposal.ID, request.Report.EventID)
 
 	reopened := newEngine(t, eventStore, policy.Deterministic{})
-	assertAcceptedOutcomeOnce(t, reopened, sessionID, proposal.ActorID, proposal.ID, request.EventID)
+	assertAcceptedOutcomeOnce(t, reopened, sessionID, proposal.ActorID, proposal.ID, request.Report.EventID)
 }
 
 func TestAppendReconciliationNeverPublishesUnverifiedLoadedEvent(t *testing.T) {
@@ -273,19 +271,16 @@ func TestCommitRecoversWhenPostWriteConfirmationInitiallyFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       sessionID,
-		RequestID:       "commit.atomic-confirmation",
-		ProposalID:      proposal.ID,
-		EventID:         "event.atomic-confirmation",
-		Tick:            0,
-		Accepted:        true,
-		Outcome:         "The game already applied this action.",
-	}
+	request := successfulReportRequest(
+		proposal,
+		"report.atomic-confirmation",
+		"event.atomic-confirmation",
+		0,
+		"The game already applied this action.",
+	)
 
 	eventStore.failPostWriteAndConfirmation()
-	if _, err := engine.Commit(request); !errors.Is(err, errInjectedAppend) ||
+	if _, err := engine.ReportAction(request); !errors.Is(err, errInjectedAppend) ||
 		rinruntime.ErrorCode(err) != "mutation_outcome_unknown" {
 		t.Fatalf("failed durability confirmation should be reported: %v", err)
 	}
@@ -301,9 +296,9 @@ func TestCommitRecoversWhenPostWriteConfirmationInitiallyFails(t *testing.T) {
 	}
 
 	altered := request
-	altered.Outcome = "A different payload must not claim the persisted request."
+	altered.Report.Summary = "A different payload must not claim the persisted request."
 	eventStore.forceNextAppendConflict()
-	if _, err := engine.Commit(altered); err == nil ||
+	if _, err := engine.ReportAction(altered); err == nil ||
 		rinruntime.ErrorCode(err) != "request_id_conflict" {
 		t.Fatalf("altered same-ID retry must not reconcile the persisted event: %v", err)
 	}
@@ -323,13 +318,13 @@ func TestCommitRecoversWhenPostWriteConfirmationInitiallyFails(t *testing.T) {
 	}
 
 	eventStore.forceNextAppendConflict()
-	if _, err := engine.Commit(request); err != nil {
+	if _, err := engine.ReportAction(request); err != nil {
 		t.Fatalf("client retry should reconcile the previously persisted logical event: %v", err)
 	}
 	if calls := eventStore.appendCallCount(); calls != 4 {
 		t.Fatalf("logical reconciliation used %d append calls, want 4", calls)
 	}
-	assertAcceptedOutcomeOnce(t, engine, sessionID, proposal.ActorID, proposal.ID, request.EventID)
+	assertAcceptedOutcomeOnce(t, engine, sessionID, proposal.ActorID, proposal.ID, request.Report.EventID)
 	events, err = eventStore.Load(sessionID)
 	if err != nil {
 		t.Fatal(err)
@@ -338,7 +333,7 @@ func TestCommitRecoversWhenPostWriteConfirmationInitiallyFails(t *testing.T) {
 		t.Fatalf("confirmation recovery left %d events, want 3", len(events))
 	}
 	reopened := newEngine(t, eventStore, policy.Deterministic{})
-	assertAcceptedOutcomeOnce(t, reopened, sessionID, proposal.ActorID, proposal.ID, request.EventID)
+	assertAcceptedOutcomeOnce(t, reopened, sessionID, proposal.ActorID, proposal.ID, request.Report.EventID)
 }
 
 func TestProposeReportsUnknownAndSameRequestRecoversAfterConfirmationFailure(t *testing.T) {
@@ -443,7 +438,7 @@ func TestProposalReconciliationFailureIsOutcomeUnknownAndRetryable(t *testing.T)
 	if duplicate || proposal.RequestID != request.RequestID {
 		t.Fatalf("unexpected reconciled Proposal: %+v duplicate=%v", proposal, duplicate)
 	}
-	if proposal.Action.ID != "talk" || changingPolicy.callCount() != 1 {
+	if proposal.Action.OfferID != "talk" || changingPolicy.callCount() != 1 {
 		t.Fatalf(
 			"retry reran the non-deterministic policy: proposal=%+v calls=%d",
 			proposal,
@@ -1210,7 +1205,7 @@ func (p *changingAtomicPolicy) Propose(
 		actionID = "wait"
 	}
 	return rinruntime.ProposalDraft{
-		ActionID:  actionID,
+		OfferID:   actionID,
 		Stance:    "engage",
 		Summary:   "A deliberately changing policy result.",
 		Rationale: "Used to prove an uncertain append retry does not invoke policy twice.",

@@ -21,7 +21,7 @@ Windows PowerShell or Command Prompt:
 gradlew.bat clean build
 ```
 
-Copy `build/libs/rin-fabric-npc-0.6.0.jar` plus the matching Fabric API JAR to
+Copy `build/libs/rin-fabric-npc-0.7.0.jar` plus the matching Fabric API JAR to
 the dedicated server's `mods` directory. Start Rin, optionally set `RIN_URL`
 and `RIN_TOKEN` in the server process environment, then run `/rin-npc ask` as
 a player. The Mod JAR includes the Rin Java client classes; do not install a
@@ -33,9 +33,8 @@ second SDK JAR.
 generated world UUID, stable sequence, exact Create/Observe/Propose requests,
 Pending Turn/Job identity, and a bounded Outcome Outbox in overworld Saved
 Data. Restarting the same save resumes retained work instead of creating a new
-Session. Each Outbox entry retains the exact Commit and a pre-recorded
-absolute-fact Observe fallback. Only explicit terminal Commit errors permit
-that persisted conversion.
+Session. Each Outbox entry retains the exact Action Report until Rin
+acknowledges it; reports are never converted into Observations.
 
 `PersistentState.markDirty()` schedules a later save; it is not a synchronous
 durable-before-network barrier and cannot atomically combine a game mutation
@@ -52,7 +51,7 @@ only a local allowlisted action ID; model text never becomes a command, item
 ID, reflection target, or world edit. Minecraft access and Saved Data mutation
 are marshalled through `MinecraftServer.execute`.
 
-The host orchestration entry is 250 lines (down from 1,046). Authored protocol
+The host orchestration entry is under 160 lines (down from 1,046). Authored protocol
 payloads, Saved Data, the `WorkflowStore`, and server-thread dispatch are
 separate bounded classes, so a game author can review or replace each boundary
 without copying the SDK state machine.

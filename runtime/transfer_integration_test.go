@@ -374,6 +374,14 @@ func observeTransferSession(
 		Kind:            "world",
 		Summary:         "Transfer boundary event.",
 		Importance:      2,
+		Epoch: protocol.Epoch{
+			SessionID: sessionID,
+			WorldID:   "world.transfer",
+			Host:      1,
+			World:     1,
+			Timeline:  1,
+		},
+		ObservationSeq: uint64(revision),
 	})
 	if err != nil {
 		t.Fatal(err)

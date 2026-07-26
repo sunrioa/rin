@@ -60,6 +60,10 @@ func TestFileStoreReplaysAndDetectsTamper(t *testing.T) {
 		Kind:            "world",
 		Summary:         "A bell rang.",
 		Importance:      2,
+		Epoch: protocol.Epoch{
+			SessionID: request.SessionID, WorldID: "world.store", Host: 1, World: 1, Timeline: 1,
+		},
+		ObservationSeq: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -126,6 +130,10 @@ func TestFileStoreAppendIsIdempotentAndChecksExpectedHead(t *testing.T) {
 		Kind:            "world",
 		Summary:         "A durable bell rang.",
 		Importance:      2,
+		Epoch: protocol.Epoch{
+			SessionID: request.SessionID, WorldID: "world.store", Host: 1, World: 1, Timeline: 1,
+		},
+		ObservationSeq: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}

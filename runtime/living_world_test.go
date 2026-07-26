@@ -12,7 +12,7 @@ import (
 	"github.com/sunrioa/rin/store"
 )
 
-func TestCandidateGoalIsAdoptedOnlyAfterAcceptedCommit(t *testing.T) {
+func TestCandidateGoalIsAdoptedOnlyAfterSucceededAction(t *testing.T) {
 	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
 	create := createRequest("session.goals")
 	create.Features = append(create.Features, protocol.FeatureGoalCandidates)
@@ -32,10 +32,9 @@ func TestCandidateGoalIsAdoptedOnlyAfterAcceptedCommit(t *testing.T) {
 	if rejected.GoalID != candidate.ID || rejected.ProposedGoal == nil {
 		t.Fatalf("candidate goal was not represented in the proposal: %+v", rejected)
 	}
-	if _, err := engine.Commit(protocol.CommitRequest{
-		ProtocolVersion: protocol.Version, SessionID: create.SessionID, RequestID: "commit.goal-rejected",
-		ProposalID: rejected.ID, EventID: "event.goal-rejected", Tick: 0, Accepted: false,
-	}); err != nil {
+	if _, err := engine.ReportAction(rejectedReportRequest(
+		rejected, "report.goal-rejected", "event.goal-rejected", 0, "The host rejected the action.",
+	)); err != nil {
 		t.Fatal(err)
 	}
 	state, _ := engine.State(sessionRequest(create.SessionID))
@@ -48,11 +47,13 @@ func TestCandidateGoalIsAdoptedOnlyAfterAcceptedCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := engine.Commit(protocol.CommitRequest{
-		ProtocolVersion: protocol.Version, SessionID: create.SessionID, RequestID: "commit.goal-accepted",
-		ProposalID: accepted.ID, EventID: "event.goal-accepted", Tick: 0, Accepted: true,
-		Outcome: "Mira decided to ask how they could repair the camera together.",
-	}); err != nil {
+	if _, err := engine.ReportAction(successfulReportRequest(
+		accepted,
+		"report.goal-accepted",
+		"event.goal-accepted",
+		0,
+		"Mira decided to ask how they could repair the camera together.",
+	)); err != nil {
 		t.Fatal(err)
 	}
 	state, _ = engine.State(sessionRequest(create.SessionID))
@@ -103,7 +104,7 @@ func TestDormantActorIsExcludedUntilGameWakesIt(t *testing.T) {
 	}
 }
 
-func TestArbitrationIsDeterministicAndBatchCommitIsAtomic(t *testing.T) {
+func TestArbitrationIsDeterministicAndBatchReportIsAtomic(t *testing.T) {
 	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
 	create := twoActorWorldRequest("session.arbitration")
 	if _, err := engine.CreateSession(create); err != nil {
@@ -144,12 +145,11 @@ func TestArbitrationIsDeterministicAndBatchCommitIsAtomic(t *testing.T) {
 		t.Fatalf("unexpected arbitration decisions: %+v", first.Decisions)
 	}
 
-	result, err := engine.CommitBatch(protocol.BatchCommitRequest{
-		ProtocolVersion: protocol.Version, SessionID: create.SessionID, RequestID: "commit.batch", Tick: 0,
-		Items: []protocol.CommitItem{
-			{ProposalID: mira.ID, EventID: "event.mira", Accepted: true, Outcome: "Mira reached the camera first."},
-			{ProposalID: oren.ID, EventID: "event.oren", Accepted: false},
-		},
+	miraReport := successfulReportRequest(mira, "unused", "event.mira", 0, "Mira reached the camera first.").Report
+	orenReport := rejectedReportRequest(oren, "unused", "event.oren", 0, "Oren yielded after arbitration.").Report
+	result, err := engine.ReportActionBatch(protocol.BatchActionReportRequest{
+		ProtocolVersion: protocol.Version, SessionID: create.SessionID, RequestID: "report.batch", Tick: 0,
+		Reports: []protocol.ActionReport{miraReport, orenReport},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -170,7 +170,7 @@ func TestArbitrationIsDeterministicAndBatchCommitIsAtomic(t *testing.T) {
 	}
 }
 
-func TestBatchCommitReportsOutcomeAfterWorldAdvances(t *testing.T) {
+func TestBatchReportRecordsOutcomeAfterWorldAdvances(t *testing.T) {
 	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
 	create := twoActorWorldRequest("session.batch-late")
 	if _, err := engine.CreateSession(create); err != nil {
@@ -183,9 +183,10 @@ func TestBatchCommitReportsOutcomeAfterWorldAdvances(t *testing.T) {
 	if _, err := engine.Observe(observeRequest(create.SessionID, "observe.change", "event.change", 5)); err != nil {
 		t.Fatal(err)
 	}
-	result, err := engine.CommitBatch(protocol.BatchCommitRequest{
-		ProtocolVersion: protocol.Version, SessionID: create.SessionID, RequestID: "commit.late-batch", Tick: 0,
-		Items: []protocol.CommitItem{{ProposalID: proposal.ID, EventID: "event.late-outcome", Accepted: true, Outcome: "The game already applied this outcome."}},
+	report := successfulReportRequest(proposal, "unused", "event.late-outcome", 0, "The game already applied this outcome.").Report
+	result, err := engine.ReportActionBatch(protocol.BatchActionReportRequest{
+		ProtocolVersion: protocol.Version, SessionID: create.SessionID, RequestID: "report.late-batch", Tick: 0,
+		Reports: []protocol.ActionReport{report},
 	})
 	if err != nil {
 		t.Fatalf("late batch outcome should be recorded: %v", err)
@@ -206,7 +207,7 @@ func TestBatchCommitReportsOutcomeAfterWorldAdvances(t *testing.T) {
 	}
 }
 
-func TestBatchCommitRejectsMixedProposalBasesAtomically(t *testing.T) {
+func TestBatchReportRejectsMixedProposalBasesAtomically(t *testing.T) {
 	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
 	create := twoActorWorldRequest("session.batch-mixed-base")
 	if _, err := engine.CreateSession(create); err != nil {
@@ -224,15 +225,14 @@ func TestBatchCommitRejectsMixedProposalBasesAtomically(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, _ := engine.State(sessionRequest(create.SessionID))
-	_, err = engine.CommitBatch(protocol.BatchCommitRequest{
-		ProtocolVersion: protocol.Version, SessionID: create.SessionID, RequestID: "commit.mixed-base", Tick: 0,
-		Items: []protocol.CommitItem{
-			{ProposalID: mira.ID, EventID: "event.mira.mixed", Accepted: true, Outcome: "Mira outcome."},
-			{ProposalID: oren.ID, EventID: "event.oren.mixed", Accepted: true, Outcome: "Oren outcome."},
-		},
+	miraReport := successfulReportRequest(mira, "unused", "event.mira.mixed", 0, "Mira outcome.").Report
+	orenReport := successfulReportRequest(oren, "unused", "event.oren.mixed", 0, "Oren outcome.").Report
+	_, err = engine.ReportActionBatch(protocol.BatchActionReportRequest{
+		ProtocolVersion: protocol.Version, SessionID: create.SessionID, RequestID: "report.mixed-base", Tick: 0,
+		Reports: []protocol.ActionReport{miraReport, orenReport},
 	})
-	if !errors.Is(err, rinruntime.ErrConflict) || rinruntime.ErrorCode(err) != "proposal_base_mismatch" {
-		t.Fatalf("expected proposal_base_mismatch, got %v", err)
+	if !errors.Is(err, rinruntime.ErrConflict) || rinruntime.ErrorCode(err) != "batch_context_mismatch" {
+		t.Fatalf("expected batch_context_mismatch, got %s: %v", rinruntime.ErrorCode(err), err)
 	}
 	after, _ := engine.State(sessionRequest(create.SessionID))
 	if !reflect.DeepEqual(before, after) {
@@ -257,10 +257,16 @@ func twoActorWorldRequest(sessionID string) protocol.CreateSessionRequest {
 func targetedProposalRequest(sessionID, requestID, actorID string) protocol.ProposeRequest {
 	request := proposeRequest(sessionID, requestID, 0, nil)
 	request.ActorID = actorID
-	request.CandidateActions = []protocol.ActionSpec{
-		{ID: "talk", Kind: "dialogue", Description: "inspect the camera", TargetIDs: []string{"object.camera"}},
-		{ID: "wait", Kind: "wait", Description: "wait"},
+	request.DecisionWindow.ID = "window.simultaneous.0"
+	request.DecisionWindow.Mode = "simultaneous"
+	request.DecisionWindow.ActorIDs = []string{"npc.mira", "npc.oren"}
+	request.Offers = []protocol.ActionOffer{
+		testOffer(request.DecisionWindow, actorID, "talk", "inspect the camera"),
+		testOffer(request.DecisionWindow, actorID, "wait", "wait"),
 	}
+	request.Offers[0].Targets = []protocol.HostRef{{
+		Namespace: "rin.test", Type: "object", Key: "object.camera", Epoch: request.DecisionWindow.Epoch,
+	}}
 	return request
 }
 

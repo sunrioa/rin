@@ -60,7 +60,7 @@ func TestSidecarProcessPersistsAndReleasesDataDirectoryLock(t *testing.T) {
 			ThinkEveryTicks: 1, Enabled: true,
 		}},
 	}
-	postSidecarJSON(t, address, "/v1/session/create", create)
+	postSidecarJSON(t, address, "/v2/session/create", create)
 
 	second := exec.Command(os.Args[0], "-test.run=^TestSidecarProcessPersistsAndReleasesDataDirectoryLock$")
 	second.Env = append(
@@ -82,7 +82,7 @@ func TestSidecarProcessPersistsAndReleasesDataDirectoryLock(t *testing.T) {
 	restarted, restartedOutput := startSidecarProcessHelper(t, address, dataDirectory)
 	defer stopSidecarProcess(t, restarted, restartedOutput)
 	waitForSidecarHealth(t, address, restarted, restartedOutput)
-	postSidecarJSON(t, address, "/v1/session/get", protocol.SessionRequest{
+	postSidecarJSON(t, address, "/v2/session/get", protocol.SessionRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       create.SessionID,
 	})

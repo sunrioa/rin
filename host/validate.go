@@ -20,6 +20,8 @@ var (
 	lowerHexSHA256 = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
+const maxInteroperableInteger = 9_007_199_254_740_991
+
 // ValidateHostManifest verifies an engine-neutral host declaration.
 func ValidateHostManifest(manifest HostManifest) error {
 	if manifest.ContractVersion != ContractVersion {
@@ -119,6 +121,28 @@ func (epoch Epoch) Validate(field string) error {
 	}
 	if epoch.Host == 0 || epoch.World == 0 || epoch.Timeline == 0 {
 		return invalid(field, "host, world, and timeline generations must be positive")
+	}
+	return nil
+}
+
+// Validate verifies a host timepoint and uses field as the error-path prefix.
+func (timepoint Timepoint) Validate(field string) error {
+	if !validClockMode(timepoint.Clock) {
+		return invalid(field+".clock", "is not supported")
+	}
+	if timepoint.Value < 0 || timepoint.Value > maxInteroperableInteger {
+		return invalid(field+".value", "must be a non-negative JSON-safe integer")
+	}
+	return nil
+}
+
+// Validate verifies a positive host-clock duration.
+func (duration Duration) Validate(field string) error {
+	if !validClockMode(duration.Clock) {
+		return invalid(field+".clock", "is not supported")
+	}
+	if duration.Value == 0 || duration.Value > maxInteroperableInteger {
+		return invalid(field+".value", "must be a positive JSON-safe integer")
 	}
 	return nil
 }
@@ -231,8 +255,8 @@ func validateDescriptorFields(descriptor CapabilityDescriptor) error {
 			return invalid("reversible", "read capabilities do not have effects to reverse")
 		}
 	}
-	if descriptor.TimeoutMS == 0 || descriptor.TimeoutMS > 86_400_000 {
-		return invalid("timeout_ms", "must be between 1 and 86400000")
+	if err := descriptor.ExecutionBudget.Validate("execution_budget"); err != nil {
+		return err
 	}
 	if descriptor.MaxInputBytes == 0 || descriptor.MaxInputBytes > 1<<20 {
 		return invalid("max_input_bytes", "must be between 1 and 1048576")
@@ -267,6 +291,9 @@ func ValidateActionOffer(offer ActionOffer) error {
 	if err := validateHostID("offer_id", offer.OfferID, false); err != nil {
 		return err
 	}
+	if err := validateHostID("decision_window_id", offer.DecisionWindowID, false); err != nil {
+		return err
+	}
 	if err := validateHostID("actor_id", offer.ActorID, false); err != nil {
 		return err
 	}
@@ -282,17 +309,17 @@ func ValidateActionOffer(offer ActionOffer) error {
 	if err := validateJSONObject("arguments", offer.Arguments, 1<<20); err != nil {
 		return err
 	}
-	if err := validateRefs("targets", offer.Targets, offer.Epoch); err != nil {
+	if err := validateRefs("targets", offer.Targets, offer.ExpectedEpoch); err != nil {
 		return err
 	}
-	if err := offer.Epoch.Validate("epoch"); err != nil {
+	if err := offer.ExpectedEpoch.Validate("expected_epoch"); err != nil {
 		return err
 	}
 	if offer.ObservationSeq == 0 {
 		return invalid("observation_seq", "must be positive")
 	}
-	if offer.ExpiresAtUnixMS <= 0 {
-		return invalid("expires_at_unix_ms", "must be positive")
+	if err := offer.Deadline.Validate("deadline"); err != nil {
+		return err
 	}
 	return nil
 }
@@ -304,15 +331,16 @@ func ValidateActionInvocation(invocation ActionInvocation) error {
 	}
 	offer := ActionOffer{
 		OfferID:          invocation.OfferID,
+		DecisionWindowID: invocation.DecisionWindowID,
 		ActorID:          invocation.ActorID,
 		Capability:       invocation.Capability,
 		DescriptorDigest: invocation.DescriptorDigest,
 		Description:      "invocation",
 		Arguments:        invocation.Arguments,
 		Targets:          invocation.Targets,
-		Epoch:            invocation.ExpectedEpoch,
+		ExpectedEpoch:    invocation.ExpectedEpoch,
 		ObservationSeq:   invocation.ObservationSeq,
-		ExpiresAtUnixMS:  invocation.DeadlineUnixMS,
+		Deadline:         invocation.Deadline,
 	}
 	if err := ValidateActionOffer(offer); err != nil {
 		return err
@@ -337,8 +365,8 @@ func ValidateActionRun(run ActionRun) error {
 	if run.Status == ActionSucceeded && run.Progress != 100 {
 		return invalid("progress", "succeeded action must have 100 progress")
 	}
-	if run.UpdatedUnixMS <= 0 {
-		return invalid("updated_unix_ms", "must be positive")
+	if err := run.UpdatedAt.Validate("updated_at"); err != nil {
+		return err
 	}
 	return validateText("message", run.Message, 500, false)
 }
@@ -387,8 +415,8 @@ func ValidateActionOutcome(outcome ActionOutcome) error {
 	if outcome.WorldSeq == 0 {
 		return invalid("world_seq", "must be positive")
 	}
-	if outcome.OccurredUnixMS <= 0 {
-		return invalid("occurred_unix_ms", "must be positive")
+	if err := outcome.OccurredAt.Validate("occurred_at"); err != nil {
+		return err
 	}
 	return nil
 }
@@ -404,7 +432,7 @@ func descriptorDigest(descriptor CapabilityDescriptor) (string, error) {
 		Risk               RiskLevel         `json:"risk"`
 		RequiredDurability DurabilityProfile `json:"required_durability"`
 		RequiredScopes     []string          `json:"required_scopes,omitempty"`
-		TimeoutMS          uint32            `json:"timeout_ms"`
+		ExecutionBudget    Duration          `json:"execution_budget"`
 		MaxInputBytes      uint32            `json:"max_input_bytes"`
 		MaxOutputBytes     uint32            `json:"max_output_bytes"`
 		Cancellation       CancellationMode  `json:"cancellation"`
@@ -419,7 +447,7 @@ func descriptorDigest(descriptor CapabilityDescriptor) (string, error) {
 		Risk:               descriptor.Risk,
 		RequiredDurability: descriptor.RequiredDurability,
 		RequiredScopes:     descriptor.RequiredScopes,
-		TimeoutMS:          descriptor.TimeoutMS,
+		ExecutionBudget:    descriptor.ExecutionBudget,
 		MaxInputBytes:      descriptor.MaxInputBytes,
 		MaxOutputBytes:     descriptor.MaxOutputBytes,
 		Cancellation:       descriptor.Cancellation,
@@ -595,6 +623,10 @@ func validDeploymentMode(value DeploymentMode) bool {
 func validControlMode(value ControlMode) bool {
 	return value == ControlSemantic || value == ControlAccessibility ||
 		value == ControlComputerControl
+}
+
+func validClockMode(value ClockMode) bool {
+	return value == ClockEvent || value == ClockStep || value == ClockRealtime
 }
 
 func validDurabilityProfile(value DurabilityProfile) bool {

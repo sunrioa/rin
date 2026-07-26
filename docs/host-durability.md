@@ -8,8 +8,8 @@ profiles below for each class of action. The profile is a statement about the
 host's real persistence and apply boundary, not about which Rin API methods it
 calls.
 
-This document describes Rin `0.6.0` Preview. It does not change the
-`rin.protocol/v1` wire schema.
+This document describes Rin `0.7.0` Preview. It does not change the
+`rin.protocol/v2` wire schema.
 
 ## Profiles
 

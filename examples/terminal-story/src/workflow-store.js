@@ -101,7 +101,7 @@ export class StoryWorkflowStore {
     await this.flush();
   }
 
-  async settleProposalAttempt({ attempt, commit, apply }) {
+  async settleProposalAttempt({ attempt, report, apply }) {
     if (this.document.attempt?.operation_id !== attempt.operation_id) {
       throw new Error("Proposal Attempt identity changed before settlement");
     }
@@ -109,8 +109,8 @@ export class StoryWorkflowStore {
     // cleared Attempt are then published by one atomic file replacement.
     await apply();
     this.document.outbox.push({
-      key: commit.request_id,
-      commit: clone(commit),
+      key: report.request_id,
+      report: clone(report),
     });
     this.document.attempt = null;
     this.document.game.pending_turn = null;

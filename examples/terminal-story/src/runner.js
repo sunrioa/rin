@@ -23,11 +23,11 @@ export async function runStory({
     try {
       await client.health();
     } catch (error) {
-      // Fallback is safe only before a Session mutation. Once runRinStory
+      // Local is safe only before a Session mutation. Once runRinStory
       // starts, uncertainty is surfaced for exact recovery instead.
       if (error instanceof RinTransportError) {
         const result = await runRuleTree(store, preference, applyAction);
-        return { ...result, mode: "fallback", fallback_reason: error.code };
+        return { ...result, mode: "local", local_reason: error.code };
       }
       throw error;
     }

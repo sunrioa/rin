@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Thin, source-first clients for the `rin.protocol/v1` HTTP boundary.
+Thin, source-first clients for the `rin.protocol/v2` HTTP boundary.
 
 The SDKs remove transport boilerplate without moving game authority into the
 client library.
@@ -40,8 +40,8 @@ All clients follow these rules:
   `summary`/`rationale` through the player-text gate;
 - `event_exists` is a conflict from another request, not a duplicate
   acknowledgement;
-- proposals remain pending until the game applies or rejects them and reports
-  the result with Commit; Commit records an outcome and is not authorization.
+- proposals remain advisory until the game accepts or rejects them and reports
+  the typed Invocation, Run, and Outcome; reporting is not authorization.
 - use proposal `summary` and `rationale` as the player-facing copy: Rin
   derives them from the game-authored action description and a fixed stance
   template. Treat `policy_source`, `recalled_memory_ids`, `goal_id`, the
@@ -58,9 +58,6 @@ its exact typed payload and IDs; the mutation may already be durable, and other
 Session mutations remain blocked until confirmation. Proposal writes use
 `proposal_outcome_unknown` with the same recovery rule. Neither code authorizes
 rotating the request ID, applying an action again, or advancing an Outbox.
-
-That final rule applies to Sessions which explicitly request
-`outcome-reporting-v1`; clients must not assume it for legacy Sessions.
 
 Durable identity applies to Session mutations, not to process-local Job
 metadata. Proposal Job records may be reconstructed from the durable Proposal
@@ -103,7 +100,7 @@ show where host events enter Rin and where the game validates and applies a
 proposal. They are integration templates, not universal patches for every
 game version.
 
-All SDKs follow the Commit lifecycle, Outbox, and retry rules in
-[`docs/outcome-reporting.md`](../docs/outcome-reporting.md).
+All SDKs follow the Action Report lifecycle, Outbox, and retry rules in
+[`docs/action-lifecycle.md`](../docs/action-lifecycle.md).
 
 The SDK source is released under the [MIT License](../LICENSE).

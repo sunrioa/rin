@@ -1,211 +1,112 @@
-# Game Adapters
+# Game adapters
 
-[English](game-adapters.md) | [简体中文](game-adapters.zh-CN.md)
+[English] | [简体中文](game-adapters.zh-CN.md)
 
-Adapters translate engine lifecycle events into the Rin `0.6.0` Preview
-protocol while keeping the same authority split. Path and JSON shape details
-come from [`api/openapi.json`](../api/openapi.json):
+Adapters translate engine lifecycle events into Rin `0.7.0` **Preview**
+protocol objects. They do not give Rin authority over the game.
 
-1. The game sends only events an actor actually observed.
-2. The game advertises a bounded list of actions that are currently legal.
-3. Rin returns a proposal; it does not move a character or mutate the world.
-4. The game applies its own rules and commits the accepted or rejected outcome.
+## Minimal host loop
 
-An adapter result adds two local fields around the protocol proposal:
+1. Restore a stable Session identity, Pending Turn, applied-operation markers,
+   and report outbox before network work.
+2. Capture one authoritative Observation, Epoch, host Timepoint, and monotonic
+   Observation Sequence.
+3. Build a Decision Window and 1–32 fully bound Action Offers.
+4. Persist the complete Pending Turn, then submit or resume the proposal.
+5. Match the returned Proposal to the durable Session, Request, Actor, Window,
+   and selected Offer.
+6. Recheck Epoch, deadline, capability digest, targets, and game rules on the
+   authority thread.
+7. Execute with a stable operation ID or reject.
+8. Persist the exact `ReportActionRequest` in an Outcome Outbox and retry until
+   acknowledged.
 
-- `committable=true`: the proposal came from the current Sidecar session and
-  its result may be sent to `/v1/action/commit` after the game handles it. This
-  is not authorization from Rin to execute it.
-- `committable=false`: there is no Rin Proposal that can be committed. Apply a
-  local fallback only when `source=offline` and a proposal is present. A
-  canceled/error result has no action to apply. Never send an `offline.*` ID
-  to Rin; after recovery, report an applied fallback through `observe`.
+Never turn a transport error or ambiguous Job result into permission to perform
+a second action.
 
-Timeout or a lost submit/poll/cancel response is outcome-unknown, not offline:
-retry the same request/job identity and do not choose a fallback until the
-absence of an online Proposal is confirmed.
+## Threading
 
-This is distinct from Provider failure inside a confirmed live Sidecar
-operation: Rin may complete that same Proposal operation with its deterministic
-Policy. Sidecar delivery uncertainty can hide a durable online Proposal and
-must not be converted into a second local action.
+- Rendering, input, and simulation threads must not block on HTTP or model
+  completion.
+- Capture engine objects on their owning thread, but persist only plain bounded
+  data and opaque `HostRef` values.
+- Resolve `HostRef` and execute capabilities only on the authority thread.
+- Threads, Tasks, Futures, sockets, HTTP objects, and tokens never enter a game
+  save.
 
-Persist a Proposal Attempt before the first submit. It contains the complete
-byte-equivalent Propose request, its game operation/sequence identity, and the
-Job ID as soon as `202` supplies one. A later interaction must resume that
-attempt instead of creating a new request. Remove it only in the authoritative
-transaction that applies or rejects the returned Proposal and stores the
-applied marker plus Outcome Outbox entry. Both an unresolved Proposal Attempt
-and a nonempty Outcome Outbox block new turns.
+## Persistence
 
-Every new Session must request the `outcome-reporting-v1` safe baseline, so
-Commit records an already handled outcome rather than legacy pre-commit
-semantics.
-The game should apply or reject the action and write a local Outcome Outbox
-entry in one authoritative transaction, then report from that Outbox to Rin.
-On a network failure, retry only the same `request_id` and never apply the
-action again. See [action outcome reporting](outcome-reporting.md).
+The reusable SDK coordinator owns workflow ordering; the game owns storage
+guarantees. Select an honest [Host durability profile](host-durability.md).
+A standalone JSON file normally proves only `advisory`. Claim
+`idempotent-action` only when game state makes `operation_id` retry-safe, and
+`transactional-action` only when the effect, marker, and outbox entry share one
+game transaction.
 
-Adapters must keep every public JSON integer within
-`-9007199254740991` through `9007199254740991` and must explicitly serialize
-`accepted` in Commit and every Batch item, including `false`. Encode raw request
-bodies as UTF-8. A non-2xx error envelope and an HTTP-200 terminal Job with
-`data.error` are different failure layers and both require handling.
+State readers must distinguish:
 
-The bundled sidecar opens Session histories lazily. `/health` proves process
-availability, not that every Session has passed a genesis-to-head audit; the
-first request for a Session may pay index/checkpoint recovery cost or report
-that Session's durable corruption. Keep the adapter's authoritative startup
-recovery gate closed until its Session read succeeds, returns HTTP `404` with
-the exact code `session_not_found`, or a fresh Restore succeeds and creates or
-recovers that Session. HTTP `500` `store_load_failed` and `replay_failed`
-responses are storage/recovery failures: never reinterpret either as a new
-playthrough or an offline action result.
+- `not_found`: initializing a new identity is allowed;
+- valid state: resume it;
+- unreadable, malformed, oversized, or inconsistent state: fail closed.
+
+Bound Pending Turns, markers, outbox entries, and state-file bytes. Flush and
+replace files portably; test interrupted replacement on Linux and Windows.
 
 ## Ren'Py
 
-Copy these files into the game's `game/` directory:
+Use [`adapters/renpy/rin_client.py`](../adapters/renpy/rin_client.py) from a
+background worker and return plain dictionaries to the main thread. The
+registry is process-local; persistent story state must contain the complete
+Pending Turn and any returned Job ID. Never put a worker, lock, HTTP response,
+or token in rollback/save data.
 
-```text
-adapters/renpy/rin_client.py
-adapters/renpy/rin_bridge.rpy
-```
-
-The client uses only Python's standard library. Enable it explicitly:
-
-```bash
-export RIN_ENABLED=1
-export RIN_BASE_URL="http://127.0.0.1:7374"
-```
-
-For a remote TLS reverse proxy, set `RIN_TOKEN`; non-loopback HTTP and tokenless remote endpoints are rejected. Optional settings:
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `RIN_TIMEOUT_SECONDS` | `5` | One adapter HTTP request |
-| `RIN_JOB_DEADLINE_SECONDS` | `25` | Total async proposal wait |
-| `RIN_POLL_INTERVAL_SECONDS` | `0.1` | Job polling interval |
-| `RIN_LIVE_TEST_ENABLED` | `0` | Explicitly allow transport during Ren'Py native tests |
-
-Schedule from script code, keep rendering, then consume from a timer or call screen:
-
-```python
-request_id = rin_schedule_proposal({
-    "protocol_version": "rin.protocol/v1",
-    "session_id": "playthrough-1",
-    "request_id": "propose.scene-12.lin",
-    "actor_id": "npc.lin",
-    "tick": 12,
-    "intent": "Choose how to answer.",
-    "tags": ["conversation"],
-    "candidate_actions": [
-        {"id": "respond.honest", "kind": "dialogue", "description": "Answer honestly."},
-        {"id": "respond.wait", "kind": "wait", "description": "Wait for now."},
-    ],
-}, fallback_action_id="respond.wait")
-```
-
-`rin_proposal_status(request_id)` returns `pending`, `ready`, `unresolved`, or `missing`; `rin_consume_proposal(request_id)` returns one plain JSON-compatible result only after a safe terminal outcome. For `pending` or `unresolved`, persist the plain record from `rin_proposal_attempt(request_id)` with the game save. After restart, pass that record to `rin_resume_proposal`; it recovers a known Job first and permits at most one exact same-request POST when Rin confirms that Job is absent. An unresolved attempt is neither consumable nor locally cancelable. `rin_cancel_proposal` propagates cancellation to the Job API for a running process-local worker.
-
-The Python client also exposes `commit_batch`, `set_actor_activity`, `arbitrate`, `timeline`, `replay`, and the structured-generation methods. Generation must run in the same process-local background pattern as proposals. `generate_json` accepts only the provider-free Rin request contract and returns one decoded JSON object plus bounded operational metadata. A game that persists request records should allowlist only the fields it needs; provider model names are useful for explicit probes but should not be copied into gameplay saves.
-
-Threads, cancellation events, HTTP objects, and registries are process-local. Never assign them to `default`, persistent data, rollback state, or a save object. Store only accepted protocol snapshots, plain result dictionaries, and the plain stable Proposal Attempt records described above.
-
-Native Ren'Py tests are offline unless `RIN_LIVE_TEST_ENABLED=1`, even if a developer shell contains a configured endpoint.
+The adapter and bridge tests run on macOS, Linux, and Windows without launching
+Ren'Py. A real project must additionally verify save/load, rollback, screen
+updates, shutdown, and Sidecar restart inside the targeted Ren'Py build.
 
 ## Godot 4
 
-The [reference directory](../examples/godot/README.md) is a runnable Godot
-4.7.1 project. Add `rin_client.gd` as a child Node and create one
-`RinWorkflow` from `rin_workflow.gd` per save slot. `RinClient` awaits
-`HTTPRequest` signals and timer ticks without blocking rendering.
-`RinWorkflow` stores bounded JSON under `user://rin/<slot>.json`, restores a
-stable run/Session/Create identity, sequence, protocol-tick high-water mark,
-complete Pending Turn/Observe, Job ID, and Outcome Outbox before network work.
-It persists terminal Commit-to-Observe conversion and ACK-before-eviction.
+The [Godot reference](../examples/godot/README.md) uses `HTTPRequest` signals
+and a per-slot `RinWorkflow`. It stores bounded JSON under
+`user://rin/<slot>.json`, saves Pending Turn and outbox state before network
+work, and never performs world mutation inside the transport client.
 
-The built-in file Store is `advisory`: it flushes a temporary file and uses a
-same-directory target/backup rename protocol that is recoverable across the
-Windows replacement semantics too, but the two renames are not one atomic
-operation and cannot atomically include an arbitrary game-world effect.
-Replace the Store boundary with a game transaction or make the operation ID
-genuinely idempotent before declaring a stronger capability. I/O, parse,
-schema, backup, and replacement failures fail closed rather than minting a new
-identity. `shutdown()` propagates cancellation to an in-flight Proposal Job
-while leaving retained state recoverable.
-Only a positively confirmed `not_found` file state may initialize a new
-identity; malformed or unreadable existing state is never treated as absence.
-
-Every Restore must send `expected_binding` from the running game's trusted
-content manifest, not from the save. It must equal the saved Snapshot binding
-and, when a target Session exists, that Session's binding. Treat the Snapshot
-as trusted, opaque state under the same protection as the event log. Its
-SHA-256 canonical checksums detect accidental corruption, not provenance or a
-party able to recompute them. Complete inline Snapshot compact JSON is capped
-at 16 MiB; the server request and bundled-client response defaults are 32 MiB.
-`413 snapshot_too_large` never truncates the save. These Snapshot JSON methods
-remain inline. Use Session Transfer through the
-JavaScript/C# priority SDKs for complete large-lineage migration.
-
-Godot owns navigation, animation, combat, inventory, and dialogue rendering.
-The thin [NPC example](../examples/godot/example_npc.gd) only constructs
-game-owned requests, validates an allowlist, applies a display effect, and
-delegates workflow recovery. Helpers for activity, due actors, arbitration,
-batch commit, timeline, and replay are coroutines; call activity on simulation
-or region changes, not every frame. The adapter caps response bytes, disables
-redirects, and accepts plaintext HTTP only for an exact loopback host and valid
-port. Pinned headless parsing and restart tests run on Linux and Windows.
+Call the workflow from gameplay events or authoritative simulation steps, not
+`_process()` every frame. Replace its advisory file store or make execution
+idempotent before using it for durable world mutation.
 
 ## Unity
 
-Install the [UPM package](../examples/unity/README.md), then attach `RinClient`
-and `RinUnityWorkflow` to one persistent GameObject. The client uses
-`UnityWebRequest` coroutines and a capped streaming download handler; the
-Workflow supplies the startup recovery gate and bounded state under
-`Application.persistentDataPath`. The 18-line
-[RinNpcExample.cs](../examples/unity/RinNpcExample.cs) contains only game-owned
-event delegation. A restored state carries the same run ID, stable Create
-request, sequence, tick high-water, Proposal Attempt, applied markers, and
-Outcome Outbox described above.
+The [Unity UPM package](../examples/unity/README.md) contains:
 
-The file Store flushes a temporary file and uses a recoverable target/backup
-rename sequence on Linux and Windows. It remains `advisory`: those operations
-cannot atomically include an arbitrary Unity world effect. Replace this
-boundary with the game's transaction or make operation IDs idempotent before
-claiming a stronger profile. CI compiles the importable package and runs
-restart/fault tests on Linux and Windows; it does not claim a licensed Unity
-Editor run.
+- `RinClient`: bounded, no-redirect `UnityWebRequest` coroutine transport;
+- `RinUnityWorkflow`: startup recovery, Epoch management, Pending Turn,
+  operation marker, and report outbox;
+- `IRinUnityHost`: game-owned `CaptureTurn` and idempotent `Execute` boundary.
 
-Unity's `JsonUtility` adapter exposes serializable DTOs for activity, scheduling, arbitration, batch commit, and timeline. Since `JsonUtility` cannot represent actor-ID keyed maps, its Replay helper returns the verified Snapshot header; projects that need the complete replayed state should parse the same endpoint with their existing dictionary-capable JSON package. Games that use action parameter maps can likewise extend the serializable request classes without changing the wire protocol.
+`ActionOffer.arguments` remains an arbitrary JSON object without forcing a
+dialogue- or engine-specific DTO. The harness compiles the package and verifies
+restart, backup recovery, corrupt-state failure, disk-write failure, and raw
+argument preservation on Linux and Windows. This does not replace a licensed
+Unity Editor/Player test.
 
-## Compatibility fixtures
+## Mod hosts
 
-The executable fixtures under `compat/` exercise a complete consumer flow
-without making that consumer part of Rin's public identity. They cover:
+Fabric, BepInEx Mono/IL2CPP, and Luanti examples demonstrate server/main-thread
+dispatch plus durable SDK workflow stores. They are advisory references, not
+proof that a generated NPC is safe for every game's save or threading model.
+Use [`rin init mod`](mod-scaffolding.md) to generate a pinned starting project,
+then complete the [real-host validation matrix](mod-integration-validation.md).
 
-- permission pressure selecting a local boundary refusal;
-- actor-specific observation and belief visibility;
-- goal-directed optional content;
-- accepted commit, cooldown scheduling, and premature-proposal rejection.
+## Engine-independent review
 
-The reference flow combines:
-
-- content binding and one Rin Session per game run;
-- canonical game events as actor-scoped Observations;
-- free player text as an explicit Observation;
-- candidate-only character directions before structured content generation;
-- accepted direction Commit followed by Snapshot storage in the game save;
-- Restore `expected_binding` sourced from the running trusted content manifest;
-- restore IDs derived from both the saved Snapshot and current Sidecar head;
-- deterministic authored fallback whenever Sidecar generation is unavailable.
-
-Run the public compatibility suite with:
-
-```bash
-go test ./compat
-```
-
-Fixtures contain IDs, contracts, hashes, and short test events, not a
-consumer's full content or any provider credential. Consumer-specific source
-verification may live beside a fixture, but it is not part of the public
-protocol contract.
+- Offers contain only actions already legal at capture time.
+- High-authority effects remain in game code.
+- Pathfinding uses engine navigation/physics APIs when available; vision
+  models are an optional observation source, not the default movement system.
+- TTS consumes approved dialogue after the text decision; audio playback never
+  changes action authority.
+- Long operations report queued/running/terminal progress and use cooperative
+  cancellation where the engine supports it.
+- Storage metrics, retention, snapshot/export, and logs are configured for the
+  expected lifetime of the Session.

@@ -11,7 +11,6 @@ init -30 python:
     _RIN_CLIENT = None
     _RIN_REGISTRY = None
     _RIN_CONFIG_FINGERPRINT = None
-    _RIN_LOCAL_RESULTS = {}
     _RIN_UNRESOLVED_ATTEMPTS = {}
 
     def _rin_env_enabled(name, default="0"):
@@ -79,20 +78,7 @@ init -30 python:
         ).encode("utf-8")
         return hashlib.sha256(payload).hexdigest()
 
-    def _rin_store_local_result(request_id, request, result):
-        if len(_RIN_LOCAL_RESULTS) >= 128:
-            oldest = next(iter(_RIN_LOCAL_RESULTS))
-            _RIN_LOCAL_RESULTS.pop(oldest, None)
-        _RIN_LOCAL_RESULTS[str(request_id)] = {
-            "request_fingerprint": _rin_request_fingerprint(request),
-            "result": json.loads(json.dumps(
-                result,
-                ensure_ascii=False,
-                separators=(",", ":"),
-            )),
-        }
-
-    def _rin_store_unresolved_attempt(request_id, request, fallback_action_id, job_id, error_code):
+    def _rin_store_unresolved_attempt(request_id, request, job_id, error_code):
         _RIN_UNRESOLVED_ATTEMPTS[str(request_id)] = {
             "status": "unresolved",
             "request_fingerprint": _rin_request_fingerprint(request),
@@ -101,32 +87,18 @@ init -30 python:
                 ensure_ascii=False,
                 separators=(",", ":"),
             )),
-            "fallback_action_id": str(fallback_action_id),
             "job_id": str(job_id or ""),
             "error_code": str(error_code or "job_outcome_unknown"),
-            "allow_offline_before_submit": False,
         }
 
     def rin_schedule_proposal(
         request,
-        fallback_action_id="",
         known_job_id="",
-        resuming=False,
-        allow_offline_before_submit=True,
     ):
         """Start one proposal without blocking the Ren'Py interaction thread."""
-        resuming = bool(resuming)
-        allow_offline_before_submit = bool(allow_offline_before_submit) and not resuming
         request_id = str(request.get("request_id", ""))
         if not request_id:
             raise rin_client.RinProtocolError("invalid_request", "Proposal request needs request_id")
-        if request_id in _RIN_LOCAL_RESULTS:
-            if _RIN_LOCAL_RESULTS[request_id]["request_fingerprint"] != _rin_request_fingerprint(request):
-                raise rin_client.RinProtocolError(
-                    "request_id_conflict",
-                    "Request id was already used with a different proposal payload",
-                )
-            return request_id
         retained = _RIN_UNRESOLVED_ATTEMPTS.get(request_id)
         if retained is not None:
             if retained["request_fingerprint"] != _rin_request_fingerprint(request):
@@ -135,32 +107,17 @@ init -30 python:
                     "Request id was already used with a different proposal payload",
                 )
             request = retained["request"]
-            fallback_action_id = retained["fallback_action_id"]
             known_job_id = retained["job_id"]
-            resuming = True
-            allow_offline_before_submit = False
         client, registry, disabled_reason = _rin_runtime()
         if registry is None:
-            if resuming or not allow_offline_before_submit or known_job_id:
-                _rin_store_unresolved_attempt(
-                    request_id,
-                    request,
-                    fallback_action_id,
-                    known_job_id,
-                    disabled_reason or (
-                        "job_outcome_unknown"
-                        if known_job_id
-                        else "proposal_outcome_unknown"
-                    ),
-                )
-                return request_id
-            _rin_store_local_result(
+            _rin_store_unresolved_attempt(
                 request_id,
                 request,
-                rin_client.offline_proposal_result(
-                    request,
-                    fallback_action_id=fallback_action_id,
-                    reason=disabled_reason or "disabled",
+                known_job_id,
+                disabled_reason or (
+                    "job_outcome_unknown"
+                    if known_job_id
+                    else "proposal_outcome_unknown"
                 ),
             )
             return request_id
@@ -168,19 +125,15 @@ init -30 python:
         scheduled = registry.schedule(
             request,
             renpy.invoke_in_thread,
-            fallback_action_id=fallback_action_id,
             deadline_seconds=config["deadline"],
             poll_interval=config["poll_interval"],
             known_job_id=known_job_id,
-            allow_offline_before_submit=allow_offline_before_submit,
         )
         _RIN_UNRESOLVED_ATTEMPTS.pop(request_id, None)
         return scheduled
 
     def rin_proposal_status(request_id):
         request_id = str(request_id)
-        if request_id in _RIN_LOCAL_RESULTS:
-            return "ready"
         if request_id in _RIN_UNRESOLVED_ATTEMPTS:
             return "unresolved"
         if _RIN_REGISTRY is None:
@@ -193,9 +146,6 @@ init -30 python:
     def rin_consume_proposal(request_id):
         """Return a plain adapter result once; return None while still pending."""
         request_id = str(request_id)
-        local = _RIN_LOCAL_RESULTS.pop(request_id, None)
-        if local is not None:
-            return local["result"]
         if request_id in _RIN_UNRESOLVED_ATTEMPTS:
             return None
         if _RIN_REGISTRY is None:
@@ -207,8 +157,7 @@ init -30 python:
             return entry["result"]
         return {
             "source": "canceled" if entry["status"] == "canceled" else "error",
-            "committable": False,
-            "fallback_reason": entry["error_code"],
+            "error_code": entry["error_code"],
             "job_id": entry.get("job_id", ""),
             "proposal": None,
         }
@@ -229,17 +178,11 @@ init -30 python:
             raise rin_client.RinProtocolError("invalid_attempt", "Proposal attempt is invalid")
         return rin_schedule_proposal(
             attempt["request"],
-            fallback_action_id=str(attempt.get("fallback_action_id", "")),
             known_job_id=str(attempt.get("job_id", "")),
-            resuming=True,
-            allow_offline_before_submit=False,
         )
 
     def rin_cancel_proposal(request_id):
         request_id = str(request_id)
-        if request_id in _RIN_LOCAL_RESULTS:
-            _RIN_LOCAL_RESULTS.pop(request_id, None)
-            return True
         if request_id in _RIN_UNRESOLVED_ATTEMPTS:
             return False
         if _RIN_REGISTRY is None:
@@ -252,5 +195,5 @@ init -30 python:
             "enabled": _rin_transport_enabled(),
             "base_url": config["base_url"],
             "token_configured": bool(config["token"]),
-            "pending_results": len(_RIN_LOCAL_RESULTS) + len(_RIN_UNRESOLVED_ATTEMPTS),
+            "pending_results": len(_RIN_UNRESOLVED_ATTEMPTS),
         }

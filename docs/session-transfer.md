@@ -138,8 +138,8 @@ outcome reconciliation.
 
 The Bearer-protected operations are:
 
-- `POST /v1/session/export`: small JSON request and NDJSON streaming response;
-- `POST /v1/session/import`: the request body is an NDJSON stream and the
+- `POST /v2/session/export`: small JSON request and NDJSON streaming response;
+- `POST /v2/session/import`: the request body is an NDJSON stream and the
   trusted Binding arrives independently in the required
   `Rin-Expected-Game-Id`, `Rin-Expected-Content-Id`,
   `Rin-Expected-Content-Version`, and `Rin-Expected-Content-Hash` headers.

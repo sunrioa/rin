@@ -162,7 +162,7 @@ func validateProposalJSONIntegers(field string, proposal ActionProposal) error {
 	if err := validateJSONSafeUnsigned(field+".created_revision", proposal.CreatedRevision); err != nil {
 		return err
 	}
-	if err := validateJSONSafeTick(field+".outcome_tick", proposal.OutcomeTick); err != nil {
+	if err := validateJSONSafeTick(field+".last_report_tick", proposal.LastReportTick); err != nil {
 		return err
 	}
 	if proposal.ProposedGoal != nil {

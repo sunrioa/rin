@@ -14,7 +14,7 @@ active -> archived -> deleted tombstone
 
 Active Session 接受普通 Mutation。Archive 是持久、幂等的转换，会冻结当前事件链
 Anchor。Archived Session 只读：State、Timeline、Replay、Snapshot、Stats 与
-Session Transfer Export 仍可用；Observe、Propose、Commit、Activity、
+Session Transfer Export 仍可用；Observe、Propose、Action Report、Activity、
 Arbitration、Restore 与 Import 返回 `409 session_archived`。
 
 Archive 不等于备份。若删除后仍需恢复，Operator 必须先导出完整 Session
@@ -28,19 +28,19 @@ Transfer，校验终止 `complete` Frame 与 `stream_sha256`，并保存到独�
 所有生命周期 Route 使用服务端已有 Bearer 鉴权。未配置 Token 的服务只适合可信
 Loopback 边界。
 
-`POST /v1/session/stats` 接受 `protocol_version` 与 `session_id`，返回生命周期
+`POST /v2/session/stats` 接受 `protocol_version` 与 `session_id`，返回生命周期
 状态、Revision/Head、Event 数量、Event Log 精确字节数、Artifact 字节数、总受管
 字节数、Soft/Hard Limit 及是否越界。Stats 不应为了计数字节而加载玩家内容。
 损坏或不可读 Session 必须 Fail Closed，绝不能报告为不存在。
 
-`POST /v1/session/archive` 要求稳定 `request_id`、`session_id`、完整可信 Expected
+`POST /v2/session/archive` 要求稳定 `request_id`、`session_id`、完整可信 Expected
 Binding，以及精确 `expected_revision` 与 `expected_head_hash`。持有 Mutation
 Gate 时，所有前置条件必须匹配同一个已加载、已验证 Session。Store 持久化包含
 Request 身份、冻结 Anchor、时间与 Canonical Request Digest 的 Archive Receipt。
 Exact Retry 返回同一 Receipt 且 `duplicate=true`；修改后的 Request 返回
 `request_id_conflict`。
 
-`POST /v1/session/delete` 要求稳定 `request_id`、`session_id`、相同可信 Expected
+`POST /v2/session/delete` 要求稳定 `request_id`、`session_id`、相同可信 Expected
 Binding、Archive Receipt ID、冻结 Revision/Head，以及与完整 Session ID 完全相等
 的 `confirmation`。Confirmation 不是鉴权；它用于降低误删或目标错位风险。
 不支持 Wildcard、Prefix、空 ID 或批量删除。

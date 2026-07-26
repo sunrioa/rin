@@ -28,7 +28,7 @@
       "p50": 9.99,
       "p95": 11.12
     },
-    "startup_fallback_turn": 9.63
+    "startup_local_turn": 9.63
   },
   "integration_nonblank_lines": {
     "rin_adapter": 92,
@@ -46,8 +46,8 @@
     "measured_cost_usd": 0,
     "note": "Deterministic policy; no model provider configured."
   },
-  "fallback": {
-    "mode": "fallback",
+  "local": {
+    "mode": "local",
     "action_id": "offer.tea",
     "only_before_first_rin_mutation": true
   },

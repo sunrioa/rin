@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Rin `0.6.0` 是 Preview、pre-1.0 软件。文档按公共接口组织，不以某个使用方
+Rin `0.7.0` 是 Preview、pre-1.0 软件。文档按公共接口组织，不以某个使用方
 项目作为叙述中心，但 Preview minor 版本不提供 post-1.0 稳定性保证。
 
 | 主题 | 简体中文 | English |
@@ -10,9 +10,8 @@ Rin `0.6.0` 是 Preview、pre-1.0 软件。文档按公共接口组织，不以�
 | 权威 HTTP Wire Schema | [`api/openapi.json`](../api/openapi.json) | [`api/openapi.json`](../api/openapi.json) |
 | 架构、存储与权威边界 | [架构](architecture.zh-CN.md) | [Architecture](architecture.md) |
 | 引擎无关宿主与能力契约 | [宿主契约](host-contract.zh-CN.md) | [Host contract](host-contract.md) |
-| Proposal、应用与结果事务 | [动作结果记账](outcome-reporting.zh-CN.md) | [Action outcome reporting](outcome-reporting.md) |
-| 安全 Session 语义与 Optional Feature Matrix | [Session 语义基线](semantic-baseline.zh-CN.md) | [Session semantic baseline](semantic-baseline.md) |
-| HTTP 与状态契约 | [协议 v1](protocol-v1.zh-CN.md) | [Protocol v1](protocol-v1.md) |
+| Proposal、执行与恢复 | [Host 动作生命周期](action-lifecycle.zh-CN.md) | [Host action lifecycle](action-lifecycle.md) |
+| HTTP 与状态契约 | [协议 v2](protocol-v2.zh-CN.md) | [Protocol v2](protocol-v2.md) |
 | 在线模型配置 | [模型策略](model-policy.zh-CN.md) | [Model policy](model-policy.md) |
 | Ren'Py、Godot 与 Unity | [游戏适配器](game-adapters.zh-CN.md) | [Game adapters](game-adapters.md) |
 | 区域、任务与 NPC 动作 | [RPG 事件约定](rpg-events.zh-CN.md) | [RPG event conventions](rpg-events.md) |
@@ -23,7 +22,6 @@ Rin `0.6.0` 是 Preview、pre-1.0 软件。文档按公共接口组织，不以�
 | 安全与漏洞报告 | [安全](../SECURITY.md) | [Security](../SECURITY.en.md) |
 | 发布变化 | [变更日志](../CHANGELOG.zh-CN.md) | [Changelog](../CHANGELOG.md) |
 | 发布与 Client 兼容 | [兼容矩阵](compatibility.zh-CN.md) | [Compatibility matrix](compatibility.md) |
-| 从更早 Revision 升级 | [v0.6 迁移](migration-v0.6.zh-CN.md) | [v0.6 migration](migration-v0.6.md) |
 | 已支持的可扩展 Session Transfer | [可扩展 Session Transfer](session-transfer.zh-CN.md) | [Scalable Session Transfer](session-transfer.md) |
 | Session 生命周期、配额、删除与隐私 | [Session 生命周期](session-lifecycle.zh-CN.md) | [Session lifecycle](session-lifecycle.md) |
 | 部署、Readiness、Diagnostics 与 Metrics | [部署与监控](operations.zh-CN.md) | [Deployment and monitoring](operations.md) |

@@ -5,7 +5,7 @@
 This document defines Rin's supported security boundary, deployment
 requirements, and vulnerability-reporting process.
 
-Rin `0.6.0` is Preview, pre-1.0 software. Preview status does not relax the
+Rin `0.7.0` is Preview, pre-1.0 software. Preview status does not relax the
 fail-closed rules in this document, but it does mean future compatibility must
 be evaluated through the Changelog and migration guides.
 
@@ -17,7 +17,7 @@ be evaluated through the Changelog and migration guides.
   behind a TLS reverse proxy on a controlled network.
 - Once a token is configured, every endpoint except the content-free
   `/health` and `/ready` probes uses constant-time Bearer-token verification.
-  `/metrics` and `/v1/diagnostics` remain authenticated and must not be exposed
+  `/metrics` and `/v2/diagnostics` remain authenticated and must not be exposed
   as public reverse-proxy routes.
 - JSON request bodies and bundled-client response bodies are limited to
   32 MiB by default. Complete inline Snapshot compact JSON is separately
@@ -61,8 +61,9 @@ be evaluated through the Changelog and migration guides.
 
 ## Trust model
 
-Policy and model output are untrusted. The runtime accepts only candidate
-actions declared by the game for the current request and verifies actor,
+Policy and model output are untrusted. The runtime accepts only fully bound
+action offers declared by the game for the current Decision Window and
+verifies actor, epoch, observation sequence, capability digest, deadline,
 goal, memory, boundary, revision, and content binding. Rin does not execute
 scripts, shells, dynamic plugins, or model-generated tool calls.
 
@@ -80,7 +81,7 @@ Snapshots. Rin detects an inconsistent history; it does not authenticate a
 history against an external immutable anchor.
 
 Online mode sends only the current actor's bounded traits, boundaries, active
-goals, relevant memories, beliefs, recent actions, and candidate actions.
+goals, relevant memories, beliefs, recent actions, and action offers.
 Event logs, complete sessions, receipts, snapshots, file paths, tokens, and
 API keys do not enter the model packet. All game text is placed under
 explicitly marked `untrusted_game_data`, and model output still requires local
@@ -88,7 +89,7 @@ allowlist validation.
 
 The model output schema does not accept `summary` or `rationale`, and
 compatibility text in every Policy Draft is discarded. The runtime rebuilds
-player fields only from the game-authorized `ActionSpec.description` and a
+player fields only from the game-authorized `ActionOffer.description` and a
 fixed stance template; private Goal, Boundary, Memory, Belief, prompt, and
 provider text are not inputs to that function. `policy_source`,
 `recalled_memory_ids`, `goal_id`, `boundary_id`, and the full `proposed_goal`
@@ -96,7 +97,7 @@ are private audit/integration metadata and must not be displayed directly to
 players. Only the game-authorized action Description is presentation copy;
 action IDs, kinds, targets, and parameters are integration data by default.
 This boundary uses input isolation and construction, not a secret-string
-blacklist; the game must make every candidate action description safe for
+blacklist; the game must make every action offer description safe for
 display.
 
 After upgrade, `rin.reducer-projection/v2` reconstructs legacy Proposal
@@ -128,17 +129,15 @@ Games must keep high-authority operations such as quests, items, combat,
 currency, intimacy consent, and critical plot transitions in their own rule
 layer.
 
-Adapter proposals named `offline.*` exist only for a game's own offline
-fallback. They are explicitly marked `committable=false` and cannot be
-submitted as sidecar proposals. Threads, HTTP objects, and cancellation
-handles must not enter Ren'Py saves; only plain JSON results and validated
-snapshots may be persisted.
+An adapter must not synthesize a Proposal when transport fails. Threads, HTTP
+objects, and cancellation handles must not enter Ren'Py
+saves; only plain JSON, complete Pending Turns, report outbox entries, and
+validated snapshots may be persisted.
 
 Provider failure inside a confirmed live Sidecar Proposal operation may use the
 deterministic Policy. An ambiguous Sidecar submit, poll, timeout, or cancel is
-not offline proof: an online Proposal may exist. Persist and resume the exact
-Proposal Attempt/Job identity, block new turns, and do not execute fallback
-content until absence is confirmed.
+not proof that no Proposal exists. Persist and resume the exact Proposal
+Attempt/Job identity and block new turns.
 
 The bundled file store takes a non-blocking exclusive data-directory lock
 before reading or writing. A second process fails to open that directory, and

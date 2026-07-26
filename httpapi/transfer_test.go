@@ -22,10 +22,10 @@ func TestHTTPTransferRoundTrip(t *testing.T) {
 	create := apiCreateRequest()
 	create.SessionID = "session.http-transfer"
 	create.RequestID = "create.http-transfer"
-	if response := perform(t, source, "/v1/session/create", create); response.Code != http.StatusOK {
+	if response := perform(t, source, "/v2/session/create", create); response.Code != http.StatusOK {
 		t.Fatalf("create: %d %s", response.Code, response.Body.String())
 	}
-	export := perform(t, source, "/v1/session/export", protocol.SessionRequest{
+	export := perform(t, source, "/v2/session/export", protocol.SessionRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       create.SessionID,
 	})
@@ -56,7 +56,7 @@ func TestHTTPTransferRoundTrip(t *testing.T) {
 	if importResponse.Code != http.StatusOK {
 		t.Fatalf("import: %d %s", importResponse.Code, importResponse.Body.String())
 	}
-	state := perform(t, target, "/v1/session/get", protocol.SessionRequest{
+	state := perform(t, target, "/v2/session/get", protocol.SessionRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       create.SessionID,
 	})
@@ -70,24 +70,19 @@ func TestHTTPTransferFailsClosedForCorruptionAndFraming(t *testing.T) {
 	create := apiCreateRequest()
 	create.SessionID = "session.http-transfer-invalid"
 	create.RequestID = "create.http-transfer-invalid"
-	if response := perform(t, source, "/v1/session/create", create); response.Code != http.StatusOK {
+	if response := perform(t, source, "/v2/session/create", create); response.Code != http.StatusOK {
 		t.Fatalf("create: %d %s", response.Code, response.Body.String())
 	}
-	if response := perform(t, source, "/v1/session/observe", protocol.ObserveRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       create.SessionID,
-		RequestID:       "observe.http-transfer-invalid",
-		EventID:         "event.http-transfer-invalid",
-		Tick:            1,
-		ObserverIDs:     []string{"npc.http"},
-		Source:          "game",
-		Kind:            "test",
-		Summary:         "Second event for ordering checks.",
-		Importance:      1,
-	}); response.Code != http.StatusOK {
+	if response := perform(t, source, "/v2/session/observe", apiObserveRequest(
+		create.SessionID,
+		"observe.http-transfer-invalid",
+		"event.http-transfer-invalid",
+		1,
+		[]string{"npc.http"},
+	)); response.Code != http.StatusOK {
 		t.Fatalf("observe: %d %s", response.Code, response.Body.String())
 	}
-	export := perform(t, source, "/v1/session/export", protocol.SessionRequest{
+	export := perform(t, source, "/v2/session/export", protocol.SessionRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       create.SessionID,
 	})
@@ -161,7 +156,7 @@ func TestHTTPTransferFailsClosedForCorruptionAndFraming(t *testing.T) {
 			if response.Code < 400 {
 				t.Fatalf("invalid import status: %d %s", response.Code, response.Body.String())
 			}
-			state := perform(t, target, "/v1/session/get", protocol.SessionRequest{
+			state := perform(t, target, "/v2/session/get", protocol.SessionRequest{
 				ProtocolVersion: protocol.Version,
 				SessionID:       create.SessionID,
 			})
@@ -174,7 +169,7 @@ func TestHTTPTransferFailsClosedForCorruptionAndFraming(t *testing.T) {
 
 func TestHTTPTransferRejectsCompressedImport(t *testing.T) {
 	server := transferHTTPServer(t)
-	request := httptest.NewRequest(http.MethodPost, "/v1/session/import", strings.NewReader("{}\n"))
+	request := httptest.NewRequest(http.MethodPost, "/v2/session/import", strings.NewReader("{}\n"))
 	request.Header.Set("Content-Type", "application/x-ndjson")
 	request.Header.Set("Content-Encoding", "gzip")
 	response := httptest.NewRecorder()
@@ -189,10 +184,10 @@ func TestHTTPTransferCancellationAbortsInvisibleImport(t *testing.T) {
 	create := apiCreateRequest()
 	create.SessionID = "session.http-transfer-canceled"
 	create.RequestID = "create.http-transfer-canceled"
-	if response := perform(t, source, "/v1/session/create", create); response.Code != http.StatusOK {
+	if response := perform(t, source, "/v2/session/create", create); response.Code != http.StatusOK {
 		t.Fatalf("create: %d %s", response.Code, response.Body.String())
 	}
-	export := perform(t, source, "/v1/session/export", protocol.SessionRequest{
+	export := perform(t, source, "/v2/session/export", protocol.SessionRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       create.SessionID,
 	})
@@ -205,7 +200,7 @@ func TestHTTPTransferCancellationAbortsInvisibleImport(t *testing.T) {
 	cancel()
 	request := httptest.NewRequest(
 		http.MethodPost,
-		"/v1/session/import",
+		"/v2/session/import",
 		bytes.NewReader(export.Body.Bytes()),
 	).WithContext(ctx)
 	request.Header.Set("Content-Type", "application/x-ndjson")
@@ -218,7 +213,7 @@ func TestHTTPTransferCancellationAbortsInvisibleImport(t *testing.T) {
 	if response.Code != http.StatusRequestTimeout {
 		t.Fatalf("canceled import status = %d, want 408", response.Code)
 	}
-	state := perform(t, target, "/v1/session/get", protocol.SessionRequest{
+	state := perform(t, target, "/v2/session/get", protocol.SessionRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       create.SessionID,
 	})
@@ -240,10 +235,10 @@ func TestHTTPTransferExportEndsWithErrorAfterStreamingStarts(t *testing.T) {
 	create := apiCreateRequest()
 	create.SessionID = "session.http-transfer-error"
 	create.RequestID = "create.http-transfer-error"
-	if response := perform(t, server, "/v1/session/create", create); response.Code != http.StatusOK {
+	if response := perform(t, server, "/v2/session/create", create); response.Code != http.StatusOK {
 		t.Fatalf("create: %d %s", response.Code, response.Body.String())
 	}
-	response := perform(t, server, "/v1/session/export", protocol.SessionRequest{
+	response := perform(t, server, "/v2/session/export", protocol.SessionRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       create.SessionID,
 	})
@@ -307,7 +302,7 @@ func importTransfer(
 	binding protocol.Binding,
 ) *httptest.ResponseRecorder {
 	t.Helper()
-	request := httptest.NewRequest(http.MethodPost, "/v1/session/import", bytes.NewReader(body))
+	request := httptest.NewRequest(http.MethodPost, "/v2/session/import", bytes.NewReader(body))
 	request.Header.Set("Content-Type", "application/x-ndjson")
 	request.Header.Set("Rin-Expected-Game-Id", binding.GameID)
 	request.Header.Set("Rin-Expected-Content-Id", binding.ContentID)

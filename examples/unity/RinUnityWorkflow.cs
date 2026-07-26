@@ -3,32 +3,104 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
-using System.Linq;
-using System.Reflection;
 using System.Text;
 using UnityEngine;
 
+// The game implements this interface at its authority boundary. Execute must
+// treat invocation.operation_id as an idempotency key if the adapter is used
+// for world mutation: a process can stop after the effect but before the
+// durable outbox write.
+public interface IRinUnityHost
+{
+    RinTurnInput CaptureTurn(long operationSequence, Epoch epoch);
+    RinHostActionResult Execute(ActionInvocation invocation);
+}
+
+[Serializable]
+public sealed class RinActionOfferTemplate
+{
+    public string offer_id;
+    public CapabilityRef capability;
+    public string descriptor_digest;
+    public string description;
+    public string arguments_json = "{}";
+    public HostRef[] targets = new HostRef[0];
+}
+
+[Serializable]
+public sealed class RinTurnInput
+{
+    public string actor_id;
+    public long tick;
+    public long observation_seq;
+    public string clock = "step";
+    public long opened_at;
+    public long deadline;
+    public string intent;
+    public string source = "game";
+    public string observation_kind = "world.event";
+    public string observation_summary;
+    public int importance = 1;
+    public RinActionOfferTemplate[] offers;
+}
+
+[Serializable]
+public sealed class RinHostActionResult
+{
+    public bool accepted;
+    public string status = "succeeded";
+    public string summary;
+    public string code;
+    public long world_seq;
+    public long occurred_at;
+    public HostRef[] evidence = new HostRef[0];
+
+    public static RinHostActionResult Rejected(string summary)
+    {
+        return new RinHostActionResult
+        {
+            accepted = false,
+            status = "rejected",
+            summary = summary,
+        };
+    }
+}
+
+// Restartable advisory/idempotent workflow. The complete request is durable
+// before network I/O; applied markers and exact action reports survive restart.
 public sealed class RinUnityWorkflow : MonoBehaviour
 {
-    private const long NpcThinkEveryTicks = 5;
+    private const int StateSchemaVersion = 2;
     private const int MaxStateBytes = 1024 * 1024;
-    private const int MaxOutcomes = 64;
+    private const int MaxAppliedMarkers = 256;
+    private const int MaxOutboxEntries = 64;
 
-    [SerializeField] private RinClient rin;
+    [SerializeField] private RinClient rin = null;
+    [SerializeField] private MonoBehaviour hostComponent = null;
+    [SerializeField] private string gameId = "example.unity";
+    [SerializeField] private string contentId = "base";
+    [SerializeField] private string contentVersion = "1";
+    [SerializeField] private string contentHash =
+        "0000000000000000000000000000000000000000000000000000000000000000";
+    [SerializeField] private string worldId = "unity.world";
+    [SerializeField] private string actorId = "npc.guide";
+    [SerializeField] private string actorDisplayName = "Guide";
 
-    private readonly Dictionary<string, AppliedAction> appliedOperations =
-        new Dictionary<string, AppliedAction>();
-    private readonly Dictionary<string, PendingReport> reportOutbox =
-        new Dictionary<string, PendingReport>();
-    private readonly Dictionary<string, ProposalAttempt> proposalAttempts =
-        new Dictionary<string, ProposalAttempt>();
+    private IRinUnityHost host;
     private string runId;
     private long operationSequence;
+    private long hostEpoch;
+    private long worldEpoch;
+    private long timelineEpoch;
+    private long observationSequence;
     private long lastAuthoritativeTick;
-    private CreateSessionRequest createRequest;
+    private PendingTurnState pendingTurn;
+    private readonly Dictionary<string, AppliedMarker> applied =
+        new Dictionary<string, AppliedMarker>();
+    private readonly List<ReportOutboxEntry> reportOutbox =
+        new List<ReportOutboxEntry>();
     private bool authoritativeStateReady;
     private bool turnRunning;
-    private bool shutdownRequested;
     private string statePath;
 
     private void Awake()
@@ -37,43 +109,77 @@ public sealed class RinUnityWorkflow : MonoBehaviour
             Application.persistentDataPath,
             "rin",
             "default.json");
-        // Recovery is a startup gate. A load error is not an empty save, and
-        // no new identity or turn may exist until initialization is durable.
+        host = hostComponent as IRinUnityHost;
         authoritativeStateReady = RestoreAuthoritativeState();
         if (!authoritativeStateReady)
         {
             Debug.LogError(
-                "Authoritative Rin state could not be restored; NPC turns are disabled.");
+                "Rin authoritative state could not be restored; turns are disabled.");
         }
+    }
+
+    public void ConfigureHost(IRinUnityHost value)
+    {
+        host = value;
     }
 
     public void RequestTurn()
     {
         if (!authoritativeStateReady)
         {
-            Debug.LogError(
-                "Rin NPC turn refused until authoritative state recovery succeeds.");
+            Debug.LogError("Rin turn refused until state recovery succeeds.");
+            return;
+        }
+        if (rin == null || !rin.IsConfigured)
+        {
+            Debug.LogError("RinClient is not configured.");
+            return;
+        }
+        if (host == null)
+        {
+            Debug.LogError("A component implementing IRinUnityHost is required.");
             return;
         }
         if (turnRunning)
         {
-            Debug.LogWarning("A Rin NPC turn is already running.");
+            Debug.LogWarning("A Rin turn is already running.");
             return;
         }
         turnRunning = true;
-        StartCoroutine(RunNpcTurn());
+        StartCoroutine(RunTurn());
     }
 
-    private void OnDestroy()
+    // Call after loading or rolling back authoritative game state. A world
+    // load changes world; loading an earlier save also changes timeline.
+    public bool AdvanceEpoch(bool timelineChanged)
     {
-        shutdownRequested = true;
+        if (!authoritativeStateReady || pendingTurn != null ||
+            reportOutbox.Count != 0 || worldEpoch == long.MaxValue ||
+            (timelineChanged && timelineEpoch == long.MaxValue))
+        {
+            return false;
+        }
+        worldEpoch++;
+        if (timelineChanged) timelineEpoch++;
+        return PersistCurrentState();
     }
 
-    private IEnumerator RunNpcTurn()
+    private IEnumerator RunTurn()
     {
         try
         {
-            yield return ProposeAndApply();
+            MutationResult created = null;
+            yield return rin.CreateSession(
+                BuildCreateRequest(),
+                value => created = value);
+            if (created == null) yield break;
+
+            var drained = false;
+            yield return DrainOutbox(value => drained = value);
+            if (!drained) yield break;
+
+            if (pendingTurn == null && !CreatePendingTurn()) yield break;
+            yield return ResumePendingTurn();
         }
         finally
         {
@@ -81,1153 +187,471 @@ public sealed class RinUnityWorkflow : MonoBehaviour
         }
     }
 
-    private IEnumerator ProposeAndApply()
+    private bool CreatePendingTurn()
     {
-        if (!authoritativeStateReady) yield break;
-        var sessionId = "playthrough." + runId;
-        var resuming = proposalAttempts.TryGetValue(sessionId, out var attempt);
-        // Keep this complete request stable. A lost response is retried on the
-        // next turn with the same request ID and game-owned fields.
-        MutationResult created = null;
-        yield return rin.CreateSession(createRequest, value => created = value);
-        if (created == null)
+        if (operationSequence == long.MaxValue)
         {
-            Debug.LogWarning(resuming
-                ? "Rin create unavailable; the persisted Proposal attempt will fail closed."
-                : "Rin create unavailable; an empty Outbox may use the authored fallback.");
-        }
-
-        // Every authoritative entry retries pending Commit or fallback Observe
-        // reports before proposing or applying another action.
-        var pendingReported = false;
-        yield return FlushReportOutbox(value => pendingReported = value);
-        if (!pendingReported) yield break;
-
-        if (!resuming)
-        {
-            if (operationSequence == long.MaxValue)
-            {
-                Debug.LogError(
-                    "Operation sequence exhausted; no new Proposal can be identified safely.");
-                yield break;
-            }
-            if (!TryAllocateFreshProposalTick(out var newGameTick))
-            {
-                Debug.LogError("Authoritative tick exhausted; no new Proposal was submitted.");
-                yield break;
-            }
-            var nextSequence = operationSequence + 1;
-            var newOperationId =
-                runId + "." + nextSequence.ToString(CultureInfo.InvariantCulture);
-            var stableRequest = BuildProposeRequest(
-                sessionId,
-                newOperationId,
-                newGameTick);
-            attempt = new ProposalAttempt(
-                newOperationId,
-                nextSequence,
-                stableRequest,
-                BuildTurnObserveRequest(sessionId, newOperationId, newGameTick),
-                "wait",
-                "");
-            // Persist the complete stable request, operation ID, and consumed
-            // sequence before the first POST can create a Proposal Job.
-            if (!PersistNewProposalAttempt(
-                sessionId,
-                attempt,
-                nextSequence,
-                newGameTick))
-            {
-                Debug.LogError(
-                    "Could not durably save the Proposal attempt; nothing was submitted.");
-                yield break;
-            }
-            proposalAttempts.Add(sessionId, attempt);
-            operationSequence = nextSequence;
-            lastAuthoritativeTick = newGameTick;
-        }
-        else
-        {
-            operationSequence = Math.Max(operationSequence, attempt.sequence);
-        }
-
-        var operationId = attempt.operationId;
-        var request = attempt.request;
-        if (rin.IsConfigured || resuming)
-        {
-            MutationResult observed = null;
-            yield return rin.Observe(attempt.observe, value => observed = value);
-            if (observed == null)
-            {
-                Debug.LogWarning("Pending Observe remains retryable; Proposal was not resumed.");
-                yield break;
-            }
-        }
-        AdapterResult result = null;
-        yield return rin.ProposeWithFallback(
-            request,
-            attempt.fallbackActionId,
-            value => result = value,
-            isCanceled: () => shutdownRequested,
-            allowOfflineBeforeSubmit: !resuming && created == null,
-            knownJobId: attempt.jobId,
-            persistJobId: jobId => RecordProposalJobId(
-                sessionId,
-                operationId,
-                jobId));
-        if (result == null || result.proposal == null) yield break;
-        if (result.proposal.tick < 0)
-        {
-            Debug.LogError("Proposal tick is not a non-negative protocol integer.");
-            yield break;
-        }
-
-        var planned = PlanActionInGame(result.proposal.action);
-        PendingReport report;
-        if (result.committable)
-        {
-            ProposalFreshnessResult freshness = null;
-            yield return rin.ProposalFreshness(
-                new SessionRequest { session_id = sessionId },
-                result.proposal.id,
-                value => freshness = value);
-            if (freshness == null)
-            {
-                // We already have an online proposal. Reject it authoritatively;
-                // never reinterpret a read failure as permission for fallback.
-                planned = new AppliedAction(
-                    result.proposal.action != null ? result.proposal.action.id : "",
-                    false,
-                    "The game rejected the proposal because freshness could not be verified.");
-            }
-            else if (!ProposalIsFresh(freshness, result.proposal, request))
-            {
-                planned = new AppliedAction(
-                    result.proposal.action != null ? result.proposal.action.id : "",
-                    false,
-                    "The game rejected a stale proposal before applying any effect.");
-            }
-            report = BuildCommitReport(
-                request.session_id,
-                operationId,
-                result.proposal.id,
-                0,
-                planned);
-        }
-        else
-        {
-            // Authored local fallbacks have no Rin Proposal to Commit. Reconcile
-            // the game effect as a stable Observe with these exact IDs and tick.
-            report = PendingReport.Observe(BuildFallbackObserveRequest(
-                request.session_id,
-                operationId,
-                0,
-                planned));
-        }
-        if (ApplyAndEnqueueAuthoritativeOperation(
-            sessionId,
-            operationId,
-            planned,
-            report,
-            result.proposal.tick) == null)
-            yield break;
-        yield return FlushReportOutbox(_ => { });
-    }
-
-    private bool RestoreAuthoritativeState()
-    {
-        var loaded = LoadAuthoritativeState();
-        if (loaded == null)
-        {
-            Debug.LogError("Authoritative state loader returned no result.");
+            Debug.LogError("Rin operation sequence is exhausted.");
             return false;
         }
-        if (loaded.status == AuthoritativeStateLoadStatus.Loaded)
+        var next = operationSequence + 1;
+        var epoch = CurrentEpoch();
+        var input = host.CaptureTurn(next, epoch.Copy());
+        string error;
+        if (!ValidateTurn(input, out error))
         {
-            if (loaded.state == null || !TryHydrateAuthoritativeState(loaded.state))
-            {
-                Debug.LogError(
-                    "Persisted authoritative state is missing, corrupt, or inconsistent.");
-                return false;
-            }
-            CleanupRecoveryFiles();
-            return true;
-        }
-        if (loaded.status != AuthoritativeStateLoadStatus.NotFound)
-        {
-            Debug.LogError(
-                "Authoritative state load failed: " + (loaded.error ?? "unknown"));
+            Debug.LogError("Invalid Rin turn: " + error);
             return false;
         }
-
-        // Only a positive NotFound result may mint a new identity. Save the
-        // complete initialized object before exposing it to the running scene.
-        var newRunId = Guid.NewGuid().ToString("N");
-        var initialized = new AuthoritativeState
+        var operationId =
+            "unity.operation." + runId + "." +
+            next.ToString(CultureInfo.InvariantCulture);
+        var windowId =
+            "unity.window." + runId + "." +
+            next.ToString(CultureInfo.InvariantCulture);
+        var offers = new ActionOffer[input.offers.Length];
+        for (var index = 0; index < input.offers.Length; index++)
         {
-            schemaVersion = 2,
-            runId = newRunId,
-            operationSequence = 0,
-            lastAuthoritativeTick = 0,
-            createRequest = BuildCreateRequest(newRunId),
-            proposalAttempts = new ProposalAttemptState[0],
-            appliedOperations = new AppliedOperationState[0],
-            reportOutbox = new PendingReportState[0],
+            var template = input.offers[index];
+            offers[index] = new ActionOffer
+            {
+                offer_id = string.IsNullOrEmpty(template.offer_id)
+                    ? operationId + ".offer." +
+                        (index + 1).ToString(CultureInfo.InvariantCulture)
+                    : template.offer_id,
+                decision_window_id = windowId,
+                actor_id = input.actor_id,
+                capability = template.capability,
+                descriptor_digest = template.descriptor_digest,
+                description = template.description,
+                argumentsJson = template.arguments_json,
+                targets = template.targets ?? new HostRef[0],
+                expected_epoch = epoch.Copy(),
+                observation_seq = input.observation_seq,
+                deadline = new Timepoint
+                {
+                    clock = input.clock,
+                    value = input.deadline,
+                },
+            };
+        }
+        var requestId =
+            "unity.propose." + runId + "." +
+            next.ToString(CultureInfo.InvariantCulture);
+        pendingTurn = new PendingTurnState
+        {
+            version = 1,
+            operation_id = operationId,
+            observation = new ObserveRequest
+            {
+                session_id = SessionId(),
+                request_id = "unity.observe." + runId + "." +
+                    next.ToString(CultureInfo.InvariantCulture),
+                event_id = "unity.event." + runId + "." +
+                    next.ToString(CultureInfo.InvariantCulture),
+                tick = input.tick,
+                observer_ids = new[] { input.actor_id },
+                source = input.source,
+                kind = input.observation_kind,
+                summary = input.observation_summary,
+                importance = input.importance,
+                epoch = epoch.Copy(),
+                observation_seq = input.observation_seq,
+            },
+            request = new ProposeRequest
+            {
+                session_id = SessionId(),
+                request_id = requestId,
+                actor_id = input.actor_id,
+                tick = input.tick,
+                intent = input.intent,
+                decision_window = new DecisionWindow
+                {
+                    id = windowId,
+                    mode = "sequential",
+                    epoch = epoch.Copy(),
+                    observation_seq = input.observation_seq,
+                    opened_at = new Timepoint
+                    {
+                        clock = input.clock,
+                        value = input.opened_at,
+                    },
+                    deadline = new Timepoint
+                    {
+                        clock = input.clock,
+                        value = input.deadline,
+                    },
+                    actor_ids = new[] { input.actor_id },
+                },
+                offers = offers,
+            },
         };
-        if (!PersistAuthoritativeStateInitialization(initialized))
-        {
-            Debug.LogError("Could not durably initialize authoritative state.");
-            return false;
-        }
-        return TryHydrateAuthoritativeState(initialized);
-    }
+        operationSequence = next;
+        observationSequence = input.observation_seq;
+        lastAuthoritativeTick = input.tick;
+        if (PersistCurrentState()) return true;
 
-    private AuthoritativeStateLoadResult LoadAuthoritativeState()
-    {
-        try
-        {
-            RecoverInterruptedReplacement();
-            if (!File.Exists(statePath))
-                return AuthoritativeStateLoadResult.NotFound();
-            var info = new FileInfo(statePath);
-            if (info.Length <= 0 || info.Length > MaxStateBytes)
-                return AuthoritativeStateLoadResult.Failed("state size is invalid");
-            var state = JsonUtility.FromJson<AuthoritativeState>(
-                File.ReadAllText(statePath, Encoding.UTF8));
-            return state == null
-                ? AuthoritativeStateLoadResult.Failed("state JSON is invalid")
-                : AuthoritativeStateLoadResult.Loaded(state);
-        }
-        catch (Exception error)
-        {
-            return AuthoritativeStateLoadResult.Failed(error.Message);
-        }
-    }
-
-    private bool PersistAuthoritativeStateInitialization(AuthoritativeState state)
-    {
-        return !File.Exists(statePath) && PersistState(state);
-    }
-
-    private bool TryHydrateAuthoritativeState(AuthoritativeState state)
-    {
-        if (state == null ||
-            state.schemaVersion != 2 ||
-            string.IsNullOrEmpty(state.runId) ||
-            state.operationSequence < 0 ||
-            state.lastAuthoritativeTick < 0 ||
-            state.createRequest == null ||
-            state.proposalAttempts == null ||
-            state.appliedOperations == null ||
-            state.reportOutbox == null)
-            return false;
-
-        var expectedSessionId = "playthrough." + state.runId;
-        var expectedCreateRequest = BuildCreateRequest(state.runId);
-        if (state.createRequest.session_id != expectedSessionId ||
-            state.createRequest.request_id != "create." + state.runId ||
-            !SemanticDtoEquals(state.createRequest, expectedCreateRequest))
-            return false;
-
-        var restoredAttempts = new Dictionary<string, ProposalAttempt>();
-        foreach (var saved in state.proposalAttempts)
-        {
-            if (saved == null ||
-                saved.sessionId != expectedSessionId ||
-                string.IsNullOrEmpty(saved.operationId) ||
-                saved.sequence <= 0 ||
-                saved.sequence != state.operationSequence ||
-                !TryParseOperationSequence(
-                    saved.operationId,
-                    state.runId,
-                    out var attemptOperationSequence) ||
-                attemptOperationSequence != saved.sequence ||
-                saved.request == null ||
-                saved.request.session_id != expectedSessionId ||
-                saved.request.request_id != "propose." + saved.operationId ||
-                !SemanticDtoEquals(
-                    saved.request,
-                    BuildProposeRequest(
-                        expectedSessionId,
-                        saved.operationId,
-                        saved.request.tick)) ||
-                saved.request.tick < 0 ||
-                saved.request.tick > state.lastAuthoritativeTick ||
-                saved.observe == null ||
-                !SemanticDtoEquals(
-                    saved.observe,
-                    BuildTurnObserveRequest(
-                        expectedSessionId,
-                        saved.operationId,
-                        saved.request.tick)) ||
-                saved.fallbackActionId != "wait" ||
-                saved.jobId == null ||
-                (saved.jobId.Length > 0 && !RinClient.IsProtocolId(saved.jobId)) ||
-                !SemanticDtoEquals(saved, new ProposalAttemptState
-                {
-                    sessionId = expectedSessionId,
-                    operationId = saved.operationId,
-                    sequence = saved.sequence,
-                    request = BuildProposeRequest(
-                        expectedSessionId,
-                        saved.operationId,
-                        saved.request.tick),
-                    observe = BuildTurnObserveRequest(
-                        expectedSessionId,
-                        saved.operationId,
-                        saved.request.tick),
-                    fallbackActionId = "wait",
-                    jobId = saved.jobId,
-                }) ||
-                restoredAttempts.ContainsKey(saved.sessionId))
-                return false;
-            restoredAttempts.Add(
-                saved.sessionId,
-                new ProposalAttempt(
-                    saved.operationId,
-                    saved.sequence,
-                    saved.request,
-                    saved.observe,
-                    saved.fallbackActionId,
-                    saved.jobId ?? ""));
-        }
-
-        var restoredApplied = new Dictionary<string, AppliedAction>();
-        foreach (var saved in state.appliedOperations)
-        {
-            if (saved == null ||
-                string.IsNullOrEmpty(saved.operationId) ||
-                !TryParseOperationSequence(
-                    saved.operationId,
-                    state.runId,
-                    out var appliedOperationSequence) ||
-                appliedOperationSequence > state.operationSequence ||
-                saved.actionId == null ||
-                saved.outcome == null ||
-                !SemanticDtoEquals(saved, new AppliedOperationState
-                {
-                    operationId = saved.operationId,
-                    actionId = saved.actionId,
-                    accepted = saved.accepted,
-                    outcome = saved.outcome,
-                }) ||
-                restoredApplied.ContainsKey(saved.operationId))
-                return false;
-            restoredApplied.Add(
-                saved.operationId,
-                new AppliedAction(saved.actionId ?? "", saved.accepted, saved.outcome ?? ""));
-        }
-
-        var restoredOutbox = new Dictionary<string, PendingReport>();
-        foreach (var saved in state.reportOutbox)
-        {
-            if (saved == null ||
-                string.IsNullOrEmpty(saved.operationId) ||
-                !TryParseOperationSequence(
-                    saved.operationId,
-                    state.runId,
-                    out var outboxOperationSequence) ||
-                outboxOperationSequence > state.operationSequence ||
-                !restoredApplied.ContainsKey(saved.operationId) ||
-                (saved.kind != "commit" && saved.kind != "observe"))
-                return false;
-            PendingReport pending;
-            if (saved.kind == "commit")
-            {
-                if (saved.commit == null ||
-                    saved.fallback == null ||
-                    saved.observe != null ||
-                    saved.commit.request_id != "commit." + saved.operationId ||
-                    saved.commit.event_id != "outcome." + saved.operationId ||
-                    !RinClient.IsProtocolId(saved.commit.proposal_id) ||
-                    saved.commit.session_id != expectedSessionId ||
-                    saved.fallback.request_id != "reconcile." + saved.operationId ||
-                    saved.fallback.session_id != saved.commit.session_id ||
-                    saved.fallback.event_id != saved.commit.event_id ||
-                    saved.commit.tick < 0 ||
-                    saved.commit.tick > state.lastAuthoritativeTick ||
-                    saved.fallback.tick != saved.commit.tick ||
-                    saved.commit.accepted != restoredApplied[saved.operationId].accepted ||
-                    saved.commit.outcome != restoredApplied[saved.operationId].outcome ||
-                    !SemanticDtoEquals(
-                        saved.commit,
-                        BuildCommitRequest(
-                            expectedSessionId,
-                            saved.operationId,
-                            saved.commit.proposal_id,
-                            saved.commit.tick,
-                            restoredApplied[saved.operationId])) ||
-                    !OutcomeObserveMatchesApplied(
-                        saved.fallback,
-                        restoredApplied[saved.operationId],
-                        saved.operationId,
-                        expectedSessionId))
-                    return false;
-                pending = PendingReport.Commit(saved.commit, saved.fallback);
-            }
-            else
-            {
-                if (saved.observe == null ||
-                    saved.commit != null ||
-                    saved.fallback != null ||
-                    saved.observe.session_id != expectedSessionId ||
-                    saved.observe.request_id != "reconcile." + saved.operationId ||
-                    (saved.observe.event_id != "fallback." + saved.operationId &&
-                        saved.observe.event_id != "outcome." + saved.operationId) ||
-                    saved.observe.tick < 0 ||
-                    saved.observe.tick > state.lastAuthoritativeTick ||
-                    !OutcomeObserveMatchesApplied(
-                        saved.observe,
-                        restoredApplied[saved.operationId],
-                        saved.operationId,
-                        expectedSessionId))
-                    return false;
-                pending = PendingReport.Observe(saved.observe);
-            }
-            if (restoredOutbox.ContainsKey(saved.operationId)) return false;
-            restoredOutbox.Add(saved.operationId, pending);
-        }
-        foreach (var attempt in restoredAttempts.Values)
-        {
-            if (restoredApplied.ContainsKey(attempt.operationId) ||
-                restoredOutbox.ContainsKey(attempt.operationId))
-                return false;
-        }
-
-        runId = state.runId;
-        operationSequence = state.operationSequence;
-        lastAuthoritativeTick = state.lastAuthoritativeTick;
-        createRequest = state.createRequest;
-        proposalAttempts.Clear();
-        appliedOperations.Clear();
-        reportOutbox.Clear();
-        foreach (var entry in restoredAttempts) proposalAttempts.Add(entry.Key, entry.Value);
-        foreach (var entry in restoredApplied) appliedOperations.Add(entry.Key, entry.Value);
-        foreach (var entry in restoredOutbox) reportOutbox.Add(entry.Key, entry.Value);
-        return true;
-    }
-
-    private static bool TryParseOperationSequence(
-        string operationId,
-        string stableRunId,
-        out long sequence)
-    {
-        sequence = 0;
-        var prefix = stableRunId + ".";
-        if (string.IsNullOrEmpty(operationId) ||
-            !operationId.StartsWith(prefix, StringComparison.Ordinal))
-            return false;
-        var suffix = operationId.Substring(prefix.Length);
-        return long.TryParse(
-                suffix,
-                NumberStyles.None,
-                CultureInfo.InvariantCulture,
-                out sequence) &&
-            sequence > 0 &&
-            suffix == sequence.ToString(CultureInfo.InvariantCulture);
-    }
-
-    private static bool OutcomeObserveMatchesApplied(
-        ObserveRequest observe,
-        AppliedAction applied,
-        string operationId,
-        string sessionId)
-    {
-        if (observe == null || applied == null || observe.source != "unity-example")
-            return false;
-        if (observe.event_id == "outcome." + operationId)
-        {
-            return observe.kind == "action_outcome" &&
-                observe.summary == "Authoritative outcome: " + applied.outcome &&
-                SemanticDtoEquals(
-                    observe,
-                    BuildOutcomeObserveRequest(
-                        sessionId,
-                        operationId,
-                        observe.tick,
-                        applied));
-        }
-        if (observe.event_id == "fallback." + operationId)
-        {
-            return observe.kind == "fallback_action" &&
-                observe.summary ==
-                    "Local fallback " + applied.actionId + ": " + applied.outcome &&
-                SemanticDtoEquals(
-                    observe,
-                    BuildFallbackObserveRequest(
-                        sessionId,
-                        operationId,
-                        observe.tick,
-                        applied));
-        }
+        pendingTurn = null;
+        operationSequence--;
+        Debug.LogError("Rin Pending Turn could not be persisted.");
         return false;
     }
 
-    private static PendingReport BuildCommitReport(
-        string sessionId,
-        string operationId,
-        string proposalId,
-        long tick,
-        AppliedAction applied)
+    private IEnumerator ResumePendingTurn()
     {
-        return PendingReport.Commit(
-            BuildCommitRequest(sessionId, operationId, proposalId, tick, applied),
-            BuildOutcomeObserveRequest(sessionId, operationId, tick, applied));
-    }
+        var observed = (MutationResult)null;
+        yield return rin.Observe(pendingTurn.observation, value => observed = value);
+        if (observed == null) yield break;
 
-    private static CommitRequest BuildCommitRequest(
-        string sessionId,
-        string operationId,
-        string proposalId,
-        long tick,
-        AppliedAction applied)
-    {
-        return new CommitRequest
+        ProposalResult resolved = null;
+        yield return rin.Propose(pendingTurn.request, value => resolved = value);
+        if (resolved == null || resolved.proposal == null) yield break;
+
+        ActionOffer offered;
+        string error;
+        if (!TryResolveOfferedAction(resolved.proposal, out offered, out error))
         {
-            protocol_version = RinClient.ProtocolVersion,
-            session_id = sessionId,
-            request_id = "commit." + operationId,
-            proposal_id = proposalId,
-            event_id = "outcome." + operationId,
-            tick = tick,
-            accepted = applied.accepted,
-            outcome = applied.outcome,
-            // Explicit nulls are the canonical defaults for this example.
-            // Restored non-null tags/facts/goal updates are rejected.
-            tags = null,
-            facts = null,
-            goal_updates = null,
-        };
-    }
-
-    private static ObserveRequest BuildOutcomeObserveRequest(
-        string sessionId,
-        string operationId,
-        long tick,
-        AppliedAction applied)
-    {
-        return new ObserveRequest
-        {
-            protocol_version = RinClient.ProtocolVersion,
-            session_id = sessionId,
-            request_id = "reconcile." + operationId,
-            event_id = "outcome." + operationId,
-            tick = tick,
-            // This example owns exactly npc.mira. A persisted or remote actor
-            // cannot redirect authoritative outcome memory to another observer.
-            observer_ids = new[] { "npc.mira" },
-            source = "unity-example",
-            kind = "action_outcome",
-            summary = "Authoritative outcome: " + applied.outcome,
-            quote = null,
-            tags = new[] { "outcome-report" },
-            importance = 3,
-            facts = null,
-        };
-    }
-
-    private static ObserveRequest BuildFallbackObserveRequest(
-        string sessionId,
-        string operationId,
-        long tick,
-        AppliedAction applied)
-    {
-        return new ObserveRequest
-        {
-            protocol_version = RinClient.ProtocolVersion,
-            session_id = sessionId,
-            request_id = "reconcile." + operationId,
-            event_id = "fallback." + operationId,
-            tick = tick,
-            observer_ids = new[] { "npc.mira" },
-            source = "unity-example",
-            kind = "fallback_action",
-            summary = "Local fallback " + applied.actionId + ": " + applied.outcome,
-            quote = null,
-            tags = new[] { "fallback" },
-            importance = 3,
-            facts = null,
-        };
-    }
-
-    private static CreateSessionRequest BuildCreateRequest(string stableRunId)
-    {
-        return new CreateSessionRequest
-        {
-            request_id = "create." + stableRunId,
-            session_id = "playthrough." + stableRunId,
-            binding = new Binding
-            {
-                game_id = "example-game",
-                content_id = "base",
-                content_version = "1.0.0",
-                content_hash = "example-content-hash",
-            },
-            seed = 42,
-            features = new[] { "outcome-reporting-v1" },
-            actors = new[]
-            {
-                new ActorSeed
-                {
-                    id = "npc.mira",
-                    kind = "npc",
-                    display_name = "Mira",
-                    traits = new[] { "careful" },
-                    goals = new[]
-                    {
-                        new Goal
-                        {
-                            id = "goal.connect",
-                            description = "Build trust through specific actions.",
-                            priority = 4,
-                            preferred_actions = new[] { "talk" },
-                            progress = 0,
-                            target_progress = 3,
-                            status = "active",
-                        },
-                    },
-                    think_every_ticks = NpcThinkEveryTicks,
-                    enabled = true,
-                },
-            },
-        };
-    }
-
-    private static ProposeRequest BuildProposeRequest(
-        string sessionId,
-        string operationId,
-        long tick)
-    {
-        return new ProposeRequest
-        {
-            session_id = sessionId,
-            request_id = "propose." + operationId,
-            actor_id = "npc.mira",
-            tick = tick,
-            intent = "Choose how to respond to the player.",
-            tags = new[] { "conversation", "trust" },
-            candidate_actions = new[]
-            {
-                new ActionSpec
-                {
-                    id = "talk",
-                    kind = "dialogue",
-                    description = "Ask one honest question.",
-                },
-                new ActionSpec
-                {
-                    id = "wait",
-                    kind = "wait",
-                    description = "Stay silent for now.",
-                },
-            },
-        };
-    }
-
-    private static ObserveRequest BuildTurnObserveRequest(
-        string sessionId,
-        string operationId,
-        long tick)
-    {
-        return new ObserveRequest
-        {
-            protocol_version = RinClient.ProtocolVersion,
-            session_id = sessionId,
-            request_id = "observe." + operationId,
-            event_id = "question." + operationId,
-            tick = tick,
-            observer_ids = new[] { "npc.mira" },
-            source = "unity-example",
-            kind = "dialogue",
-            summary = "The player asked Mira what to do next.",
-            tags = new[] { "conversation", "player-request" },
-            importance = 3,
-        };
-    }
-
-    private static bool SemanticDtoEquals(object left, object right)
-    {
-        if (ReferenceEquals(left, right)) return true;
-        if (left == null || right == null || left.GetType() != right.GetType())
-            return false;
-        var type = left.GetType();
-        if (type.IsPrimitive || type.IsEnum || type == typeof(string) ||
-            type == typeof(decimal))
-            return left.Equals(right);
-        var leftDictionary = left as IDictionary;
-        var rightDictionary = right as IDictionary;
-        if (leftDictionary != null || rightDictionary != null)
-        {
-            if (leftDictionary == null ||
-                rightDictionary == null ||
-                leftDictionary.Count != rightDictionary.Count)
-                return false;
-            foreach (DictionaryEntry entry in leftDictionary)
-            {
-                if (!rightDictionary.Contains(entry.Key) ||
-                    !SemanticDtoEquals(entry.Value, rightDictionary[entry.Key]))
-                    return false;
-            }
-            return true;
-        }
-        var leftList = left as IList;
-        var rightList = right as IList;
-        if (leftList != null || rightList != null)
-        {
-            if (leftList == null ||
-                rightList == null ||
-                leftList.Count != rightList.Count)
-                return false;
-            for (var index = 0; index < leftList.Count; index++)
-            {
-                if (!SemanticDtoEquals(leftList[index], rightList[index]))
-                    return false;
-            }
-            return true;
-        }
-        foreach (var field in type.GetFields(BindingFlags.Instance | BindingFlags.Public))
-        {
-            if (!SemanticDtoEquals(field.GetValue(left), field.GetValue(right)))
-                return false;
-        }
-        return true;
-    }
-
-    private bool PersistNewProposalAttempt(
-        string sessionId,
-        ProposalAttempt attempt,
-        long sequence,
-        long authoritativeTick)
-    {
-        if (!authoritativeStateReady) return false;
-        if (attempt == null ||
-            attempt.request == null ||
-            operationSequence == long.MaxValue ||
-            sequence != operationSequence + 1 ||
-            authoritativeTick <= lastAuthoritativeTick ||
-            !TryParseOperationSequence(attempt.operationId, runId, out var parsedSequence) ||
-            parsedSequence != sequence ||
-            attempt.sequence != sequence ||
-            attempt.request.session_id != sessionId ||
-            attempt.request.request_id != "propose." + attempt.operationId ||
-            attempt.observe == null ||
-            !SemanticDtoEquals(
-                attempt.observe,
-                BuildTurnObserveRequest(sessionId, attempt.operationId, authoritativeTick)) ||
-            !SemanticDtoEquals(
-                attempt.request,
-                BuildProposeRequest(sessionId, attempt.operationId, authoritativeTick)) ||
-            attempt.fallbackActionId != "wait" ||
-            attempt.request.tick != authoritativeTick)
-            return false;
-        var previousSequence = operationSequence;
-        var previousTick = lastAuthoritativeTick;
-        proposalAttempts.Add(sessionId, attempt);
-        operationSequence = sequence;
-        lastAuthoritativeTick = authoritativeTick;
-        var saved = PersistCurrentState();
-        proposalAttempts.Remove(sessionId);
-        operationSequence = previousSequence;
-        lastAuthoritativeTick = previousTick;
-        return saved;
-    }
-
-    private bool RecordProposalJobId(
-        string sessionId,
-        string operationId,
-        string jobId)
-    {
-        if (!RinClient.IsProtocolId(jobId) ||
-            !proposalAttempts.TryGetValue(sessionId, out var attempt) ||
-            attempt.operationId != operationId)
-            return false;
-        if (attempt.jobId == jobId) return true;
-        if (!PersistProposalJobId(sessionId, operationId, jobId)) return false;
-        attempt.jobId = jobId;
-        return true;
-    }
-
-    private bool PersistProposalJobId(
-        string sessionId,
-        string operationId,
-        string jobId)
-    {
-        var attempt = proposalAttempts[sessionId];
-        var previous = attempt.jobId;
-        attempt.jobId = jobId;
-        var saved = PersistCurrentState();
-        attempt.jobId = previous;
-        return saved;
-    }
-
-    private AppliedAction ApplyAndEnqueueAuthoritativeOperation(
-        string sessionId,
-        string operationId,
-        AppliedAction planned,
-        PendingReport report,
-        long proposalTick)
-    {
-        if (!authoritativeStateReady) return null;
-        if (appliedOperations.TryGetValue(operationId, out var stored))
-        {
-            // Atomic persistence guarantees its report is still queued until
-            // acknowledgement. Never execute the game effect again.
-            return stored;
-        }
-        if (!PersistAuthoritativeTransaction(
-            sessionId,
-            operationId,
-            planned,
-            report,
-            proposalTick))
-            return null;
-        return appliedOperations.TryGetValue(operationId, out var applied)
-            ? applied
-            : null;
-    }
-
-    private bool PersistAuthoritativeTransaction(
-        string sessionId,
-        string operationId,
-        AppliedAction planned,
-        PendingReport report,
-        long proposalTick)
-    {
-        if (!authoritativeStateReady) return false;
-        // This reference is advisory: it can roll back the demo callback in
-        // process, but a production game should replace this boundary with its
-        // save transaction or make operationId idempotent for the world effect.
-        if (!proposalAttempts.TryGetValue(sessionId, out var proposalAttempt) ||
-            proposalAttempt.operationId != operationId)
-            return false;
-        if (proposalAttempt.request == null ||
-            proposalAttempt.request.tick < 0 ||
-            proposalTick < 0 ||
-            reportOutbox.Count >= MaxOutcomes)
-            return false;
-        return RunAuthoritativeGameTransaction(transaction =>
-        {
-            // Unity's frame counter may reset after a process or scene restart.
-            // Preserve the causal floor of the retained request and response.
-            var occurrenceTick = Math.Max(
-                Math.Max(CaptureAuthoritativeOccurrenceTick(), lastAuthoritativeTick),
-                Math.Max(proposalAttempt.request.tick, proposalTick));
-            var effectivePlanned = planned;
-            if (planned.accepted &&
-                occurrenceTick > long.MaxValue - NpcThinkEveryTicks)
-            {
-                // An accepted Commit schedules npc.mira at
-                // tick + think_every_ticks. Reject before applying any effect
-                // when that addition cannot fit in int64.
-                effectivePlanned = new AppliedAction(
-                    planned.actionId,
-                    false,
-                    "The game rejected the action because the scheduler tick range is exhausted.");
-            }
-            var persistedReport = report
-                .WithAppliedOutcome(effectivePlanned)
-                .WithOccurrenceTick(occurrenceTick);
-            var previousLastTick = lastAuthoritativeTick;
-            lastAuthoritativeTick = occurrenceTick;
-            transaction.OnRollback(() => lastAuthoritativeTick = previousLastTick);
-            ApplyPlannedGameEffect(effectivePlanned, transaction);
-            appliedOperations.Add(operationId, effectivePlanned);
-            transaction.OnRollback(() => appliedOperations.Remove(operationId));
-            reportOutbox.Add(operationId, persistedReport);
-            transaction.OnRollback(() => reportOutbox.Remove(operationId));
-            // A succeeded online proposal (or confirmed-safe offline terminal)
-            // stops being resumable only in this authoritative transaction.
-            proposalAttempts.Remove(sessionId);
-            transaction.OnRollback(() => proposalAttempts[sessionId] = proposalAttempt);
-            return CommitAuthoritativeGameTransaction(operationId, occurrenceTick);
-        });
-    }
-
-    private IEnumerator FlushReportOutbox(Action<bool> completed)
-    {
-        if (!authoritativeStateReady)
-        {
-            completed(false);
+            Debug.LogError("Rin returned an invalid proposal: " + error);
             yield break;
         }
-        var operationIds = new List<string>(reportOutbox.Keys);
-        operationIds.Sort(StringComparer.Ordinal);
-        foreach (var operationId in operationIds)
+
+        AppliedMarker marker;
+        if (!applied.TryGetValue(pendingTurn.operation_id, out marker))
         {
-            var pending = reportOutbox[operationId];
-            MutationResult committed = null;
-            if (pending.kind == "commit")
+            var invocation = BuildInvocation(pendingTurn.operation_id, offered);
+            RinHostActionResult result;
+            try
             {
-                ReportAttempt attempt = null;
-                yield return rin.CommitReport(
-                    (CommitRequest)pending.request,
-                    value => attempt = value);
-                if (attempt != null && attempt.ok)
-                {
-                    committed = attempt.data;
-                }
-                else
-                {
-                    var errorCode = attempt != null ? attempt.error_code : "unknown";
-                    if (!IsIrrecoverableCommitError(errorCode))
-                    {
-                        Debug.LogError(
-                            "Commit temporarily failed; its exact request remains queued.");
-                        completed(false);
-                        yield break;
-                    }
-                    var replacement = pending.AsFallbackObserve();
-                    if (!PersistReportConversion(operationId, replacement))
-                    {
-                        Debug.LogError(
-                            "Could not durably convert Commit; original remains queued.");
-                        completed(false);
-                        yield break;
-                    }
-                    reportOutbox[operationId] = replacement;
-                    pending = replacement;
-                    yield return rin.Observe(
-                        (ObserveRequest)pending.request,
-                        value => committed = value);
-                }
+                result = host.Execute(invocation);
             }
-            else if (pending.kind == "observe")
-                yield return rin.Observe((ObserveRequest)pending.request, value => committed = value);
-            else
+            catch (Exception hostError)
             {
-                Debug.LogError("Unknown authoritative report kind; entry remains queued.");
+                result = RinHostActionResult.Rejected(
+                    "The host rejected the action after an execution error: " +
+                    hostError.GetType().Name);
+            }
+            if (result == null)
+            {
+                result = RinHostActionResult.Rejected(
+                    "The host returned no action result.");
+            }
+            marker = new AppliedMarker
+            {
+                operation_id = pendingTurn.operation_id,
+                proposal_id = resolved.proposal.id,
+                request = BuildReport(resolved.proposal, invocation, result),
+            };
+            applied.Add(marker.operation_id, marker);
+        }
+
+        reportOutbox.Add(new ReportOutboxEntry
+        {
+            key = marker.operation_id,
+            request = marker.request,
+        });
+        pendingTurn = null;
+        TrimAppliedMarkers();
+        if (!PersistCurrentState())
+        {
+            Debug.LogError(
+                "Rin action result could not be persisted; Execute must remain " +
+                "idempotent for this operation_id.");
+            yield break;
+        }
+
+        var drained = false;
+        yield return DrainOutbox(value => drained = value);
+    }
+
+    private IEnumerator DrainOutbox(Action<bool> completed)
+    {
+        while (reportOutbox.Count != 0)
+        {
+            var entry = reportOutbox[0];
+            MutationResult result = null;
+            yield return rin.ReportAction(entry.request, value => result = value);
+            if (result == null)
+            {
                 completed(false);
                 yield break;
             }
-            if (committed == null)
+            reportOutbox.RemoveAt(0);
+            if (!PersistCurrentState())
             {
-                Debug.LogError(
-                    "Game action already handled; the same report remains queued for retry.");
                 completed(false);
                 yield break;
             }
-            if (!PersistReportAcknowledgement(operationId))
-            {
-                Debug.LogError(
-                    "Report was acknowledged but durable Outbox deletion failed; retry is safe.");
-                completed(false);
-                yield break;
-            }
-            reportOutbox.Remove(operationId);
         }
         completed(true);
     }
 
-    private bool PersistReportAcknowledgement(string operationId)
+    private bool TryResolveOfferedAction(
+        ActionProposal proposal,
+        out ActionOffer offered,
+        out string error)
     {
-        var pending = reportOutbox[operationId];
-        reportOutbox.Remove(operationId);
-        var saved = PersistCurrentState();
-        reportOutbox[operationId] = pending;
-        return saved;
-    }
-
-    private bool PersistReportConversion(string operationId, PendingReport replacement)
-    {
-        var previous = reportOutbox[operationId];
-        reportOutbox[operationId] = replacement;
-        var saved = PersistCurrentState();
-        reportOutbox[operationId] = previous;
-        return saved;
-    }
-
-    private bool CommitAuthoritativeGameTransaction(
-        string operationId,
-        long authoritativeTick)
-    {
-        return authoritativeTick == lastAuthoritativeTick &&
-            reportOutbox.Count <= MaxOutcomes &&
-            PersistCurrentState();
-    }
-
-    private bool RunAuthoritativeGameTransaction(Func<GameTransaction, bool> mutate)
-    {
-        var transaction = new GameTransaction();
-        try
+        offered = null;
+        error = "";
+        if (proposal.session_id != pendingTurn.request.session_id ||
+            proposal.request_id != pendingTurn.request.request_id ||
+            proposal.actor_id != pendingTurn.request.actor_id ||
+            proposal.decision_window == null ||
+            proposal.decision_window.id !=
+                pendingTurn.request.decision_window.id ||
+            proposal.action == null)
         {
-            if (mutate(transaction)) return true;
+            error = "proposal identity does not match the durable Pending Turn";
+            return false;
         }
-        catch (Exception error)
+        foreach (var candidate in pendingTurn.request.offers)
         {
-            Debug.LogError("Authoritative game transaction failed: " + error.Message);
+            if (candidate.offer_id == proposal.action.offer_id)
+            {
+                offered = candidate;
+                return true;
+            }
         }
-        transaction.Rollback();
+        error = "proposal selected an action that the host did not offer";
         return false;
     }
 
-    private long CaptureAuthoritativeOccurrenceTick()
+    private static ActionInvocation BuildInvocation(
+        string operationId,
+        ActionOffer offer)
     {
-        // Read the current game clock inside the transaction at actual
-        // apply/reject. Production games should inject their persisted
-        // simulation clock here.
-        return Math.Max(0L, (long)Time.frameCount);
+        return new ActionInvocation
+        {
+            operation_id = operationId,
+            offer_id = offer.offer_id,
+            decision_window_id = offer.decision_window_id,
+            actor_id = offer.actor_id,
+            capability = offer.capability,
+            descriptor_digest = offer.descriptor_digest,
+            argumentsJson = offer.argumentsJson,
+            targets = offer.targets,
+            expected_epoch = offer.expected_epoch.Copy(),
+            observation_seq = offer.observation_seq,
+            deadline = offer.deadline.Copy(),
+        };
     }
 
-    private bool TryAllocateFreshProposalTick(out long tick)
-    {
-        tick = 0;
-        if (lastAuthoritativeTick == long.MaxValue) return false;
-        // Keep a larger live simulation clock; otherwise advance the restored
-        // durable high-water by one after a process/scene clock reset.
-        tick = Math.Max(
-            CaptureAuthoritativeOccurrenceTick(),
-            lastAuthoritativeTick + 1);
-        return true;
-    }
-
-    private static bool ProposalIsFresh(
-        ProposalFreshnessResult state,
+    private ReportActionRequest BuildReport(
         ActionProposal proposal,
-        ProposeRequest stableRequest)
+        ActionInvocation invocation,
+        RinHostActionResult result)
     {
-        if (state == null || proposal == null || stableRequest == null)
-            return false;
-        var retained = state.proposal;
-        ActionSpec stableAction = null;
-        if (stableRequest.candidate_actions != null && proposal.action != null)
+        var suffix = pendingTurn.operation_id.Substring(
+            "unity.operation.".Length);
+        var report = new ActionReport
         {
-            foreach (var candidate in stableRequest.candidate_actions)
+            proposal_id = proposal.id,
+            event_id = "unity.action." + suffix,
+            decision = result.accepted ? "accepted" : "rejected",
+            summary = NonEmpty(
+                result.summary,
+                result.accepted
+                    ? "The Unity host completed the offered action."
+                    : "The Unity host rejected the offered action."),
+        };
+        if (result.accepted)
+        {
+            var occurredAt = result.occurred_at > 0
+                ? result.occurred_at
+                : proposal.decision_window.opened_at.value;
+            report.invocation = invocation;
+            report.run = new ActionRun
             {
-                if (candidate != null && candidate.id == proposal.action.id)
+                operation_id = invocation.operation_id,
+                status = TerminalStatus(result.status),
+                progress_seq = 1,
+                progress = 100,
+                updated_at = new Timepoint
                 {
-                    stableAction = candidate;
-                    break;
-                }
-            }
+                    clock = proposal.decision_window.opened_at.clock,
+                    value = occurredAt,
+                },
+                message = report.summary,
+            };
+            report.outcome = new ActionOutcome
+            {
+                operation_id = invocation.operation_id,
+                status = TerminalStatus(result.status),
+                summary = report.summary,
+                code = result.code,
+                epoch = CurrentEpoch(),
+                world_seq = result.world_seq > 0
+                    ? result.world_seq
+                    : observationSequence,
+                occurred_at = report.run.updated_at.Copy(),
+                evidence = result.evidence ?? new HostRef[0],
+            };
         }
-        if (retained == null ||
-            string.IsNullOrEmpty(retained.id) ||
-            retained.id != proposal.id ||
-            retained.status != "pending" ||
-            string.IsNullOrEmpty(retained.session_id) ||
-            retained.session_id != proposal.session_id ||
-            string.IsNullOrEmpty(retained.request_id) ||
-            retained.request_id != proposal.request_id ||
-            string.IsNullOrEmpty(retained.actor_id) ||
-            retained.actor_id != proposal.actor_id ||
-            retained.tick < 0 ||
-            retained.tick != proposal.tick ||
-            retained.action == null ||
-            proposal.action == null ||
-            string.IsNullOrEmpty(retained.action.id) ||
-            retained.action.id != proposal.action.id ||
-            string.IsNullOrEmpty(retained.action.kind) ||
-            retained.action.kind != proposal.action.kind ||
-            !SemanticDtoEquals(retained.action, proposal.action) ||
-            stableAction == null ||
-            !SemanticDtoEquals(stableAction, proposal.action) ||
-            retained.has_unsupported_action_parameters ||
-            proposal.has_unsupported_action_parameters ||
-            retained.based_on_revision < 0 ||
-            retained.based_on_revision != proposal.based_on_revision ||
-            retained.based_on_head_hash != proposal.based_on_head_hash ||
-            retained.based_on_world_revision < 0 ||
-            retained.based_on_world_revision != proposal.based_on_world_revision ||
-            retained.created_revision < 0 ||
-            retained.created_revision != proposal.created_revision)
-            return false;
-        return retained.based_on_world_revision > 0
-            ? state.world_revision == retained.based_on_world_revision
-            : state.revision == retained.created_revision;
-    }
-
-    private static bool IsIrrecoverableCommitError(string errorCode)
-    {
-        return errorCode == "session_not_found" ||
-            errorCode == "unknown_proposal" ||
-            errorCode == "proposal_resolved" ||
-            errorCode == "proposal_canceled" ||
-            errorCode == "proposal_stale";
-    }
-
-    private AppliedAction PlanActionInGame(ActionSpec action)
-    {
-        if (action == null || (action.id != "talk" && action.id != "wait"))
-            return new AppliedAction(
-                action != null ? action.id : "",
-                false,
-                "The game rejected an action outside its local allowlist.");
-        return new AppliedAction(
-            action.id,
-            true,
-            "The game applied the advertised action.");
-    }
-
-    private void ApplyPlannedGameEffect(
-        AppliedAction planned,
-        GameTransaction transaction)
-    {
-        // Replace with navigation, animation, dialogue, or combat owned by
-        // Unity. Register the inverse before mutating; an exception then rolls
-        // the effect back with the marker and Outbox.
-        if (planned.accepted)
+        return new ReportActionRequest
         {
-            transaction.OnRollback(
-                () => Debug.Log("Roll back game-owned action: " + planned.actionId));
-            Debug.Log("Apply game-owned action: " + planned.actionId);
+            session_id = SessionId(),
+            request_id = "unity.report." + suffix,
+            tick = proposal.tick,
+            report = report,
+        };
+    }
+
+    private CreateSessionRequest BuildCreateRequest()
+    {
+        return new CreateSessionRequest
+        {
+            request_id = "unity.create." + runId,
+            session_id = SessionId(),
+            binding = new RinBinding
+            {
+                game_id = gameId,
+                content_id = contentId,
+                content_version = contentVersion,
+                content_hash = contentHash,
+            },
+            actors = new[]
+            {
+                new ActorSeed
+                {
+                    id = actorId,
+                    kind = "npc",
+                    display_name = actorDisplayName,
+                    think_every_ticks = 1,
+                },
+            },
+        };
+    }
+
+    private bool RestoreAuthoritativeState()
+    {
+        var loaded = LoadState();
+        if (loaded != null)
+        {
+            return Hydrate(loaded);
         }
+        if (File.Exists(statePath))
+        {
+            return false;
+        }
+        var backup = LoadStateFile(statePath + ".bak");
+        if (backup != null)
+        {
+            if (!Hydrate(backup)) return false;
+            return PersistCurrentState();
+        }
+        if (File.Exists(statePath + ".tmp"))
+        {
+            return false;
+        }
+
+        runId = "r" + Guid.NewGuid().ToString("N");
+        hostEpoch = worldEpoch = timelineEpoch = 1;
+        operationSequence = observationSequence = lastAuthoritativeTick = 0;
+        pendingTurn = null;
+        applied.Clear();
+        reportOutbox.Clear();
+        return PersistCurrentState();
+    }
+
+    private DurableState LoadState()
+    {
+        return LoadStateFile(statePath);
+    }
+
+    private static DurableState LoadStateFile(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return null;
+            var info = new FileInfo(path);
+            if (info.Length <= 0 || info.Length > MaxStateBytes) return null;
+            return JsonUtility.FromJson<DurableState>(
+                File.ReadAllText(path, Encoding.UTF8));
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private bool Hydrate(DurableState state)
+    {
+        if (state == null || state.schemaVersion != StateSchemaVersion ||
+            !RinUnityIds.IsValid(state.runId) ||
+            state.operationSequence < 0 || state.hostEpoch <= 0 ||
+            state.worldEpoch <= 0 || state.timelineEpoch <= 0 ||
+            state.observationSequence < 0 || state.lastAuthoritativeTick < 0)
+        {
+            return false;
+        }
+        runId = state.runId;
+        operationSequence = state.operationSequence;
+        hostEpoch = state.hostEpoch;
+        worldEpoch = state.worldEpoch;
+        timelineEpoch = state.timelineEpoch;
+        observationSequence = state.observationSequence;
+        lastAuthoritativeTick = state.lastAuthoritativeTick;
+        pendingTurn = state.pendingTurn;
+        applied.Clear();
+        reportOutbox.Clear();
+
+        var markers = state.applied ?? new AppliedMarker[0];
+        var entries = state.reportOutbox ?? new ReportOutboxEntry[0];
+        if (markers.Length > MaxAppliedMarkers ||
+            entries.Length > MaxOutboxEntries ||
+            (pendingTurn != null && !ValidPendingTurn(pendingTurn)))
+        {
+            return false;
+        }
+        foreach (var marker in markers)
+        {
+            if (marker == null || !RinUnityIds.IsValid(marker.operation_id) ||
+                marker.request == null || applied.ContainsKey(marker.operation_id))
+            {
+                return false;
+            }
+            applied.Add(marker.operation_id, marker);
+        }
+        foreach (var entry in entries)
+        {
+            if (entry == null || !RinUnityIds.IsValid(entry.key) ||
+                entry.request == null)
+            {
+                return false;
+            }
+            reportOutbox.Add(entry);
+        }
+        return true;
     }
 
     private bool PersistCurrentState()
     {
-        return PersistState(new AuthoritativeState
+        return Persist(new DurableState
         {
-            schemaVersion = 2,
+            schemaVersion = StateSchemaVersion,
             runId = runId,
             operationSequence = operationSequence,
+            hostEpoch = hostEpoch,
+            worldEpoch = worldEpoch,
+            timelineEpoch = timelineEpoch,
+            observationSequence = observationSequence,
             lastAuthoritativeTick = lastAuthoritativeTick,
-            createRequest = createRequest,
-            proposalAttempts = proposalAttempts.Select(entry =>
-                new ProposalAttemptState
-                {
-                    sessionId = entry.Key,
-                    operationId = entry.Value.operationId,
-                    sequence = entry.Value.sequence,
-                    request = entry.Value.request,
-                    observe = entry.Value.observe,
-                    fallbackActionId = entry.Value.fallbackActionId,
-                    jobId = entry.Value.jobId,
-                }).ToArray(),
-            appliedOperations = appliedOperations.Select(entry =>
-                new AppliedOperationState
-                {
-                    operationId = entry.Key,
-                    actionId = entry.Value.actionId,
-                    accepted = entry.Value.accepted,
-                    outcome = entry.Value.outcome,
-                }).ToArray(),
-            reportOutbox = reportOutbox.Select(entry =>
-                new PendingReportState
-                {
-                    operationId = entry.Key,
-                    kind = entry.Value.kind,
-                    commit = entry.Value.kind == "commit"
-                        ? (CommitRequest)entry.Value.request
-                        : null,
-                    observe = entry.Value.kind == "observe"
-                        ? (ObserveRequest)entry.Value.request
-                        : null,
-                    fallback = entry.Value.fallback,
-                }).ToArray(),
+            pendingTurn = pendingTurn,
+            applied = Values(applied),
+            reportOutbox = reportOutbox.ToArray(),
         });
     }
 
-    private bool PersistState(AuthoritativeState state)
+    private bool Persist(DurableState state)
     {
         var temporary = statePath + ".tmp";
         var backup = statePath + ".bak";
         try
         {
-            var json = JsonUtility.ToJson(state);
-            var bytes = Encoding.UTF8.GetBytes(json);
-            if (bytes.Length <= 0 || bytes.Length > MaxStateBytes)
-                return false;
-            Directory.CreateDirectory(Path.GetDirectoryName(statePath));
+            var directory = Path.GetDirectoryName(statePath);
+            if (string.IsNullOrEmpty(directory)) return false;
+            Directory.CreateDirectory(directory);
+            var bytes = Encoding.UTF8.GetBytes(JsonUtility.ToJson(state));
+            if (bytes.Length <= 0 || bytes.Length > MaxStateBytes) return false;
             using (var stream = new FileStream(
                 temporary,
                 FileMode.Create,
@@ -1237,273 +661,184 @@ public sealed class RinUnityWorkflow : MonoBehaviour
                 stream.Write(bytes, 0, bytes.Length);
                 stream.Flush(true);
             }
-            if (File.Exists(backup))
-                return false;
             if (File.Exists(statePath))
-                File.Move(statePath, backup);
-            try
+            {
+                if (File.Exists(backup)) File.Delete(backup);
+                File.Replace(temporary, statePath, backup);
+            }
+            else
             {
                 File.Move(temporary, statePath);
             }
-            catch
-            {
-                if (File.Exists(backup) && !File.Exists(statePath))
-                    File.Move(backup, statePath);
-                throw;
-            }
-            if (File.Exists(backup)) File.Delete(backup);
             return true;
         }
         catch (Exception error)
         {
-            Debug.LogError("Rin state persistence failed: " + error.Message);
+            Debug.LogError("Could not persist Rin state: " + error.Message);
             return false;
         }
     }
 
-    private void RecoverInterruptedReplacement()
+    private Epoch CurrentEpoch()
     {
-        var temporary = statePath + ".tmp";
-        var backup = statePath + ".bak";
-        if (File.Exists(statePath))
+        return new Epoch
         {
-            return;
-        }
-        if (File.Exists(backup))
-        {
-            if (File.Exists(temporary)) File.Delete(temporary);
-            File.Move(backup, statePath);
-            return;
-        }
-        if (File.Exists(temporary))
-            File.Move(temporary, statePath);
+            session_id = SessionId(),
+            world_id = worldId,
+            host = hostEpoch,
+            world = worldEpoch,
+            timeline = timelineEpoch,
+        };
     }
 
-    private void CleanupRecoveryFiles()
+    private string SessionId()
     {
-        if (File.Exists(statePath + ".tmp")) File.Delete(statePath + ".tmp");
-        if (File.Exists(statePath + ".bak")) File.Delete(statePath + ".bak");
+        return "unity.session." + runId;
     }
 
-    private enum AuthoritativeStateLoadStatus
+    private bool ValidateTurn(RinTurnInput input, out string error)
     {
-        Loaded,
-        NotFound,
-        Failed,
+        error = "";
+        if (input == null || input.offers == null ||
+            input.offers.Length == 0 || input.offers.Length > 32)
+        {
+            error = "CaptureTurn must return 1-32 action offers";
+            return false;
+        }
+        if (!RinUnityIds.IsValid(input.actor_id) ||
+            input.actor_id != actorId ||
+            input.tick < lastAuthoritativeTick ||
+            input.observation_seq <= observationSequence ||
+            input.opened_at < 0 || input.deadline <= input.opened_at ||
+            (input.clock != "event" && input.clock != "step" &&
+                input.clock != "realtime") ||
+            string.IsNullOrWhiteSpace(input.intent) ||
+            string.IsNullOrWhiteSpace(input.observation_summary))
+        {
+            error = "turn identity, time, or description is invalid";
+            return false;
+        }
+        foreach (var offer in input.offers)
+        {
+            if (offer == null || offer.capability == null ||
+                !RinUnityIds.IsValid(offer.capability.id) ||
+                string.IsNullOrEmpty(offer.capability.version) ||
+                !IsDigest(offer.descriptor_digest) ||
+                string.IsNullOrWhiteSpace(offer.description))
+            {
+                error = "an offer capability or descriptor is invalid";
+                return false;
+            }
+        }
+        return true;
     }
 
-    private sealed class AuthoritativeStateLoadResult
+    private static bool ValidPendingTurn(PendingTurnState value)
     {
-        public readonly AuthoritativeStateLoadStatus status;
-        public readonly AuthoritativeState state;
-        public readonly string error;
+        return value.version == 1 &&
+            RinUnityIds.IsValid(value.operation_id) &&
+            value.observation != null &&
+            value.request != null &&
+            value.request.decision_window != null &&
+            value.request.offers != null &&
+            value.request.offers.Length > 0;
+    }
 
-        private AuthoritativeStateLoadResult(
-            AuthoritativeStateLoadStatus status,
-            AuthoritativeState state,
-            string error)
+    private void TrimAppliedMarkers()
+    {
+        if (applied.Count <= MaxAppliedMarkers) return;
+        var protectedKeys = new HashSet<string>();
+        foreach (var entry in reportOutbox) protectedKeys.Add(entry.key);
+        foreach (var key in new List<string>(applied.Keys))
         {
-            this.status = status;
-            this.state = state;
-            this.error = error;
-        }
-
-        public static AuthoritativeStateLoadResult Loaded(AuthoritativeState state)
-        {
-            return new AuthoritativeStateLoadResult(
-                AuthoritativeStateLoadStatus.Loaded,
-                state,
-                null);
-        }
-
-        public static AuthoritativeStateLoadResult NotFound()
-        {
-            return new AuthoritativeStateLoadResult(
-                AuthoritativeStateLoadStatus.NotFound,
-                null,
-                null);
-        }
-
-        public static AuthoritativeStateLoadResult Failed(string error)
-        {
-            return new AuthoritativeStateLoadResult(
-                AuthoritativeStateLoadStatus.Failed,
-                null,
-                error);
+            if (applied.Count <= MaxAppliedMarkers) return;
+            if (!protectedKeys.Contains(key)) applied.Remove(key);
         }
     }
 
-    // These DTOs intentionally avoid Dictionary and polymorphic object fields,
-    // so a game can serialize them with JsonUtility or its own save system.
+    private static AppliedMarker[] Values(
+        Dictionary<string, AppliedMarker> source)
+    {
+        var values = new AppliedMarker[source.Count];
+        source.Values.CopyTo(values, 0);
+        Array.Sort(
+            values,
+            (left, right) =>
+                string.CompareOrdinal(left.operation_id, right.operation_id));
+        return values;
+    }
+
+    private static bool IsDigest(string value)
+    {
+        if (value == null || value.Length != 64) return false;
+        foreach (var character in value)
+        {
+            if (!((character >= '0' && character <= '9') ||
+                (character >= 'a' && character <= 'f')))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static string TerminalStatus(string value)
+    {
+        switch (value)
+        {
+            case "failed":
+            case "cancelled":
+            case "interrupted":
+            case "stale":
+            case "outcome-unknown":
+                return value;
+            default:
+                return "succeeded";
+        }
+    }
+
+    private static string NonEmpty(string value, string fallback)
+    {
+        return string.IsNullOrWhiteSpace(value) ? fallback : value;
+    }
+
     [Serializable]
-    private sealed class AuthoritativeState
+    private sealed class DurableState
     {
         public int schemaVersion;
         public string runId;
         public long operationSequence;
+        public long hostEpoch;
+        public long worldEpoch;
+        public long timelineEpoch;
+        public long observationSequence;
         public long lastAuthoritativeTick;
-        public CreateSessionRequest createRequest;
-        public ProposalAttemptState[] proposalAttempts;
-        public AppliedOperationState[] appliedOperations;
-        public PendingReportState[] reportOutbox;
+        public PendingTurnState pendingTurn;
+        public AppliedMarker[] applied;
+        public ReportOutboxEntry[] reportOutbox;
     }
 
     [Serializable]
-    private sealed class ProposalAttemptState
+    private sealed class PendingTurnState
     {
-        public string sessionId;
-        public string operationId;
-        public long sequence;
+        public int version;
+        public string operation_id;
+        public ObserveRequest observation;
         public ProposeRequest request;
-        public ObserveRequest observe;
-        public string fallbackActionId;
-        public string jobId;
     }
 
     [Serializable]
-    private sealed class AppliedOperationState
+    private sealed class AppliedMarker
     {
-        public string operationId;
-        public string actionId;
-        public bool accepted;
-        public string outcome;
+        public string operation_id;
+        public string proposal_id;
+        public ReportActionRequest request;
     }
 
     [Serializable]
-    private sealed class PendingReportState
+    private sealed class ReportOutboxEntry
     {
-        public string operationId;
-        public string kind;
-        public CommitRequest commit;
-        public ObserveRequest observe;
-        public ObserveRequest fallback;
-    }
-
-    private sealed class GameTransaction
-    {
-        private readonly List<Action> rollbacks = new List<Action>();
-
-        public void OnRollback(Action rollback)
-        {
-            if (rollback != null) rollbacks.Add(rollback);
-        }
-
-        public void Rollback()
-        {
-            for (var index = rollbacks.Count - 1; index >= 0; index--)
-            {
-                try
-                {
-                    rollbacks[index]();
-                }
-                catch (Exception error)
-                {
-                    Debug.LogError("Game rollback failed: " + error.Message);
-                }
-            }
-        }
-    }
-
-    private sealed class AppliedAction
-    {
-        public readonly string actionId;
-        public readonly bool accepted;
-        public readonly string outcome;
-
-        public AppliedAction(string actionId, bool accepted, string outcome)
-        {
-            this.actionId = actionId;
-            this.accepted = accepted;
-            this.outcome = outcome;
-        }
-    }
-
-    private sealed class ProposalAttempt
-    {
-        public readonly string operationId;
-        public readonly long sequence;
-        public readonly ProposeRequest request;
-        public readonly ObserveRequest observe;
-        public readonly string fallbackActionId;
-        public string jobId;
-
-        public ProposalAttempt(
-            string operationId,
-            long sequence,
-            ProposeRequest request,
-            ObserveRequest observe,
-            string fallbackActionId,
-            string jobId)
-        {
-            this.operationId = operationId;
-            this.sequence = sequence;
-            this.request = request;
-            this.observe = observe;
-            this.fallbackActionId = fallbackActionId;
-            this.jobId = jobId;
-        }
-    }
-
-    private sealed class PendingReport
-    {
-        public readonly string kind;
-        public readonly object request;
-        public readonly ObserveRequest fallback;
-
-        private PendingReport(string kind, object request, ObserveRequest fallback)
-        {
-            this.kind = kind;
-            this.request = request;
-            this.fallback = fallback;
-        }
-
-        public static PendingReport Commit(
-            CommitRequest request,
-            ObserveRequest fallback)
-        {
-            return new PendingReport("commit", request, fallback);
-        }
-
-        public static PendingReport Observe(ObserveRequest request)
-        {
-            return new PendingReport("observe", request, null);
-        }
-
-        public PendingReport WithAppliedOutcome(AppliedAction applied)
-        {
-            if (kind == "commit")
-            {
-                var commit = (CommitRequest)request;
-                commit.accepted = applied.accepted;
-                commit.outcome = applied.outcome;
-                fallback.summary = "Authoritative outcome: " + applied.outcome;
-            }
-            else
-            {
-                var observe = (ObserveRequest)request;
-                observe.summary =
-                    "Local fallback " + applied.actionId + ": " + applied.outcome;
-            }
-            return this;
-        }
-
-        public PendingReport WithOccurrenceTick(long tick)
-        {
-            if (kind == "commit")
-            {
-                ((CommitRequest)request).tick = tick;
-                fallback.tick = tick;
-            }
-            else
-            {
-                ((ObserveRequest)request).tick = tick;
-            }
-            return this;
-        }
-
-        public PendingReport AsFallbackObserve()
-        {
-            return Observe(fallback);
-        }
+        public string key;
+        public ReportActionRequest request;
     }
 }

@@ -1,7 +1,11 @@
 // Package protocol defines Rin's language-neutral JSON contract.
 package protocol
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/sunrioa/rin/host"
+)
 
 type Binding struct {
 	GameID         string `json:"game_id"`
@@ -115,39 +119,81 @@ type BeliefSet struct {
 	Conflicted            bool          `json:"conflicted"`
 }
 
-type ActionSpec struct {
-	ID          string            `json:"id"`
-	Kind        string            `json:"kind"`
-	Description string            `json:"description"`
-	TargetIDs   []string          `json:"target_ids,omitempty"`
-	Parameters  map[string]string `json:"parameters,omitempty"`
+// Host Contract types are re-exported so protocol users share one exact
+// capability, epoch, offer, invocation, run, and outcome model.
+type CapabilityRef = host.CapabilityRef
+type Epoch = host.Epoch
+type HostRef = host.HostRef
+type Timepoint = host.Timepoint
+type ActionOffer = host.ActionOffer
+type ActionInvocation = host.ActionInvocation
+type ActionRun = host.ActionRun
+type ActionRunStatus = host.ActionRunStatus
+type ActionOutcome = host.ActionOutcome
+
+// SchemaRef identifies the exact schema used to validate structured
+// observation data. Schemas are distributed through the Host Contract rather
+// than copied into every observation.
+type SchemaRef struct {
+	ID      string `json:"id"`
+	Version string `json:"version"`
+	Digest  string `json:"digest"`
+}
+
+// StructuredPayload carries bounded, schema-identified JSON data.
+type StructuredPayload struct {
+	Schema SchemaRef       `json:"schema"`
+	Data   json.RawMessage `json:"data"`
+}
+
+// ArtifactRef identifies immutable observation evidence stored outside the
+// JSON message, such as an image, audio clip, replay slice, or telemetry blob.
+type ArtifactRef struct {
+	ID        string `json:"id"`
+	MediaType string `json:"media_type"`
+	URI       string `json:"uri"`
+	SHA256    string `json:"sha256"`
+	SizeBytes uint64 `json:"size_bytes"`
+}
+
+// DecisionWindow binds one decision opportunity to an authoritative epoch and
+// host clock. Mode is engine-neutral: sequential, simultaneous, or asynchronous.
+type DecisionWindow struct {
+	ID             string            `json:"id"`
+	Mode           host.DecisionMode `json:"mode"`
+	Epoch          Epoch             `json:"epoch"`
+	ObservationSeq uint64            `json:"observation_seq"`
+	OpenedAt       Timepoint         `json:"opened_at"`
+	Deadline       Timepoint         `json:"deadline"`
+	ActorIDs       []string          `json:"actor_ids"`
 }
 
 type ActionProposal struct {
-	ID                   string     `json:"id"`
-	SessionID            string     `json:"session_id"`
-	RequestID            string     `json:"request_id"`
-	ActorID              string     `json:"actor_id"`
-	Tick                 int64      `json:"tick"`
-	BasedOnRevision      uint64     `json:"based_on_revision"`
-	BasedOnHeadHash      string     `json:"based_on_head_hash"`
-	BasedOnWorldRevision uint64     `json:"based_on_world_revision,omitempty"`
-	CreatedRevision      uint64     `json:"created_revision"`
-	Action               ActionSpec `json:"action"`
-	Stance               string     `json:"stance"`
-	Summary              string     `json:"summary"`
-	Rationale            string     `json:"rationale"`
-	PolicySource         string     `json:"policy_source,omitempty"`
-	RecalledMemoryIDs    []string   `json:"recalled_memory_ids,omitempty"`
-	GoalID               string     `json:"goal_id,omitempty"`
-	BoundaryID           string     `json:"boundary_id,omitempty"`
-	ProposedGoal         *Goal      `json:"proposed_goal,omitempty"`
-	Status               string     `json:"status"`
-	// OutcomeEventID and OutcomeTick are populated when the authoritative game
-	// reports this proposal's result. They also make rejected outcome event IDs
-	// discoverable and order accepted actions by occurrence rather than arrival.
-	OutcomeEventID string `json:"outcome_event_id,omitempty"`
-	OutcomeTick    int64  `json:"outcome_tick,omitempty"`
+	ID                   string            `json:"id"`
+	SessionID            string            `json:"session_id"`
+	RequestID            string            `json:"request_id"`
+	ActorID              string            `json:"actor_id"`
+	Tick                 int64             `json:"tick"`
+	BasedOnRevision      uint64            `json:"based_on_revision"`
+	BasedOnHeadHash      string            `json:"based_on_head_hash"`
+	BasedOnWorldRevision uint64            `json:"based_on_world_revision,omitempty"`
+	CreatedRevision      uint64            `json:"created_revision"`
+	DecisionWindow       DecisionWindow    `json:"decision_window"`
+	Action               ActionOffer       `json:"action"`
+	Stance               string            `json:"stance"`
+	Summary              string            `json:"summary"`
+	Rationale            string            `json:"rationale"`
+	PolicySource         string            `json:"policy_source,omitempty"`
+	RecalledMemoryIDs    []string          `json:"recalled_memory_ids,omitempty"`
+	GoalID               string            `json:"goal_id,omitempty"`
+	BoundaryID           string            `json:"boundary_id,omitempty"`
+	ProposedGoal         *Goal             `json:"proposed_goal,omitempty"`
+	Status               string            `json:"status"`
+	Invocation           *ActionInvocation `json:"invocation,omitempty"`
+	Run                  *ActionRun        `json:"run,omitempty"`
+	Outcome              *ActionOutcome    `json:"outcome,omitempty"`
+	LastReportEventID    string            `json:"last_report_event_id,omitempty"`
+	LastReportTick       int64             `json:"last_report_tick,omitempty"`
 }
 
 type ActorState struct {
@@ -195,32 +241,37 @@ type CreateSessionRequest struct {
 }
 
 type ObserveRequest struct {
-	ProtocolVersion string   `json:"protocol_version"`
-	SessionID       string   `json:"session_id"`
-	RequestID       string   `json:"request_id"`
-	EventID         string   `json:"event_id"`
-	Tick            int64    `json:"tick"`
-	ObserverIDs     []string `json:"observer_ids"`
-	Source          string   `json:"source"`
-	Kind            string   `json:"kind"`
-	Summary         string   `json:"summary"`
-	Quote           string   `json:"quote,omitempty"`
-	Tags            []string `json:"tags,omitempty"`
-	Importance      int      `json:"importance"`
-	Facts           []Fact   `json:"facts,omitempty"`
+	ProtocolVersion string             `json:"protocol_version"`
+	SessionID       string             `json:"session_id"`
+	RequestID       string             `json:"request_id"`
+	EventID         string             `json:"event_id"`
+	Tick            int64              `json:"tick"`
+	ObserverIDs     []string           `json:"observer_ids"`
+	Source          string             `json:"source"`
+	Kind            string             `json:"kind"`
+	Summary         string             `json:"summary"`
+	Quote           string             `json:"quote,omitempty"`
+	Tags            []string           `json:"tags,omitempty"`
+	Importance      int                `json:"importance"`
+	Facts           []Fact             `json:"facts,omitempty"`
+	Epoch           Epoch              `json:"epoch"`
+	ObservationSeq  uint64             `json:"observation_seq"`
+	Payload         *StructuredPayload `json:"payload,omitempty"`
+	Artifacts       []ArtifactRef      `json:"artifacts,omitempty"`
 }
 
 type ProposeRequest struct {
-	ProtocolVersion  string       `json:"protocol_version"`
-	SessionID        string       `json:"session_id"`
-	RequestID        string       `json:"request_id"`
-	ActorID          string       `json:"actor_id"`
-	Tick             int64        `json:"tick"`
-	Intent           string       `json:"intent"`
-	Tags             []string     `json:"tags,omitempty"`
-	CandidateActions []ActionSpec `json:"candidate_actions"`
-	CandidateGoals   []Goal       `json:"candidate_goals,omitempty"`
-	Urgent           bool         `json:"urgent,omitempty"`
+	ProtocolVersion string         `json:"protocol_version"`
+	SessionID       string         `json:"session_id"`
+	RequestID       string         `json:"request_id"`
+	ActorID         string         `json:"actor_id"`
+	Tick            int64          `json:"tick"`
+	Intent          string         `json:"intent"`
+	Tags            []string       `json:"tags,omitempty"`
+	DecisionWindow  DecisionWindow `json:"decision_window"`
+	Offers          []ActionOffer  `json:"offers"`
+	CandidateGoals  []Goal         `json:"candidate_goals,omitempty"`
+	Urgent          bool           `json:"urgent,omitempty"`
 }
 
 type GoalUpdate struct {
@@ -229,20 +280,40 @@ type GoalUpdate struct {
 	Status        string `json:"status,omitempty"`
 }
 
-// CommitRequest reports the authoritative result after the game has applied or
-// rejected a proposal. It does not authorize or execute the proposed action.
-type CommitRequest struct {
+// ActionDecision records whether the authoritative host accepted an offered
+// action for execution. Acceptance is not evidence that execution started or
+// completed.
+type ActionDecision string
+
+const (
+	ActionAccepted ActionDecision = "accepted"
+	ActionRejected ActionDecision = "rejected"
+)
+
+// ActionReport is the host-owned lifecycle projection for one proposal.
+// Accepted reports include an Invocation and Run. A queued run means accepted,
+// running means started, and terminal runs additionally require Outcome.
+type ActionReport struct {
+	ProposalID  string            `json:"proposal_id"`
+	EventID     string            `json:"event_id"`
+	Decision    ActionDecision    `json:"decision"`
+	Invocation  *ActionInvocation `json:"invocation,omitempty"`
+	Run         *ActionRun        `json:"run,omitempty"`
+	Outcome     *ActionOutcome    `json:"outcome,omitempty"`
+	Summary     string            `json:"summary"`
+	Tags        []string          `json:"tags,omitempty"`
+	Facts       []Fact            `json:"facts,omitempty"`
+	GoalUpdates []GoalUpdate      `json:"goal_updates,omitempty"`
+}
+
+// ReportActionRequest records one authoritative host lifecycle transition.
+// It reports a decision or effect that already happened; Rin never executes it.
+type ReportActionRequest struct {
 	ProtocolVersion string       `json:"protocol_version"`
 	SessionID       string       `json:"session_id"`
 	RequestID       string       `json:"request_id"`
-	ProposalID      string       `json:"proposal_id"`
-	EventID         string       `json:"event_id"`
 	Tick            int64        `json:"tick"`
-	Accepted        bool         `json:"accepted"`
-	Outcome         string       `json:"outcome"`
-	Tags            []string     `json:"tags,omitempty"`
-	Facts           []Fact       `json:"facts,omitempty"`
-	GoalUpdates     []GoalUpdate `json:"goal_updates,omitempty"`
+	Report          ActionReport `json:"report"`
 }
 
 type SessionRequest struct {

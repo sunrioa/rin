@@ -55,8 +55,8 @@ final class WorkflowCoordinatorTest {
         request.put("request_id", "request.workflow");
         request.put("actor_id", "actor.workflow");
         request.put("intent", "Talk");
-        request.put("candidate_actions", List.of(
-                Map.of("id", "talk", "kind", "dialogue", "description", "Talk")));
+        request.put("decision_window", Map.of("id", "window.workflow"));
+        request.put("offers", List.of(Map.of("offer_id", "offer.talk")));
         PendingTurn pendingTurn = workflow.begin("operation.workflow", request).join();
         request.put("intent", "mutated after persistence");
         require(
@@ -69,18 +69,15 @@ final class WorkflowCoordinatorTest {
                 "request_id", "request.workflow",
                 "actor_id", "actor.workflow",
                 "tick", 7L);
-        Map<String, Object> commit = Map.of(
-                "protocol_version", RinClient.PROTOCOL_VERSION,
-                "session_id", "session.workflow",
-                "request_id", "commit.workflow",
-                "proposal_id", "proposal.workflow",
-                "event_id", "event.workflow",
-                "accepted", true);
+        Map<String, Object> report = reportRequest(
+                "report.workflow",
+                "proposal.workflow",
+                "event.workflow");
         AtomicReference<String> operation = new AtomicReference<>("");
         workflow.applyAndEnqueueOutcome(
                 pendingTurn,
                 proposal,
-                commit,
+                report,
                 HostDurabilityProfile.IDEMPOTENT_ACTION,
                 operationId -> {
                     operation.set(operationId);
@@ -102,13 +99,10 @@ final class WorkflowCoordinatorTest {
                             "id", "proposal.workflow",
                             "session_id", "session.workflow",
                             "request_id", "request.failed"),
-                    Map.of(
-                            "protocol_version", RinClient.PROTOCOL_VERSION,
-                            "session_id", "session.workflow",
-                            "request_id", "commit.failed",
-                            "proposal_id", "proposal.workflow",
-                            "event_id", "event.failed",
-                            "accepted", true),
+                    reportRequest(
+                            "report.failed",
+                            "proposal.workflow",
+                            "event.failed"),
                     HostDurabilityProfile.IDEMPOTENT_ACTION,
                     ignored -> CompletableFuture.failedFuture(
                             new IllegalStateException("game save failed")))
@@ -136,7 +130,7 @@ final class WorkflowCoordinatorTest {
                             "id", "proposal.workflow",
                             "session_id", "session.workflow",
                             "request_id", "request.workflow"),
-                    commit,
+                    report,
                     HostDurabilityProfile.IDEMPOTENT_ACTION,
                     ignored -> CompletableFuture.completedFuture(null))
                     .join();
@@ -178,19 +172,17 @@ final class WorkflowCoordinatorTest {
                 "stale world Proposal was accepted");
 
         verifyEvictedJobRecovery(request);
-        verifyTerminalCommitFallback();
+        verifyReportRetry();
     }
 
-    private static void verifyTerminalCommitFallback() throws Exception {
+    private static void verifyReportRetry() throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        int[] observes = new int[1];
         server.createContext("/", exchange -> {
             String path = exchange.getRequestURI().getPath();
-            boolean commit = path.equals("/v1/action/commit");
-            if (path.equals("/v1/session/observe")) observes[0]++;
-            byte[] bytes = (commit ? "terminal-commit" : "observed")
+            boolean report = path.equals("/v2/action/report");
+            byte[] bytes = (report ? "temporary-report-error" : "unexpected")
                     .getBytes(StandardCharsets.UTF_8);
-            exchange.sendResponseHeaders(commit ? 409 : 200, bytes.length);
+            exchange.sendResponseHeaders(report ? 503 : 404, bytes.length);
             exchange.getResponseBody().write(bytes);
             exchange.close();
         });
@@ -202,12 +194,12 @@ final class WorkflowCoordinatorTest {
                 }
 
                 public Map<String, Object> decodeObject(String json) {
-                    if (json.equals("terminal-commit")) {
+                    if (json.equals("temporary-report-error")) {
                         return Map.of(
                                 "ok", false,
                                 "error", Map.of(
-                                        "code", "unknown_proposal",
-                                        "message", "evicted"));
+                                        "code", "temporarily_unavailable",
+                                        "message", "retry later"));
                     }
                     return Map.of("ok", true, "data", Map.of("duplicate", false));
                 }
@@ -220,18 +212,20 @@ final class WorkflowCoordinatorTest {
                     codec);
             TestStore store = new TestStore();
             store.outcomes.add(new OutcomeOutboxEntry(
-                    "outcome.fallback",
-                    Map.of(
-                            "request_id", "commit.fallback",
-                            "event_id", "event.fallback"),
-                    Map.of(
-                            "request_id", "observe.fallback",
-                            "event_id", "event.fallback")));
-            int drained = new WorkflowCoordinator(client, store).drainOutbox().join();
-            require(drained == 1, "terminal fallback did not count the drained entry");
-            require(observes[0] == 1, "terminal Commit did not report its safe Observe");
-            require(store.fallbackConversions == 1, "fallback conversion was not persisted");
-            require(store.outcomes.isEmpty(), "fallback Observe was not acknowledged");
+                    "outcome.retry",
+                    reportRequest(
+                            "report.retry",
+                            "proposal.retry",
+                            "event.retry")));
+            try {
+                new WorkflowCoordinator(client, store).drainOutbox().join();
+                throw new AssertionError("failed report was acknowledged");
+            } catch (java.util.concurrent.CompletionException expected) {
+                require(
+                        expected.getCause() instanceof RinApiException,
+                        "report failure changed error type");
+            }
+            require(store.outcomes.size() == 1, "failed report was removed from the Outbox");
         } finally {
             server.stop(0);
         }
@@ -244,13 +238,13 @@ final class WorkflowCoordinatorTest {
             String path = exchange.getRequestURI().getPath();
             String body;
             int status;
-            if (path.equals("/v1/jobs/job.old")) {
+            if (path.equals("/v2/jobs/job.old")) {
                 body = "job-not-found";
                 status = 404;
-            } else if (path.equals("/v1/jobs/propose")) {
+            } else if (path.equals("/v2/jobs/propose")) {
                 body = "submitted";
                 status = 202;
-            } else if (path.equals("/v1/jobs/job.new")) {
+            } else if (path.equals("/v2/jobs/job.new")) {
                 body = "succeeded";
                 status = 200;
             } else {
@@ -337,10 +331,25 @@ final class WorkflowCoordinatorTest {
         if (!condition) throw new AssertionError(message);
     }
 
+    private static Map<String, Object> reportRequest(
+            String requestId,
+            String proposalId,
+            String eventId) {
+        return Map.of(
+                "protocol_version", RinClient.PROTOCOL_VERSION,
+                "session_id", "session.workflow",
+                "request_id", requestId,
+                "tick", 7L,
+                "report", Map.of(
+                        "proposal_id", proposalId,
+                        "event_id", eventId,
+                        "decision", "rejected",
+                        "summary", "host rejected the offer"));
+    }
+
     private static final class TestStore implements WorkflowStore {
         private PendingTurn pendingTurn;
         private final List<OutcomeOutboxEntry> outcomes = new ArrayList<>();
-        private int fallbackConversions;
 
         public CompletionStage<PendingTurn> loadPendingTurn() {
             return CompletableFuture.completedFuture(pendingTurn);
@@ -360,35 +369,22 @@ final class WorkflowCoordinatorTest {
         public CompletionStage<Void> settleTransactional(
                 PendingTurn value,
                 Map<String, Object> proposal,
-                Map<String, Object> commit,
+                Map<String, Object> report,
                 Function<String, CompletionStage<Void>> apply) {
             return apply.apply(value.operationId())
-                    .thenRun(() -> complete(value, commit));
+                    .thenRun(() -> complete(value, report));
         }
 
         public CompletionStage<Void> completePendingTurn(
                 PendingTurn value,
                 Map<String, Object> proposal,
-                Map<String, Object> commit) {
-            complete(value, commit);
+                Map<String, Object> report) {
+            complete(value, report);
             return CompletableFuture.completedFuture(null);
         }
 
         public CompletionStage<List<OutcomeOutboxEntry>> listOutcomeReports() {
             return CompletableFuture.completedFuture(List.copyOf(outcomes));
-        }
-
-        public CompletionStage<OutcomeOutboxEntry> replaceOutcomeWithFallback(
-                OutcomeOutboxEntry entry) {
-            int index = outcomes.indexOf(entry);
-            if (index < 0) {
-                return CompletableFuture.failedFuture(
-                        new IllegalStateException("fallback entry changed"));
-            }
-            OutcomeOutboxEntry converted = entry.asDegradedObserve();
-            outcomes.set(index, converted);
-            fallbackConversions++;
-            return CompletableFuture.completedFuture(converted);
         }
 
         public CompletionStage<Void> acknowledgeOutcome(
@@ -398,11 +394,11 @@ final class WorkflowCoordinatorTest {
             return CompletableFuture.completedFuture(null);
         }
 
-        private void complete(PendingTurn value, Map<String, Object> commit) {
+        private void complete(PendingTurn value, Map<String, Object> report) {
             if (!value.equals(pendingTurn)) {
                 throw new IllegalStateException("completion did not match retained Pending Turn");
             }
-            outcomes.add(new OutcomeOutboxEntry("outcome.workflow", commit));
+            outcomes.add(new OutcomeOutboxEntry("outcome.workflow", report));
             pendingTurn = null;
         }
     }

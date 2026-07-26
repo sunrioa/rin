@@ -17,14 +17,14 @@ func TestDeterministicPolicyUsesGoalAndMemory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if draft.ActionID != "talk" || draft.GoalID != "goal.connect" {
+	if draft.OfferID != "talk" || draft.GoalID != "goal.connect" {
 		t.Fatalf("unexpected draft: %+v", draft)
 	}
 	if len(draft.RecalledMemoryIDs) != 2 || draft.RecalledMemoryIDs[0] != "memory.relevant" {
 		t.Fatalf("unexpected recall order: %v", draft.RecalledMemoryIDs)
 	}
 	repeated, err := (policy.Deterministic{}).Propose(context.Background(), input)
-	if err != nil || repeated.ActionID != draft.ActionID || repeated.Rationale != draft.Rationale {
+	if err != nil || repeated.OfferID != draft.OfferID || repeated.Rationale != draft.Rationale {
 		t.Fatalf("policy should be deterministic: first=%+v second=%+v err=%v", draft, repeated, err)
 	}
 }
@@ -33,9 +33,9 @@ func TestDeterministicPolicyLetsRecalledMemoryInfluenceAction(t *testing.T) {
 	input := policyInput()
 	input.Actor.Goals = nil
 	input.Request.Tags = nil
-	input.Request.CandidateActions = []protocol.ActionSpec{
-		{ID: "offer.coffee", Kind: "coffee", Description: "Offer coffee."},
-		{ID: "offer.tea", Kind: "tea", Description: "Offer tea."},
+	input.Request.Offers = []protocol.ActionOffer{
+		policyOffer("offer.coffee", "coffee", "Offer coffee."),
+		policyOffer("offer.tea", "tea", "Offer tea."),
 	}
 	input.Actor.Memories = []protocol.Memory{{
 		ID: "memory.preference", EventID: "event.preference", Tick: 4,
@@ -46,7 +46,7 @@ func TestDeterministicPolicyLetsRecalledMemoryInfluenceAction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if draft.ActionID != "offer.tea" {
+	if draft.OfferID != "offer.tea" {
 		t.Fatalf("recalled preference did not influence the allowlisted action: %+v", draft)
 	}
 	if len(draft.RecalledMemoryIDs) != 1 || draft.RecalledMemoryIDs[0] != "memory.preference" {
@@ -58,9 +58,9 @@ func TestDeterministicPolicyDoesNotScoreUnrecalledMemory(t *testing.T) {
 	input := policyInput()
 	input.Actor.Goals = nil
 	input.Request.Tags = nil
-	input.Request.CandidateActions = []protocol.ActionSpec{
-		{ID: "offer.coffee", Kind: "coffee", Description: "Offer coffee."},
-		{ID: "offer.tea", Kind: "tea", Description: "Offer tea."},
+	input.Request.Offers = []protocol.ActionOffer{
+		policyOffer("offer.coffee", "coffee", "Offer coffee."),
+		policyOffer("offer.tea", "tea", "Offer tea."),
 	}
 	input.Actor.Memories = []protocol.Memory{
 		{
@@ -85,7 +85,7 @@ func TestDeterministicPolicyDoesNotScoreUnrecalledMemory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if draft.ActionID != withoutUnrecalled.ActionID {
+	if draft.OfferID != withoutUnrecalled.OfferID {
 		t.Fatalf("an unrecalled memory changed the action: with=%+v without=%+v", draft, withoutUnrecalled)
 	}
 }
@@ -93,30 +93,22 @@ func TestDeterministicPolicyDoesNotScoreUnrecalledMemory(t *testing.T) {
 func TestDeterministicPolicyProtectsBoundary(t *testing.T) {
 	for _, test := range []struct {
 		name   string
-		action protocol.ActionSpec
+		action protocol.ActionOffer
 	}{
 		{
-			name: "response matches action id",
-			action: protocol.ActionSpec{
-				ID: "refuse", Kind: "dialogue", Description: "decline safely",
-			},
-		},
-		{
-			name: "response matches action kind",
-			action: protocol.ActionSpec{
-				ID: "decline", Kind: "refuse", Description: "decline safely",
-			},
+			name:   "response matches action id",
+			action: policyOffer("refuse", "dialogue", "decline safely"),
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			input := policyInput()
 			input.Request.Tags = []string{"private"}
-			input.Request.CandidateActions = []protocol.ActionSpec{test.action}
+			input.Request.Offers = []protocol.ActionOffer{test.action}
 			draft, err := (policy.Deterministic{}).Propose(context.Background(), input)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if draft.ActionID != test.action.ID ||
+			if draft.OfferID != test.action.OfferID ||
 				draft.Stance != "refuse" ||
 				draft.BoundaryID != "boundary.private" {
 				t.Fatalf("unexpected boundary draft: %+v", draft)
@@ -126,7 +118,7 @@ func TestDeterministicPolicyProtectsBoundary(t *testing.T) {
 
 	input := policyInput()
 	input.Request.Tags = []string{"private"}
-	input.Request.CandidateActions = input.Request.CandidateActions[:1]
+	input.Request.Offers = input.Request.Offers[:1]
 	if _, err := (policy.Deterministic{}).Propose(context.Background(), input); !errors.Is(err, rinruntime.ErrNoSafeAction) {
 		t.Fatalf("expected no safe action, got %v", err)
 	}
@@ -178,14 +170,25 @@ func policyInput() rinruntime.PolicyContext {
 	request := protocol.ProposeRequest{
 		ProtocolVersion: protocol.Version, SessionID: "session.policy", RequestID: "request.policy", ActorID: actor.ID,
 		Tick: 6, Intent: "Respond", Tags: []string{"trust"},
-		CandidateActions: []protocol.ActionSpec{
-			{ID: "talk", Kind: "dialogue", Description: "ask a question"},
-			{ID: "refuse", Kind: "refuse", Description: "protect a boundary"},
-			{ID: "wait", Kind: "wait", Description: "wait"},
+		Offers: []protocol.ActionOffer{
+			policyOffer("talk", "dialogue", "ask a question"),
+			policyOffer("refuse", "refuse", "protect a boundary"),
+			policyOffer("wait", "wait", "wait"),
 		},
 	}
 	return rinruntime.PolicyContext{
 		State: protocol.SessionState{ProtocolVersion: protocol.Version, SessionID: "session.policy", Seed: 42},
 		Actor: actor, Request: request,
+	}
+}
+
+func policyOffer(id, capability, description string) protocol.ActionOffer {
+	return protocol.ActionOffer{
+		OfferID: id,
+		Capability: protocol.CapabilityRef{
+			ID:      capability,
+			Version: "1.0.0",
+		},
+		Description: description,
 	}
 }

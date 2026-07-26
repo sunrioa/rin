@@ -9,7 +9,7 @@ import (
 // playerFacingProposalText is the single information-flow gate for proposal
 // presentation. Its inputs contain no private goal, boundary, memory, belief,
 // prompt, provider, or Policy Draft text.
-func playerFacingProposalText(action protocol.ActionSpec, stance string) (string, string) {
+func playerFacingProposalText(action protocol.ActionOffer, stance string) (string, string) {
 	summary := fmt.Sprintf("Proposes: %s", action.Description)
 	switch stance {
 	case "partial":

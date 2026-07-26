@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-面向 `rin.protocol/v1` HTTP 边界的轻量、源码优先客户端。
+面向 `rin.protocol/v2` HTTP 边界的轻量、源码优先客户端。
 
 这些 SDK 消除传输样板代码，不会把游戏权威移动到客户端库。
 
@@ -34,8 +34,8 @@ SDK Workflow Helper 会校验接入声明的
   Session State。对于 `rin.reducer-projection/v2` 之前的 Proposal，Rin 保留
   这些坐标和结构字段，但会通过玩家文本门禁升级 `summary`/`rationale`；
 - `event_exists` 是其他请求造成的冲突，不是 duplicate 确认；
-- Proposal 保持 Pending，直到游戏应用或拒绝后用 Commit 回报结果；Commit
-  是结果记账，不是执行授权。
+- Proposal 始终是建议；游戏接受或拒绝后回报类型化 Invocation、Run 与
+  Outcome，Report 不是执行授权。
 - 应把 Proposal 的 `summary` 与 `rationale` 用作玩家文案：Rin 由游戏编写的
   动作描述和固定 stance 模板生成它们。`policy_source`、
   `recalled_memory_ids`、`goal_id`、可选增量字段 `boundary_id` 与完整
@@ -49,9 +49,6 @@ SDK Workflow Helper 会校验接入声明的
 Session mutation 会阻塞到确认完成。Proposal 写入使用
 `proposal_outcome_unknown`，恢复规则相同。任何一个错误码都不允许轮换
 Request ID、重新应用动作或推进 Outbox。
-
-最后一条仅适用于显式请求 `outcome-reporting-v1` 的 Session；客户端不能对
-旧 Session 假设该语义。
 
 持久身份保证适用于 Session mutation，不适用于进程内 Job 元数据。Proposal
 Job 淘汰或重启后可以依据持久 Proposal 重建；Generation Job 不写事件日志，
@@ -86,7 +83,7 @@ profile，只有提供有界 stream API 的 client 才能声明 streaming profil
 如何进入 Rin，以及游戏在何处验证并应用 Proposal。它们是接入模板，不是
 适用于每个游戏版本的通用补丁。
 
-所有 SDK 的 Commit 生命周期、Outbox 和重试规则以
-[`docs/outcome-reporting.zh-CN.md`](../docs/outcome-reporting.zh-CN.md) 为准。
+所有 SDK 的 Action Report 生命周期、Outbox 和重试规则以
+[`docs/action-lifecycle.zh-CN.md`](../docs/action-lifecycle.zh-CN.md) 为准。
 
 SDK 源码按 [MIT License](../LICENSE) 发布。

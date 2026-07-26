@@ -1,5 +1,5 @@
-export const SDK_VERSION: "0.6.0";
-export const PROTOCOL_VERSION: "rin.protocol/v1";
+export const SDK_VERSION: "0.7.0";
+export const PROTOCOL_VERSION: "rin.protocol/v2";
 export const DEFAULT_BASE_URL: string;
 export const DEFAULT_MAX_RESPONSE_BYTES: number;
 export const INLINE_SNAPSHOT_MAX_BYTES: number;
@@ -11,11 +11,10 @@ export const RIN_FEATURES: Readonly<{
   goalCandidates: "goal-candidates-v1";
   actorActivity: "actor-activity-v1";
   arbitration: "arbitration-v1";
-  outcomeReporting: "outcome-reporting-v1";
 }>;
 export const FEATURE_PRESETS: Readonly<{
-  safeBaseline: readonly ["outcome-reporting-v1"];
-  authoritative: readonly ["outcome-reporting-v1"];
+  safeBaseline: readonly [];
+  authoritative: readonly [];
   full: readonly string[];
 }>;
 
@@ -26,8 +25,7 @@ export type RinFeature =
   | "belief-conflicts-v1"
   | "goal-candidates-v1"
   | "actor-activity-v1"
-  | "arbitration-v1"
-  | "outcome-reporting-v1";
+  | "arbitration-v1";
 export type GoalStatus = "active" | "completed" | "released";
 
 export interface RinClientOptions {
@@ -81,12 +79,66 @@ export interface ActorSeedInput {
   enabled?: boolean;
 }
 
-export interface ActionSpecInput {
+export type HostClock = "event" | "step" | "realtime";
+export type DecisionMode = "sequential" | "simultaneous" | "asynchronous";
+export type ActionRunStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+  | "interrupted"
+  | "stale"
+  | "outcome-unknown";
+
+export interface Epoch {
+  session_id: string;
+  world_id: string;
+  host: number;
+  world: number;
+  timeline: number;
+}
+
+export interface Timepoint {
+  clock: HostClock;
+  value: number;
+}
+
+export interface CapabilityRef {
   id: string;
-  kind: string;
+  version: string;
+}
+
+export interface HostRef {
+  namespace: string;
+  type: string;
+  key: string;
+  ephemeral: boolean;
+  epoch: Epoch;
+}
+
+export interface DecisionWindow {
+  id: string;
+  mode: DecisionMode;
+  epoch: Epoch;
+  observation_seq: number;
+  opened_at: Timepoint;
+  deadline: Timepoint;
+  actor_ids: string[];
+}
+
+export interface ActionOfferInput {
+  offer_id: string;
+  decision_window_id: string;
+  actor_id: string;
+  capability: CapabilityRef;
+  descriptor_digest: string;
   description: string;
-  target_ids?: string[];
-  parameters?: Record<string, string>;
+  arguments: unknown;
+  targets?: HostRef[];
+  expected_epoch: Epoch;
+  observation_seq: number;
+  deadline: Timepoint;
 }
 
 export interface CreateSessionRequest {
@@ -107,9 +159,39 @@ export interface ProposeRequest {
   tick?: number;
   intent: string;
   tags?: string[];
-  candidate_actions: ActionSpecInput[];
+  decision_window: DecisionWindow;
+  offers: ActionOfferInput[];
   candidate_goals?: GoalSeedInput[];
   urgent?: boolean;
+}
+
+export interface ObserveRequest {
+  protocol_version: typeof PROTOCOL_VERSION;
+  session_id: string;
+  request_id: string;
+  event_id: string;
+  tick?: number;
+  observer_ids: string[];
+  source: string;
+  kind: string;
+  summary: string;
+  quote?: string;
+  tags?: string[];
+  importance: number;
+  facts?: FactInput[];
+  epoch: Epoch;
+  observation_seq: number;
+  payload?: {
+    schema: { id: string; version: string; digest: string };
+    data: unknown;
+  };
+  artifacts?: Array<{
+    id: string;
+    media_type: string;
+    uri: string;
+    sha256: string;
+    size_bytes: number;
+  }>;
 }
 
 export interface FactInput {
@@ -128,18 +210,67 @@ export interface GoalUpdateInput {
   status?: GoalStatus;
 }
 
-export interface CommitRequest {
-  protocol_version: typeof PROTOCOL_VERSION;
-  session_id: string;
-  request_id: string;
+export interface ActionInvocation {
+  operation_id: string;
+  offer_id: string;
+  decision_window_id: string;
+  actor_id: string;
+  capability: CapabilityRef;
+  descriptor_digest: string;
+  arguments: unknown;
+  targets?: HostRef[];
+  expected_epoch: Epoch;
+  observation_seq: number;
+  deadline: Timepoint;
+}
+
+export interface ActionRun {
+  operation_id: string;
+  status: ActionRunStatus;
+  progress_seq: number;
+  progress: number;
+  updated_at: Timepoint;
+  message?: string;
+}
+
+export interface ActionOutcome {
+  operation_id: string;
+  status: Exclude<ActionRunStatus, "queued" | "running">;
+  code?: string;
+  summary: string;
+  evidence?: HostRef[];
+  epoch: Epoch;
+  world_seq: number;
+  occurred_at: Timepoint;
+}
+
+export interface ActionReport {
   proposal_id: string;
   event_id: string;
-  tick?: number;
-  accepted: boolean;
-  outcome?: string;
+  decision: "accepted" | "rejected";
+  invocation?: ActionInvocation;
+  run?: ActionRun;
+  outcome?: ActionOutcome;
+  summary: string;
   tags?: string[];
   facts?: FactInput[];
   goal_updates?: GoalUpdateInput[];
+}
+
+export interface ReportActionRequest {
+  protocol_version: typeof PROTOCOL_VERSION;
+  session_id: string;
+  request_id: string;
+  tick?: number;
+  report: ActionReport;
+}
+
+export interface BatchActionReportRequest {
+  protocol_version: typeof PROTOCOL_VERSION;
+  session_id: string;
+  request_id: string;
+  tick?: number;
+  reports: ActionReport[];
 }
 
 export interface SessionRequest {
@@ -216,7 +347,8 @@ export interface ActionProposal {
   based_on_head_hash: string;
   based_on_world_revision?: number;
   created_revision: number;
-  action: ActionSpecInput;
+  decision_window: DecisionWindow;
+  action: ActionOfferInput;
   stance: "engage" | "refuse" | "redirect" | "wait";
   summary: string;
   rationale: string;
@@ -226,8 +358,11 @@ export interface ActionProposal {
   boundary_id?: string;
   proposed_goal?: RinObject;
   status: "pending" | "accepted" | "rejected";
-  outcome_event_id?: string;
-  outcome_tick?: number;
+  invocation?: ActionInvocation;
+  run?: ActionRun;
+  outcome?: ActionOutcome;
+  last_report_event_id?: string;
+  last_report_tick?: number;
   [additiveField: string]: unknown;
 }
 
@@ -309,13 +444,13 @@ export interface ProposalAttemptPersistence {
 
 export interface ProposalAttemptStore extends ProposalAttemptPersistence {
   /**
-   * Must atomically run apply, persist the applied marker and Commit in the
+   * Must atomically run apply, persist the applied marker and Action Report in the
    * Outcome Outbox, and remove the matching Proposal Attempt.
    */
   settleProposalAttempt(input: {
     attempt: ProposalAttempt;
     proposal: ActionProposal;
-    commit: CommitRequest;
+    report: ReportActionRequest;
     apply: () => void | Promise<void>;
   }): Promise<void>;
 }
@@ -324,18 +459,18 @@ export interface WorkflowStore extends ProposalAttemptPersistence, OutcomeOutbox
   settleProposalAttempt?(input: {
     attempt: ProposalAttempt;
     proposal: ActionProposal;
-    commit: CommitRequest;
+    report: ReportActionRequest;
     apply: () => void | Promise<void>;
   }): Promise<void>;
   completeProposalAttempt?(input: {
     attempt: ProposalAttempt;
     proposal: ActionProposal;
-    commit: CommitRequest;
+    report: ReportActionRequest;
   }): Promise<void>;
 }
 
 export interface OutcomeOutboxEntry {
-  commit: CommitRequest;
+  report: ReportActionRequest;
   [durableMetadata: string]: unknown;
 }
 
@@ -374,7 +509,7 @@ export class ProposalAttemptCoordinator {
   settle(
     attempt: ProposalAttempt,
     proposal: ActionProposal,
-    commit: CommitRequest,
+    report: ReportActionRequest,
     apply: () => void | Promise<void>,
   ): Promise<void>;
 }
@@ -396,7 +531,7 @@ export class WorkflowCoordinator {
   applyAndEnqueueOutcome(input: {
     pendingTurn: ProposalAttempt;
     proposal: ActionProposal;
-    commit: CommitRequest;
+    report: ReportActionRequest;
     requiredDurability?: HostDurabilityProfile;
     apply(operationId: string): void | Promise<void>;
   }): Promise<void>;
@@ -420,7 +555,7 @@ export class RinClient {
   health(): Promise<HealthData>;
   negotiateCapabilities(requiredFeatures?: readonly string[]): Promise<HealthData>;
   createSession(payload: CreateSessionRequest): Promise<MutationResult>;
-  observe(payload: RinObject): Promise<RinObject>;
+  observe(payload: ObserveRequest): Promise<MutationResult>;
   propose(payload: ProposeRequest): Promise<ProposalResult>;
   submitProposalJob(payload: RinObject): Promise<RinObject>;
   getProposalJob(jobId: string): Promise<RinObject>;
@@ -428,10 +563,8 @@ export class RinClient {
   submitGenerationJob(payload: RinObject): Promise<RinObject>;
   getGenerationJob(jobId: string): Promise<RinObject>;
   cancelGenerationJob(jobId: string): Promise<RinObject>;
-  /** Report an outcome the game already applied or rejected. */
-  commit(payload: CommitRequest): Promise<MutationResult>;
-  /** Atomically report outcomes produced from one original world revision. */
-  commitBatch(payload: RinObject): Promise<RinObject>;
+  reportAction(payload: ReportActionRequest): Promise<MutationResult>;
+  reportActionBatch(payload: BatchActionReportRequest): Promise<MutationResult>;
   setActorActivity(payload: RinObject): Promise<RinObject>;
   arbitrate(payload: RinObject): Promise<RinObject>;
   state(payload: RinObject): Promise<RinObject>;

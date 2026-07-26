@@ -2,9 +2,9 @@
 
 [简体中文](ROADMAP.md) | [English](ROADMAP.en.md)
 
-**当前状态：** Rin `0.6.0` 是 Preview、pre-1.0 软件。下列编号是已经交付的实施
+**当前状态：** Rin `0.7.0` 是 Preview、pre-1.0 软件。下列编号是已经交付的实施
 里程碑，不表示每个编号都存在公共 Tag。只有
-[发布清单](docs/release-guide.zh-CN.md)通过后，才会创建已验证的 `v0.6.0` Tag。
+[发布清单](docs/release-guide.zh-CN.md)通过后，才会创建已验证的 `v0.7.0` Tag。
 
 路线图记录可复用的 Runtime 能力，不把某个游戏的接入进度纳入公共 Runtime
 定义；未勾选项不属于受支持能力。
@@ -30,7 +30,7 @@
 
 ## 里程碑 0.3 - 游戏 Adapter
 
-- [x] Ren'Py Python Client 与 Authored Offline Fallback
+- [x] Ren'Py Python Client 与 Fail-closed Proposal Recovery
 - [x] 保持引擎线程权威的 Godot 4 与 Unity 示例
 - [x] RPG Region、Visibility 与 Quest Event 约定
 - [x] 可执行协议兼容 Fixture
@@ -58,7 +58,7 @@
 - [x] Fabric、BepInEx 6 与 Loopback-only Luanti 示例 Mod
 - [x] 离线、确定性的 `rin init mod` 脚手架，覆盖 Fabric、单 Backend
   BepInEx Mono/IL2CPP、Luanti 与 Windows 构建门禁
-- [x] 游戏权威 `outcome-reporting-v1`、Proposal Attempt 与 Outcome Outbox 语义
+- [x] 游戏权威的类型化动作生命周期、Proposal Attempt 与 Outcome Outbox
 - [x] 永久 Request/Event ID History 与 Fail-closed 未决 Append 对账
 - [x] 可信 Restore Binding、Snapshot 大小限制与明确 Checksum Trust Boundary
 - [x] Lazy Session 恢复、Range Read、派生 Checkpoint 与全历史运维审计

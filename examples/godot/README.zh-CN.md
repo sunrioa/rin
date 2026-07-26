@@ -7,7 +7,7 @@
 - `rin_client.gd` 负责有界异步 HTTP 与 Proposal Job Transport；
 - `rin_workflow.gd` 负责稳定 Save Slot Identity、Pending Turn 恢复、
   Freshness、每槽并发、退出取消与 Outcome Outbox；
-- `example_npc.gd` 是 225 行、由游戏拥有的 Policy 与 UI 示例。
+- `example_npc.gd` 是少于 250 行、由游戏拥有的 Policy 与 UI 示例。
 
 用 Godot 4.7.1 打开本目录，在 `http://127.0.0.1:7374` 启动 Rin，运行场景，
 再从游戏 UI 或 Debugger 调用 `ask_npc_to_respond()`。接入其他项目时，复制
@@ -17,8 +17,9 @@ Save Slot 创建一个 `RinWorkflow`。
 默认槽以有界 JSON 保存到 `user://rin/default.json`。生成的 128-bit Run
 ID、稳定 Create Request、Sequence、逻辑 Tick High-water、完整 Pending
 Turn/Observe、Job ID 和最多 64 条 Outcome 会跨场景及进程重启恢复。
-Coordinator 在首次请求前保存 Turn、轮询前保存 Job ID；Commit 终态错误会先
-持久转换为安全 Observe Fallback，ACK 也必须先持久化才能 Evict。
+Coordinator 在首次请求前保存 Turn、轮询前保存 Job ID；Report 重试期间保持
+原样，ACK 也必须先持久化才能 Evict。未决 Proposal 会失败关闭，Adapter 不会
+自行编造或执行离线动作。
 
 **Host durability profile：`advisory`。** `FileAccess.flush()` 后使用同目录
 Target/Backup 双重 Rename，使中断替换可恢复并兼容 Windows 路径；但两次
@@ -38,7 +39,7 @@ python3 tools/verify_godot.py --godot /path/to/Godot
 ```
 
 CI 下载 Godot 4.7.1 官方二进制并校验 SHA-512，然后在 Linux 与 Windows
-解析所有脚本，执行重启、保留 Job、Outbox 转换、ACK、畸形状态和写失败测试。
+解析所有脚本，执行重启、保留 Job、精确 Outbox、ACK、畸形状态和写失败测试。
 
 参考：
 

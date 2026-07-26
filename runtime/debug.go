@@ -281,25 +281,28 @@ func timelineEntry(event protocol.EventRecord) (protocol.TimelineEntry, error) {
 		if err := json.Unmarshal(event.Data, &payload); err != nil {
 			return protocol.TimelineEntry{}, err
 		}
-		entry.EntityIDs = []string{payload.Proposal.ID, payload.Proposal.Action.ID}
+		entry.EntityIDs = []string{payload.Proposal.ID, payload.Proposal.Action.OfferID}
 		entry.ActorIDs = []string{payload.Proposal.ActorID}
 		entry.Status = payload.Proposal.Status
-	case EventCommitted:
-		var payload committedPayload
+	case EventActionReported:
+		var payload actionReportedPayload
 		if err := json.Unmarshal(event.Data, &payload); err != nil {
 			return protocol.TimelineEntry{}, err
 		}
-		entry.EntityIDs = []string{payload.Request.ProposalID, payload.Request.EventID}
-		entry.Status = acceptedStatus(payload.Request.Accepted)
-	case EventBatchCommitted:
-		var payload batchCommittedPayload
+		entry.EntityIDs = []string{payload.Request.Report.ProposalID, payload.Request.Report.EventID}
+		entry.Status = string(payload.Request.Report.Decision)
+		if payload.Request.Report.Run != nil {
+			entry.Status = string(payload.Request.Report.Run.Status)
+		}
+	case EventActionBatchReported:
+		var payload actionBatchReportedPayload
 		if err := json.Unmarshal(event.Data, &payload); err != nil {
 			return protocol.TimelineEntry{}, err
 		}
-		for _, item := range payload.Request.Items {
-			entry.EntityIDs = append(entry.EntityIDs, item.ProposalID, item.EventID)
+		for _, report := range payload.Request.Reports {
+			entry.EntityIDs = append(entry.EntityIDs, report.ProposalID, report.EventID)
 		}
-		entry.Status = "committed"
+		entry.Status = "reported"
 	case EventActivityUpdated:
 		var payload activityUpdatedPayload
 		if err := json.Unmarshal(event.Data, &payload); err != nil {

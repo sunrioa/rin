@@ -104,7 +104,7 @@ func addStateEventIdentifiers(history *protocol.IdentifierHistory, state protoco
 		history.Events[eventID] = protocol.EventIdentity{Ambiguous: true}
 	}
 	for _, proposal := range state.Proposals {
-		add(proposal.OutcomeEventID)
+		add(proposal.LastReportEventID)
 	}
 	for _, actor := range state.Actors {
 		for _, goal := range actor.Goals {
@@ -119,7 +119,7 @@ func addStateEventIdentifiers(history *protocol.IdentifierHistory, state protoco
 			}
 		}
 		for _, proposal := range actor.RecentActions {
-			add(proposal.OutcomeEventID)
+			add(proposal.LastReportEventID)
 		}
 		for _, fact := range actor.Beliefs {
 			add(fact.SourceEventID)
@@ -205,25 +205,25 @@ func requestIdentityFromEvent(event protocol.EventRecord) (protocol.RequestIdent
 		proposal := payload.Proposal
 		canonicalizeProposalPresentation(&proposal)
 		identity.Proposal = &proposal
-	case EventCommitted:
-		var payload committedPayload
+	case EventActionReported:
+		var payload actionReportedPayload
 		if err = json.Unmarshal(event.Data, &payload); err == nil {
 			err = requireEventRequestID(event, payload.Request.RequestID)
 		}
 		if err == nil {
 			hash, err = checkedRequestDigest(payload.RequestHash, payload.Request)
 		}
-		events = append(events, identifiedEvent{id: payload.Request.EventID, kind: event.Type})
-	case EventBatchCommitted:
-		var payload batchCommittedPayload
+		events = append(events, identifiedEvent{id: payload.Request.Report.EventID, kind: event.Type})
+	case EventActionBatchReported:
+		var payload actionBatchReportedPayload
 		if err = json.Unmarshal(event.Data, &payload); err == nil {
 			err = requireEventRequestID(event, payload.Request.RequestID)
 		}
 		if err == nil {
 			hash, err = checkedRequestDigest(payload.RequestHash, payload.Request)
 		}
-		for _, item := range payload.Request.Items {
-			events = append(events, identifiedEvent{id: item.EventID, kind: event.Type})
+		for _, report := range payload.Request.Reports {
+			events = append(events, identifiedEvent{id: report.EventID, kind: event.Type})
 		}
 	case EventActivityUpdated:
 		var payload activityUpdatedPayload

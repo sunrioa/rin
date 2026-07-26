@@ -4,7 +4,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
@@ -12,8 +11,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 
 public final class WorkflowCoordinator {
-    private static final Set<String> TERMINAL_COMMIT_ERRORS =
-            Set.of("session_not_found", "unknown_proposal", "proposal_resolved");
     private final RinClient client;
     private final WorkflowStore store;
     private final HostDurability durability;
@@ -89,7 +86,7 @@ public final class WorkflowCoordinator {
     public CompletableFuture<Void> applyAndEnqueueOutcome(
             PendingTurn pendingTurn,
             Map<String, ?> proposal,
-            Map<String, ?> commit,
+            Map<String, ?> report,
             HostDurabilityProfile requiredDurability,
             Function<String, CompletionStage<Void>> apply) {
         Objects.requireNonNull(pendingTurn, "pendingTurn");
@@ -104,14 +101,14 @@ public final class WorkflowCoordinator {
         try {
             durability.require(requiredDurability);
             Map<String, Object> stableProposal = PendingTurn.copyObject(proposal);
-            Map<String, Object> stableCommit = PendingTurn.copyObject(commit);
-            validateSettlement(pendingTurn, stableProposal, stableCommit);
+            Map<String, Object> stableReport = PendingTurn.copyObject(report);
+            validateSettlement(pendingTurn, stableProposal, stableReport);
 
             if (durability.profile() == HostDurabilityProfile.TRANSACTIONAL_ACTION) {
                 completion = store.settleTransactional(
                         pendingTurn,
                         stableProposal,
-                        stableCommit,
+                        stableReport,
                         apply);
             } else {
                 CompletionStage<Void> applied;
@@ -121,7 +118,7 @@ public final class WorkflowCoordinator {
                 completion = applied.thenCompose(ignored -> store.completePendingTurn(
                         pendingTurn,
                         stableProposal,
-                        stableCommit));
+                        stableReport));
             }
         } catch (Throwable failure) {
             settling.set(false);
@@ -162,35 +159,12 @@ public final class WorkflowCoordinator {
             int index) {
         if (index >= entries.size()) return CompletableFuture.completedFuture(index);
         OutcomeOutboxEntry entry = Objects.requireNonNull(entries.get(index), "Outbox entry");
-        Map<String, Object> request = entry.request();
+        Map<String, Object> request = entry.report();
         requireIdentifier("request_id", request.get("request_id"));
-        requireIdentifier("event_id", request.get("event_id"));
-        CompletionStage<Void> report = entry.isDegradedObserve()
-                ? client.observe(request)
-                        .thenCompose(result -> store.acknowledgeOutcome(entry, result))
-                : reportCommit(entry);
-        return report
+        requireIdentifier("event_id", actionReport(request).get("event_id"));
+        return client.reportAction(request)
+                .thenCompose(result -> store.acknowledgeOutcome(entry, result))
                 .thenCompose(ignored -> drainEntries(entries, index + 1));
-    }
-
-    private CompletionStage<Void> reportCommit(OutcomeOutboxEntry entry) {
-        return client.commit(entry.commit())
-                .handle((result, failure) -> {
-                    if (failure == null) {
-                        return store.acknowledgeOutcome(entry, result);
-                    }
-                    Throwable cause = unwrap(failure);
-                    if (!(cause instanceof RinApiException api)
-                            || !TERMINAL_COMMIT_ERRORS.contains(api.code())
-                            || entry.fallbackObserve().isEmpty()) {
-                        return CompletableFuture.<Void>failedFuture(cause);
-                    }
-                    return store.replaceOutcomeWithFallback(entry)
-                            .thenCompose(converted -> client.observe(converted.request())
-                                    .thenCompose(observed ->
-                                            store.acknowledgeOutcome(converted, observed)));
-                })
-                .thenCompose(Function.identity());
     }
 
     private CompletionStage<ResolvedPendingTurn> resolve(
@@ -260,17 +234,30 @@ public final class WorkflowCoordinator {
     private static void validateSettlement(
             PendingTurn pendingTurn,
             Map<String, Object> proposal,
-            Map<String, Object> commit) {
+            Map<String, Object> report) {
+        Map<String, Object> actionReport = actionReport(report);
         if (!Objects.equals(proposal.get("session_id"), pendingTurn.request().get("session_id")) ||
                 !Objects.equals(proposal.get("request_id"), pendingTurn.request().get("request_id")) ||
-                !Objects.equals(commit.get("session_id"), pendingTurn.request().get("session_id")) ||
-                !Objects.equals(commit.get("proposal_id"), proposal.get("id"))) {
+                !Objects.equals(report.get("session_id"), pendingTurn.request().get("session_id")) ||
+                !Objects.equals(actionReport.get("proposal_id"), proposal.get("id"))) {
             throw new RinConfigurationException(
                     "workflow_identity_mismatch",
-                    "Pending Turn, Proposal, and Commit identities do not match");
+                    "Pending Turn, Proposal, and report identities do not match");
         }
-        requireIdentifier("request_id", commit.get("request_id"));
-        requireIdentifier("event_id", commit.get("event_id"));
+        requireIdentifier("request_id", report.get("request_id"));
+        requireIdentifier("event_id", actionReport.get("event_id"));
+    }
+
+    private static Map<String, Object> actionReport(Map<String, Object> request) {
+        Object value = request.get("report");
+        if (!(value instanceof Map<?, ?> raw)) {
+            throw new RinConfigurationException(
+                    "invalid_workflow",
+                    "report must contain a typed action report");
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> report = (Map<String, Object>) raw;
+        return report;
     }
 
     private static String requiredIdentifier(String field, Object value) {

@@ -41,26 +41,34 @@ func TestRequestJSONSafeIntegerBoundaries(t *testing.T) {
 				ProtocolVersion: Version, SessionID: "session.test", RequestID: "request.observe",
 				EventID: "event.observe", Tick: tick, ObserverIDs: []string{"npc.test"},
 				Source: "game", Kind: "world", Summary: "Observed.", Importance: 1,
+				Epoch: testProtocolEpoch("session.test"), ObservationSeq: 1,
 			})
 		}},
 		{"propose", func(tick int64) error {
+			window := testDecisionWindow("session.test", "npc.test", 1)
 			return ValidatePropose(ProposeRequest{
 				ProtocolVersion: Version, SessionID: "session.test", RequestID: "request.propose",
 				ActorID: "npc.test", Tick: tick, Intent: "Act.",
-				CandidateActions: []ActionSpec{{ID: "action.wait", Kind: "wait", Description: "Wait."}},
+				DecisionWindow: window,
+				Offers:         []ActionOffer{testActionOffer("session.test", "npc.test", "wait", 1)},
 			})
 		}},
 		{"commit", func(tick int64) error {
-			return ValidateCommit(CommitRequest{
+			return ValidateReportAction(ReportActionRequest{
 				ProtocolVersion: Version, SessionID: "session.test", RequestID: "request.commit",
-				ProposalID: "proposal.test", EventID: "event.commit", Tick: tick,
+				Tick: tick,
+				Report: ActionReport{
+					ProposalID: "proposal.test", EventID: "event.report",
+					Decision: ActionRejected, Summary: "Rejected.",
+				},
 			})
 		}},
 		{"batch", func(tick int64) error {
-			return ValidateBatchCommit(BatchCommitRequest{
+			return ValidateBatchActionReport(BatchActionReportRequest{
 				ProtocolVersion: Version, SessionID: "session.test", RequestID: "request.batch",
-				Tick: tick, Items: []CommitItem{{
-					ProposalID: "proposal.test", EventID: "event.batch", Accepted: false,
+				Tick: tick, Reports: []ActionReport{{
+					ProposalID: "proposal.test", EventID: "event.batch",
+					Decision: ActionRejected, Summary: "Rejected.",
 				}},
 			})
 		}},

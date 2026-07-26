@@ -22,8 +22,8 @@ Luanti transport, session wiring, game-owned action policy, and UI behavior.
 
 The mod calls `core.request_http_api()` only at module scope, keeps the returned
 API local, uses `HTTPApiTable.fetch` asynchronously, and schedules polling with
-`core.after`. It opts into `outcome-reporting-v1`, then re-reads Session
-immediately before apply. The proposal must still be `pending`, with a matching
+`core.after`. It re-reads Session immediately before apply. The proposal must
+still be pending, with a matching
 world revision (or creation revision for a non-world proposal). Stale
 proposals are rejected without a game effect. It maps only `talk`, `wait`, and
 `refuse` to fixed game-owned effects, and captures Luanti's monotonic game tick
@@ -41,12 +41,10 @@ The Lua SDK Workflow owns submit/poll/recovery, Job identity checks, terminal
 no-proposal handling, freshness evaluation, and Outbox draining. It stores the
 Pending Turn before the first request and the Job ID before the first GET.
 After restart, the next command reuses the same request and Job; a confirmed
-missing Job may be resubmitted once. Each Commit retains a safe Observe
-fallback. Temporary report errors keep the exact entry, while explicit
-terminal Commit errors persistently convert it to Observe before retry.
+missing Job may be resubmitted once. Every report error retains the exact
+Action Report for retry; it is never converted into an Observation.
 
-If Rin is unavailable before any online proposal exists, the mod may apply one
-authored offline fallback. Later failures fail closed or retain work. Because
+If Rin is unavailable, the mod fails closed or retains work. Because
 Luanti cannot atomically combine an arbitrary world mutation with ModStorage,
 a process crash between the chat effect and state publication can still repeat
 that effect. A production game with a transactional database should implement

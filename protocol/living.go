@@ -54,24 +54,12 @@ type ArbitrationResult struct {
 	Duplicate bool              `json:"duplicate"`
 }
 
-// CommitItem reports one authoritative game outcome in a BatchCommitRequest.
-type CommitItem struct {
-	ProposalID  string       `json:"proposal_id"`
-	EventID     string       `json:"event_id"`
-	Accepted    bool         `json:"accepted"`
-	Outcome     string       `json:"outcome,omitempty"`
-	Tags        []string     `json:"tags,omitempty"`
-	Facts       []Fact       `json:"facts,omitempty"`
-	GoalUpdates []GoalUpdate `json:"goal_updates,omitempty"`
-}
-
-// BatchCommitRequest records outcomes for proposals that were produced from
-// one world revision. That base may be older than Rin's head when the report
-// arrives because the game applies the outcomes before reporting them.
-type BatchCommitRequest struct {
-	ProtocolVersion string       `json:"protocol_version"`
-	SessionID       string       `json:"session_id"`
-	RequestID       string       `json:"request_id"`
-	Tick            int64        `json:"tick"`
-	Items           []CommitItem `json:"items"`
+// BatchActionReportRequest records an atomic set of host lifecycle reports for
+// proposals produced from one simultaneous DecisionWindow.
+type BatchActionReportRequest struct {
+	ProtocolVersion string         `json:"protocol_version"`
+	SessionID       string         `json:"session_id"`
+	RequestID       string         `json:"request_id"`
+	Tick            int64          `json:"tick"`
+	Reports         []ActionReport `json:"reports"`
 }

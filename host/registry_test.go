@@ -21,7 +21,7 @@ func TestRegistrySealsOffersAndRejectsTOCTOU(t *testing.T) {
 	if sealed.Digest == "" || sealed.RequiredScopes[0] != "rin.npc.move" {
 		t.Fatalf("descriptor was not normalized: %+v", sealed)
 	}
-	const expectedDigest = "8df261a6bdb6fd23a4c25c5a663f93a075e4c9fd632321ec757ff5f75def26bf"
+	const expectedDigest = "544a1b121a839171d1ce3d8d07dee434078a4e757c87641bee9126a97b18fca2"
 	if sealed.Digest != expectedDigest {
 		t.Fatalf("descriptor digest = %s, want %s", sealed.Digest, expectedDigest)
 	}
@@ -39,29 +39,30 @@ func TestRegistrySealsOffersAndRejectsTOCTOU(t *testing.T) {
 	epoch := testEpoch()
 	offer := ActionOffer{
 		OfferID:          "offer.move.1",
+		DecisionWindowID: "window.1",
 		ActorID:          "npc.guide",
 		Capability:       sealed.Capability,
 		DescriptorDigest: sealed.Digest,
 		Description:      "Move to the dock.",
 		Arguments:        json.RawMessage(`{"target":"dock"}`),
-		Epoch:            epoch,
+		ExpectedEpoch:    epoch,
 		ObservationSeq:   7,
-		ExpiresAtUnixMS:  20_000,
+		Deadline:         Timepoint{Clock: ClockRealtime, Value: 20_000},
 	}
-	if err := registry.ValidateOffer(offer, 10_000, epoch); err != nil {
+	if err := registry.ValidateOffer(offer, Timepoint{Clock: ClockRealtime, Value: 10_000}, epoch); err != nil {
 		t.Fatalf("valid offer rejected: %v", err)
 	}
 	invocation, err := registry.NewInvocation(
 		offer,
 		"operation.move.1",
-		10_000,
-		15_000,
+		Timepoint{Clock: ClockRealtime, Value: 10_000},
+		Timepoint{Clock: ClockRealtime, Value: 15_000},
 		epoch,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.AuthorizeInvocation(invocation, 12_000, epoch); err != nil {
+	if err := registry.AuthorizeInvocation(invocation, Timepoint{Clock: ClockRealtime, Value: 12_000}, epoch); err != nil {
 		t.Fatalf("valid invocation rejected: %v", err)
 	}
 	if err := registry.ValidateOutput(
@@ -74,27 +75,27 @@ func TestRegistrySealsOffersAndRejectsTOCTOU(t *testing.T) {
 
 	stale := epoch
 	stale.World++
-	if err := registry.ValidateOffer(offer, 10_000, stale); err == nil {
+	if err := registry.ValidateOffer(offer, Timepoint{Clock: ClockRealtime, Value: 10_000}, stale); err == nil {
 		t.Fatal("stale epoch offer accepted")
 	}
-	if err := registry.ValidateOffer(offer, 20_000, epoch); err == nil {
+	if err := registry.ValidateOffer(offer, Timepoint{Clock: ClockRealtime, Value: 20_000}, epoch); err == nil {
 		t.Fatal("expired offer accepted")
 	}
 	invalidArguments := offer
 	invalidArguments.Arguments = json.RawMessage(`{"target":7}`)
-	if err := registry.ValidateOffer(invalidArguments, 10_000, epoch); err == nil {
+	if err := registry.ValidateOffer(invalidArguments, Timepoint{Clock: ClockRealtime, Value: 10_000}, epoch); err == nil {
 		t.Fatal("schema-invalid arguments accepted")
 	}
 	changedDigest := offer
 	changedDigest.DescriptorDigest = strings.Repeat("0", 64)
-	if err := registry.ValidateOffer(changedDigest, 10_000, epoch); err == nil {
+	if err := registry.ValidateOffer(changedDigest, Timepoint{Clock: ClockRealtime, Value: 10_000}, epoch); err == nil {
 		t.Fatal("descriptor digest mismatch accepted")
 	}
 
 	if !registry.Unregister(sealed.Capability) {
 		t.Fatal("registered capability was not removed")
 	}
-	if err := registry.AuthorizeInvocation(invocation, 12_000, epoch); err == nil {
+	if err := registry.AuthorizeInvocation(invocation, Timepoint{Clock: ClockRealtime, Value: 12_000}, epoch); err == nil {
 		t.Fatal("invocation remained authorized after capability revocation")
 	}
 }
@@ -133,14 +134,15 @@ func TestRegistryConcurrentDiscoveryAndRevocation(t *testing.T) {
 	}
 	offer := ActionOffer{
 		OfferID:          "offer.concurrent.1",
+		DecisionWindowID: "window.concurrent.1",
 		ActorID:          "npc.guide",
 		Capability:       sealed.Capability,
 		DescriptorDigest: sealed.Digest,
 		Description:      "Move to the dock.",
 		Arguments:        json.RawMessage(`{"target":"dock"}`),
-		Epoch:            testEpoch(),
+		ExpectedEpoch:    testEpoch(),
 		ObservationSeq:   1,
-		ExpiresAtUnixMS:  20_000,
+		Deadline:         Timepoint{Clock: ClockRealtime, Value: 20_000},
 	}
 
 	var wait sync.WaitGroup
@@ -151,7 +153,11 @@ func TestRegistryConcurrentDiscoveryAndRevocation(t *testing.T) {
 			for range 100 {
 				_, _ = registry.Resolve(sealed.Capability)
 				_ = registry.Snapshot()
-				_ = registry.ValidateOffer(offer, 10_000, offer.Epoch)
+				_ = registry.ValidateOffer(
+					offer,
+					Timepoint{Clock: ClockRealtime, Value: 10_000},
+					offer.ExpectedEpoch,
+				)
 			}
 		}()
 	}
@@ -199,11 +205,11 @@ func TestManifestAndActionRunInvariants(t *testing.T) {
 		t.Fatal("terminal action lifecycle transition accepted")
 	}
 	if err := ValidateActionRun(ActionRun{
-		OperationID:   "operation.move.1",
-		Status:        ActionSucceeded,
-		ProgressSeq:   3,
-		Progress:      100,
-		UpdatedUnixMS: 12_000,
+		OperationID: "operation.move.1",
+		Status:      ActionSucceeded,
+		ProgressSeq: 3,
+		Progress:    100,
+		UpdatedAt:   Timepoint{Clock: ClockRealtime, Value: 12_000},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +295,7 @@ func testDescriptor(t *testing.T) CapabilityDescriptor {
 		Risk:               RiskModerate,
 		RequiredDurability: DurabilityAdvisory,
 		RequiredScopes:     []string{"rin.npc.move"},
-		TimeoutMS:          10_000,
+		ExecutionBudget:    Duration{Clock: ClockRealtime, Value: 10_000},
 		MaxInputBytes:      1024,
 		MaxOutputBytes:     1024,
 		Cancellation:       CancellationCooperative,

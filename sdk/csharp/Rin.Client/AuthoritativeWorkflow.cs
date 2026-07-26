@@ -34,13 +34,13 @@ public interface IProposalAttemptStore
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Atomically runs apply, persists the applied marker and exact Commit in
+    /// Atomically runs apply, persists the applied marker and exact Report in
     /// the Outcome Outbox, and removes the matching Proposal Attempt.
     /// </summary>
     ValueTask SettleAsync(
         ProposalAttempt attempt,
         ActionProposal proposal,
-        CommitRequest commit,
+        ReportActionRequest report,
         Func<CancellationToken, ValueTask> apply,
         CancellationToken cancellationToken = default);
 }
@@ -149,17 +149,17 @@ public sealed class ProposalAttemptCoordinator
     public ValueTask SettleAsync(
         ProposalAttempt attempt,
         ActionProposal proposal,
-        CommitRequest commit,
+        ReportActionRequest report,
         Func<CancellationToken, ValueTask> apply,
         CancellationToken cancellationToken = default)
     {
         attempt = ValidateAttempt(attempt);
         Guard.NotNull(apply, nameof(apply));
-        ValidateSettlement(attempt, proposal, commit);
+        ValidateSettlement(attempt, proposal, report);
         return store.SettleAsync(
             attempt,
             proposal,
-            commit,
+            report,
             apply,
             cancellationToken);
     }
@@ -167,22 +167,23 @@ public sealed class ProposalAttemptCoordinator
     internal static void ValidateSettlement(
         ProposalAttempt attempt,
         ActionProposal proposal,
-        CommitRequest commit)
+        ReportActionRequest report)
     {
         attempt = ValidateAttempt(attempt);
         Guard.NotNull(proposal, nameof(proposal));
-        Guard.NotNull(commit, nameof(commit));
+        Guard.NotNull(report, nameof(report));
         if (proposal.SessionId != attempt.Request.SessionId ||
             proposal.RequestId != attempt.Request.RequestId ||
-            commit.SessionId != attempt.Request.SessionId ||
-            commit.ProposalId != proposal.Id)
+            report.SessionId != attempt.Request.SessionId ||
+            report.Report is null ||
+            report.Report.ProposalId != proposal.Id)
         {
             throw new RinConfigurationException(
                 "workflow_identity_mismatch",
-                "Attempt, Proposal, and Commit identities do not match");
+                "Attempt, Proposal, and Report identities do not match");
         }
-        RequireIdentifier("request_id", commit.RequestId);
-        RequireIdentifier("event_id", commit.EventId);
+        RequireIdentifier("request_id", report.RequestId);
+        RequireIdentifier("event_id", report.Report.EventId);
     }
 
     private static ProposalAttempt ValidateAttempt(ProposalAttempt? attempt)
@@ -243,86 +244,9 @@ public sealed class ProposalAttemptCoordinator
     }
 }
 
-public sealed record OutcomeOutboxEntry
-{
-    public OutcomeOutboxEntry(string key, CommitRequest commit)
-        : this(key, commit, null, false) { }
-
-    public OutcomeOutboxEntry(
-        string key,
-        CommitRequest commit,
-        object fallbackObserve)
-        : this(key, commit, fallbackObserve, false) { }
-
-    [System.Text.Json.Serialization.JsonConstructor]
-    public OutcomeOutboxEntry(
-        string key,
-        CommitRequest commit,
-        object? fallbackObserve,
-        bool degradedObserve)
-    {
-        Key = key;
-        Commit = commit;
-        FallbackObserve = fallbackObserve;
-        DegradedObserve = degradedObserve;
-    }
-
-    public string Key { get; init; }
-    public CommitRequest Commit { get; init; }
-    public object? FallbackObserve { get; init; }
-    public bool DegradedObserve { get; init; }
-
-    [System.Text.Json.Serialization.JsonIgnore]
-    public bool IsDegradedObserve => DegradedObserve;
-
-    public OutcomeOutboxEntry AsDegradedObserve()
-    {
-        if (FallbackObserve is null)
-        {
-            throw new RinConfigurationException(
-                "outcome_fallback_missing",
-                "Outcome has no pre-recorded safe Observe fallback");
-        }
-        return this with { DegradedObserve = true };
-    }
-
-    internal static JsonElement ValidateFallback(object value)
-    {
-        try
-        {
-            var element = value is JsonElement json
-                ? json.Clone()
-                : JsonSerializer.SerializeToElement(value);
-            if (element.ValueKind != JsonValueKind.Object ||
-                !ValidIdentifier(element, "session_id") ||
-                !ValidIdentifier(element, "request_id") ||
-                !ValidIdentifier(element, "event_id"))
-            {
-                throw new RinConfigurationException(
-                    "invalid_outbox",
-                    "Outcome Observe fallback has invalid stable identities");
-            }
-            return element;
-        }
-        catch (RinConfigurationException)
-        {
-            throw;
-        }
-        catch (Exception exception)
-            when (exception is JsonException or NotSupportedException)
-        {
-            throw new RinConfigurationException(
-                "invalid_outbox",
-                "Outcome Observe fallback is not a valid JSON object",
-                exception);
-        }
-    }
-
-    private static bool ValidIdentifier(JsonElement value, string property) =>
-        value.TryGetProperty(property, out var identifier) &&
-        identifier.ValueKind == JsonValueKind.String &&
-        RinIds.IsValid(identifier.GetString());
-}
+public sealed record OutcomeOutboxEntry(
+    string Key,
+    ReportActionRequest Report);
 
 public interface IOutcomeOutboxStore
 {
@@ -336,27 +260,8 @@ public interface IOutcomeOutboxStore
         CancellationToken cancellationToken = default);
 }
 
-public interface IOutcomeFallbackStore : IOutcomeOutboxStore
-{
-    /// <summary>
-    /// Atomically replaces an unrecoverable Commit with its pre-recorded,
-    /// absolute-fact Observe fallback.
-    /// </summary>
-    ValueTask<OutcomeOutboxEntry> ReplaceWithFallbackAsync(
-        OutcomeOutboxEntry entry,
-        CancellationToken cancellationToken = default);
-}
-
 public sealed class OutcomeOutbox
 {
-    private static readonly HashSet<string> TerminalCommitErrors =
-        new(StringComparer.Ordinal)
-        {
-            "session_not_found",
-            "unknown_proposal",
-            "proposal_resolved",
-        };
-
     private readonly RinClient client;
     private readonly IOutcomeOutboxStore store;
     private int draining;
@@ -386,65 +291,17 @@ public sealed class OutcomeOutbox
             foreach (var entry in entries)
             {
                 Guard.NotNull(entry, nameof(entry));
-                if (entry.IsDegradedObserve)
-                {
-                    if (entry.FallbackObserve is null)
-                    {
-                        throw InvalidOutbox();
-                    }
-                    var observed = await client.ObserveAsync(
-                        OutcomeOutboxEntry.ValidateFallback(entry.FallbackObserve),
-                        cancellationToken).ConfigureAwait(false);
-                    await store.AcknowledgeAsync(
-                        entry,
-                        ParseMutation(observed),
-                        cancellationToken)
-                        .ConfigureAwait(false);
-                    acknowledged++;
-                    continue;
-                }
-
-                var commit = Guard.NotNull(entry.Commit, nameof(entry.Commit));
-                if (!RinIds.IsValid(commit.RequestId) ||
-                    !RinIds.IsValid(commit.EventId))
+                var report = Guard.NotNull(entry.Report, nameof(entry.Report));
+                if (!RinIds.IsValid(report.RequestId) ||
+                    report.Report is null ||
+                    !RinIds.IsValid(report.Report.EventId))
                 {
                     throw InvalidOutbox();
                 }
-                try
-                {
-                    var result = await client.CommitAsync(commit, cancellationToken)
-                        .ConfigureAwait(false);
-                    await store.AcknowledgeAsync(entry, result, cancellationToken)
-                        .ConfigureAwait(false);
-                }
-                catch (RinApiException exception)
-                    when (TerminalCommitErrors.Contains(exception.Code) &&
-                          entry.FallbackObserve is not null)
-                {
-                    if (store is not IOutcomeFallbackStore fallbackStore)
-                    {
-                        throw new RinConfigurationException(
-                            "outcome_fallback_unsupported",
-                            "Workflow Store cannot persist an Outcome fallback conversion",
-                            exception);
-                    }
-                    var converted = await fallbackStore.ReplaceWithFallbackAsync(
-                        entry,
-                        cancellationToken).ConfigureAwait(false);
-                    if (!converted.IsDegradedObserve ||
-                        converted.FallbackObserve is null)
-                    {
-                        throw InvalidOutbox();
-                    }
-                    var observed = await client.ObserveAsync(
-                        OutcomeOutboxEntry.ValidateFallback(converted.FallbackObserve),
-                        cancellationToken).ConfigureAwait(false);
-                    await store.AcknowledgeAsync(
-                        converted,
-                        ParseMutation(observed),
-                        cancellationToken)
-                        .ConfigureAwait(false);
-                }
+                var result = await client.ReportActionAsync(report, cancellationToken)
+                    .ConfigureAwait(false);
+                await store.AcknowledgeAsync(entry, result, cancellationToken)
+                    .ConfigureAwait(false);
                 acknowledged++;
             }
             return acknowledged;
@@ -460,19 +317,4 @@ public sealed class OutcomeOutbox
             "invalid_outbox",
             "Outcome Outbox entry has invalid stable identities or no report request");
 
-    private static MutationResult ParseMutation(JsonElement value)
-    {
-        try
-        {
-            return value.Deserialize<MutationResult>() ??
-                throw new JsonException("mutation result was null");
-        }
-        catch (JsonException exception)
-        {
-            throw new RinProtocolException(
-                "invalid_response",
-                "Observe returned an invalid mutation result",
-                exception);
-        }
-    }
 }

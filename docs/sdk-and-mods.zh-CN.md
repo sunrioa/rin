@@ -12,7 +12,7 @@ Operation ID 幂等的 Apply 或真实游戏事务。仓库中的宿主示例已
 Identity 与有界恢复状态，但其存储无法与任意游戏世界效果形成 Crash-atomic
 边界，因此仍保持 `advisory`。
 
-本文描述 Rin `0.6.0` Preview。权威 Wire Schema 是
+本文描述 Rin `0.7.0` Preview。权威 Wire Schema 是
 [`api/openapi.json`](../api/openapi.json)。
 
 ## 支持矩阵
@@ -64,24 +64,19 @@ rin init mod --host fabric --id guide_npc \
 
 ## 接入生命周期
 
-每个新建 Session 都必须请求 `outcome-reporting-v1` 安全基线。只有
-Pre-baseline History 保留旧版 Commit 与 Replay 行为。
-
 1. 捕获一个有界、由游戏拥有的事件并调用 `observe`。
-2. 只向 Rin 提供游戏能够安全实现的候选动作。
+2. 创建 Epoch、Decision Window，以及游戏可安全实现的完整绑定 Offer。
 3. 实时游戏使用异步 Proposal Job API。
-4. 用本地白名单验证返回的 Action ID 和 Payload。
+4. 将返回 Offer 与持久化的 Host-authored Request 匹配。
 5. 切回引擎拥有的线程并应用动作。
 6. 在应用事务中把实际结果写入游戏自己的 Outcome Outbox。
-7. 从 Outbox 调用 `commit`，必要时回报拒绝；失败只重报，不重复应用动作。
-8. 只为已经确认不存在在线 Proposal 的情况保留 Authored 或 Deterministic
-   Fallback。
+7. 从 Outbox 调用 `reportAction`，必要时回报拒绝；失败只重报，不重复应用动作。
 
 Proposal 提交、轮询、超时或取消若结果不确定，应标为 outcome-unknown 并
-fail closed；使用相同身份恢复，确认不存在在线 Proposal 前不得执行 fallback。
-提交前应持久化完整 Propose Request 与 Operation 身份，并在 `202` 后立即
-保存 Job ID。任何新 Turn 或 Fallback 之前都要先恢复这条记录；只有游戏结果、
-Applied Marker 与 Outcome Outbox 在同一个权威事务中落盘时才能清除。
+fail closed；使用相同身份恢复，Transport 层不得自行编造替代动作。提交前应
+持久化完整 Propose Request 与 Operation 身份，并在 `202` 后立即保存 Job ID。
+任何新 Turn 之前都要先恢复这条记录；只有游戏结果、Applied Marker 与 Outcome
+Outbox 在同一个权威事务中落盘时才能清除。
 
 JavaScript/TypeScript 与 C# SDK 保留底层的
 `ProposalAttemptCoordinator`、可插拔 `OutcomeOutbox` 以及不透明 Snapshot
@@ -89,25 +84,23 @@ JavaScript/TypeScript 与 C# SDK 保留底层的
 `WorkflowCoordinator`，在应用动作前校验声明的宿主持久 Profile。它们只定义
 存储契约，不提供容易误用于生产的内存默认实现。
 Transactional Settlement Hook 必须原子应用游戏效果、持久化 Applied Marker
-与完整 Commit，并删除 Pending Turn。幂等宿主会先收到稳定 Operation ID，再由
+与完整 Action Report，并删除 Pending Turn。幂等宿主会先收到稳定 Operation ID，再由
 Store 完成 Report 事务。Outbox Drain 只确认普通成功或 Rin 明确返回的
-exact-duplicate 成功。Store 还可以持久化预先记录、只含绝对事实的 Observe
-Fallback；Coordinator 只在明确终态 Commit 错误时转换。Transport 与未决错误
-保留原 Entry。`ProposalFreshness` 统一负责应用前的 Pending/Revision 校验。
+exact-duplicate 成功。所有错误都保留原 Action Report Entry，Report 永远不会
+转换为 Observation。`ProposalFreshness` 统一负责应用前的 Pending/Revision 校验。
 
-已确认 Sidecar Proposal Operation 内部的 Provider 失败可使用 Rin 的
-Deterministic Policy。Sidecar Submit/Poll/Cancel 结果未决是另一种状态，不能
-转换成 Fallback Action。
+Rin 内部的 Provider 失败可以在 Proposal 产生前使用 Deterministic Policy。
+Sidecar Submit/Poll/Cancel 结果未决是另一种状态，不能转换成宿主动作。
 
 不要从渲染或 Update 循环调用在线 Proposal 或 Generation 端点。一次玩家
 交互最多启动一个 Job；普通帧只应检查本地 Future、Coroutine、Timer 或
 主线程队列。
 
-Commit 是结果记账而不是执行授权。Outbox、延迟结果、相同 `request_id` 重试
-和离线对账规则见[动作结果记账](outcome-reporting.zh-CN.md)。
+Action Report 是结果记账而不是执行授权。Outbox、延迟结果、相同 `request_id` 重试
+和离线对账规则见[动作结果记账](action-lifecycle.zh-CN.md)。
 
 所有公共 JSON 整数都必须处于 `-9007199254740991` 至 `9007199254740991` 的精确
-跨语言范围。Commit 和每个 Batch Item 都必须显式序列化 `accepted`，包括
+跨语言范围。每个 Report 和 Batch Item 都必须显式序列化 `accepted`，包括
 `false`。SDK 必须以 UTF-8 编码请求正文，在 Transport 前拒绝本地不安全整数，
 拒绝非 JSON 本地值，并容忍增量 Response Member。由 OpenAPI 驱动的服务端仍是
 Request Schema 的权威，会拒绝封闭 Request Object 中的未知 Member；调用方不得
@@ -164,12 +157,12 @@ Luanti 示例是完整服务器 Mod。它只在模块作用域调用
 `secure.http_mods = rin_npc_example`。其 ModStorage Adapter 会跨重启保留
 稳定 World/Session Identity、完整 Pending Turn、Job ID、单调 Tick 下限与
 有界 Outcome Outbox。Lua SDK Workflow 负责 Submit/Poll Recovery、Identity
-检查、Freshness、终态降级转换及 ACK 后 Evict。由于 ModStorage 保存时机与
+检查、Freshness、精确 Report 重试及 ACK 后 Evict。由于 ModStorage 保存时机与
 任意游戏效果不能组成同步事务，其 Profile 仍为 `advisory`。
 
 Godot 4.7.1 参考是可直接运行的项目。可复用 Workflow 在 `user://` 保存稳定
 Save Slot Identity、完整 Pending Turn、Job ID、Tick High-water 与有界
-Outcome Outbox；225 行 NPC 宿主只保留游戏拥有的 Policy 与效果。CI 对官方
+Outcome Outbox；少于 250 行的 NPC 宿主只保留游戏拥有的 Policy 与效果。CI 对官方
 Godot Binary 固定 SHA-512，并在 Linux 与 Windows 执行 Headless 解析和重启
 测试。
 

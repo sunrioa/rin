@@ -5,7 +5,7 @@
 Model access is optional and bounded; local validation and the deterministic
 policy remain available without a provider.
 
-This document describes Rin `0.6.0` Preview. Provider responses are a separate
+This document describes Rin `0.7.0` Preview. Provider responses are a separate
 untrusted boundary from the game-facing HTTP request contract.
 
 ## Enable

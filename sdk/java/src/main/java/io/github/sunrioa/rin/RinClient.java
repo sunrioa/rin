@@ -30,8 +30,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 public final class RinClient {
-    public static final String VERSION = "0.6.0";
-    public static final String PROTOCOL_VERSION = "rin.protocol/v1";
+    public static final String VERSION = "0.7.0";
+    public static final String PROTOCOL_VERSION = "rin.protocol/v2";
     public static final String DEFAULT_BASE_URL = "http://127.0.0.1:7374";
     public static final int DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 
@@ -75,93 +75,93 @@ public final class RinClient {
     }
 
     public CompletableFuture<Map<String, Object>> createSession(Map<String, ?> payload) {
-        return post("/v1/session/create", payload, 200);
+        return post("/v2/session/create", payload, 200);
     }
 
     public CompletableFuture<Map<String, Object>> observe(Map<String, ?> payload) {
-        return post("/v1/session/observe", payload, 200);
+        return post("/v2/session/observe", payload, 200);
     }
 
     public CompletableFuture<Map<String, Object>> propose(Map<String, ?> payload) {
-        return post("/v1/agent/propose", payload, 200);
+        return post("/v2/agent/propose", payload, 200);
     }
 
     public CompletableFuture<Map<String, Object>> submitProposalJob(Map<String, ?> payload) {
-        return post("/v1/jobs/propose", payload, 202);
+        return post("/v2/jobs/propose", payload, 202);
     }
 
     public CompletableFuture<Map<String, Object>> getProposalJob(String jobId) {
-        return request("GET", "/v1/jobs/" + pathId(jobId), null, Set.of(200));
+        return request("GET", "/v2/jobs/" + pathId(jobId), null, Set.of(200));
     }
 
     public CompletableFuture<Map<String, Object>> cancelProposalJob(String jobId) {
-        return request("DELETE", "/v1/jobs/" + pathId(jobId), null, Set.of(200));
+        return request("DELETE", "/v2/jobs/" + pathId(jobId), null, Set.of(200));
     }
 
     public CompletableFuture<Map<String, Object>> submitGenerationJob(Map<String, ?> payload) {
-        return post("/v1/generation/jobs", payload, 202);
+        return post("/v2/generation/jobs", payload, 202);
     }
 
     public CompletableFuture<Map<String, Object>> getGenerationJob(String jobId) {
-        return request("GET", "/v1/generation/jobs/" + pathId(jobId), null, Set.of(200));
+        return request("GET", "/v2/generation/jobs/" + pathId(jobId), null, Set.of(200));
     }
 
     public CompletableFuture<Map<String, Object>> cancelGenerationJob(String jobId) {
-        return request("DELETE", "/v1/generation/jobs/" + pathId(jobId), null, Set.of(200));
+        return request("DELETE", "/v2/generation/jobs/" + pathId(jobId), null, Set.of(200));
     }
 
     /** Reports an outcome the game already applied or rejected. */
-    public CompletableFuture<Map<String, Object>> commit(Map<String, ?> payload) {
-        return post("/v1/action/commit", payload, 200);
+    public CompletableFuture<Map<String, Object>> reportAction(Map<String, ?> payload) {
+        return post("/v2/action/report", payload, 200);
     }
 
     /** Atomically reports outcomes produced from one original world revision. */
-    public CompletableFuture<Map<String, Object>> commitBatch(Map<String, ?> payload) {
-        return post("/v1/action/commit-batch", payload, 200);
+    public CompletableFuture<Map<String, Object>> reportActionBatch(Map<String, ?> payload) {
+        return post("/v2/action/report-batch", payload, 200);
     }
 
     public CompletableFuture<Map<String, Object>> setActorActivity(Map<String, ?> payload) {
-        return post("/v1/session/activity", payload, 200);
+        return post("/v2/session/activity", payload, 200);
     }
 
     public CompletableFuture<Map<String, Object>> arbitrate(Map<String, ?> payload) {
-        return post("/v1/world/arbitrate", payload, 200);
+        return post("/v2/world/arbitrate", payload, 200);
     }
 
     public CompletableFuture<Map<String, Object>> state(Map<String, ?> payload) {
-        return post("/v1/session/get", payload, 200);
+        return post("/v2/session/get", payload, 200);
     }
 
     public CompletableFuture<Map<String, Object>> sessionStats(Map<String, ?> payload) {
-        return post("/v1/session/stats", payload, 200);
+        return post("/v2/session/stats", payload, 200);
     }
 
     public CompletableFuture<Map<String, Object>> archiveSession(Map<String, ?> payload) {
-        return post("/v1/session/archive", payload, 200);
+        return post("/v2/session/archive", payload, 200);
     }
 
     public CompletableFuture<Map<String, Object>> deleteSession(Map<String, ?> payload) {
-        return post("/v1/session/delete", payload, 200);
+        return post("/v2/session/delete", payload, 200);
     }
 
     public CompletableFuture<Map<String, Object>> snapshot(Map<String, ?> payload) {
-        return post("/v1/session/snapshot", payload, 200);
+        return post("/v2/session/snapshot", payload, 200);
     }
 
     public CompletableFuture<Map<String, Object>> restore(Map<String, ?> payload) {
-        return post("/v1/session/restore", payload, 200);
+        return post("/v2/session/restore", payload, 200);
     }
 
     public CompletableFuture<Map<String, Object>> timeline(Map<String, ?> payload) {
-        return post("/v1/session/timeline", payload, 200);
+        return post("/v2/session/timeline", payload, 200);
     }
 
     public CompletableFuture<Map<String, Object>> replay(Map<String, ?> payload) {
-        return post("/v1/session/replay", payload, 200);
+        return post("/v2/session/replay", payload, 200);
     }
 
     public CompletableFuture<Map<String, Object>> dueAgents(Map<String, ?> payload) {
-        return post("/v1/scheduler/due", payload, 200);
+        return post("/v2/scheduler/due", payload, 200);
     }
 
     public CompletableFuture<Map<String, Object>> waitForProposal(String jobId) {

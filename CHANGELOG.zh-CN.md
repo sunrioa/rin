@@ -2,7 +2,7 @@
 
 [简体中文](CHANGELOG.zh-CN.md) | [English](CHANGELOG.md)
 
-本文记录仓库级变更。Rin `0.6.0` 是 Preview 版本：它仍处于 pre-1.0 阶段，
+本文记录仓库级变更。Rin `0.7.0` 是 Preview 版本：它仍处于 pre-1.0 阶段，
 后续 minor 版本之间会记录兼容变化，但不承诺始终保持兼容。
 
 ## 未发布
@@ -19,6 +19,14 @@
 
 ### 变化
 
+- Wire Contract 升级为 `rin.protocol/v2`。Decision Window、完整绑定的 Action
+  Offer、Epoch、类型化 Invocation/Run/Outcome Report 与
+  `/v2/action/report[-batch]` 取代 v1 ActionSpec/Commit 语义。
+- 删除 v1 Wire、Reducer 兼容分支、旧 Recovery Example、过时的 Semantic
+  Baseline/Migration 文档与兼容 Alias。开发阶段用户应创建新 Lineage，或显式
+  Export/Import。
+- Unity 改为紧凑 `IRinUnityHost` 边界，保留任意 JSON Argument，并使用持久
+  Pending Turn 与确切 Report Outbox。
 - Runtime/Server 代码仍只依赖标准库；独立 Host Contract 使用经过维护的
   `santhosh-tekuri/jsonschema` 校验器。依赖许可记录在
   `THIRD-PARTY-NOTICES.md`。
@@ -55,9 +63,8 @@
 - 离线 `rin init mod` 生成器，可创建独立的 Fabric、单 Backend BepInEx
   Mono/IL2CPP 与 Luanti 项目，内置 SDK 源码、固定依赖、确定性文件 Hash、
   Windows 安全路径和禁止覆盖的输出语义。
-- [`api/openapi.json`](api/openapi.json) 中的 OpenAPI 3.1 wire Schema、
-  [兼容矩阵](docs/compatibility.zh-CN.md)和
-  [v0.6 迁移指南](docs/migration-v0.6.zh-CN.md)。
+- [`api/openapi.json`](api/openapi.json) 中的 OpenAPI 3.1 Wire Schema 与
+  [兼容矩阵](docs/compatibility.zh-CN.md)。
 - 有界 frame 的 NDJSON Session Transfer：immutable export boundary、逐 event
   与整流 checksum、可信 Binding header、同根 staging import、atomic publish、
   终止 error frame，以及调用方拥有的 JavaScript/C# stream helper。端到端测试

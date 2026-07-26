@@ -12,7 +12,7 @@ import (
 	rinruntime "github.com/sunrioa/rin/runtime"
 )
 
-// Deterministic is an offline policy suitable for tests, fallback play, and
+// Deterministic is an offline policy suitable for tests, local play, and
 // games that want agent-like selection without a language model.
 type Deterministic struct {
 	MemoryLimit int
@@ -32,12 +32,12 @@ func (p Deterministic) Propose(ctx context.Context, input rinruntime.PolicyConte
 	goal := selectGoal(goals)
 	boundary, triggered := triggeredBoundary(input.Actor.Boundaries, input.Request.Tags)
 
-	var selected protocol.ActionSpec
+	var selected protocol.ActionOffer
 	if triggered {
 		goal = nil
 		var found bool
-		for _, action := range input.Request.CandidateActions {
-			if action.Kind == boundary.Response || action.ID == boundary.Response {
+		for _, action := range input.Request.Offers {
+			if action.OfferID == boundary.Response {
 				selected = action
 				found = true
 				break
@@ -50,11 +50,11 @@ func (p Deterministic) Propose(ctx context.Context, input rinruntime.PolicyConte
 		selected = selectAction(input, goal, memories)
 	}
 
-	stance := selected.Kind
+	stance := selected.OfferID
 	if triggered {
 		// Boundary.Response is the authoritative refusal/redirection/wait
-		// stance even when the matching game action uses that value as its ID
-		// and has a domain-specific Kind.
+		// stance even when the matching host offer has a domain-specific
+		// capability.
 		stance = boundary.Response
 	} else if stance != "refuse" && stance != "redirect" && stance != "wait" && stance != "partial" {
 		stance = "engage"
@@ -64,7 +64,7 @@ func (p Deterministic) Propose(ctx context.Context, input rinruntime.PolicyConte
 		memoryIDs = append(memoryIDs, memory.ID)
 	}
 	draft := rinruntime.ProposalDraft{
-		ActionID:          selected.ID,
+		OfferID:           selected.OfferID,
 		Stance:            stance,
 		PolicySource:      "deterministic",
 		RecalledMemoryIDs: memoryIDs,
@@ -115,9 +115,9 @@ func selectGoal(goals []protocol.Goal) *protocol.Goal {
 	return &active[0]
 }
 
-func selectAction(input rinruntime.PolicyContext, goal *protocol.Goal, memories []protocol.Memory) protocol.ActionSpec {
+func selectAction(input rinruntime.PolicyContext, goal *protocol.Goal, memories []protocol.Memory) protocol.ActionOffer {
 	type scoredAction struct {
-		action protocol.ActionSpec
+		action protocol.ActionOffer
 		score  int64
 		tie    uint64
 	}
@@ -137,38 +137,38 @@ func selectAction(input rinruntime.PolicyContext, goal *protocol.Goal, memories 
 			memoryTags[tag] = struct{}{}
 		}
 	}
-	scored := make([]scoredAction, 0, len(input.Request.CandidateActions))
-	for _, action := range input.Request.CandidateActions {
+	scored := make([]scoredAction, 0, len(input.Request.Offers))
+	for _, action := range input.Request.Offers {
 		var score int64
-		if _, exists := preferred[action.ID]; exists {
+		if _, exists := preferred[action.OfferID]; exists {
 			score += 100
 		}
-		if _, exists := preferred[action.Kind]; exists {
+		if _, exists := preferred[action.Capability.ID]; exists {
 			score += 80
 		}
-		if _, exists := tags[action.Kind]; exists {
+		if _, exists := tags[action.Capability.ID]; exists {
 			score += 20
 		}
 		// Game-authored tags are the safe bridge between recalled private
 		// context and an allowlisted action. A match is deliberately weaker
 		// than an active Goal preference and is counted once, so duplicate
 		// memories cannot amplify an action without bound.
-		if _, exists := memoryTags[action.ID]; exists {
+		if _, exists := memoryTags[action.OfferID]; exists {
 			score += 30
-		} else if _, exists := memoryTags[action.Kind]; exists {
+		} else if _, exists := memoryTags[action.Capability.ID]; exists {
 			score += 30
 		}
 		for index := len(input.Actor.RecentActions) - 1; index >= 0 && index >= len(input.Actor.RecentActions)-4; index-- {
-			if input.Actor.RecentActions[index].Action.ID == action.ID {
+			if input.Actor.RecentActions[index].Action.OfferID == action.OfferID {
 				score -= 15
 			}
 		}
-		scored = append(scored, scoredAction{action: action, score: score, tie: tieBreak(input, action.ID)})
+		scored = append(scored, scoredAction{action: action, score: score, tie: tieBreak(input, action.OfferID)})
 	}
 	sort.Slice(scored, func(i, j int) bool {
 		if scored[i].score == scored[j].score {
 			if scored[i].tie == scored[j].tie {
-				return scored[i].action.ID < scored[j].action.ID
+				return scored[i].action.OfferID < scored[j].action.OfferID
 			}
 			return scored[i].tie < scored[j].tie
 		}

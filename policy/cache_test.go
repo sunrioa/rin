@@ -38,7 +38,7 @@ func (p *countingPolicy) Propose(ctx context.Context, _ rinruntime.PolicyContext
 	if p.err != nil {
 		return rinruntime.ProposalDraft{}, p.err
 	}
-	return rinruntime.ProposalDraft{ActionID: "talk", Stance: "engage", Summary: "summary", Rationale: "rationale", PolicySource: "model"}, nil
+	return rinruntime.ProposalDraft{OfferID: "talk", Stance: "engage", Summary: "summary", Rationale: "rationale", PolicySource: "model"}, nil
 }
 
 func (p *countingPolicy) count() int {

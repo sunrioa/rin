@@ -24,8 +24,8 @@ JavaScript SDK 连接真实 File Store Sidecar。玩家告诉 Mira 饮品偏好�
 
 基准在每回合之间都会重载游戏存档。Sidecar Ready 耗时 40.81 ms。100 回合后
 Rin 保留 604,954 Bytes；按每小时 60 回合做保守线性投影，100 小时为
-36,297,240 Bytes。仅启动阶段的 Fallback 耗时 9.63 ms，仍显示游戏编写的茶
-选项。Rin 变更开始后的失败不会回退，因为没有
+36,297,240 Bytes。仅启动阶段的 Local Mode 耗时 9.63 ms，仍显示游戏编写的茶
+选项。Rin 变更开始后的失败会 Fail Closed，因为没有
 响应不能证明操作没有发生。
 
 ## 坦诚结论

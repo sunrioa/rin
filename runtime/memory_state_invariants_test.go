@@ -13,7 +13,7 @@ import (
 
 func TestMemoryEvictionRewritesActorReferences(t *testing.T) {
 	t.Run("archive compaction", func(t *testing.T) {
-		state := invariantSessionState(t, protocol.FeatureOutcomeReporting, protocol.FeatureMemoryArchive)
+		state := invariantSessionState(t, protocol.FeatureMemoryArchive)
 		actor := state.Actors["npc.mira"]
 		for index := 0; index < maxMemories+1; index++ {
 			actor.Memories = append(actor.Memories, invariantMemory(index))
@@ -45,7 +45,7 @@ func TestMemoryEvictionRewritesActorReferences(t *testing.T) {
 	})
 
 	t.Run("archive summary merge", func(t *testing.T) {
-		state := invariantSessionState(t, protocol.FeatureOutcomeReporting, protocol.FeatureMemoryArchive)
+		state := invariantSessionState(t, protocol.FeatureMemoryArchive)
 		actor := state.Actors["npc.mira"]
 		for index := 0; index < maxMemorySummaries+1; index++ {
 			actor.MemorySummaries = append(actor.MemorySummaries, invariantSummary(index, 1, 1))
@@ -77,7 +77,7 @@ func TestMemoryEvictionRewritesActorReferences(t *testing.T) {
 	})
 
 	t.Run("non archive eviction", func(t *testing.T) {
-		state := invariantSessionState(t, protocol.FeatureOutcomeReporting)
+		state := invariantSessionState(t)
 		actor := state.Actors["npc.mira"]
 		for index := 0; index < maxMemories+1; index++ {
 			actor.Memories = append(actor.Memories, invariantMemory(index))
@@ -107,7 +107,6 @@ func TestMemoryEvictionRewritesActorReferences(t *testing.T) {
 func TestReducerMaintainsBoundsAcross1361Observations(t *testing.T) {
 	state := invariantSessionState(
 		t,
-		protocol.FeatureOutcomeReporting,
 		protocol.FeatureMemoryArchive,
 		protocol.FeatureBeliefConflicts,
 		protocol.FeatureArbitration,
@@ -211,7 +210,7 @@ func TestRecallAndSummaryBoundsSaturate(t *testing.T) {
 			ID: "summary.max", RecallCount: maxRecallCount,
 		}},
 	}
-	markRecalled(&actor, []string{"memory.max", "summary.max"}, 9, true)
+	markRecalled(&actor, []string{"memory.max", "summary.max"}, 9)
 	if actor.Memories[0].RecallCount != maxRecallCount || actor.MemorySummaries[0].RecallCount != maxRecallCount {
 		t.Fatalf("recall counts exceeded the bound: memory=%d summary=%d",
 			actor.Memories[0].RecallCount,
@@ -332,7 +331,7 @@ func TestRestoreRebasesAllFeaturesAndKeepsReceiptWhenFull(t *testing.T) {
 }
 
 func TestRestoreRebasesPendingProposalGenerationRoundTrip(t *testing.T) {
-	source := invariantSessionState(t, protocol.FeatureOutcomeReporting)
+	source := invariantSessionState(t)
 	proposal := invariantProposal(source, "proposal.pending.restore", "pending", nil)
 	source.Proposals[proposal.ID] = proposal
 	if err := protocol.ValidateSessionState(source); err != nil {
@@ -387,7 +386,7 @@ func TestRestoreRebasesPendingProposalGenerationRoundTrip(t *testing.T) {
 }
 
 func TestWorldRevisionOverflowAndRestoreSaturation(t *testing.T) {
-	state := invariantSessionState(t, protocol.FeatureOutcomeReporting, protocol.FeatureArbitration)
+	state := invariantSessionState(t, protocol.FeatureArbitration)
 	maxWorldRevision := uint64(protocol.MaxJSONSafeInteger)
 	state.WorldRevision = maxWorldRevision
 	pending := invariantProposal(state, "proposal.pending.world-max", "pending", nil)
@@ -471,17 +470,14 @@ func TestGoalCandidateAtCapacityFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       state.SessionID,
-		RequestID:       "commit.goal-overflow",
-		ProposalID:      proposal.ID,
-		EventID:         "event.goal-overflow",
-		Tick:            1,
-		Accepted:        true,
-		Outcome:         "The action occurred.",
-	}
-	event := invariantEvent(t, state, EventCommitted, request.RequestID, committedPayload{Request: request}, 4000)
+	request := invariantSuccessfulReport(
+		proposal,
+		"report.goal-overflow",
+		"event.goal-overflow",
+		1,
+		"The action occurred.",
+	)
+	event := invariantEvent(t, state, EventActionReported, request.RequestID, actionReportedPayload{Request: request}, 4000)
 	store := &invariantSpyStore{}
 	engine := &Engine{store: store}
 	session := &managedSession{state: state}
@@ -627,6 +623,7 @@ func invariantProposal(
 	status string,
 	recalled []string,
 ) protocol.ActionProposal {
+	window := invariantWindow(state.SessionID, "npc.mira", 0)
 	proposal := protocol.ActionProposal{
 		ID:                   id,
 		SessionID:            state.SessionID,
@@ -635,17 +632,14 @@ func invariantProposal(
 		BasedOnRevision:      state.Revision - 1,
 		CreatedRevision:      state.Revision,
 		BasedOnWorldRevision: state.WorldRevision,
-		Action: protocol.ActionSpec{
-			ID:          "action.wait",
-			Kind:        "wait",
-			Description: "Wait carefully.",
-		},
-		Stance:            "wait",
-		Summary:           "Wait carefully.",
-		Rationale:         "A deterministic test action.",
-		PolicySource:      "test",
-		RecalledMemoryIDs: append([]string(nil), recalled...),
-		Status:            status,
+		DecisionWindow:       window,
+		Action:               invariantOffer(window, "npc.mira", "wait"),
+		Stance:               "wait",
+		Summary:              "Wait carefully.",
+		Rationale:            "A deterministic test action.",
+		PolicySource:         "test",
+		RecalledMemoryIDs:    append([]string(nil), recalled...),
+		Status:               status,
 	}
 	if proposal.BasedOnRevision > 0 {
 		proposal.BasedOnHeadHash = state.HeadHash
@@ -653,9 +647,21 @@ func invariantProposal(
 	if !protocol.HasFeature(state.Features, protocol.FeatureArbitration) {
 		proposal.BasedOnWorldRevision = 0
 	}
-	if status != "pending" && protocol.HasFeature(state.Features, protocol.FeatureOutcomeReporting) {
-		proposal.OutcomeEventID = "outcome." + id
-		proposal.OutcomeTick = state.Tick
+	if status != "pending" {
+		proposal.LastReportEventID = "report." + id
+		proposal.LastReportTick = state.Tick
+	}
+	if status == "accepted" {
+		report := invariantSuccessfulReport(
+			proposal,
+			"request.report."+id,
+			proposal.LastReportEventID,
+			state.Tick,
+			"Completed.",
+		)
+		proposal.Invocation = report.Report.Invocation
+		proposal.Run = report.Report.Run
+		proposal.Outcome = report.Report.Outcome
 	}
 	return proposal
 }

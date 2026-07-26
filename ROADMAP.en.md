@@ -2,9 +2,9 @@
 
 [简体中文](ROADMAP.md) | [English](ROADMAP.en.md)
 
-**Current status:** Rin `0.6.0` is Preview, pre-1.0 software. The numbered
+**Current status:** Rin `0.7.0` is Preview, pre-1.0 software. The numbered
 sections below are delivered implementation milestones, not evidence that a
-public tag exists for every number. The verified `v0.6.0` tag is created only
+public tag exists for every number. The verified `v0.7.0` tag is created only
 after the [release checklist](docs/release-guide.md) passes.
 
 The roadmap tracks reusable runtime capabilities. It does not make an
@@ -32,7 +32,7 @@ unchecked item is not a supported feature.
 
 ## Milestone 0.3 - Game adapters
 
-- [x] Ren'Py Python client and authored offline fallback
+- [x] Ren'Py Python client and fail-closed Proposal recovery
 - [x] Godot 4 and Unity examples with engine-thread authority
 - [x] RPG region, visibility, and quest event conventions
 - [x] Executable protocol compatibility fixtures
@@ -60,7 +60,7 @@ unchecked item is not a supported feature.
 - [x] Fabric, BepInEx 6, and loopback-only Luanti example mods
 - [x] Offline deterministic `rin init mod` scaffolds for Fabric, single-backend
   BepInEx Mono/IL2CPP, and Luanti, including Windows build gates
-- [x] Game-authoritative `outcome-reporting-v1`, Proposal Attempt, and Outcome Outbox semantics
+- [x] Game-authoritative typed action lifecycle, Proposal Attempt, and Outcome Outbox
 - [x] Permanent request/Event ID history and fail-closed uncertain-append reconciliation
 - [x] Trusted Restore Binding, Snapshot size limits, and explicit checksum trust boundary
 - [x] Lazy Session recovery, range reads, derived checkpoints, and full-history maintenance audit

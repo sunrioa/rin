@@ -118,8 +118,8 @@ Transfer 不允许只导出有界 State 或删除 tombstone，否则放弃分支
 
 现有两个 Bearer 保护的 operation：
 
-- `POST /v1/session/export`：小型 JSON 请求，NDJSON streaming response；
-- `POST /v1/session/import`：请求正文为 NDJSON stream；可信 Binding 独立通过
+- `POST /v2/session/export`：小型 JSON 请求，NDJSON streaming response；
+- `POST /v2/session/import`：请求正文为 NDJSON stream；可信 Binding 独立通过
   必填的 `Rin-Expected-Game-Id`、`Rin-Expected-Content-Id`、
   `Rin-Expected-Content-Version` 与 `Rin-Expected-Content-Hash` header 传入。
 

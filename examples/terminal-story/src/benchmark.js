@@ -71,21 +71,21 @@ try {
     baselineLatencies.push(performance.now() - started);
   }
 
-  const fallbackStore = await new StoryWorkflowStore(join(root, "fallback-save.json")).load();
-  const fallbackStarted = performance.now();
-  const fallback = await runStory({
+  const localStore = await new StoryWorkflowStore(join(root, "local-save.json")).load();
+  const localStarted = performance.now();
+  const local = await runStory({
     baseUrl: "http://127.0.0.1:1",
     mode: "auto",
-    sessionId: "fallback.session",
+    sessionId: "local.session",
     preference: "tea",
-    store: fallbackStore,
+    store: localStore,
     client: new RinClient("http://127.0.0.1:1", { timeoutMs: 100 }),
     applyAction: async () => {},
   });
-  const fallbackMs = performance.now() - fallbackStarted;
+  const localMs = performance.now() - localStarted;
 
   const stats = await client.sessionStats({
-    protocol_version: "rin.protocol/v1",
+    protocol_version: "rin.protocol/v2",
     session_id: sessionId,
   });
   const turnsPerHundredHours = 60 * 100;
@@ -114,7 +114,7 @@ try {
     latency_ms: {
       rin_full_safe_turn: distribution(rinLatencies),
       persistent_rule_tree_turn: distribution(baselineLatencies),
-      startup_fallback_turn: round(fallbackMs),
+      startup_local_turn: round(localMs),
     },
     integration_nonblank_lines: {
       rin_adapter: await countLines(new URL("./rin-adapter.js", import.meta.url)),
@@ -132,9 +132,9 @@ try {
       measured_cost_usd: 0,
       note: "Deterministic policy; no model provider configured.",
     },
-    fallback: {
-      mode: fallback.mode,
-      action_id: fallback.action.id,
+    local: {
+      mode: local.mode,
+      action_id: local.action.id,
       only_before_first_rin_mutation: true,
     },
     player_visible: {
@@ -150,7 +150,7 @@ try {
   if (evidence.player_visible.rin_action_id !== "offer.tea" ||
       evidence.player_visible.persistent_rule_tree_action_id !== "offer.tea" ||
       evidence.player_visible.rin_recalled_memory !== true ||
-      evidence.fallback.mode !== "fallback" ||
+      evidence.local.mode !== "local" ||
       evidence.provider.calls !== 0 ||
       evidence.storage.projected_100_hours_bytes >= 50 * 1024 * 1024) {
     throw new Error("player-value release gate failed");

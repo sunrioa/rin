@@ -110,6 +110,8 @@ func TestSessionQuotaFailsBeforeAppendButKeepsExactRetry(t *testing.T) {
 		Kind:            "dialogue",
 		Summary:         "This event must fail before append.",
 		Importance:      1,
+		Epoch:           testEpoch(created.SessionID),
+		ObservationSeq:  1,
 	})
 	if rinruntime.ErrorCode(err) != "session_quota_exceeded" {
 		t.Fatalf("quota mutation error = %v", err)
@@ -194,6 +196,8 @@ func assertSessionLifecycle(
 		Kind:            "dialogue",
 		Summary:         "This must not be recorded.",
 		Importance:      1,
+		Epoch:           testEpoch(created.SessionID),
+		ObservationSeq:  1,
 	})
 	if rinruntime.ErrorCode(err) != "session_archived" {
 		t.Fatalf("archived mutation error = %v", err)
@@ -258,7 +262,6 @@ func lifecycleCreateRequest() protocol.CreateSessionRequest {
 			ContentVersion: "1",
 			ContentHash:    "hash",
 		},
-		Features: []string{protocol.FeatureOutcomeReporting},
 		Actors: []protocol.ActorSeed{{
 			ID:              "npc.lifecycle",
 			Kind:            "npc",

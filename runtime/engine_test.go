@@ -2,6 +2,7 @@ package runtime_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/policy"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
@@ -38,24 +40,22 @@ func TestEngineEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if duplicate || proposal.Action.ID != "talk" || proposal.GoalID != "goal.connect" {
+	if duplicate || proposal.Action.OfferID != "talk" || proposal.GoalID != "goal.connect" {
 		t.Fatalf("unexpected proposal: %+v duplicate=%v", proposal, duplicate)
 	}
 	if len(proposal.RecalledMemoryIDs) != 1 {
 		t.Fatalf("expected one recalled memory, got %v", proposal.RecalledMemoryIDs)
 	}
 
-	committed, err := engine.Commit(protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       "session.flow",
-		RequestID:       "commit.1",
-		ProposalID:      proposal.ID,
-		EventID:         "event.action.1",
-		Tick:            2,
-		Accepted:        true,
-		Outcome:         "Mira asked a careful follow-up question.",
-		Tags:            []string{"conversation"},
-	})
+	report := successfulReportRequest(
+		proposal,
+		"report.1",
+		"event.action.1",
+		2,
+		"Mira asked a careful follow-up question.",
+	)
+	report.Report.Tags = []string{"conversation"}
+	committed, err := engine.ReportAction(report)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestEngineEndToEnd(t *testing.T) {
 	}
 }
 
-func TestOutcomeFeatureRejectsAmbiguousCommitUpdates(t *testing.T) {
+func TestActionReportsRejectAmbiguousEffectUpdates(t *testing.T) {
 	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
 	const sessionID = "session.outcome-update-validation"
 	if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
@@ -115,124 +115,33 @@ func TestOutcomeFeatureRejectsAmbiguousCommitUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       sessionID,
-		ProposalID:      proposal.ID,
-		Tick:            proposal.Tick,
-	}
-	rejected := base
-	rejected.RequestID = "commit.rejected-with-updates"
-	rejected.EventID = "event.rejected-with-updates"
-	rejected.Facts = []protocol.Fact{{
+	rejected := rejectedReportRequest(
+		proposal,
+		"report.rejected-with-updates",
+		"event.rejected-with-updates",
+		proposal.Tick,
+		"Rejected.",
+	)
+	rejected.Report.Facts = []protocol.Fact{{
 		SubjectID: "player", Predicate: "attempted", Object: "locked-door", Confidence: 100,
 	}}
-	if _, err := engine.Commit(rejected); rinruntime.ErrorCode(err) != "rejected_outcome_updates" {
+	if _, err := engine.ReportAction(rejected); err == nil {
 		t.Fatalf("rejected outcome updates should fail explicitly, got %v", err)
 	}
 
-	duplicate := base
-	duplicate.RequestID = "commit.duplicate-goal-updates"
-	duplicate.EventID = "event.duplicate-goal-updates"
-	duplicate.Accepted = true
-	duplicate.Outcome = "The action happened."
-	duplicate.GoalUpdates = []protocol.GoalUpdate{
+	duplicate := successfulReportRequest(
+		proposal,
+		"report.duplicate-goal-updates",
+		"event.duplicate-goal-updates",
+		proposal.Tick,
+		"The action happened.",
+	)
+	duplicate.Report.GoalUpdates = []protocol.GoalUpdate{
 		{GoalID: "goal.connect", ProgressDelta: 1},
 		{GoalID: "goal.connect", ProgressDelta: -1},
 	}
-	if _, err := engine.Commit(duplicate); rinruntime.ErrorCode(err) != "duplicate_goal_update" {
+	if _, err := engine.ReportAction(duplicate); err == nil {
 		t.Fatalf("duplicate new-semantics goal updates should fail explicitly, got %v", err)
-	}
-}
-
-func TestLegacyCommitPreservesRepeatedGoalUpdateBehavior(t *testing.T) {
-	engine := newLegacyEngine(t, store.NewMemory(), policy.Deterministic{})
-	const sessionID = "session.legacy-repeated-goal-update"
-	create := createRequest(sessionID)
-	create.Features = nil
-	if _, err := engine.CreateSession(create); err != nil {
-		t.Fatal(err)
-	}
-	proposal, _, err := engine.Propose(
-		context.Background(),
-		proposeRequest(sessionID, "propose.legacy-repeated-goal-update", 0, nil),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := engine.Commit(protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       sessionID,
-		RequestID:       "commit.legacy-repeated-goal-update",
-		ProposalID:      proposal.ID,
-		EventID:         "event.legacy-repeated-goal-update",
-		Tick:            proposal.Tick,
-		Accepted:        true,
-		Outcome:         "The legacy action happened.",
-		GoalUpdates: []protocol.GoalUpdate{
-			{GoalID: "goal.connect", ProgressDelta: 1},
-			{GoalID: "goal.connect", ProgressDelta: 1},
-		},
-	}); err != nil {
-		t.Fatalf("pre-feature repeated goal updates should retain legacy behavior: %v", err)
-	}
-	state, err := engine.State(sessionRequest(sessionID))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if progress := state.Actors["npc.mira"].Goals[0].Progress; progress != 3 {
-		t.Fatalf("legacy repeated updates produced progress %d, want 3", progress)
-	}
-}
-
-func TestLegacyStateRejectsInjectedOutcomeOccurrenceMetadata(t *testing.T) {
-	engine := newLegacyEngine(t, store.NewMemory(), policy.Deterministic{})
-	const sessionID = "session.legacy-metadata-gate"
-	create := createRequest(sessionID)
-	create.Features = nil
-	if _, err := engine.CreateSession(create); err != nil {
-		t.Fatal(err)
-	}
-	observation := observeRequest(sessionID, "observe.legacy-metadata", "event.legacy-metadata", 1)
-	observation.Facts = []protocol.Fact{{
-		SubjectID: "player", Predicate: "respected_boundary", Object: "yes", Confidence: 100,
-	}}
-	if _, err := engine.Observe(observation); err != nil {
-		t.Fatal(err)
-	}
-	baseline, err := engine.State(sessionRequest(sessionID))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := protocol.ValidateSessionState(baseline); err != nil {
-		t.Fatalf("legacy baseline state is invalid: %v", err)
-	}
-
-	withGoalMetadata := baseline
-	actor := withGoalMetadata.Actors["npc.mira"]
-	actor.Goals = append([]protocol.Goal(nil), actor.Goals...)
-	actor.Goals[0].UpdatedTick = 1
-	withGoalMetadata.Actors["npc.mira"] = actor
-	if err := protocol.ValidateSessionState(withGoalMetadata); err == nil {
-		t.Fatal("legacy state accepted injected goal occurrence metadata")
-	}
-
-	baseline, err = engine.State(sessionRequest(sessionID))
-	if err != nil {
-		t.Fatal(err)
-	}
-	withFactMetadata := baseline
-	actor = withFactMetadata.Actors["npc.mira"]
-	actor.Beliefs = make(map[string]protocol.Fact, len(actor.Beliefs))
-	for key, fact := range baseline.Actors["npc.mira"].Beliefs {
-		actor.Beliefs[key] = fact
-	}
-	fact := actor.Beliefs["player:respected_boundary"]
-	fact.ObservedTick = 1
-	actor.Beliefs["player:respected_boundary"] = fact
-	withFactMetadata.Actors["npc.mira"] = actor
-	if err := protocol.ValidateSessionState(withFactMetadata); err == nil {
-		t.Fatal("legacy state accepted injected fact occurrence metadata")
 	}
 }
 
@@ -244,12 +153,12 @@ func TestBoundaryRequiresSafeCandidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if proposal.Action.ID != "refuse" || proposal.Stance != "refuse" {
+	if proposal.Action.OfferID != "refuse" || proposal.Stance != "refuse" {
 		t.Fatalf("boundary was not protected: %+v", proposal)
 	}
 
 	request.RequestID = "propose.unsafe"
-	request.CandidateActions = request.CandidateActions[:1]
+	request.Offers = request.Offers[:1]
 	_, _, err = engine.Propose(context.Background(), request)
 	if !errors.Is(err, rinruntime.ErrNoSafeAction) || rinruntime.ErrorCode(err) != "no_safe_action" {
 		t.Fatalf("expected no safe action, got %v", err)
@@ -267,20 +176,17 @@ func TestCommitReportsAcceptedOutcomeAfterStateAdvances(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	commit := protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       "session.late-accepted",
-		RequestID:       "commit.late",
-		ProposalID:      proposal.ID,
-		EventID:         "event.commit.late",
-		Tick:            0,
-		Accepted:        true,
-		Outcome:         "The game already applied the action.",
-	}
-	if _, err := engine.Commit(commit); err != nil {
+	report := successfulReportRequest(
+		proposal,
+		"report.late",
+		"event.report.late",
+		0,
+		"The game already applied the action.",
+	)
+	if _, err := engine.ReportAction(report); err != nil {
 		t.Fatalf("late outcome should be recorded: %v", err)
 	}
-	state, err := engine.State(sessionRequest(commit.SessionID))
+	state, err := engine.State(sessionRequest(report.SessionID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,12 +199,12 @@ func TestCommitReportsAcceptedOutcomeAfterStateAdvances(t *testing.T) {
 	}
 	var outcome *protocol.Memory
 	for index := range actor.Memories {
-		if actor.Memories[index].EventID == commit.EventID {
+		if actor.Memories[index].EventID == report.Report.EventID {
 			outcome = &actor.Memories[index]
 			break
 		}
 	}
-	if outcome == nil || outcome.Tick != commit.Tick {
+	if outcome == nil || outcome.Tick != report.Tick {
 		t.Fatalf("outcome did not preserve its occurrence time: %+v", actor.Memories)
 	}
 }
@@ -314,20 +220,17 @@ func TestCommitReportsRejectedOutcomeAfterStateAdvances(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, _ := engine.State(sessionRequest("session.late-rejected"))
-	commit := protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       "session.late-rejected",
-		RequestID:       "commit.reject",
-		ProposalID:      proposal.ID,
-		EventID:         "event.commit.reject",
-		Tick:            0,
-		Accepted:        false,
-		Outcome:         "The game rejected the action.",
-	}
-	if _, err := engine.Commit(commit); err != nil {
+	report := rejectedReportRequest(
+		proposal,
+		"report.reject",
+		"event.report.reject",
+		0,
+		"The game rejected the action.",
+	)
+	if _, err := engine.ReportAction(report); err != nil {
 		t.Fatalf("late rejection should be recorded: %v", err)
 	}
-	after, _ := engine.State(sessionRequest(commit.SessionID))
+	after, _ := engine.State(sessionRequest(report.SessionID))
 	if after.Tick != before.Tick || after.Proposals[proposal.ID].Status != "rejected" {
 		t.Fatalf("rejected outcome was not settled correctly: %+v", after)
 	}
@@ -345,16 +248,14 @@ func TestCommitRejectsTickBeforeProposal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = engine.Commit(protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       "session.commit-tick",
-		RequestID:       "commit.tick",
-		ProposalID:      proposal.ID,
-		EventID:         "event.commit.tick",
-		Tick:            1,
-		Accepted:        true,
-		Outcome:         "Impossible occurrence time.",
-	})
+	report := successfulReportRequest(
+		proposal,
+		"report.tick",
+		"event.report.tick",
+		1,
+		"Impossible occurrence time.",
+	)
+	_, err = engine.ReportAction(report)
 	if !errors.Is(err, rinruntime.ErrConflict) || rinruntime.ErrorCode(err) != "tick_regressed" {
 		t.Fatalf("expected tick_regressed, got %v", err)
 	}
@@ -504,24 +405,21 @@ func TestFreshRestoreRetainsPendingProposalForSavedOutcomeOutbox(t *testing.T) {
 		t.Fatalf("restore discarded the saved pending proposal: %+v", state.Proposals)
 	}
 
-	commitRequest := protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       sessionID,
-		RequestID:       "commit.restore-outbox",
-		ProposalID:      proposal.ID,
-		EventID:         "event.restore-outbox",
-		Tick:            7,
-		Accepted:        true,
-		Outcome:         "The saved game had already applied this action.",
-		GoalUpdates: []protocol.GoalUpdate{{
-			GoalID: "goal.connect", ProgressDelta: 4, Status: "completed",
-		}},
-	}
-	firstCommit, err := restored.Commit(commitRequest)
+	reportRequest := successfulReportRequest(
+		proposal,
+		"report.restore-outbox",
+		"event.restore-outbox",
+		7,
+		"The saved game had already applied this action.",
+	)
+	reportRequest.Report.GoalUpdates = []protocol.GoalUpdate{{
+		GoalID: "goal.connect", ProgressDelta: 4, Status: "completed",
+	}}
+	firstCommit, err := restored.ReportAction(reportRequest)
 	if err != nil {
 		t.Fatalf("saved outcome report after restore failed: %v", err)
 	}
-	repeatedCommit, err := restored.Commit(commitRequest)
+	repeatedCommit, err := restored.ReportAction(reportRequest)
 	if err != nil || !repeatedCommit.Duplicate || repeatedCommit.Revision != firstCommit.Revision {
 		t.Fatalf("full-receipt outcome retry must be idempotent: first=%+v repeated=%+v err=%v", firstCommit, repeatedCommit, err)
 	}
@@ -546,12 +444,12 @@ func TestFreshRestoreRetainsPendingProposalForSavedOutcomeOutbox(t *testing.T) {
 		goal.StatusSourceEventID != "event.restore-outbox" ||
 		actor.NextThinkTick != 12 ||
 		resolved.Status != "accepted" ||
-		resolved.OutcomeEventID != "event.restore-outbox" ||
-		resolved.OutcomeTick != 7 ||
+		resolved.LastReportEventID != "event.restore-outbox" ||
+		resolved.LastReportTick != 7 ||
 		recent.ID != proposal.ID ||
 		recent.Status != "accepted" ||
-		recent.OutcomeEventID != "event.restore-outbox" ||
-		recent.OutcomeTick != 7 {
+		recent.LastReportEventID != "event.restore-outbox" ||
+		recent.LastReportTick != 7 {
 		t.Fatalf(
 			"restored outbox did not reconcile complete outcome state: actor=%+v goal=%+v proposal=%+v recent=%+v",
 			actor,
@@ -722,7 +620,7 @@ func TestPendingProposalCapacityFailsClosedAndSnapshotRemainsValid(t *testing.T)
 type invalidPolicy struct{}
 
 func (invalidPolicy) Propose(context.Context, rinruntime.PolicyContext) (rinruntime.ProposalDraft, error) {
-	return rinruntime.ProposalDraft{ActionID: "execute.arbitrary", Stance: "engage", Summary: "bad", Rationale: "bad"}, nil
+	return rinruntime.ProposalDraft{OfferID: "execute.arbitrary", Stance: "engage", Summary: "bad", Rationale: "bad"}, nil
 }
 
 func TestPolicyCannotEscapeCandidateWhitelist(t *testing.T) {
@@ -745,7 +643,7 @@ type privateTextPolicy struct {
 
 func (p privateTextPolicy) Propose(_ context.Context, input rinruntime.PolicyContext) (rinruntime.ProposalDraft, error) {
 	draft := rinruntime.ProposalDraft{
-		ActionID: p.actionID, Stance: p.stance, Summary: p.summary, Rationale: p.rationale,
+		OfferID: p.actionID, Stance: p.stance, Summary: p.summary, Rationale: p.rationale,
 		PolicySource: "private-text-test", BoundaryID: p.boundaryID,
 	}
 	if p.withAudit {
@@ -819,7 +717,7 @@ func TestPlayerTextDoesNotRevealWhetherPrivateBoundaryTriggered(t *testing.T) {
 			t.Fatal(err)
 		}
 		request := proposeRequest(sessionID, fmt.Sprintf("propose.boundary-noninterference.%d", index), 0, tags)
-		request.CandidateActions[1].Description = "decline the request"
+		request.Offers[1].Description = "decline the request"
 		proposal, _, err := engine.Propose(context.Background(), request)
 		if err != nil {
 			t.Fatal(err)
@@ -876,7 +774,7 @@ func (p blockingPolicy) Propose(ctx context.Context, input rinruntime.PolicyCont
 	close(p.started)
 	select {
 	case <-p.release:
-		return rinruntime.ProposalDraft{ActionID: "talk", Stance: "engage", Summary: "Mira proposes a reply.", Rationale: "Allowed by the game."}, nil
+		return rinruntime.ProposalDraft{OfferID: "talk", Stance: "engage", Summary: "Mira proposes a reply.", Rationale: "Allowed by the game."}, nil
 	case <-ctx.Done():
 		return rinruntime.ProposalDraft{}, ctx.Err()
 	}
@@ -903,7 +801,7 @@ func (p *firstCallBlockingPolicy) Propose(ctx context.Context, input rinruntime.
 		}
 	}
 	return rinruntime.ProposalDraft{
-		ActionID:  "talk",
+		OfferID:   "talk",
 		Stance:    "engage",
 		Summary:   "Mira proposes a reply.",
 		Rationale: "Allowed by the game.",
@@ -951,16 +849,13 @@ func TestConcurrentIdempotentProposeReturnsOriginalEvictedProposal(t *testing.T)
 	if duplicate {
 		t.Fatal("second call unexpectedly reported a duplicate")
 	}
-	if _, err := engine.Commit(protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       sessionID,
-		RequestID:       "commit.concurrent-evicted",
-		ProposalID:      proposal.ID,
-		EventID:         "event.concurrent-evicted",
-		Tick:            0,
-		Accepted:        true,
-		Outcome:         "The game applied the reply.",
-	}); err != nil {
+	if _, err := engine.ReportAction(successfulReportRequest(
+		proposal,
+		"report.concurrent-evicted",
+		"event.concurrent-evicted",
+		0,
+		"The game applied the reply.",
+	)); err != nil {
 		t.Fatal(err)
 	}
 	for index := 0; index < 64; index++ {
@@ -1035,23 +930,6 @@ func newEngine(t *testing.T, eventStore rinruntime.Store, selectedPolicy rinrunt
 	return engine
 }
 
-func newLegacyEngine(
-	t *testing.T,
-	eventStore rinruntime.Store,
-	selectedPolicy rinruntime.Policy,
-) *rinruntime.Engine {
-	t.Helper()
-	engine, err := rinruntime.OpenWithOptions(
-		eventStore,
-		selectedPolicy,
-		rinruntime.EngineOptions{AllowLegacySessionCreation: true},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return engine
-}
-
 func createRequest(sessionID string) protocol.CreateSessionRequest {
 	return protocol.CreateSessionRequest{
 		ProtocolVersion: protocol.Version,
@@ -1064,9 +942,6 @@ func createRequest(sessionID string) protocol.CreateSessionRequest {
 			ContentHash:    "sha256-demo",
 		},
 		Seed: 42,
-		Features: []string{
-			protocol.FeatureOutcomeReporting,
-		},
 		Actors: []protocol.ActorSeed{{
 			ID:          "npc.mira",
 			Kind:        "npc",
@@ -1106,10 +981,13 @@ func observeRequest(sessionID, requestID, eventID string, tick int64) protocol.O
 		Quote:           "Take your time.",
 		Tags:            []string{"conversation", "trust"},
 		Importance:      4,
+		Epoch:           testEpoch(sessionID),
+		ObservationSeq:  uint64(tick) + 1,
 	}
 }
 
 func proposeRequest(sessionID, requestID string, tick int64, tags []string) protocol.ProposeRequest {
+	window := testWindow(sessionID, "npc.mira", tick)
 	return protocol.ProposeRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       sessionID,
@@ -1118,10 +996,130 @@ func proposeRequest(sessionID, requestID string, tick int64, tags []string) prot
 		Tick:            tick,
 		Intent:          "Choose how to respond to the player.",
 		Tags:            tags,
-		CandidateActions: []protocol.ActionSpec{
-			{ID: "talk", Kind: "dialogue", Description: "ask one honest question"},
-			{ID: "refuse", Kind: "refuse", Description: "protect a private boundary"},
-			{ID: "wait", Kind: "wait", Description: "stay silent for now"},
+		DecisionWindow:  window,
+		Offers: []protocol.ActionOffer{
+			testOffer(window, "npc.mira", "talk", "ask one honest question"),
+			testOffer(window, "npc.mira", "refuse", "protect a private boundary"),
+			testOffer(window, "npc.mira", "wait", "stay silent for now"),
+		},
+	}
+}
+
+func testEpoch(sessionID string) protocol.Epoch {
+	return protocol.Epoch{
+		SessionID: sessionID,
+		WorldID:   "world.test",
+		Host:      1,
+		World:     1,
+		Timeline:  1,
+	}
+}
+
+func testWindow(sessionID, actorID string, tick int64) protocol.DecisionWindow {
+	deadline := tick + 100
+	if tick > protocol.MaxJSONSafeInteger-100 {
+		deadline = protocol.MaxJSONSafeInteger
+	}
+	return protocol.DecisionWindow{
+		ID:             fmt.Sprintf("window.%s.%d", actorID, tick),
+		Mode:           host.DecisionSequential,
+		Epoch:          testEpoch(sessionID),
+		ObservationSeq: uint64(tick) + 1,
+		OpenedAt:       protocol.Timepoint{Clock: host.ClockStep, Value: tick},
+		Deadline:       protocol.Timepoint{Clock: host.ClockStep, Value: deadline},
+		ActorIDs:       []string{actorID},
+	}
+}
+
+func testOffer(
+	window protocol.DecisionWindow,
+	actorID string,
+	offerID string,
+	description string,
+) protocol.ActionOffer {
+	return protocol.ActionOffer{
+		OfferID:          offerID,
+		DecisionWindowID: window.ID,
+		ActorID:          actorID,
+		Capability:       protocol.CapabilityRef{ID: "rin.test." + offerID, Version: "1.0.0"},
+		DescriptorDigest: strings.Repeat("a", 64),
+		Description:      description,
+		Arguments:        json.RawMessage(`{}`),
+		ExpectedEpoch:    window.Epoch,
+		ObservationSeq:   window.ObservationSeq,
+		Deadline:         window.Deadline,
+	}
+}
+
+func successfulReportRequest(
+	proposal protocol.ActionProposal,
+	requestID string,
+	eventID string,
+	tick int64,
+	summary string,
+) protocol.ReportActionRequest {
+	invocation := protocol.ActionInvocation{
+		OperationID:      "operation." + eventID,
+		OfferID:          proposal.Action.OfferID,
+		DecisionWindowID: proposal.Action.DecisionWindowID,
+		ActorID:          proposal.Action.ActorID,
+		Capability:       proposal.Action.Capability,
+		DescriptorDigest: proposal.Action.DescriptorDigest,
+		Arguments:        append(json.RawMessage(nil), proposal.Action.Arguments...),
+		Targets:          append([]protocol.HostRef(nil), proposal.Action.Targets...),
+		ExpectedEpoch:    proposal.Action.ExpectedEpoch,
+		ObservationSeq:   proposal.Action.ObservationSeq,
+		Deadline:         proposal.Action.Deadline,
+	}
+	run := protocol.ActionRun{
+		OperationID: invocation.OperationID,
+		Status:      host.ActionSucceeded,
+		ProgressSeq: 1,
+		Progress:    100,
+		UpdatedAt:   protocol.Timepoint{Clock: invocation.Deadline.Clock, Value: tick},
+	}
+	outcome := protocol.ActionOutcome{
+		OperationID: invocation.OperationID,
+		Status:      host.ActionSucceeded,
+		Summary:     summary,
+		Epoch:       invocation.ExpectedEpoch,
+		WorldSeq:    1,
+		OccurredAt:  protocol.Timepoint{Clock: invocation.Deadline.Clock, Value: tick},
+	}
+	return protocol.ReportActionRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       proposal.SessionID,
+		RequestID:       requestID,
+		Tick:            tick,
+		Report: protocol.ActionReport{
+			ProposalID: proposal.ID,
+			EventID:    eventID,
+			Decision:   protocol.ActionAccepted,
+			Invocation: &invocation,
+			Run:        &run,
+			Outcome:    &outcome,
+			Summary:    summary,
+		},
+	}
+}
+
+func rejectedReportRequest(
+	proposal protocol.ActionProposal,
+	requestID string,
+	eventID string,
+	tick int64,
+	summary string,
+) protocol.ReportActionRequest {
+	return protocol.ReportActionRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       proposal.SessionID,
+		RequestID:       requestID,
+		Tick:            tick,
+		Report: protocol.ActionReport{
+			ProposalID: proposal.ID,
+			EventID:    eventID,
+			Decision:   protocol.ActionRejected,
+			Summary:    summary,
 		},
 	}
 }

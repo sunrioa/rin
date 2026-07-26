@@ -37,7 +37,7 @@ func ask_npc_to_respond() -> void:
 func _run_turn() -> void:
 	var created: Dictionary = await rin.create_session(workflow.create_request())
 	if not created.get("ok", false):
-		push_warning("Create unavailable; only a coordinator-confirmed fallback may apply.")
+		push_warning("Session create is unavailable; a retained session may still resume.")
 	if not await workflow.drain_outbox():
 		push_warning("Outcome remains queued: " + workflow.last_error)
 		return
@@ -50,7 +50,6 @@ func _run_turn() -> void:
 		var attempt := workflow.begin(
 			_build_propose_request(operation_id, tick + 1),
 			_build_observe_request(operation_id, tick),
-			"wait",
 		)
 		if attempt.is_empty():
 			push_error("Pending Turn was not persisted: " + workflow.last_error)
@@ -61,23 +60,22 @@ func _run_turn() -> void:
 		push_warning("Pending Turn remains unresolved: " + workflow.last_error)
 		return
 	var planned := _plan_action(proposal.get("action", {}))
-	if result.get("committable", false):
-		var state_result: Dictionary = await rin.state({
-			"protocol_version": RinClientScript.PROTOCOL_VERSION,
-			"session_id": workflow.session_id(),
-		})
-		if (
-			not state_result.get("ok", false)
-			or RinWorkflowScript.proposal_freshness(
-				state_result.get("data", {}),
-				proposal,
-			) != "fresh"
-		):
-			planned = {
-				"action_id": str(proposal.get("action", {}).get("id", "")),
-				"accepted": false,
-				"outcome": "The game rejected a stale or unverifiable proposal.",
-			}
+	var state_result: Dictionary = await rin.state({
+		"protocol_version": RinClientScript.PROTOCOL_VERSION,
+		"session_id": workflow.session_id(),
+	})
+	if (
+		not state_result.get("ok", false)
+		or RinWorkflowScript.proposal_freshness(
+			state_result.get("data", {}),
+			proposal,
+		) != "fresh"
+	):
+		planned = {
+			"action_id": str(proposal.get("action", {}).get("offer_id", "")),
+			"accepted": false,
+			"outcome": "The game rejected a stale or unverifiable proposal.",
+		}
 	var attempt := workflow.current_attempt()
 	var occurrence_tick := maxi(
 		workflow.next_tick(),
@@ -85,9 +83,9 @@ func _run_turn() -> void:
 	)
 	var outcome := _build_outcome(
 		str(attempt["operation_id"]),
-		str(proposal.get("id", "")) if result.get("committable", false) else "",
 		occurrence_tick,
 		planned,
+		proposal,
 	)
 	var apply := func(_operation_id: String) -> bool:
 		if planned["accepted"]:
@@ -108,11 +106,11 @@ func _build_create_request(session_id: String, seed: int) -> Dictionary:
 		"binding": {
 			"game_id": "godot-example",
 			"content_id": "base",
-			"content_version": "0.6.0",
+			"content_version": "0.7.0",
 			"content_hash": "sha256:" + "0".repeat(64),
 		},
 		"seed": seed,
-		"features": ["outcome-reporting-v1"],
+		"features": [],
 		"actors": [{
 			"id": ACTOR_ID,
 			"kind": "npc",
@@ -146,10 +144,21 @@ func _build_observe_request(operation_id: String, tick: int) -> Dictionary:
 		"summary": "The player asked Mira what to do next.",
 		"tags": ["conversation", "player-request"],
 		"importance": 3,
+		"epoch": _epoch(),
+		"observation_seq": tick,
 	}
 
 
 func _build_propose_request(operation_id: String, tick: int) -> Dictionary:
+	var window := {
+		"id": "window." + operation_id,
+		"mode": "sequential",
+		"epoch": _epoch(),
+		"observation_seq": tick - 1,
+		"opened_at": {"clock": "event", "value": tick},
+		"deadline": {"clock": "event", "value": tick + 1},
+		"actor_ids": [ACTOR_ID],
+	}
 	return {
 		"protocol_version": RinClientScript.PROTOCOL_VERSION,
 		"session_id": workflow.session_id(),
@@ -158,20 +167,21 @@ func _build_propose_request(operation_id: String, tick: int) -> Dictionary:
 		"tick": tick,
 		"intent": "Choose one bounded response to the player.",
 		"tags": ["conversation"],
-		"candidate_actions": [
-			{"id": "talk", "kind": "dialogue", "description": "ask one honest question"},
-			{"id": "wait", "kind": "wait", "description": "stay silent for now"},
-			{"id": "refuse", "kind": "refuse", "description": "decline an unsafe request"},
+		"decision_window": window,
+		"offers": [
+			_offer("offer.talk", "dialogue.talk", "ask one honest question", window),
+			_offer("offer.wait", "world.wait", "stay silent for now", window),
+			_offer("offer.refuse", "dialogue.refuse", "decline an unsafe request", window),
 		],
 	}
 
 
 func _plan_action(action: Variant) -> Dictionary:
-	var action_id := str(action.get("id", "")) if action is Dictionary else ""
+	var action_id := str(action.get("offer_id", "")) if action is Dictionary else ""
 	var lines := {
-		"talk": "What outcome matters most to you?",
-		"wait": "Let us observe one more cycle.",
-		"refuse": "I cannot help with an unsafe action.",
+		"offer.talk": "What outcome matters most to you?",
+		"offer.wait": "Let us observe one more cycle.",
+		"offer.refuse": "I cannot help with an unsafe action.",
 	}
 	if not lines.has(action_id):
 		return {
@@ -184,42 +194,51 @@ func _plan_action(action: Variant) -> Dictionary:
 
 func _build_outcome(
 	operation_id: String,
-	proposal_id: String,
 	tick: int,
 	applied: Dictionary,
+	proposal: Dictionary,
 ) -> Dictionary:
-	var fallback := {
-		"protocol_version": RinClientScript.PROTOCOL_VERSION,
-		"session_id": workflow.session_id(),
-		"request_id": "fallback." + operation_id,
-		"event_id": "outcome." + operation_id,
-		"tick": tick,
-		"observer_ids": [ACTOR_ID],
-		"source": "godot-example",
-		"kind": "action_outcome",
-		"summary": str(applied["outcome"]),
-		"tags": ["outcome", "degraded-report"],
-		"importance": 3,
-	}
-	if proposal_id.is_empty():
-		return {
-			"key": operation_id,
-			"kind": "observe",
-			"request": fallback,
-		}
 	return {
 		"key": operation_id,
-		"kind": "commit",
-		"request": {
-			"protocol_version": RinClientScript.PROTOCOL_VERSION,
+		"kind": "report",
+		"request": RinClientScript.immediate_action_report({
 			"session_id": workflow.session_id(),
-			"request_id": "commit." + operation_id,
-			"proposal_id": proposal_id,
-			"event_id": "outcome." + operation_id,
+			"request_id": "report." + operation_id,
 			"tick": tick,
+			"proposal": proposal,
+			"operation_id": operation_id,
+			"event_id": "outcome." + operation_id,
 			"accepted": applied["accepted"],
-			"outcome": applied["outcome"],
+			"summary": str(applied["outcome"]),
 			"tags": ["godot-example", "conversation"],
-		},
-		"fallback_observe": fallback,
+			"epoch": _epoch(),
+			"world_seq": tick,
+			"occurred_at": {"clock": "event", "value": tick},
+		}),
 	}
+
+
+func _epoch() -> Dictionary:
+	return {
+		"session_id": workflow.session_id(),
+		"world_id": "godot.example",
+		"host": 1,
+		"world": 1,
+		"timeline": 1,
+	}
+
+
+func _offer(
+	offer_id: String,
+	capability_id: String,
+	description: String,
+	window: Dictionary,
+) -> Dictionary:
+	return RinClientScript.action_offer({
+		"offer_id": offer_id,
+		"actor_id": ACTOR_ID,
+		"capability_id": capability_id,
+		"descriptor_digest": "a".repeat(64),
+		"description": description,
+		"arguments": {},
+	}, window)

@@ -9,8 +9,8 @@ namespace Rin.Client;
 
 public sealed class RinClient : IDisposable
 {
-    public const string ClientVersion = "0.6.0";
-    public const string ProtocolVersion = "rin.protocol/v1";
+    public const string ClientVersion = "0.7.0";
+    public const string ProtocolVersion = "rin.protocol/v2";
     public const string DefaultBaseUrl = "http://127.0.0.1:7374";
 
     private const int MaxGenerationContentBytes = 4 * 1024 * 1024;
@@ -90,93 +90,93 @@ public sealed class RinClient : IDisposable
     }
 
     public Task<JsonElement> CreateSessionAsync(object payload, CancellationToken cancellationToken = default) =>
-        PostAsync("/v1/session/create", payload, 200, cancellationToken);
+        PostAsync("/v2/session/create", payload, 200, cancellationToken);
 
     public Task<MutationResult> CreateSessionAsync(
         CreateSessionRequest payload,
         CancellationToken cancellationToken = default) =>
-        PostTypedAsync<MutationResult>("/v1/session/create", payload, 200, cancellationToken);
+        PostTypedAsync<MutationResult>("/v2/session/create", payload, 200, cancellationToken);
 
     public Task<JsonElement> ObserveAsync(object payload, CancellationToken cancellationToken = default) =>
-        PostAsync("/v1/session/observe", payload, 200, cancellationToken);
+        PostAsync("/v2/session/observe", payload, 200, cancellationToken);
 
     public Task<JsonElement> ProposeAsync(object payload, CancellationToken cancellationToken = default) =>
-        PostAsync("/v1/agent/propose", payload, 200, cancellationToken);
+        PostAsync("/v2/agent/propose", payload, 200, cancellationToken);
 
     public Task<ProposalResult> ProposeAsync(
         ProposeRequest payload,
         CancellationToken cancellationToken = default) =>
-        PostTypedAsync<ProposalResult>("/v1/agent/propose", payload, 200, cancellationToken);
+        PostTypedAsync<ProposalResult>("/v2/agent/propose", payload, 200, cancellationToken);
 
     public Task<JsonElement> SubmitProposalJobAsync(object payload, CancellationToken cancellationToken = default) =>
-        PostAsync("/v1/jobs/propose", payload, 202, cancellationToken);
+        PostAsync("/v2/jobs/propose", payload, 202, cancellationToken);
 
     public Task<JsonElement> GetProposalJobAsync(string jobId, CancellationToken cancellationToken = default) =>
-        RequestAsync(HttpMethod.Get, "/v1/jobs/" + PathId(jobId), null, 200, cancellationToken);
+        RequestAsync(HttpMethod.Get, "/v2/jobs/" + PathId(jobId), null, 200, cancellationToken);
 
     public Task<JsonElement> CancelProposalJobAsync(string jobId, CancellationToken cancellationToken = default) =>
-        RequestAsync(HttpMethod.Delete, "/v1/jobs/" + PathId(jobId), null, 200, cancellationToken);
+        RequestAsync(HttpMethod.Delete, "/v2/jobs/" + PathId(jobId), null, 200, cancellationToken);
 
     public Task<JsonElement> SubmitGenerationJobAsync(object payload, CancellationToken cancellationToken = default) =>
-        PostAsync("/v1/generation/jobs", payload, 202, cancellationToken);
+        PostAsync("/v2/generation/jobs", payload, 202, cancellationToken);
 
     public Task<JsonElement> GetGenerationJobAsync(string jobId, CancellationToken cancellationToken = default) =>
-        RequestAsync(HttpMethod.Get, "/v1/generation/jobs/" + PathId(jobId), null, 200, cancellationToken);
+        RequestAsync(HttpMethod.Get, "/v2/generation/jobs/" + PathId(jobId), null, 200, cancellationToken);
 
     public Task<JsonElement> CancelGenerationJobAsync(string jobId, CancellationToken cancellationToken = default) =>
-        RequestAsync(HttpMethod.Delete, "/v1/generation/jobs/" + PathId(jobId), null, 200, cancellationToken);
+        RequestAsync(HttpMethod.Delete, "/v2/generation/jobs/" + PathId(jobId), null, 200, cancellationToken);
 
     /// <summary>Reports an outcome the game already applied or rejected.</summary>
-    public Task<JsonElement> CommitAsync(object payload, CancellationToken cancellationToken = default) =>
-        PostAsync("/v1/action/commit", payload, 200, cancellationToken);
+    public Task<JsonElement> ReportActionAsync(object payload, CancellationToken cancellationToken = default) =>
+        PostAsync("/v2/action/report", payload, 200, cancellationToken);
 
-    public Task<MutationResult> CommitAsync(
-        CommitRequest payload,
+    public Task<MutationResult> ReportActionAsync(
+        ReportActionRequest payload,
         CancellationToken cancellationToken = default) =>
-        PostTypedAsync<MutationResult>("/v1/action/commit", payload, 200, cancellationToken);
+        PostTypedAsync<MutationResult>("/v2/action/report", payload, 200, cancellationToken);
 
     /// <summary>Atomically reports outcomes produced from one original world revision.</summary>
-    public Task<JsonElement> CommitBatchAsync(object payload, CancellationToken cancellationToken = default) =>
-        PostAsync("/v1/action/commit-batch", payload, 200, cancellationToken);
+    public Task<JsonElement> ReportActionBatchAsync(object payload, CancellationToken cancellationToken = default) =>
+        PostAsync("/v2/action/report-batch", payload, 200, cancellationToken);
 
     public Task<JsonElement> SetActorActivityAsync(object payload, CancellationToken cancellationToken = default) =>
-        PostAsync("/v1/session/activity", payload, 200, cancellationToken);
+        PostAsync("/v2/session/activity", payload, 200, cancellationToken);
 
     public Task<JsonElement> ArbitrateAsync(object payload, CancellationToken cancellationToken = default) =>
-        PostAsync("/v1/world/arbitrate", payload, 200, cancellationToken);
+        PostAsync("/v2/world/arbitrate", payload, 200, cancellationToken);
 
     public Task<JsonElement> StateAsync(object payload, CancellationToken cancellationToken = default) =>
-        PostAsync("/v1/session/get", payload, 200, cancellationToken);
+        PostAsync("/v2/session/get", payload, 200, cancellationToken);
 
     public Task<JsonElement> SessionStatsAsync(object payload, CancellationToken cancellationToken = default) =>
-        PostAsync("/v1/session/stats", payload, 200, cancellationToken);
+        PostAsync("/v2/session/stats", payload, 200, cancellationToken);
 
     public Task<SessionStats> SessionStatsAsync(
         SessionRequest payload,
         CancellationToken cancellationToken = default) =>
-        PostTypedAsync<SessionStats>("/v1/session/stats", payload, 200, cancellationToken);
+        PostTypedAsync<SessionStats>("/v2/session/stats", payload, 200, cancellationToken);
 
     public Task<JsonElement> ArchiveSessionAsync(object payload, CancellationToken cancellationToken = default) =>
-        PostAsync("/v1/session/archive", payload, 200, cancellationToken);
+        PostAsync("/v2/session/archive", payload, 200, cancellationToken);
 
     public Task<ArchiveSessionResult> ArchiveSessionAsync(
         ArchiveSessionRequest payload,
         CancellationToken cancellationToken = default) =>
-        PostTypedAsync<ArchiveSessionResult>("/v1/session/archive", payload, 200, cancellationToken);
+        PostTypedAsync<ArchiveSessionResult>("/v2/session/archive", payload, 200, cancellationToken);
 
     public Task<JsonElement> DeleteSessionAsync(object payload, CancellationToken cancellationToken = default) =>
-        PostAsync("/v1/session/delete", payload, 200, cancellationToken);
+        PostAsync("/v2/session/delete", payload, 200, cancellationToken);
 
     public Task<DeleteSessionResult> DeleteSessionAsync(
         DeleteSessionRequest payload,
         CancellationToken cancellationToken = default) =>
-        PostTypedAsync<DeleteSessionResult>("/v1/session/delete", payload, 200, cancellationToken);
+        PostTypedAsync<DeleteSessionResult>("/v2/session/delete", payload, 200, cancellationToken);
 
     public Task<JsonElement> SnapshotAsync(object payload, CancellationToken cancellationToken = default) =>
-        PostAsync("/v1/session/snapshot", payload, 200, cancellationToken);
+        PostAsync("/v2/session/snapshot", payload, 200, cancellationToken);
 
     public Task<JsonElement> RestoreAsync(object payload, CancellationToken cancellationToken = default) =>
-        PostAsync("/v1/session/restore", payload, 200, cancellationToken);
+        PostAsync("/v2/session/restore", payload, 200, cancellationToken);
 
 #if !NETSTANDARD2_0
     /// <summary>Streams one Session Transfer into a caller-owned destination.</summary>
@@ -195,7 +195,7 @@ public sealed class RinClient : IDisposable
         }
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
-            baseUrl + "/v1/session/export");
+            baseUrl + "/v2/session/export");
         request.Headers.Accept.Clear();
         request.Headers.Accept.Add(
             new MediaTypeWithQualityHeaderValue("application/x-ndjson"));
@@ -263,7 +263,7 @@ public sealed class RinClient : IDisposable
         }
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
-            baseUrl + "/v1/session/import");
+            baseUrl + "/v2/session/import");
         request.Content = new StreamContent(new NonDisposingReadStream(source));
         request.Content.Headers.ContentType =
             new MediaTypeHeaderValue("application/x-ndjson");
@@ -305,13 +305,13 @@ public sealed class RinClient : IDisposable
 #endif
 
     public Task<JsonElement> TimelineAsync(object payload, CancellationToken cancellationToken = default) =>
-        PostAsync("/v1/session/timeline", payload, 200, cancellationToken);
+        PostAsync("/v2/session/timeline", payload, 200, cancellationToken);
 
     public Task<JsonElement> ReplayAsync(object payload, CancellationToken cancellationToken = default) =>
-        PostAsync("/v1/session/replay", payload, 200, cancellationToken);
+        PostAsync("/v2/session/replay", payload, 200, cancellationToken);
 
     public Task<JsonElement> DueAgentsAsync(object payload, CancellationToken cancellationToken = default) =>
-        PostAsync("/v1/scheduler/due", payload, 200, cancellationToken);
+        PostAsync("/v2/scheduler/due", payload, 200, cancellationToken);
 
     public Task<JsonElement> WaitForProposalAsync(
         string jobId,

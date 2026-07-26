@@ -1,6 +1,7 @@
 package io.github.sunrioa.rin.example;
 
 import io.github.sunrioa.rin.PendingTurn;
+import io.github.sunrioa.rin.HostActions;
 import io.github.sunrioa.rin.RinClient;
 import net.minecraft.server.MinecraftServer;
 
@@ -21,10 +22,10 @@ final class RinNpcRequests {
                 "binding", mapOf(
                         "game_id", "minecraft-fabric",
                         "content_id", "rin-npc-example",
-                        "content_version", "0.6.0",
+                        "content_version", "0.7.0",
                         "content_hash", "sha256:" + "0".repeat(64)),
                 "seed", Integer.toUnsignedLong(sessionId.hashCode()),
-                "features", List.of("outcome-reporting-v1"),
+                "features", List.of(),
                 "actors", List.of(mapOf(
                         "id", ACTOR_ID,
                         "kind", "npc",
@@ -62,13 +63,23 @@ final class RinNpcRequests {
                 "kind", "dialogue",
                 "summary", "The player asked the guide what to do next.",
                 "tags", List.of("conversation", "player-request"),
-                "importance", 3);
+                "importance", 3,
+                "epoch", epoch(sessionId),
+                "observation_seq", tick);
     }
 
     static Map<String, Object> proposal(
             String sessionId,
             String operationId,
             long tick) {
+        Map<String, Object> window = mapOf(
+                "id", "window." + operationId,
+                "mode", "sequential",
+                "epoch", epoch(sessionId),
+                "observation_seq", tick - 1,
+                "opened_at", timepoint(tick),
+                "deadline", timepoint(tick + 1),
+                "actor_ids", List.of(ACTOR_ID));
         return mapOf(
                 "protocol_version", RinClient.PROTOCOL_VERSION,
                 "session_id", sessionId,
@@ -77,16 +88,17 @@ final class RinNpcRequests {
                 "tick", tick,
                 "intent", "Choose one bounded response to the player.",
                 "tags", List.of("conversation"),
-                "candidate_actions", List.of(
-                        mapOf("id", "talk", "kind", "dialogue",
-                                "description", "offer one concrete hint"),
-                        mapOf("id", "wait", "kind", "wait",
-                                "description", "ask the player to observe first"),
-                        mapOf("id", "refuse", "kind", "refuse",
-                                "description", "decline an unsafe request")));
+                "decision_window", window,
+                "offers", List.of(
+                        offer("offer.talk", "dialogue.talk",
+                                "offer one concrete hint", window),
+                        offer("offer.wait", "world.wait",
+                                "ask the player to observe first", window),
+                        offer("offer.refuse", "dialogue.refuse",
+                                "decline an unsafe request", window)));
     }
 
-    static Map<String, Object> commit(
+    static Map<String, Object> report(
             MinecraftServer server,
             PendingTurn pending,
             Map<String, Object> proposal,
@@ -95,40 +107,35 @@ final class RinNpcRequests {
         long tick = Math.max(
                 server.getTicks(),
                 Math.max(integer(proposal.get("tick")), integer(pending.request().get("tick"))));
-        return mapOf(
-                "protocol_version", RinClient.PROTOCOL_VERSION,
-                "session_id", pending.request().get("session_id"),
-                "request_id", "commit." + pending.operationId(),
-                "proposal_id", proposal.get("id"),
-                "event_id", "outcome." + pending.operationId(),
-                "tick", tick,
-                "accepted", accepted,
-                "outcome", outcome,
-                "tags", List.of("fabric-example", "conversation"));
+        String sessionId = (String) pending.request().get("session_id");
+        return HostActions.immediateReport(
+                sessionId, "report." + pending.operationId(),
+                "outcome." + pending.operationId(), tick, proposal,
+                pending.operationId(), accepted, outcome, epoch(sessionId),
+                tick, timepoint(tick), List.of("fabric-example", "conversation"));
     }
 
-    static Map<String, Object> safeObserve(
-            Map<String, Object> commit,
-            String operationId) {
-        boolean accepted = Boolean.TRUE.equals(commit.get("accepted"));
+    private static Map<String, Object> offer(
+            String offerId,
+            String capabilityId,
+            String description,
+            Map<String, Object> window) {
+        return HostActions.offer(
+                offerId, ACTOR_ID, capabilityId, "1", "a".repeat(64),
+                description, Map.of(), window);
+    }
+
+    private static Map<String, Object> epoch(String sessionId) {
         return mapOf(
-                "protocol_version", RinClient.PROTOCOL_VERSION,
-                "session_id", commit.get("session_id"),
-                "request_id", "fallback.observe." + operationId,
-                "event_id", commit.get("event_id"),
-                "tick", commit.get("tick"),
-                "observer_ids", List.of(ACTOR_ID),
-                "source", "fabric-example",
-                "kind", "action_outcome",
-                "summary", commit.get("outcome"),
-                "tags", List.of("outcome", "degraded-report"),
-                "importance", 3,
-                "facts", List.of(mapOf(
-                        "subject_id", ACTOR_ID,
-                        "predicate", "last_action_outcome",
-                        "object", accepted ? "accepted" : "rejected",
-                        "visibility", List.of(ACTOR_ID),
-                        "confidence", 100)));
+                "session_id", sessionId,
+                "world_id", "minecraft.server",
+                "host", 1L,
+                "world", 1L,
+                "timeline", 1L);
+    }
+
+    private static Map<String, Object> timepoint(long tick) {
+        return mapOf("clock", "step", "value", tick);
     }
 
     private static long integer(Object value) {

@@ -428,10 +428,10 @@ func validateIdentifiersCoverState(
 		}
 		if err := validateRetainedEventKind(
 			history,
-			proposal.OutcomeEventID,
+			proposal.LastReportEventID,
 			"proposal outcome",
-			EventCommitted,
-			EventBatchCommitted,
+			EventActionReported,
+			EventActionBatchReported,
 		); err != nil {
 			return err
 		}
@@ -442,8 +442,8 @@ func validateIdentifiersCoverState(
 				history,
 				goal.StatusSourceEventID,
 				"goal status",
-				EventCommitted,
-				EventBatchCommitted,
+				EventActionReported,
+				EventActionBatchReported,
 			); err != nil {
 				return err
 			}
@@ -454,8 +454,8 @@ func validateIdentifiersCoverState(
 				memory.EventID,
 				"memory",
 				EventObserved,
-				EventCommitted,
-				EventBatchCommitted,
+				EventActionReported,
+				EventActionBatchReported,
 			); err != nil {
 				return err
 			}
@@ -467,8 +467,8 @@ func validateIdentifiersCoverState(
 					eventID,
 					"memory summary",
 					EventObserved,
-					EventCommitted,
-					EventBatchCommitted,
+					EventActionReported,
+					EventActionBatchReported,
 				); err != nil {
 					return err
 				}
@@ -480,10 +480,10 @@ func validateIdentifiersCoverState(
 			}
 			if err := validateRetainedEventKind(
 				history,
-				proposal.OutcomeEventID,
+				proposal.LastReportEventID,
 				"recent action outcome",
-				EventCommitted,
-				EventBatchCommitted,
+				EventActionReported,
+				EventActionBatchReported,
 			); err != nil {
 				return err
 			}
@@ -494,8 +494,8 @@ func validateIdentifiersCoverState(
 				fact.SourceEventID,
 				"belief",
 				EventObserved,
-				EventCommitted,
-				EventBatchCommitted,
+				EventActionReported,
+				EventActionBatchReported,
 			); err != nil {
 				return err
 			}
@@ -507,8 +507,8 @@ func validateIdentifiersCoverState(
 					claim.Fact.SourceEventID,
 					"belief claim",
 					EventObserved,
-					EventCommitted,
-					EventBatchCommitted,
+					EventActionReported,
+					EventActionBatchReported,
 				); err != nil {
 					return err
 				}
@@ -574,17 +574,20 @@ func validateRetainedProposalIdentity(
 	}
 	original := *identity.Proposal
 	comparable := proposal
-	// Restore rebases chain-local revision fields, outcome reporting updates the
-	// status fields, and memory compaction may replace recalled memory IDs with
-	// summary IDs. All other proposal fields are immutable result data.
+	// Restore rebases chain-local revision fields, host reports advance the
+	// lifecycle projection, and memory compaction may replace recalled memory
+	// IDs with summary IDs. All other proposal fields are immutable result data.
 	comparable.BasedOnRevision = original.BasedOnRevision
 	comparable.BasedOnHeadHash = original.BasedOnHeadHash
 	comparable.BasedOnWorldRevision = original.BasedOnWorldRevision
 	comparable.CreatedRevision = original.CreatedRevision
 	comparable.RecalledMemoryIDs = original.RecalledMemoryIDs
 	comparable.Status = original.Status
-	comparable.OutcomeEventID = original.OutcomeEventID
-	comparable.OutcomeTick = original.OutcomeTick
+	comparable.LastReportEventID = original.LastReportEventID
+	comparable.LastReportTick = original.LastReportTick
+	comparable.Invocation = original.Invocation
+	comparable.Run = original.Run
+	comparable.Outcome = original.Outcome
 	if !reflect.DeepEqual(comparable, original) {
 		return fmt.Errorf("identifier history result does not match retained proposal %q", proposal.ID)
 	}

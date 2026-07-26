@@ -2,15 +2,18 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
 	goruntime "runtime"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/protocol"
 )
 
@@ -96,7 +99,7 @@ func (p invariantPolicy) Propose(ctx context.Context, input PolicyContext) (Prop
 		return p.propose(ctx, input)
 	}
 	draft := ProposalDraft{
-		ActionID:     input.Request.CandidateActions[0].ID,
+		OfferID:      input.Request.Offers[0].OfferID,
 		Stance:       "wait",
 		Summary:      "Wait and observe.",
 		Rationale:    "The test policy selects a deterministic candidate.",
@@ -109,12 +112,6 @@ func (p invariantPolicy) Propose(ctx context.Context, input PolicyContext) (Prop
 }
 
 func invariantCreate(sessionID string, features []string, goals []protocol.Goal) protocol.CreateSessionRequest {
-	if !protocol.HasFeature(features, protocol.FeatureOutcomeReporting) {
-		features = append(
-			append([]string(nil), features...),
-			protocol.FeatureOutcomeReporting,
-		)
-	}
 	return protocol.CreateSessionRequest{
 		ProtocolVersion: protocol.Version,
 		RequestID:       "create." + sessionID,
@@ -169,10 +166,13 @@ func invariantObserve(sessionID, requestID, eventID string, tick int64) protocol
 		Kind:            "test",
 		Summary:         "An invariant test observation.",
 		Importance:      1,
+		Epoch:           invariantEpoch(sessionID),
+		ObservationSeq:  uint64(tick) + 1,
 	}
 }
 
 func invariantPropose(sessionID, requestID string, candidateGoals []protocol.Goal) protocol.ProposeRequest {
+	window := invariantWindow(sessionID, "npc.mira", 0)
 	return protocol.ProposeRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       sessionID,
@@ -180,13 +180,118 @@ func invariantPropose(sessionID, requestID string, candidateGoals []protocol.Goa
 		ActorID:         "npc.mira",
 		Tick:            0,
 		Intent:          "Choose a test action.",
-		CandidateActions: []protocol.ActionSpec{{
-			ID:          "wait",
-			Kind:        "wait",
-			Description: "Wait for more information.",
-			Parameters:  map[string]string{"duration": "short"},
-		}},
+		DecisionWindow:  window,
+		Offers: []protocol.ActionOffer{
+			invariantOffer(window, "npc.mira", "wait"),
+		},
 		CandidateGoals: append([]protocol.Goal(nil), candidateGoals...),
+	}
+}
+
+func invariantEpoch(sessionID string) protocol.Epoch {
+	return protocol.Epoch{
+		SessionID: sessionID,
+		WorldID:   "world.test",
+		Host:      1,
+		World:     1,
+		Timeline:  1,
+	}
+}
+
+func invariantWindow(sessionID, actorID string, tick int64) protocol.DecisionWindow {
+	return protocol.DecisionWindow{
+		ID:             fmt.Sprintf("window.%s.%d", actorID, tick),
+		Mode:           host.DecisionSequential,
+		Epoch:          invariantEpoch(sessionID),
+		ObservationSeq: uint64(tick) + 1,
+		OpenedAt:       protocol.Timepoint{Clock: host.ClockStep, Value: tick},
+		Deadline:       protocol.Timepoint{Clock: host.ClockStep, Value: tick + 100},
+		ActorIDs:       []string{actorID},
+	}
+}
+
+func invariantOffer(window protocol.DecisionWindow, actorID, offerID string) protocol.ActionOffer {
+	return protocol.ActionOffer{
+		OfferID:          offerID,
+		DecisionWindowID: window.ID,
+		ActorID:          actorID,
+		Capability:       protocol.CapabilityRef{ID: "rin.test." + offerID, Version: "1.0.0"},
+		DescriptorDigest: strings.Repeat("a", 64),
+		Description:      "Wait for more information.",
+		Arguments:        json.RawMessage(`{"duration":"short"}`),
+		ExpectedEpoch:    window.Epoch,
+		ObservationSeq:   window.ObservationSeq,
+		Deadline:         window.Deadline,
+	}
+}
+
+func invariantSuccessfulReport(
+	proposal protocol.ActionProposal,
+	requestID, eventID string,
+	tick int64,
+	summary string,
+) protocol.ReportActionRequest {
+	invocation := protocol.ActionInvocation{
+		OperationID:      "operation." + eventID,
+		OfferID:          proposal.Action.OfferID,
+		DecisionWindowID: proposal.Action.DecisionWindowID,
+		ActorID:          proposal.Action.ActorID,
+		Capability:       proposal.Action.Capability,
+		DescriptorDigest: proposal.Action.DescriptorDigest,
+		Arguments:        append(json.RawMessage(nil), proposal.Action.Arguments...),
+		Targets:          append([]protocol.HostRef(nil), proposal.Action.Targets...),
+		ExpectedEpoch:    proposal.Action.ExpectedEpoch,
+		ObservationSeq:   proposal.Action.ObservationSeq,
+		Deadline:         proposal.Action.Deadline,
+	}
+	run := protocol.ActionRun{
+		OperationID: invocation.OperationID,
+		Status:      host.ActionSucceeded,
+		ProgressSeq: 1,
+		Progress:    100,
+		UpdatedAt:   protocol.Timepoint{Clock: invocation.Deadline.Clock, Value: tick},
+	}
+	outcome := protocol.ActionOutcome{
+		OperationID: invocation.OperationID,
+		Status:      host.ActionSucceeded,
+		Summary:     summary,
+		Epoch:       invocation.ExpectedEpoch,
+		WorldSeq:    1,
+		OccurredAt:  protocol.Timepoint{Clock: invocation.Deadline.Clock, Value: tick},
+	}
+	return protocol.ReportActionRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       proposal.SessionID,
+		RequestID:       requestID,
+		Tick:            tick,
+		Report: protocol.ActionReport{
+			ProposalID: proposal.ID,
+			EventID:    eventID,
+			Decision:   protocol.ActionAccepted,
+			Invocation: &invocation,
+			Run:        &run,
+			Outcome:    &outcome,
+			Summary:    summary,
+		},
+	}
+}
+
+func invariantRejectedReport(
+	proposal protocol.ActionProposal,
+	requestID, eventID string,
+	tick int64,
+) protocol.ReportActionRequest {
+	return protocol.ReportActionRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       proposal.SessionID,
+		RequestID:       requestID,
+		Tick:            tick,
+		Report: protocol.ActionReport{
+			ProposalID: proposal.ID,
+			EventID:    eventID,
+			Decision:   protocol.ActionRejected,
+			Summary:    "Rejected.",
+		},
 	}
 }
 
@@ -342,7 +447,7 @@ func TestWorldRevisionOverflowIsExplicitBeforeAppend(t *testing.T) {
 		engine, eventStore := invariantEngine(
 			t,
 			sessionID,
-			[]string{protocol.FeatureArbitration, protocol.FeatureOutcomeReporting},
+			[]string{protocol.FeatureArbitration},
 			nil,
 			invariantPolicy{},
 		)
@@ -354,15 +459,13 @@ func TestWorldRevisionOverflowIsExplicitBeforeAppend(t *testing.T) {
 			t.Fatal(err)
 		}
 		assertOverflow(t, engine, eventStore, sessionID, func() error {
-			_, err := engine.Commit(protocol.CommitRequest{
-				ProtocolVersion: protocol.Version,
-				SessionID:       sessionID,
-				RequestID:       "commit.world-overflow",
-				ProposalID:      proposal.ID,
-				EventID:         "event.world-overflow",
-				Accepted:        true,
-				Outcome:         "The action cannot advance an exhausted world revision.",
-			})
+			_, err := engine.ReportAction(invariantSuccessfulReport(
+				proposal,
+				"report.world-overflow",
+				"event.world-overflow",
+				0,
+				"The action cannot advance an exhausted world revision.",
+			))
 			return err
 		})
 	})
@@ -372,28 +475,32 @@ func TestWorldRevisionOverflowIsExplicitBeforeAppend(t *testing.T) {
 		engine, eventStore := invariantEngine(
 			t,
 			sessionID,
-			[]string{protocol.FeatureArbitration, protocol.FeatureOutcomeReporting},
+			[]string{protocol.FeatureArbitration},
 			nil,
 			invariantPolicy{},
 		)
+		propose := invariantPropose(sessionID, "propose.world-overflow", nil)
+		propose.DecisionWindow.Mode = host.DecisionSimultaneous
 		proposal, _, err := engine.Propose(
 			context.Background(),
-			invariantPropose(sessionID, "propose.world-overflow", nil),
+			propose,
 		)
 		if err != nil {
 			t.Fatal(err)
 		}
 		assertOverflow(t, engine, eventStore, sessionID, func() error {
-			_, err := engine.CommitBatch(protocol.BatchCommitRequest{
+			report := invariantSuccessfulReport(
+				proposal,
+				"report.world-overflow",
+				"event.world-overflow",
+				0,
+				"The batch cannot advance an exhausted world revision.",
+			)
+			_, err := engine.ReportActionBatch(protocol.BatchActionReportRequest{
 				ProtocolVersion: protocol.Version,
 				SessionID:       sessionID,
 				RequestID:       "batch.world-overflow",
-				Items: []protocol.CommitItem{{
-					ProposalID: proposal.ID,
-					EventID:    "event.world-overflow",
-					Accepted:   true,
-					Outcome:    "The batch cannot advance an exhausted world revision.",
-				}},
+				Reports:         []protocol.ActionReport{report.Report},
 			})
 			return err
 		})
@@ -435,7 +542,7 @@ func TestPolicyContextMutationCannotReachLiveStateOrCaller(t *testing.T) {
 		stateActor.DisplayName = "Mutated State"
 		input.State.Actors[input.Actor.ID] = stateActor
 		input.Request.Tags[0] = "mutated"
-		input.Request.CandidateActions[0].Parameters["duration"] = "mutated"
+		input.Request.Offers[0].Arguments[0] = '['
 		return ProposalDraft{}, injected
 	}}
 	engine, _ := invariantEngine(
@@ -484,11 +591,11 @@ func TestPolicyContextMutationIsRaceIsolated(t *testing.T) {
 		<-release
 		for index := 0; index < 2_000; index++ {
 			input.Actor.Goals[0].Description = fmt.Sprintf("policy mutation %d", index)
-			input.Request.CandidateActions[0].Description = fmt.Sprintf("request mutation %d", index)
+			input.Request.Offers[0].Description = fmt.Sprintf("request mutation %d", index)
 			goruntime.Gosched()
 		}
 		return ProposalDraft{
-			ActionID:     input.Request.CandidateActions[0].ID,
+			OfferID:      input.Request.Offers[0].OfferID,
 			GoalID:       "goal.existing",
 			Stance:       "wait",
 			Summary:      "Wait after the concurrent update.",
@@ -504,7 +611,7 @@ func TestPolicyContextMutationIsRaceIsolated(t *testing.T) {
 		selectedPolicy,
 	)
 	request := invariantPropose(sessionID, "propose.race-isolation", nil)
-	originalDescription := request.CandidateActions[0].Description
+	originalDescription := request.Offers[0].Description
 	result := make(chan error, 1)
 	go func() {
 		_, _, err := engine.Propose(context.Background(), request)
@@ -531,7 +638,7 @@ func TestPolicyContextMutationIsRaceIsolated(t *testing.T) {
 		if state.Actors["npc.mira"].Goals[0].Description != invariantGoal("unused").Description {
 			t.Fatal("concurrent policy mutation escaped into live state")
 		}
-		if request.CandidateActions[0].Description != originalDescription {
+		if request.Offers[0].Description != originalDescription {
 			t.Fatal("concurrent policy mutation escaped into caller request")
 		}
 		goruntime.Gosched()
@@ -570,17 +677,10 @@ func TestFactVisibilityRejectsUnknownActorsBeforeAppend(t *testing.T) {
 			t.Fatal(err)
 		}
 		before, _ := eventStore.counts()
-		_, err = engine.Commit(protocol.CommitRequest{
-			ProtocolVersion: protocol.Version,
-			SessionID:       sessionID,
-			RequestID:       "commit.visibility",
-			ProposalID:      proposal.ID,
-			EventID:         "event.visibility",
-			Accepted:        true,
-			Outcome:         "The actor waited.",
-			Facts:           []protocol.Fact{unknownFact},
-		})
-		if ErrorCode(err) != "unknown_actor" || ErrorField(err) != "facts[0].visibility[1]" {
+		report := invariantSuccessfulReport(proposal, "report.visibility", "event.visibility", 0, "The actor waited.")
+		report.Report.Facts = []protocol.Fact{unknownFact}
+		_, err = engine.ReportAction(report)
+		if ErrorCode(err) != "unknown_actor" || ErrorField(err) != "report.facts[0].visibility[1]" {
 			t.Fatalf("unknown commit visibility actor should fail precisely, got %v", err)
 		}
 		after, _ := eventStore.counts()
@@ -594,28 +694,26 @@ func TestFactVisibilityRejectsUnknownActorsBeforeAppend(t *testing.T) {
 		engine, eventStore := invariantEngine(
 			t,
 			sessionID,
-			[]string{protocol.FeatureOutcomeReporting, protocol.FeatureArbitration},
+			[]string{protocol.FeatureArbitration},
 			nil,
 			invariantPolicy{},
 		)
-		proposal, _, err := engine.Propose(context.Background(), invariantPropose(sessionID, "propose.visibility", nil))
+		propose := invariantPropose(sessionID, "propose.visibility", nil)
+		propose.DecisionWindow.Mode = host.DecisionSimultaneous
+		proposal, _, err := engine.Propose(context.Background(), propose)
 		if err != nil {
 			t.Fatal(err)
 		}
 		before, _ := eventStore.counts()
-		_, err = engine.CommitBatch(protocol.BatchCommitRequest{
+		report := invariantSuccessfulReport(proposal, "report.visibility", "event.visibility", 0, "The actor waited.")
+		report.Report.Facts = []protocol.Fact{unknownFact}
+		_, err = engine.ReportActionBatch(protocol.BatchActionReportRequest{
 			ProtocolVersion: protocol.Version,
 			SessionID:       sessionID,
 			RequestID:       "batch.visibility",
-			Items: []protocol.CommitItem{{
-				ProposalID: proposal.ID,
-				EventID:    "event.visibility",
-				Accepted:   true,
-				Outcome:    "The actor waited.",
-				Facts:      []protocol.Fact{unknownFact},
-			}},
+			Reports:         []protocol.ActionReport{report.Report},
 		})
-		if ErrorCode(err) != "unknown_actor" || ErrorField(err) != "items[0].facts[0].visibility[1]" {
+		if ErrorCode(err) != "unknown_actor" || ErrorField(err) != "reports[0].facts[0].visibility[1]" {
 			t.Fatalf("unknown batch visibility actor should fail precisely, got %v", err)
 		}
 		after, _ := eventStore.counts()
@@ -635,7 +733,6 @@ func TestPendingProposedGoalsReserveActorCapacity(t *testing.T) {
 		t,
 		sessionID,
 		[]string{
-			protocol.FeatureOutcomeReporting,
 			protocol.FeatureArbitration,
 			protocol.FeatureGoalCandidates,
 		},
@@ -669,15 +766,13 @@ func TestPendingProposedGoalsReserveActorCapacity(t *testing.T) {
 		t.Fatalf("rejected goal proposals changed append count from %d to %d", before, after)
 	}
 
-	if _, err := engine.Commit(protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       sessionID,
-		RequestID:       "commit.reserved",
-		ProposalID:      proposal.ID,
-		EventID:         "event.reserved",
-		Accepted:        true,
-		Outcome:         "The reserved goal was accepted.",
-	}); err != nil {
+	if _, err := engine.ReportAction(invariantSuccessfulReport(
+		proposal,
+		"report.reserved",
+		"event.reserved",
+		0,
+		"The reserved goal was accepted.",
+	)); err != nil {
 		t.Fatal(err)
 	}
 	state, err := engine.State(protocol.SessionRequest{ProtocolVersion: protocol.Version, SessionID: sessionID})
@@ -701,19 +796,20 @@ func TestCommitPathsDefendProposedGoalCapacity(t *testing.T) {
 			for index := range goals {
 				goals[index] = invariantGoal(fmt.Sprintf("goal.%02d", index))
 			}
-			features := []string{protocol.FeatureOutcomeReporting, protocol.FeatureGoalCandidates}
+			features := []string{protocol.FeatureGoalCandidates}
 			if batch {
 				features = append(features, protocol.FeatureArbitration)
 			}
 			engine, eventStore := invariantEngine(t, sessionID, features, goals, invariantPolicy{})
-			proposal, _, err := engine.Propose(
-				context.Background(),
-				invariantPropose(
-					sessionID,
-					"propose.capacity-defense",
-					[]protocol.Goal{invariantGoal("goal.reserved")},
-				),
+			propose := invariantPropose(
+				sessionID,
+				"propose.capacity-defense",
+				[]protocol.Goal{invariantGoal("goal.reserved")},
 			)
+			if batch {
+				propose.DecisionWindow.Mode = host.DecisionSimultaneous
+			}
+			proposal, _, err := engine.Propose(context.Background(), propose)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -727,27 +823,27 @@ func TestCommitPathsDefendProposedGoalCapacity(t *testing.T) {
 			before, _ := eventStore.counts()
 
 			if batch {
-				_, err = engine.CommitBatch(protocol.BatchCommitRequest{
+				report := invariantSuccessfulReport(
+					proposal,
+					"report.capacity-defense",
+					"event.capacity-defense",
+					0,
+					"Would exceed goal capacity.",
+				)
+				_, err = engine.ReportActionBatch(protocol.BatchActionReportRequest{
 					ProtocolVersion: protocol.Version,
 					SessionID:       sessionID,
 					RequestID:       "batch.capacity-defense",
-					Items: []protocol.CommitItem{{
-						ProposalID: proposal.ID,
-						EventID:    "event.capacity-defense",
-						Accepted:   true,
-						Outcome:    "Would exceed goal capacity.",
-					}},
+					Reports:         []protocol.ActionReport{report.Report},
 				})
 			} else {
-				_, err = engine.Commit(protocol.CommitRequest{
-					ProtocolVersion: protocol.Version,
-					SessionID:       sessionID,
-					RequestID:       "commit.capacity-defense",
-					ProposalID:      proposal.ID,
-					EventID:         "event.capacity-defense",
-					Accepted:        true,
-					Outcome:         "Would exceed goal capacity.",
-				})
+				_, err = engine.ReportAction(invariantSuccessfulReport(
+					proposal,
+					"report.capacity-defense",
+					"event.capacity-defense",
+					0,
+					"Would exceed goal capacity.",
+				))
 			}
 			if ErrorCode(err) != "goal_capacity" {
 				t.Fatalf("%s should reject a stale over-capacity reservation, got %v", name, err)
@@ -768,7 +864,7 @@ func TestEventIDExistsIncludesRetainedBeliefSources(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			sessionID := "session.event-id-" + name
-			features := []string{protocol.FeatureOutcomeReporting}
+			var features []string
 			if conflicts {
 				features = append(features, protocol.FeatureBeliefConflicts)
 			}
@@ -832,7 +928,7 @@ func TestEventIDExistsIncludesRecentActionOutcomeAfterProposalAndMemoryEviction(
 	engine, eventStore := invariantEngine(
 		t,
 		sessionID,
-		[]string{protocol.FeatureOutcomeReporting, protocol.FeatureArbitration},
+		[]string{protocol.FeatureArbitration},
 		nil,
 		invariantPolicy{},
 	)
@@ -851,26 +947,22 @@ func TestEventIDExistsIncludesRecentActionOutcomeAfterProposalAndMemoryEviction(
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := engine.Commit(protocol.CommitRequest{
-			ProtocolVersion: protocol.Version,
-			SessionID:       sessionID,
-			RequestID:       fmt.Sprintf("commit.rejected.%02d", index),
-			ProposalID:      proposal.ID,
-			EventID:         fmt.Sprintf("event.rejected.%02d", index),
-			Accepted:        false,
-		}); err != nil {
+		if _, err := engine.ReportAction(invariantRejectedReport(
+			proposal,
+			fmt.Sprintf("report.rejected.%02d", index),
+			fmt.Sprintf("event.rejected.%02d", index),
+			0,
+		)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := engine.Commit(protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       sessionID,
-		RequestID:       "commit.oldest",
-		ProposalID:      oldest.ID,
-		EventID:         "event.recent-action",
-		Accepted:        true,
-		Outcome:         "This memory will be evicted while the recent action remains.",
-	}); err != nil {
+	if _, err := engine.ReportAction(invariantSuccessfulReport(
+		oldest,
+		"report.oldest",
+		"event.recent-action",
+		0,
+		"This memory will be evicted while the recent action remains.",
+	)); err != nil {
 		t.Fatal(err)
 	}
 	for index := 1; index <= maxMemories; index++ {
@@ -901,7 +993,7 @@ func TestEventIDExistsIncludesRecentActionOutcomeAfterProposalAndMemoryEviction(
 		}
 	}
 	if len(state.Actors["npc.mira"].RecentActions) != 1 ||
-		state.Actors["npc.mira"].RecentActions[0].OutcomeEventID != "event.recent-action" {
+		state.Actors["npc.mira"].RecentActions[0].LastReportEventID != "event.recent-action" {
 		t.Fatalf("recent action did not retain the outcome event id: %+v", state.Actors["npc.mira"].RecentActions)
 	}
 
@@ -940,7 +1032,7 @@ func TestEventIDExistsIncludesGoalAndObservationReceiptSources(t *testing.T) {
 				EntityID: "event.receipt-source",
 			},
 			"commit.not-an-event-source": {
-				Kind:     EventCommitted,
+				Kind:     EventActionReported,
 				EntityID: "proposal.entity",
 			},
 		},

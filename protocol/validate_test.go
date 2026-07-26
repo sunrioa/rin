@@ -1,8 +1,11 @@
 package protocol_test
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
+	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/protocol"
 )
 
@@ -21,7 +24,7 @@ func TestCreateValidationRejectsUnsafeAndDuplicateActors(t *testing.T) {
 
 func TestCreateValidationRejectsInvalidBoundaryAndProtocol(t *testing.T) {
 	request := validCreate()
-	request.ProtocolVersion = "rin.protocol/v2"
+	request.ProtocolVersion = "rin.protocol/v1"
 	if err := protocol.ValidateCreateSession(request); err == nil {
 		t.Fatal("unsupported protocol should fail")
 	}
@@ -35,7 +38,6 @@ func TestCreateValidationRejectsInvalidBoundaryAndProtocol(t *testing.T) {
 func TestCreateValidationNegotiatesKnownFeatures(t *testing.T) {
 	request := validCreate()
 	request.Features = []string{
-		protocol.FeatureOutcomeReporting,
 		protocol.FeatureMemoryArchive,
 		protocol.FeatureBeliefConflicts,
 	}
@@ -47,7 +49,6 @@ func TestCreateValidationNegotiatesKnownFeatures(t *testing.T) {
 		t.Fatal("unknown feature should fail")
 	}
 	request.Features = []string{
-		protocol.FeatureOutcomeReporting,
 		protocol.FeatureMemoryArchive,
 		protocol.FeatureMemoryArchive,
 	}
@@ -56,19 +57,11 @@ func TestCreateValidationNegotiatesKnownFeatures(t *testing.T) {
 	}
 }
 
-func TestNewSessionRequiresSafeSemanticBaseline(t *testing.T) {
+func TestLegacyOutcomeFeatureIsRemoved(t *testing.T) {
 	request := validCreate()
-	request.Features = nil
-	err := protocol.ValidateCreateSession(request)
-	if err == nil {
-		t.Fatal("new Session silently selected legacy transaction semantics")
-	}
-	validation, ok := err.(*protocol.ValidationError)
-	if !ok || validation.Field != "features" {
-		t.Fatalf("baseline validation error = %v", err)
-	}
-	if err := protocol.ValidateCreateSessionHistory(request); err != nil {
-		t.Fatalf("legacy history became unreplayable: %v", err)
+	request.Features = []string{"outcome-reporting-v1"}
+	if err := protocol.ValidateCreateSession(request); err == nil {
+		t.Fatal("removed v1 outcome feature was accepted")
 	}
 }
 
@@ -95,9 +88,8 @@ func TestOccurrenceMetadataIsServerOwnedAndNonNegative(t *testing.T) {
 		RequestID:       "proposal.metadata",
 		ActorID:         "npc.test",
 		Intent:          "choose",
-		CandidateActions: []protocol.ActionSpec{{
-			ID: "wait", Kind: "wait", Description: "wait",
-		}},
+		DecisionWindow:  validWindow(),
+		Offers:          []protocol.ActionOffer{validOffer("wait")},
 		CandidateGoals: []protocol.Goal{{
 			ID: "goal.new", Description: "A bounded goal", Priority: 3,
 			TargetProgress: 2, Status: "active", UpdatedTick: 1,
@@ -107,20 +99,11 @@ func TestOccurrenceMetadataIsServerOwnedAndNonNegative(t *testing.T) {
 		t.Fatal("candidate goal supplied server-owned updated_tick")
 	}
 
-	commit := protocol.CommitRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       "session.test",
-		RequestID:       "commit.metadata",
-		ProposalID:      "proposal.test",
-		EventID:         "event.test",
-		Accepted:        true,
-		Outcome:         "Applied.",
-		Facts: []protocol.Fact{{
-			SubjectID: "door", Predicate: "state", Object: "open",
-			Confidence: 100, ObservedTick: -1,
-		}},
-	}
-	if err := protocol.ValidateCommit(commit); err == nil {
+	commit := validTerminalReport("commit.metadata", "event.test", []protocol.Fact{{
+		SubjectID: "door", Predicate: "state", Object: "open",
+		Confidence: 100, ObservedTick: -1,
+	}})
+	if err := protocol.ValidateReportAction(commit); err == nil {
 		t.Fatal("negative fact observed_tick should fail")
 	}
 
@@ -141,32 +124,28 @@ func TestOccurrenceMetadataIsServerOwnedAndNonNegative(t *testing.T) {
 				Summary:         "The door opened.",
 				Importance:      1,
 				Facts:           []protocol.Fact{serverStampedFact},
+				Epoch:           validEpoch(),
+				ObservationSeq:  1,
 			})
 		},
 		"commit": func() error {
-			return protocol.ValidateCommit(protocol.CommitRequest{
-				ProtocolVersion: protocol.Version,
-				SessionID:       "session.test",
-				RequestID:       "commit.metadata-positive",
-				ProposalID:      "proposal.test",
-				EventID:         "event.metadata-positive",
-				Accepted:        true,
-				Outcome:         "Applied.",
-				Facts:           []protocol.Fact{serverStampedFact},
-			})
+			return protocol.ValidateReportAction(validTerminalReport(
+				"commit.metadata-positive",
+				"event.metadata-positive",
+				[]protocol.Fact{serverStampedFact},
+			))
 		},
 		"batch": func() error {
-			return protocol.ValidateBatchCommit(protocol.BatchCommitRequest{
+			report := validTerminalReport(
+				"batch.metadata",
+				"event.metadata-batch",
+				[]protocol.Fact{serverStampedFact},
+			)
+			return protocol.ValidateBatchActionReport(protocol.BatchActionReportRequest{
 				ProtocolVersion: protocol.Version,
 				SessionID:       "session.test",
 				RequestID:       "batch.metadata",
-				Items: []protocol.CommitItem{{
-					ProposalID: "proposal.test",
-					EventID:    "event.metadata-batch",
-					Accepted:   true,
-					Outcome:    "Applied.",
-					Facts:      []protocol.Fact{serverStampedFact},
-				}},
+				Reports:         []protocol.ActionReport{report.Report},
 			})
 		},
 	}
@@ -186,9 +165,10 @@ func TestProposalRequiresUniqueWhitelistedShape(t *testing.T) {
 		RequestID:       "request.test",
 		ActorID:         "npc.test",
 		Intent:          "respond",
-		CandidateActions: []protocol.ActionSpec{
-			{ID: "talk", Kind: "dialogue", Description: "talk"},
-			{ID: "talk", Kind: "wait", Description: "wait"},
+		DecisionWindow:  validWindow(),
+		Offers: []protocol.ActionOffer{
+			validOffer("talk"),
+			validOffer("talk"),
 		},
 	}
 	if err := protocol.ValidatePropose(request); err == nil {
@@ -199,7 +179,7 @@ func TestProposalRequiresUniqueWhitelistedShape(t *testing.T) {
 func TestLivingWorldRequestValidation(t *testing.T) {
 	proposal := protocol.ProposeRequest{
 		ProtocolVersion: protocol.Version, SessionID: "session.test", RequestID: "proposal.test", ActorID: "npc.test",
-		Intent: "choose", CandidateActions: []protocol.ActionSpec{{ID: "wait", Kind: "wait", Description: "wait"}},
+		Intent: "choose", DecisionWindow: validWindow(), Offers: []protocol.ActionOffer{validOffer("wait")},
 		CandidateGoals: []protocol.Goal{{ID: "goal.new", Description: "A bounded goal", Priority: 3, TargetProgress: 2, Status: "active"}},
 	}
 	if err := protocol.ValidatePropose(proposal); err != nil {
@@ -216,11 +196,14 @@ func TestLivingWorldRequestValidation(t *testing.T) {
 	if err := protocol.ValidateSetActorActivity(activity); err == nil {
 		t.Fatal("unknown activity state should fail")
 	}
-	batch := protocol.BatchCommitRequest{
+	batch := protocol.BatchActionReportRequest{
 		ProtocolVersion: protocol.Version, SessionID: "session.test", RequestID: "batch.test",
-		Items: []protocol.CommitItem{{ProposalID: "proposal.one", EventID: "event.one", Accepted: true}},
+		Reports: []protocol.ActionReport{{
+			ProposalID: "proposal.one", EventID: "event.one",
+			Decision: protocol.ActionAccepted, Summary: "Accepted without execution state.",
+		}},
 	}
-	if err := protocol.ValidateBatchCommit(batch); err == nil {
+	if err := protocol.ValidateBatchActionReport(batch); err == nil {
 		t.Fatal("accepted batch item without outcome should fail")
 	}
 }
@@ -237,5 +220,94 @@ func validCreate() protocol.CreateSessionRequest {
 			Boundaries: []protocol.Boundary{{ID: "boundary.test", Description: "A boundary", TriggerTags: []string{"private"}, Response: "refuse"}},
 			Goals:      []protocol.Goal{{ID: "goal.test", Description: "A goal", Priority: 1, TargetProgress: 1, Status: "active"}},
 		}},
+	}
+}
+
+func validEpoch() protocol.Epoch {
+	return protocol.Epoch{
+		SessionID: "session.test",
+		WorldID:   "world.test",
+		Host:      1,
+		World:     1,
+		Timeline:  1,
+	}
+}
+
+func validWindow() protocol.DecisionWindow {
+	return protocol.DecisionWindow{
+		ID:             "window.test",
+		Mode:           host.DecisionSequential,
+		Epoch:          validEpoch(),
+		ObservationSeq: 1,
+		OpenedAt:       protocol.Timepoint{Clock: host.ClockStep, Value: 1},
+		Deadline:       protocol.Timepoint{Clock: host.ClockStep, Value: 10},
+		ActorIDs:       []string{"npc.test"},
+	}
+}
+
+func validOffer(offerID string) protocol.ActionOffer {
+	window := validWindow()
+	return protocol.ActionOffer{
+		OfferID:          offerID,
+		DecisionWindowID: window.ID,
+		ActorID:          "npc.test",
+		Capability:       protocol.CapabilityRef{ID: "rin.test." + offerID, Version: "1.0.0"},
+		DescriptorDigest: strings.Repeat("a", 64),
+		Description:      "A bounded test offer.",
+		Arguments:        json.RawMessage(`{}`),
+		ExpectedEpoch:    window.Epoch,
+		ObservationSeq:   window.ObservationSeq,
+		Deadline:         window.Deadline,
+	}
+}
+
+func validTerminalReport(
+	requestID string,
+	eventID string,
+	facts []protocol.Fact,
+) protocol.ReportActionRequest {
+	offer := validOffer("wait")
+	invocation := protocol.ActionInvocation{
+		OperationID:      "operation.test",
+		OfferID:          offer.OfferID,
+		DecisionWindowID: offer.DecisionWindowID,
+		ActorID:          offer.ActorID,
+		Capability:       offer.Capability,
+		DescriptorDigest: offer.DescriptorDigest,
+		Arguments:        json.RawMessage(`{}`),
+		ExpectedEpoch:    offer.ExpectedEpoch,
+		ObservationSeq:   offer.ObservationSeq,
+		Deadline:         offer.Deadline,
+	}
+	run := protocol.ActionRun{
+		OperationID: invocation.OperationID,
+		Status:      host.ActionSucceeded,
+		ProgressSeq: 1,
+		Progress:    100,
+		UpdatedAt:   protocol.Timepoint{Clock: host.ClockStep, Value: 2},
+	}
+	outcome := protocol.ActionOutcome{
+		OperationID: invocation.OperationID,
+		Status:      host.ActionSucceeded,
+		Summary:     "Applied.",
+		Epoch:       offer.ExpectedEpoch,
+		WorldSeq:    1,
+		OccurredAt:  protocol.Timepoint{Clock: host.ClockStep, Value: 2},
+	}
+	return protocol.ReportActionRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       "session.test",
+		RequestID:       requestID,
+		Tick:            2,
+		Report: protocol.ActionReport{
+			ProposalID: "proposal.test",
+			EventID:    eventID,
+			Decision:   protocol.ActionAccepted,
+			Invocation: &invocation,
+			Run:        &run,
+			Outcome:    &outcome,
+			Summary:    "Applied.",
+			Facts:      facts,
+		},
 	}
 }

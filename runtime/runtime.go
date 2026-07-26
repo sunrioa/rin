@@ -19,14 +19,14 @@ var (
 )
 
 const (
-	EventSessionCreated  = "session.created"
-	EventObserved        = "observation.recorded"
-	EventProposed        = "proposal.created"
-	EventCommitted       = "action.committed"
-	EventBatchCommitted  = "action.batch-committed"
-	EventActivityUpdated = "actor.activity-updated"
-	EventArbitrated      = "world.arbitrated"
-	EventSessionRestored = "session.restored"
+	EventSessionCreated      = "session.created"
+	EventObserved            = "observation.recorded"
+	EventProposed            = "proposal.created"
+	EventActionReported      = "action.reported"
+	EventActionBatchReported = "action.batch-reported"
+	EventActivityUpdated     = "actor.activity-updated"
+	EventArbitrated          = "world.arbitrated"
+	EventSessionRestored     = "session.restored"
 
 	// CheckpointFormatVersion identifies the durable wrapper used only for
 	// runtime replay acceleration. It is intentionally distinct from the public
@@ -200,8 +200,8 @@ type PolicyContext struct {
 }
 
 type ProposalDraft struct {
-	ActionID string
-	Stance   string
+	OfferID string
+	Stance  string
 	// Summary and Rationale are retained for source compatibility with custom
 	// policies, but the engine never publishes them. Player-facing text is
 	// rebuilt from the selected game-authored action and fixed templates.

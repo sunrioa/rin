@@ -73,7 +73,7 @@ func TestHTTPTransferRoundTripsLineageLargerThanInlineSnapshotLimit(t *testing.T
 	}
 	exportRequest, err := http.NewRequest(
 		http.MethodPost,
-		sourceServer.URL+"/v1/session/export",
+		sourceServer.URL+"/v2/session/export",
 		bytes.NewReader(requestBody),
 	)
 	if err != nil {
@@ -131,7 +131,7 @@ func TestHTTPTransferRoundTripsLineageLargerThanInlineSnapshotLimit(t *testing.T
 	}
 	importRequest, err := http.NewRequest(
 		http.MethodPost,
-		targetServer.URL+"/v1/session/import",
+		targetServer.URL+"/v2/session/import",
 		importFile,
 	)
 	if err != nil {
@@ -180,18 +180,13 @@ func TestHTTPTransferRoundTripsLineageLargerThanInlineSnapshotLimit(t *testing.T
 	if replayed.State.HeadHash != event.Hash {
 		t.Fatal("replay did not retain the imported terminal anchor")
 	}
-	resumed, err := targetEngine.Observe(protocol.ObserveRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       sessionID,
-		RequestID:       "observe.after-large-transfer",
-		EventID:         "event.after-large-transfer",
-		Tick:            1,
-		ObserverIDs:     []string{"npc.http"},
-		Source:          "game",
-		Kind:            "resume",
-		Summary:         "The imported Session resumed.",
-		Importance:      1,
-	})
+	resumed, err := targetEngine.Observe(apiObserveRequest(
+		sessionID,
+		"observe.after-large-transfer",
+		"event.after-large-transfer",
+		1,
+		[]string{"npc.http"},
+	))
 	if err != nil {
 		t.Fatal(err)
 	}

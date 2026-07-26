@@ -1,6 +1,6 @@
 {
   "CreateSessionRequest": {
-    "protocol_version": "rin.protocol/v1",
+    "protocol_version": "rin.protocol/v2",
     "request_id": "request.create.example",
     "session_id": "session.example",
     "binding": {
@@ -10,9 +10,6 @@
       "content_hash": "example-content-hash"
     },
     "seed": 0,
-    "features": [
-      "outcome-reporting-v1"
-    ],
     "actors": [
       {
         "id": "actor.mira",
@@ -42,7 +39,7 @@
     ]
   },
   "ObserveRequest": {
-    "protocol_version": "rin.protocol/v1",
+    "protocol_version": "rin.protocol/v2",
     "session_id": "session.example",
     "request_id": "request.observe.example",
     "event_id": "event.arrival",
@@ -54,6 +51,14 @@
     "kind": "arrival",
     "summary": "The player entered the archive.",
     "importance": 2,
+    "epoch": {
+      "session_id": "session.example",
+      "world_id": "world.example",
+      "host": 1,
+      "world": 1,
+      "timeline": 1
+    },
+    "observation_seq": 1,
     "facts": [
       {
         "subject_id": "player.one",
@@ -64,55 +69,101 @@
     ]
   },
   "ProposeRequest": {
-    "protocol_version": "rin.protocol/v1",
+    "protocol_version": "rin.protocol/v2",
     "session_id": "session.example",
     "request_id": "request.propose.example",
     "actor_id": "actor.mira",
     "tick": 0,
     "intent": "Respond to the player's arrival.",
-    "candidate_actions": [
+    "decision_window": {
+      "id": "window.arrival",
+      "mode": "sequential",
+      "epoch": {
+        "session_id": "session.example",
+        "world_id": "world.example",
+        "host": 1,
+        "world": 1,
+        "timeline": 1
+      },
+      "observation_seq": 1,
+      "opened_at": {
+        "clock": "step",
+        "value": 0
+      },
+      "deadline": {
+        "clock": "step",
+        "value": 100
+      },
+      "actor_ids": [
+        "actor.mira"
+      ]
+    },
+    "offers": [
       {
-        "id": "action.greet",
-        "kind": "dialogue",
-        "description": "Greet the player."
+        "offer_id": "offer.greet",
+        "decision_window_id": "window.arrival",
+        "actor_id": "actor.mira",
+        "capability": {
+          "id": "dialogue.say",
+          "version": "1.0.0"
+        },
+        "descriptor_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "description": "Greet the player.",
+        "arguments": {},
+        "expected_epoch": {
+          "session_id": "session.example",
+          "world_id": "world.example",
+          "host": 1,
+          "world": 1,
+          "timeline": 1
+        },
+        "observation_seq": 1,
+        "deadline": {
+          "clock": "step",
+          "value": 100
+        }
       }
     ],
     "urgent": false
   },
-  "CommitRequest": {
-    "protocol_version": "rin.protocol/v1",
+  "ReportActionRequest": {
+    "protocol_version": "rin.protocol/v2",
     "session_id": "session.example",
-    "request_id": "request.commit.example",
-    "proposal_id": "proposal.example",
-    "event_id": "event.commit.example",
+    "request_id": "request.report.example",
     "tick": 0,
-    "accepted": false
+    "report": {
+      "proposal_id": "proposal.example",
+      "event_id": "event.report.example",
+      "decision": "rejected",
+      "summary": "The host rejected the offered action."
+    }
   },
-  "BatchCommitRequest": {
-    "protocol_version": "rin.protocol/v1",
+  "BatchActionReportRequest": {
+    "protocol_version": "rin.protocol/v2",
     "session_id": "session.example",
     "request_id": "request.batch.example",
     "tick": 0,
-    "items": [
+    "reports": [
       {
         "proposal_id": "proposal.one",
-        "event_id": "event.commit.one",
-        "accepted": true,
-        "outcome": "The greeting was shown."
+        "event_id": "event.report.one",
+        "decision": "rejected",
+        "summary": "The host rejected the first action."
       },
       {
         "proposal_id": "proposal.two",
-        "event_id": "event.commit.two",
-        "accepted": false
+        "event_id": "event.report.two",
+        "decision": "rejected",
+        "summary": "The host rejected the second action."
       }
     ]
   },
   "SessionRequest": {
-    "protocol_version": "rin.protocol/v1",
+    "protocol_version": "rin.protocol/v2",
     "session_id": "session.example"
   },
   "RestoreRequest": {
-    "protocol_version": "rin.protocol/v1",
+    "protocol_version": "rin.protocol/v2",
     "session_id": "session.example",
     "request_id": "request.restore.example",
     "expected_binding": {
@@ -122,10 +173,10 @@
       "content_hash": "example-content-hash"
     },
     "snapshot": {
-      "protocol_version": "rin.protocol/v1",
+      "protocol_version": "rin.protocol/v2",
       "state_hash": "1111111111111111111111111111111111111111111111111111111111111111",
       "state": {
-        "protocol_version": "rin.protocol/v1",
+        "protocol_version": "rin.protocol/v2",
         "session_id": "session.example",
         "binding": {
           "game_id": "game.example",
@@ -158,7 +209,7 @@
     }
   },
   "GenerationRequest": {
-    "protocol_version": "rin.protocol/v1",
+    "protocol_version": "rin.protocol/v2",
     "request_id": "request.generate.example",
     "kind": "scene",
     "context_hash": "2222222222222222222222222222222222222222222222222222222222222222",
@@ -176,12 +227,12 @@
     "ok": false,
     "error": {
       "code": "invalid_request",
-      "message": "accepted is required",
-      "field": "accepted"
+      "message": "decision is required",
+      "field": "report.decision"
     }
   },
   "ProposalJob": {
-    "protocol_version": "rin.protocol/v1",
+    "protocol_version": "rin.protocol/v2",
     "job_id": "job.proposal.example",
     "session_id": "session.example",
     "request_id": "request.propose.example",

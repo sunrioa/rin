@@ -7,7 +7,7 @@ This is a runnable Godot 4.7.1 project and a source-first integration kit:
 - `rin_client.gd` owns bounded asynchronous HTTP and Proposal Job transport;
 - `rin_workflow.gd` owns stable save-slot identity, Pending Turn recovery,
   freshness, per-slot concurrency, shutdown cancellation, and Outcome Outbox;
-- `example_npc.gd` is a 225-line game-owned policy and UI example.
+- `example_npc.gd` is a sub-250-line game-owned policy and UI example.
 
 Open this directory in Godot 4.7.1, start Rin on
 `http://127.0.0.1:7374`, run the scene, then call
@@ -20,8 +20,9 @@ The default slot is stored as bounded JSON under
 sequence, logical tick high-water, complete Pending Turn/Observe, Job ID, and
 up to 64 Outcome entries survive scene and process restarts. The coordinator
 persists the turn before the first request and the Job ID before polling.
-Terminal Commit errors are persisted as safe Observe fallbacks before retry,
-and an ACK is persisted before eviction.
+Reports remain exact while retrying, and an ACK is persisted before eviction.
+An unresolved Proposal fails closed and never causes the adapter to invent or
+execute an offline action.
 
 **Host durability profile: `advisory`.** After `FileAccess.flush()`, a
 same-directory target/backup rename protocol makes interrupted replacement
@@ -45,8 +46,8 @@ python3 tools/verify_godot.py --godot /path/to/Godot
 ```
 
 CI downloads the official Godot 4.7.1 binaries, verifies their SHA-512 hashes,
-then parses every script and runs restart, retained-Job, Outbox conversion,
-ACK, malformed-state, and write-failure tests on Linux and Windows.
+then parses every script and runs restart, retained-Job, exact-Outbox, ACK,
+malformed-state, and write-failure tests on Linux and Windows.
 
 References:
 

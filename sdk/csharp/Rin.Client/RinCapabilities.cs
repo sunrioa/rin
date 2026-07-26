@@ -14,13 +14,11 @@ public static class RinFeatures
     public const string GoalCandidates = "goal-candidates-v1";
     public const string ActorActivity = "actor-activity-v1";
     public const string Arbitration = "arbitration-v1";
-    public const string OutcomeReporting = "outcome-reporting-v1";
-
     public static IReadOnlyList<string> SafeBaselinePreset { get; } =
-        Array.AsReadOnly(new[] { OutcomeReporting });
+        Array.Empty<string>();
 
     public static IReadOnlyList<string> AuthoritativePreset { get; } =
-        SafeBaselinePreset;
+        Array.Empty<string>();
 
     public static IReadOnlyList<string> FullPreset { get; } = Array.AsReadOnly(new[]
     {
@@ -29,7 +27,6 @@ public static class RinFeatures
         GoalCandidates,
         ActorActivity,
         Arbitration,
-        OutcomeReporting,
     });
 }
 
@@ -78,11 +75,6 @@ public sealed record RinCapabilities(
                 }
                 recommendedFeatures.Add(value!);
             }
-            if (recommendedFeatures.Count == 0)
-            {
-                throw new InvalidOperationException();
-            }
-
             return new RinCapabilities(
                 protocolVersion,
                 RequiredString(health, "release_version"),
