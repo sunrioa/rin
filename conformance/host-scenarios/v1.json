@@ -7,7 +7,8 @@
       "requirement": "An offer or invocation from a replaced Host, World, or Timeline epoch cannot execute.",
       "evidence": [
         "sdk/hostkit/coordinator_test.go",
-        "examples/native-host/tests/test_rin_host.c"
+        "examples/native-host/tests/test_rin_host.c",
+        "examples/mods/fabric-rin-npc/src/test/java/io/github/sunrioa/rin/example/RinFabricStateTest.java"
       ]
     },
     {

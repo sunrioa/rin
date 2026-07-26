@@ -12,6 +12,19 @@ import (
 
 const fabricTemplateRoot = "fabric-rin-npc"
 
+type fabricModDocument struct {
+	SchemaVersion int                 `json:"schemaVersion"`
+	ID            string              `json:"id"`
+	Version       string              `json:"version"`
+	Name          string              `json:"name"`
+	Description   string              `json:"description,omitempty"`
+	Authors       []string            `json:"authors,omitempty"`
+	License       string              `json:"license,omitempty"`
+	Environment   string              `json:"environment"`
+	Entrypoints   map[string][]string `json:"entrypoints"`
+	Depends       map[string]string   `json:"depends,omitempty"`
+}
+
 func renderFabric(options normalizedOptions) ([]renderedFile, error) {
 	names, err := sortedEmbeddedFiles(modtemplates.FS, fabricTemplateRoot)
 	if err != nil {
@@ -62,12 +75,16 @@ func renderFabric(options normalizedOptions) ([]renderedFile, error) {
 func remapFabricPackagePath(relative, javaPackage string) string {
 	const mainPrefix = "src/main/java/io/github/sunrioa/rin/example/"
 	const testPrefix = "src/test/java/io/github/sunrioa/rin/example/"
+	const gameTestPrefix = "src/gametest/java/io/github/sunrioa/rin/example/"
 	packagePath := strings.ReplaceAll(javaPackage, ".", "/") + "/"
 	switch {
 	case strings.HasPrefix(relative, mainPrefix):
 		return "src/main/java/" + packagePath + strings.TrimPrefix(relative, mainPrefix)
 	case strings.HasPrefix(relative, testPrefix):
 		return "src/test/java/" + packagePath + strings.TrimPrefix(relative, testPrefix)
+	case strings.HasPrefix(relative, gameTestPrefix):
+		return "src/gametest/java/" + packagePath +
+			strings.TrimPrefix(relative, gameTestPrefix)
 	default:
 		return relative
 	}
@@ -80,6 +97,9 @@ func renderFabricFile(
 ) ([]byte, error) {
 	if relative == "src/main/resources/fabric.mod.json" {
 		return renderFabricModJSON(payload, options)
+	}
+	if relative == "src/gametest/resources/fabric.mod.json" {
+		return renderFabricGameTestModJSON(payload, options)
 	}
 	if relative == "gradlew.bat" || strings.HasSuffix(relative, ".jar") {
 		return payload, nil
@@ -112,6 +132,9 @@ func renderFabricFile(
 		}
 		text = strings.ReplaceAll(
 			text, "io.github.sunrioa.rin.example", options.JavaPackage)
+		text = strings.ReplaceAll(
+			text, `modId = "rin_npc_example_test"`,
+			"modId = "+javaString(options.ID+"_test"))
 	case "gradle.properties":
 		text, err = replaceRequired(
 			text, "mod_version=0.7.0", "mod_version="+options.Version, relative)
@@ -153,33 +176,54 @@ func renderFabricFile(
 	return []byte(text), nil
 }
 
+func renderFabricGameTestModJSON(
+	payload []byte,
+	options normalizedOptions,
+) ([]byte, error) {
+	var document fabricModDocument
+	if err := json.Unmarshal(payload, &document); err != nil {
+		return nil, fmt.Errorf("decode Fabric GameTest metadata: %w", err)
+	}
+	if document.SchemaVersion != 1 || document.Entrypoints == nil {
+		return nil, fmt.Errorf("Fabric GameTest metadata has invalid entrypoints")
+	}
+	document.ID = options.ID + "_test"
+	document.Name = options.Name + " Game Tests"
+	document.Entrypoints["fabric-gametest"] = []string{
+		options.JavaPackage + ".FabricAuthorityGameTest",
+	}
+	rendered, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("encode Fabric GameTest metadata: %w", err)
+	}
+	return append(rendered, '\n'), nil
+}
+
 func renderFabricModJSON(payload []byte, options normalizedOptions) ([]byte, error) {
-	var document map[string]any
+	var document fabricModDocument
 	if err := json.Unmarshal(payload, &document); err != nil {
 		return nil, fmt.Errorf("decode Fabric metadata template: %w", err)
 	}
-	document["id"] = options.ID
-	document["version"] = options.Version
-	document["name"] = options.Name
-	if options.Author == "" {
-		document["authors"] = []string{}
-	} else {
-		document["authors"] = []string{options.Author}
+	if document.SchemaVersion != 1 ||
+		document.Entrypoints == nil ||
+		document.Depends == nil {
+		return nil, fmt.Errorf("Fabric metadata template has invalid structure")
 	}
-	document["description"] = "Server-side Rin integration scaffold for " + options.Name + "."
+	document.ID = options.ID
+	document.Version = options.Version
+	document.Name = options.Name
+	document.Description = "Logical-server Rin integration scaffold for " +
+		options.Name + "."
+	if options.Author == "" {
+		document.Authors = nil
+	} else {
+		document.Authors = []string{options.Author}
+	}
 	// The source template is MIT-licensed Rin code, but Fabric's metadata field
 	// describes the generated Mod as a whole. Leave it absent until the author
 	// deliberately chooses a license for their original work.
-	delete(document, "license")
-	entrypoints, ok := document["entrypoints"].(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("Fabric metadata template has invalid entrypoints")
-	}
-	entrypoints["main"] = []string{options.JavaPackage + ".RinNpcMod"}
-	depends, ok := document["depends"].(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("Fabric metadata template has invalid dependencies")
-	}
+	document.License = ""
+	document.Entrypoints["main"] = []string{options.JavaPackage + ".RinNpcMod"}
 	fabricAPIVersion, err := runtimePinVersion(options.HostDescriptor, "fabric-api")
 	if err != nil {
 		return nil, err
@@ -187,7 +231,7 @@ func renderFabricModJSON(payload []byte, options normalizedOptions) ([]byte, err
 	// A standalone version predicate is an exact Fabric Loader match. Minecraft
 	// remains constrained separately because Fabric ignores SemVer build metadata
 	// (the "+1.21.1" suffix) during dependency comparison.
-	depends["fabric-api"] = fabricAPIVersion
+	document.Depends["fabric-api"] = fabricAPIVersion
 	rendered, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("encode Fabric metadata: %w", err)

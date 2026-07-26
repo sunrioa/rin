@@ -164,8 +164,10 @@ Set-Location guide_npc
 
 Fabric 模板固定 Minecraft `1.21.1`、Fabric Loader `0.16.14`、Fabric API
 `0.116.14+1.21.1`、Loom `1.11.8`、Gradle `8.14.3` 与 Java 21。它会
-Vendor Rin Java SDK 并构建 Server-side Mod。不要在没有重新执行构建与真实
-Server Gate 的情况下，静默替换这一已测试组合中的某个成员。
+Vendor Rin Java SDK，并构建同时支持 Integrated/Dedicated Logical Server 的
+Common Mod；Build 包含官方 Dedicated Server GameTest 和 Saved Data 往返。
+不要在没有重新执行构建与真实 Server Gate 的情况下，静默替换这一已测试组合中的
+某个成员。
 Gradle 许可与 Notice 只适用于脚手架分发的 Wrapper，不替生成的 Mod 授权。
 
 ### BepInEx Mono

@@ -19,6 +19,7 @@ const Version = protocol.ContractReleaseVersion
 //go:embed java/src/main/java/io/github/sunrioa/rin/HostDurability.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/HostDurabilityProfile.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/JsonCodec.java
+//go:embed java/src/main/java/io/github/sunrioa/rin/JsonValues.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/OutcomeOutboxEntry.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/PendingTurn.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/ProposalFreshness.java

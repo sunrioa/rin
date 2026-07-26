@@ -68,6 +68,8 @@ unchecked item is not a supported feature.
   Game Thread authorization, and Behavior Tree long-action reporting
 - [x] Rollback-aware Ren'Py Epoch high-water marks, load/rollback Timeline
   forks, and old-worker invalidation
+- [x] Fabric integrated/dedicated logical-server authority, lifecycle Epochs,
+  stale-work rejection, and official dedicated-server GameTest
 - [x] Permanent request/Event ID history and fail-closed uncertain-append reconciliation
 - [x] Trusted Restore Binding, Snapshot size limits, and explicit checksum trust boundary
 - [x] Lazy Session recovery, range reads, derived checkpoints, and full-history maintenance audit

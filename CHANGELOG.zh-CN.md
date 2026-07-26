@@ -76,6 +76,10 @@
 - Rollback-aware Ren'Py Host Epoch Coordinator。Save Data 只保存普通 Epoch，
   Persistent Data 保存有界单调高水位；Load/Rollback 会 Fork Timeline，进程内
   Proposal Worker 会失效，迟到结果不能恢复旧分支。
+- Integrated 与 Dedicated Server 共用的 Fabric Logical Server Runtime。真实
+  Lifecycle Event 会绑定新的 Host/Timeline Generation，精确 Epoch 校验拒绝旧
+  Server 工作，Shutdown 会关闭 Authority Dispatch，Build 会运行官方 Dedicated
+  Server GameTest。
 - [`api/openapi.json`](api/openapi.json) 中的 OpenAPI 3.1 Wire Schema 与
   [兼容矩阵](docs/compatibility.zh-CN.md)。
 - 有界 frame 的 NDJSON Session Transfer：immutable export boundary、逐 event

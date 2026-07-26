@@ -54,9 +54,15 @@ final class WorkflowCoordinatorTest {
         request.put("session_id", "session.workflow");
         request.put("request_id", "request.workflow");
         request.put("actor_id", "actor.workflow");
+        request.put("tick", 7L);
         request.put("intent", "Talk");
-        request.put("decision_window", Map.of("id", "window.workflow"));
-        request.put("offers", List.of(Map.of("offer_id", "offer.talk")));
+        Map<String, Object> decisionWindow = Map.of("id", "window.workflow");
+        Map<String, Object> offeredAction = Map.of(
+                "offer_id", "offer.talk",
+                "descriptor_digest", "a".repeat(64),
+                "arguments", Map.of("line", "hello"));
+        request.put("decision_window", decisionWindow);
+        request.put("offers", List.of(offeredAction));
         PendingTurn pendingTurn = workflow.begin("operation.workflow", request).join();
         request.put("intent", "mutated after persistence");
         require(
@@ -68,7 +74,11 @@ final class WorkflowCoordinatorTest {
                 "session_id", "session.workflow",
                 "request_id", "request.workflow",
                 "actor_id", "actor.workflow",
-                "tick", 7L);
+                "tick", 7L,
+                "decision_window", decisionWindow,
+                "action", offeredAction);
+        WorkflowCoordinator.requireResolvedProposalMatches(pendingTurn, proposal);
+        verifyResolvedProposalBinding(pendingTurn, proposal);
         Map<String, Object> report = reportRequest(
                 "report.workflow",
                 "proposal.workflow",
@@ -92,13 +102,12 @@ final class WorkflowCoordinatorTest {
 
         request.put("request_id", "request.failed");
         PendingTurn failedTurn = workflow.begin("operation.failed", request).join();
+        Map<String, Object> failedProposal = new LinkedHashMap<>(proposal);
+        failedProposal.put("request_id", "request.failed");
         try {
             workflow.applyAndEnqueueOutcome(
                     failedTurn,
-                    Map.of(
-                            "id", "proposal.workflow",
-                            "session_id", "session.workflow",
-                            "request_id", "request.failed"),
+                    failedProposal,
                     reportRequest(
                             "report.failed",
                             "proposal.workflow",
@@ -173,6 +182,63 @@ final class WorkflowCoordinatorTest {
 
         verifyEvictedJobRecovery(request);
         verifyReportRetry();
+    }
+
+    private static void verifyResolvedProposalBinding(
+            PendingTurn pendingTurn,
+            Map<String, Object> proposal) {
+        Map<String, Object> numericEquivalent = new LinkedHashMap<>(proposal);
+        numericEquivalent.put("tick", 7);
+        WorkflowCoordinator.requireResolvedProposalMatches(
+                pendingTurn,
+                numericEquivalent);
+
+        Map<String, Object> changedActor = new LinkedHashMap<>(proposal);
+        changedActor.put("actor_id", "actor.other");
+        expectInvalidResolved(pendingTurn, changedActor, "changed actor");
+
+        Map<String, Object> changedTick = new LinkedHashMap<>(proposal);
+        changedTick.put("tick", 8L);
+        expectInvalidResolved(pendingTurn, changedTick, "changed tick");
+
+        Map<String, Object> changedWindow = new LinkedHashMap<>(proposal);
+        changedWindow.put("decision_window", Map.of("id", "window.other"));
+        expectInvalidResolved(pendingTurn, changedWindow, "changed decision window");
+
+        Map<String, Object> changedDescriptor = new LinkedHashMap<>(proposal);
+        changedDescriptor.put("action", Map.of(
+                "offer_id", "offer.talk",
+                "descriptor_digest", "b".repeat(64),
+                "arguments", Map.of("line", "hello")));
+        expectInvalidResolved(pendingTurn, changedDescriptor, "changed descriptor");
+
+        Map<String, Object> changedArguments = new LinkedHashMap<>(proposal);
+        changedArguments.put("action", Map.of(
+                "offer_id", "offer.talk",
+                "descriptor_digest", "a".repeat(64),
+                "arguments", Map.of("line", "injected")));
+        expectInvalidResolved(pendingTurn, changedArguments, "changed arguments");
+
+        Map<String, Object> unoffered = new LinkedHashMap<>(proposal);
+        unoffered.put("action", Map.of(
+                "offer_id", "offer.shell",
+                "descriptor_digest", "a".repeat(64),
+                "arguments", Map.of()));
+        expectInvalidResolved(pendingTurn, unoffered, "unoffered action");
+    }
+
+    private static void expectInvalidResolved(
+            PendingTurn pendingTurn,
+            Map<String, Object> proposal,
+            String mutation) {
+        try {
+            WorkflowCoordinator.requireResolvedProposalMatches(pendingTurn, proposal);
+            throw new AssertionError(mutation + " was accepted");
+        } catch (RinProtocolException expected) {
+            require(
+                    expected.code().equals("invalid_job"),
+                    mutation + " returned the wrong error");
+        }
     }
 
     private static void verifyReportRetry() throws Exception {
@@ -293,7 +359,14 @@ final class WorkflowCoordinatorTest {
                                                 "session_id", "session.workflow",
                                                 "request_id", "request.recovery",
                                                 "actor_id", "actor.workflow",
-                                                "tick", 9L)));
+                                                "tick", 7L,
+                                                "decision_window",
+                                                Map.of("id", "window.workflow"),
+                                                "action", Map.of(
+                                                        "offer_id", "offer.talk",
+                                                        "descriptor_digest", "a".repeat(64),
+                                                        "arguments",
+                                                        Map.of("line", "hello")))));
                     }
                     return Map.of(
                             "ok", false,

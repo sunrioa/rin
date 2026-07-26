@@ -192,9 +192,11 @@ Set-Location guide_npc
 
 The Fabric template pins Minecraft `1.21.1`, Fabric Loader `0.16.14`, Fabric
 API `0.116.14+1.21.1`, Loom `1.11.8`, Gradle `8.14.3`, and Java 21. It vendors
-the Rin Java SDK and builds a server-side Mod. The Gradle license and notice
-files apply to the redistributed Wrapper, not to the generated Mod. Do not silently change one
-member of this tested set without repeating the build and real-server gates.
+the Rin Java SDK and builds a common Mod for integrated and dedicated logical
+servers. Its build includes an official dedicated-server GameTest and Saved
+Data round trip. The Gradle license and notice files apply to the redistributed
+Wrapper, not to the generated Mod. Do not silently change one member of this
+tested set without repeating the build and real-server gates.
 
 ### BepInEx Mono
 

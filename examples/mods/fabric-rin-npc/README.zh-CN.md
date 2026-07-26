@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-这是一个可直接构建的服务端参考项目，固定并共同测试 Minecraft `1.21.1`、
+这是一个可直接构建的逻辑服务端参考项目，固定并共同测试 Minecraft `1.21.1`、
 Fabric Loader `0.16.14`、Fabric API `0.116.14+1.21.1`、Loom `1.11.8`、
 Gradle `8.14.3` 与 Java 21。这不表示源码无需修改就能兼容未来所有 Minecraft
 版本。
@@ -22,9 +22,9 @@ gradlew.bat clean build
 ```
 
 把 `build/libs/rin-fabric-npc-0.7.0.jar` 和匹配版本的 Fabric API JAR 放入
-专用服务器的 `mods` 目录。启动 Rin，并按需在服务器进程环境中设置
-`RIN_URL`、`RIN_TOKEN`，然后由玩家执行 `/rin-npc ask`。Mod JAR 已包含 Rin
-Java Client 类，不要再安装第二份 SDK JAR。
+专用服务器的 `mods` 目录；单人/LAN 则放入客户端 `mods` 目录。启动 Rin，并按需
+在拥有逻辑服务端的进程环境中设置 `RIN_URL`、`RIN_TOKEN`，然后由玩家执行
+`/rin-npc ask`。Mod JAR 已包含 Rin Java Client 类，不要再安装第二份 SDK JAR。
 
 ## 安全与恢复模型
 
@@ -43,19 +43,35 @@ Observation。
 事务边界。
 
 结算前 Mod 会重新读取 Rin Session State，Java SDK 会校验 Proposal 仍在预期
-Revision 上处于 Pending。State 缺失、过期、畸形或不可用都会 Fail Closed。
+Revision 上处于 Pending，并要求 Actor、Tick、Decision Window 与完整 Action
+逐字段匹配宿主持久化的 Request/Offer；只复用 Offer ID 或篡改参数、Descriptor
+Digest 都会 Fail Closed。State 缺失、过期、畸形或不可用同样会被拒绝。
 游戏只使用本地白名单 Action ID；模型文本不会成为命令、Item ID、反射目标或
-世界修改。Minecraft API 和 Saved Data 访问都通过 `MinecraftServer.execute`
-切回服务器线程。
+世界修改。Minecraft API 和 Saved Data 只能在逻辑服务端所属线程访问。Fabric
+会在物理客户端和 Dedicated Server 进程中加载同一个 Common Initializer；逻辑
+客户端不拥有游戏执行权。
 
-宿主编排入口现为少于 160 行（原为 1,046 行）。Authored Protocol Payload、
-Saved Data、`WorkflowStore` 和服务器线程调度分别位于有上限的独立类中，
+`SERVER_STARTED` 为每个 `MinecraftServer` 绑定独立 Runtime，记录 Integrated
+或 Dedicated Authority，生成新的 JSON-safe Host Generation，提升存档中的
+Timeline，并把稳定 World UUID 写入每个 Epoch。调度、恢复和最终应用都会精确
+比较所选 Action 的 Epoch。`SERVER_STOPPING` 会关闭 Runtime，迟到网络 Callback
+不能再排入游戏任务。
+
+宿主编排入口现为少于 220 行（原为 1,046 行）。Authored Protocol Payload、
+NPC Action、Saved Data、`WorkflowStore`、Epoch 和 Server Lifecycle Dispatch
+分别位于有上限的独立类中，
 Mod 作者可以单独审查或替换每个边界，无需复制 SDK 状态机。
 
 存档上限为 256 个 Session、每个 Session 32 条报告、总 JSON 2,000,000 字符。
 达到上限时 Mod 会停止新工作，不会静默丢弃恢复数据。升级 Preview 示例前请
 备份世界，并确保 Mod 与 Sidecar 来自同一个 Rin Revision。
 
+`./gradlew clean build` 会运行 Saved Data 往返测试，并通过官方 Fabric GameTest
+启动真实 Minecraft Dedicated Server、检查所属线程 Dispatch。同一套测试还覆盖
+两种 Authority Kind 和旧 Epoch 拒绝。每个目标 OS 仍应执行一次打包客户端
+Quick-play Smoke，证明 Integrated Server 路径。
+
 参考：[Fabric 示例 Mod](https://github.com/FabricMC/fabric-example-mod)、
 [项目结构](https://docs.fabricmc.net/develop/getting-started/project-structure)、
+[自动化测试](https://docs.fabricmc.net/develop/automatic-testing)、
 [Saved Data](https://docs.fabricmc.net/develop/serialization/saved-data)。

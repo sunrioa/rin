@@ -83,6 +83,10 @@ JavaScript/TypeScript 与 C# SDK 保留底层的
 持久化 Helper；JavaScript/TypeScript、C# 与 Java 还提供更高层的
 `WorkflowCoordinator`，在应用动作前校验声明的宿主持久 Profile。它们只定义
 存储契约，不提供容易误用于生产的内存默认实现。
+Java Coordinator 还会把返回 Proposal 的 Actor、Tick、Decision Window 和完整
+Action 按 JSON 语义匹配到持久化 Request 的原始 Offer，不能只凭 Offer ID
+授权。数值经过 Codec 后即使 Java Number 类型不同，等值 JSON 数字仍按同一值
+比较。
 Transactional Settlement Hook 必须原子应用游戏效果、持久化 Applied Marker
 与完整 Action Report，并删除 Pending Turn。幂等宿主会先收到稳定 Operation ID，再由
 Store 完成 Report 事务。Outbox Drain 只确认普通成功或 Rin 明确返回的
@@ -135,10 +139,12 @@ Header。要从 Luanti 支持经过鉴权的远程 Rin，应先使用更严格�
 
 ## 示例 Mod
 
-Fabric 参考是固定 Minecraft 1.21.1 与 Java 21 的完整 Gradle 项目；其 JAR
-内含源码优先的 Java SDK，通过 Saved Data 保存稳定世界/Session 身份和有上限
-的流程状态，并用 `MinecraftServer.execute` 调度宿主工作。由于
-`markDirty()` 是最终存盘而非持久事务边界，它仍保持 `advisory`。
+Fabric 参考是固定 Minecraft 1.21.1 与 Java 21 的完整 Gradle 项目；Common
+Initializer 同时支持 Integrated 与 Dedicated Logical Server。其 JAR 内含源码
+优先的 Java SDK，通过 Saved Data 保存稳定世界/Session 身份和有上限的流程状态，
+在 `SERVER_STARTED` 绑定新的 Host Generation，并把游戏工作限制在 Server
+所属线程。Build 会运行官方 Dedicated Server GameTest。由于 `markDirty()` 是
+最终存盘而非持久事务边界，它仍保持 `advisory`。
 
 BepInEx 参考固定上游尚未正式发布的 Bleeding-edge BepInEx 6
 `6.0.0-be.785`，并把 Unity Mono

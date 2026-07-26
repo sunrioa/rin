@@ -29,8 +29,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import static net.minecraft.server.command.CommandManager.literal;
 
 public final class RinNpcMod implements ModInitializer {
-    private static final Set<String> ALLOWED_OFFERS =
-            Set.of("offer.talk", "offer.wait", "offer.refuse");
     private static final HostDurability DURABILITY =
             HostDurability.advisory(true);
 
@@ -44,6 +42,7 @@ public final class RinNpcMod implements ModInitializer {
 
     @Override
     public void onInitialize() {
+        FabricHostRuntime.install();
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
                 dispatcher.register(literal("rin-npc")
                         .then(literal("ask").executes(context -> {
@@ -67,12 +66,20 @@ public final class RinNpcMod implements ModInitializer {
         }
 
         MinecraftServer server = source.getServer();
-        RinFabricState state = RinFabricState.get(server);
+        FabricHostRuntime host;
+        try {
+            host = FabricHostRuntime.current(server);
+        } catch (IllegalStateException unavailable) {
+            activePlayers.remove(playerId);
+            source.sendError(Text.literal("The Rin Host is not accepting work."));
+            return;
+        }
+        RinFabricState state = host.state();
         String sessionId = "fabric." + state.worldId + "." + playerId;
-        RinFabricState.SessionState session = state.session(
+        FabricSessionState session = state.session(
                 sessionId,
                 RinNpcRequests.create(sessionId, player.getName().getString()));
-        FabricWorkflowStore store = new FabricWorkflowStore(server, state, session);
+        FabricWorkflowStore store = new FabricWorkflowStore(host, state, session);
         WorkflowCoordinator workflow = new WorkflowCoordinator(rin, store, DURABILITY);
 
         source.sendFeedback(
@@ -80,14 +87,15 @@ public final class RinNpcMod implements ModInitializer {
                 false);
         ensureSession(session)
                 .thenCompose(ignored -> workflow.drainOutbox())
-                .thenCompose(ignored -> preparePendingTurn(server, state, session, sessionId))
+                .thenCompose(ignored -> preparePendingTurn(
+                        server, host, state, session, sessionId))
                 .thenCompose(prepared -> rin.observe(prepared.observe)
                         .thenCompose(ignored -> workflow.resumePendingWork()))
-                .thenCompose(resolved -> settle(server, playerId, sessionId, workflow, resolved))
+                .thenCompose(resolved -> settle(
+                        server, host, playerId, sessionId, workflow, resolved))
                 .thenCompose(ignored -> workflow.drainOutbox())
-                .thenRun(() -> FabricServerTasks.send(
-                        server, playerId, "Rin outcome acknowledged."))
-                .exceptionallyCompose(failure -> FabricServerTasks.call(server, () -> {
+                .thenRun(() -> host.send(playerId, "Rin outcome acknowledged."))
+                .exceptionallyCompose(failure -> host.call(() -> {
                     Throwable cause = unwrap(failure);
                     boolean retained =
                             session.pendingTurn != null || !session.outcomes.isEmpty();
@@ -105,22 +113,25 @@ public final class RinNpcMod implements ModInitializer {
 
     private CompletableFuture<PreparedTurn> preparePendingTurn(
             MinecraftServer server,
+            FabricHostRuntime host,
             RinFabricState state,
-            RinFabricState.SessionState session,
+            FabricSessionState session,
             String sessionId) {
-        return FabricServerTasks.call(server, () -> {
+        return host.call(() -> {
             if (session.pendingTurn == null) {
                 long turn = state.nextSequence();
                 String operationId = state.worldId + "." + turn;
                 long observedTick = server.getTicks();
                 session.pendingObserve =
-                        RinNpcRequests.observe(sessionId, operationId, observedTick);
+                        RinNpcRequests.observe(
+                                sessionId, operationId, observedTick, host.epoch());
                 session.pendingTurn = PendingTurn.create(
                         operationId,
                         RinNpcRequests.proposal(
                                 sessionId,
                                 operationId,
-                                Math.incrementExact(observedTick)));
+                                Math.incrementExact(observedTick),
+                                host.epoch()));
                 state.markDirty();
             }
             return new PreparedTurn(session.pendingTurn, session.pendingObserve);
@@ -129,6 +140,7 @@ public final class RinNpcMod implements ModInitializer {
 
     private CompletableFuture<Void> settle(
             MinecraftServer server,
+            FabricHostRuntime host,
             UUID playerId,
             String sessionId,
             WorkflowCoordinator workflow,
@@ -140,77 +152,28 @@ public final class RinNpcMod implements ModInitializer {
                 .handle((sessionState, stateFailure) -> stateFailure == null
                         ? ProposalFreshness.evaluate(sessionState, proposal)
                         : ProposalFreshness.Decision.STALE)
-                .thenCompose(freshness -> planOnServer(server, playerId, proposal, freshness))
+                .thenCompose(freshness -> FabricNpcActions.plan(
+                        host, playerId, sessionId, proposal, freshness))
                 .thenCompose(plan -> {
                     PendingTurn pending = resolved.pendingTurn();
                     Map<String, Object> report = RinNpcRequests.report(
                             server,
                             pending,
                             proposal,
-                            plan.accepted,
-                            plan.outcome);
+                            plan.accepted(),
+                            plan.outcome(),
+                            host.epoch());
                     return workflow.applyAndEnqueueOutcome(
                             pending,
                             proposal,
                             report,
                             HostDurabilityProfile.ADVISORY,
-                            ignored -> applyOnServer(server, playerId, plan));
+                            ignored -> FabricNpcActions.apply(host, playerId, plan));
                 });
     }
 
-    private CompletableFuture<ActionPlan> planOnServer(
-            MinecraftServer server,
-            UUID playerId,
-            Map<String, Object> proposal,
-            ProposalFreshness.Decision freshness) {
-        return FabricServerTasks.call(server, () -> {
-            if (freshness != ProposalFreshness.Decision.FRESH) {
-                return new ActionPlan(
-                        false,
-                        "The game rejected a stale or unverifiable proposal.",
-                        "");
-            }
-            if (server.getPlayerManager().getPlayer(playerId) == null) {
-                return new ActionPlan(
-                        false,
-                        "The player left before the proposal could be applied.",
-                        "");
-            }
-            String actionId = text(object(proposal.get("action")).get("offer_id"));
-            if (!ALLOWED_OFFERS.contains(actionId)) {
-                return new ActionPlan(
-                        false,
-                        "The game rejected an action outside its allowlist.",
-                        "");
-            }
-            String line = switch (actionId) {
-                case "offer.talk" -> "Guide: Check the nearby terrain, then choose a route with cover.";
-                case "offer.wait" -> "Guide: Let us watch one more cycle before acting.";
-                case "offer.refuse" -> "Guide: I cannot help with actions that break server rules.";
-                default -> throw new IllegalStateException("Action allowlist changed");
-            };
-            return new ActionPlan(true, line, line);
-        });
-    }
-
-    private CompletableFuture<Void> applyOnServer(
-            MinecraftServer server,
-            UUID playerId,
-            ActionPlan plan) {
-        return FabricServerTasks.call(server, () -> {
-            if (!plan.playerMessage.isEmpty()) {
-                ServerPlayerEntity player =
-                        server.getPlayerManager().getPlayer(playerId);
-                if (player != null) {
-                    player.sendMessage(Text.literal(plan.playerMessage), false);
-                }
-            }
-            return null;
-        });
-    }
-
     private CompletableFuture<Void> ensureSession(
-            RinFabricState.SessionState session) {
+            FabricSessionState session) {
         return rin.createSession(session.createRequest).thenApply(ignored -> null);
     }
 
@@ -234,18 +197,6 @@ public final class RinNpcMod implements ModInitializer {
         return current;
     }
 
-    @SuppressWarnings("unchecked")
-    private static Map<String, Object> object(Object value) {
-        return value instanceof Map<?, ?> map
-                ? (Map<String, Object>) map
-                : Map.of();
-    }
-
-    private static String text(Object value) {
-        return value instanceof String string ? string : "";
-    }
-    private record ActionPlan(
-            boolean accepted, String outcome, String playerMessage) { }
     private record PreparedTurn(
             PendingTurn pending, Map<String, Object> observe) { }
 }

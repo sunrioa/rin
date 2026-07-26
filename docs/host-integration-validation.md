@@ -11,7 +11,7 @@ evidence, the engine and Mod examples remain `advisory`.
 
 | Integration | Automated evidence | Not yet proved |
 | --- | --- | --- |
-| Fabric | Real Mod JAR build and NBT recovery-state round trip | Load and recovery in an actual Minecraft Dedicated Server |
+| Fabric | Real Mod JAR/NBT round trip, official dedicated-server GameTest, and authority matrix | Live Sidecar recovery, multiplayer, forced-stop, and packaged-client integrated-server smoke |
 | BepInEx Mono/IL2CPP | Real BepInEx package compilation and Core restart tests | Plugin load, game hooks, save identity, and shutdown in representative games |
 | Luanti | Lua 5.1/5.4 workflow tests with a ModStorage-faithful harness | A real Luanti headless server, world saves, and concurrent players |
 | Godot | Official Godot 4 headless parse and restart tests | Live Sidecar traffic in an editor session and exported build |
@@ -48,6 +48,10 @@ unresolved work remains recoverable, and the Outcome Outbox eventually drains.
 
 ### Fabric
 
+- The official GameTest starts a real Minecraft Dedicated Server and checks
+  lifecycle binding plus server-thread dispatch. Unit tests cover integrated
+  and dedicated classification, persisted generations, and stale Epoch
+  rejection; metadata must remain `environment: "*"`.
 - Install the built JAR in the pinned Minecraft `1.21.1` Fabric Dedicated
   Server and verify startup, command/event hooks, and server-thread access.
 - Exercise two different worlds, reopen the same world, use `save-all flush`,
@@ -55,7 +59,8 @@ unresolved work remains recoverable, and the Outcome Outbox eventually drains.
 - Confirm the save/world identity is not shared across worlds and recovery
   state follows the authoritative world save. Run on Windows as well as Linux.
 - Add Fabric GameTests for deterministic gameplay behavior; retain a real
-  server smoke test for lifecycle and packaging.
+  server smoke test for lifecycle and packaging. Quick-play a singleplayer
+  world on each target OS and confirm the log binds `integrated` authority.
 
 ### BepInEx
 

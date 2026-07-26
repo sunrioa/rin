@@ -377,14 +377,23 @@ func TestExampleModsPreserveGameAuthority(t *testing.T) {
 		{
 			path: "../examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/RinNpcMod.java",
 			required: []string{
-				"ALLOWED_OFFERS", "activePlayers", "WorkflowCoordinator",
-				"FabricServerTasks.call", "ProposalFreshness.evaluate",
+				"activePlayers", "WorkflowCoordinator", "FabricNpcActions.plan",
+				"FabricHostRuntime.current", "ProposalFreshness.evaluate",
 				"HostDurabilityProfile.ADVISORY", "RinNpcRequests",
 			},
 			forbidden: []string{
 				"Runtime.getRuntime().exec", "ProcessBuilder", ".join()",
 				`text(proposal, "proposal_id")`, "persistOperationState",
 				"rin.commit", "waitForProposal", "ProposalAttempt",
+			},
+		},
+		{
+			path: "../examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/FabricNpcActions.java",
+			required: []string{
+				"ALLOWED_OFFERS", "matchesProposal", "host.player",
+			},
+			forbidden: []string{
+				"Runtime.getRuntime().exec", "ProcessBuilder", ".join()",
 			},
 		},
 		{

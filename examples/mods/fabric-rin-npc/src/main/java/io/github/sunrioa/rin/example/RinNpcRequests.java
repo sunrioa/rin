@@ -51,7 +51,8 @@ final class RinNpcRequests {
     static Map<String, Object> observe(
             String sessionId,
             String operationId,
-            long tick) {
+            long tick,
+            FabricHostEpoch epoch) {
         return mapOf(
                 "protocol_version", RinClient.PROTOCOL_VERSION,
                 "session_id", sessionId,
@@ -62,20 +63,22 @@ final class RinNpcRequests {
                 "source", "fabric-example",
                 "kind", "dialogue",
                 "summary", "The player asked the guide what to do next.",
-                "tags", List.of("conversation", "player-request"),
+                "tags", List.of(
+                        "conversation", "player-request", epoch.authorityTag()),
                 "importance", 3,
-                "epoch", epoch(sessionId),
+                "epoch", epoch.wire(sessionId),
                 "observation_seq", tick);
     }
 
     static Map<String, Object> proposal(
             String sessionId,
             String operationId,
-            long tick) {
+            long tick,
+            FabricHostEpoch epoch) {
         Map<String, Object> window = mapOf(
                 "id", "window." + operationId,
                 "mode", "sequential",
-                "epoch", epoch(sessionId),
+                "epoch", epoch.wire(sessionId),
                 "observation_seq", tick - 1,
                 "opened_at", timepoint(tick),
                 "deadline", timepoint(tick + 1),
@@ -103,7 +106,8 @@ final class RinNpcRequests {
             PendingTurn pending,
             Map<String, Object> proposal,
             boolean accepted,
-            String outcome) {
+            String outcome,
+            FabricHostEpoch epoch) {
         long tick = Math.max(
                 server.getTicks(),
                 Math.max(integer(proposal.get("tick")), integer(pending.request().get("tick"))));
@@ -111,7 +115,7 @@ final class RinNpcRequests {
         return HostActions.immediateReport(
                 sessionId, "report." + pending.operationId(),
                 "outcome." + pending.operationId(), tick, proposal,
-                pending.operationId(), accepted, outcome, epoch(sessionId),
+                pending.operationId(), accepted, outcome, epoch.wire(sessionId),
                 tick, timepoint(tick), List.of("fabric-example", "conversation"));
     }
 
@@ -123,15 +127,6 @@ final class RinNpcRequests {
         return HostActions.offer(
                 offerId, ACTOR_ID, capabilityId, "1", "a".repeat(64),
                 description, Map.of(), window);
-    }
-
-    private static Map<String, Object> epoch(String sessionId) {
-        return mapOf(
-                "session_id", sessionId,
-                "world_id", "minecraft.server",
-                "host", 1L,
-                "world", 1L,
-                "timeline", 1L);
     }
 
     private static Map<String, Object> timepoint(long tick) {

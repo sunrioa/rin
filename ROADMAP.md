@@ -66,6 +66,8 @@
   最终授权与 Behavior Tree 长动作回报
 - [x] Ren'Py Rollback-aware Epoch：Persistent 高水位、Load/Rollback Timeline
   Fork 与旧 Worker 失效
+- [x] Fabric Integrated/Dedicated Logical Server Authority、Lifecycle Epoch、
+  旧工作拒绝与官方 Dedicated Server GameTest
 - [x] 永久 Request/Event ID History 与 Fail-closed 未决 Append 对账
 - [x] 可信 Restore Binding、Snapshot 大小限制与明确 Checksum Trust Boundary
 - [x] Lazy Session 恢复、Range Read、派生 Checkpoint 与全历史运维审计

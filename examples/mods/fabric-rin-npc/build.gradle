@@ -19,6 +19,15 @@ dependencies {
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 }
 
+fabricApi {
+    configureTests {
+        createSourceSet = true
+        modId = "rin_npc_example_test"
+        enableGameTests = true
+        eula = true
+    }
+}
+
 sourceSets {
     main {
         java {

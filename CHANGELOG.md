@@ -85,6 +85,10 @@ release checklist passes. See the [release guide](docs/release-guide.md).
   Epoch, persistent data keeps bounded monotonic high-water marks, load and
   rollback fork timelines, and process-local proposal workers become stale
   without allowing late results to revive an older branch.
+- A Fabric logical-server runtime shared by integrated and dedicated servers.
+  Real lifecycle events bind fresh Host/Timeline generations, exact Epoch
+  checks reject work from an earlier server, shutdown closes authority
+  dispatch, and an official dedicated-server GameTest runs during the build.
 - An OpenAPI 3.1 wire schema at [`api/openapi.json`](api/openapi.json) and a
   [compatibility matrix](docs/compatibility.md).
 - Bounded-frame NDJSON Session Transfer with immutable export boundaries,

@@ -3,10 +3,10 @@
   "id": "rin_npc_example",
   "version": "0.7.0",
   "name": "Rin NPC Example",
-  "description": "Server-side integration reference for the Rin agent runtime.",
+  "description": "Logical-server integration reference for the Rin agent runtime.",
   "authors": ["sunrioa"],
   "license": "MIT",
-  "environment": "server",
+  "environment": "*",
   "entrypoints": {
     "main": ["io.github.sunrioa.rin.example.RinNpcMod"]
   },

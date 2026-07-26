@@ -219,22 +219,42 @@ public final class WorkflowCoordinator {
         @SuppressWarnings("unchecked")
         Map<String, Object> proposal =
                 PendingTurn.copyObject((Map<String, ?>) rawProposal);
-        if (!Objects.equals(proposal.get("session_id"), pendingTurn.request().get("session_id")) ||
-                !Objects.equals(proposal.get("request_id"), pendingTurn.request().get("request_id"))) {
-            throw new RinProtocolException(
-                    "invalid_job",
-                    "Resolved Proposal does not match the Pending Turn");
-        }
+        requireResolvedProposalMatches(pendingTurn, proposal);
         return new ResolvedPendingTurn(
                 pendingTurn,
                 proposal,
                 Boolean.TRUE.equals(job.get("duplicate")));
     }
 
+    static void requireResolvedProposalMatches(
+            PendingTurn pendingTurn,
+            Map<String, Object> proposal) {
+        Map<String, Object> request = pendingTurn.request();
+        Object action = proposal.get("action");
+        Object offered = request.get("offers");
+        boolean selectedAuthoredOffer = offered instanceof List<?> offers &&
+                offers.stream().anyMatch(offer -> JsonValues.equivalent(offer, action));
+        if (!RinClient.isProtocolIdentifier(proposal.get("id")) ||
+                !JsonValues.equivalent(
+                        proposal.get("session_id"), request.get("session_id")) ||
+                !JsonValues.equivalent(
+                        proposal.get("request_id"), request.get("request_id")) ||
+                !JsonValues.equivalent(proposal.get("actor_id"), request.get("actor_id")) ||
+                !JsonValues.equivalent(proposal.get("tick"), request.get("tick")) ||
+                !JsonValues.equivalent(
+                        proposal.get("decision_window"), request.get("decision_window")) ||
+                !selectedAuthoredOffer) {
+            throw new RinProtocolException(
+                    "invalid_job",
+                    "Resolved Proposal does not match the Pending Turn");
+        }
+    }
+
     private static void validateSettlement(
             PendingTurn pendingTurn,
             Map<String, Object> proposal,
             Map<String, Object> report) {
+        requireResolvedProposalMatches(pendingTurn, proposal);
         Map<String, Object> actionReport = actionReport(report);
         if (!Objects.equals(proposal.get("session_id"), pendingTurn.request().get("session_id")) ||
                 !Objects.equals(proposal.get("request_id"), pendingTurn.request().get("request_id")) ||

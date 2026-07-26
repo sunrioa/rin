@@ -238,9 +238,19 @@ func TestModExamplesDelegateWorkflowAndKeepGameAuthority(t *testing.T) {
 		},
 		"../examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/RinNpcMod.java": {
 			"WorkflowCoordinator",
-			"FabricServerTasks.call",
+			"FabricHostRuntime.current",
 			"preparePendingTurn",
 			"HostDurabilityProfile.ADVISORY",
+		},
+		"../examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/FabricHostRuntime.java": {
+			"ServerLifecycleEvents.SERVER_STARTED",
+			"server.isOnThread()",
+			"server.isDedicated()",
+		},
+		"../examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/FabricNpcActions.java": {
+			"ALLOWED_OFFERS",
+			"matchesProposal",
+			"host.player",
 		},
 		"../examples/mods/fabric-rin-npc/src/main/java/io/github/sunrioa/rin/example/FabricWorkflowStore.java": {
 			"implements WorkflowStore",

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "rin_npc_example_test",
+  "version": "1.0.0",
+  "name": "Rin NPC Fabric Game Tests",
+  "environment": "server",
+  "entrypoints": {
+    "fabric-gametest": [
+      "io.github.sunrioa.rin.example.FabricAuthorityGameTest"
+    ]
+  }
+}

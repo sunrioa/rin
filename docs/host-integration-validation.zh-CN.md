@@ -10,7 +10,7 @@ Rin `0.7.0` 是 Preview 软件。编译通过、模拟引擎 API 和面向重启
 
 | 接入 | 自动化证据 | 尚未证明 |
 | --- | --- | --- |
-| Fabric | 真实 Mod JAR 构建与 NBT 恢复状态往返 | 在真实 Minecraft Dedicated Server 中加载和恢复 |
+| Fabric | 真实 Mod JAR/NBT 往返、官方 Dedicated Server GameTest 与 Authority Matrix | 实时 Sidecar 恢复、多人、强制停止和打包客户端 Integrated Server Smoke |
 | BepInEx Mono/IL2CPP | 真实 BepInEx Package 编译与 Core 重启测试 | 代表性游戏中的 Plugin 加载、游戏 Hook、存档身份和关机流程 |
 | Luanti | Lua 5.1/5.4 Workflow 测试与忠实模拟 ModStorage 的 Harness | 真实 Luanti Headless Server、世界保存和并发玩家 |
 | Godot | 官方 Godot 4 Headless 解析和重启测试 | Editor Session 与 Export Build 中的实时 Sidecar 流量 |
@@ -41,6 +41,9 @@ Rin `0.7.0` 是 Preview 软件。编译通过、模拟引擎 API 和面向重启
 
 ### Fabric
 
+- 官方 GameTest 会启动真实 Minecraft Dedicated Server，检查 Lifecycle Binding
+  与 Server Thread Dispatch。单测覆盖 Integrated/Dedicated 分类、持久
+  Generation 与旧 Epoch 拒绝；Metadata 必须保持 `environment: "*"`。
 - 把构建的 JAR 安装到锁定版本的 Minecraft `1.21.1` Fabric Dedicated Server，
   验证启动、Command/Event Hook 和 Server Thread 访问。
 - 使用两个不同世界，重开同一世界，执行 `save-all flush`、正常 `/stop`、强制终止，
@@ -48,7 +51,8 @@ Rin `0.7.0` 是 Preview 软件。编译通过、模拟引擎 API 和面向重启
 - 确认 Save/World Identity 不会跨世界共用，恢复状态随权威世界存档保存；除 Linux
   外还需在 Windows 执行。
 - 为确定性玩法行为增加 Fabric GameTest，并保留真实 Server Smoke Test 覆盖生命周期
-  和打包。
+  和打包。每个目标 OS 都要 Quick-play 单人世界，并确认日志绑定 `integrated`
+  Authority。
 
 ### BepInEx
 

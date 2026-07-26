@@ -93,7 +93,11 @@ The JavaScript/TypeScript and C# SDKs retain their lower-level
 persistence helpers. JavaScript/TypeScript, C#, and Java also expose a
 higher-level `WorkflowCoordinator` that validates the declared Host Capability
 Profile before applying an action. They deliberately define storage contracts
-instead of shipping an in-memory production default. A transactional settlement
+instead of shipping an in-memory production default. The Java coordinator also
+JSON-semantically binds the returned Proposal actor, tick, Decision Window, and
+complete Action to an original Offer in the durable request; an Offer ID alone
+is never authority. Equivalent JSON numbers remain equal even when a codec
+changes the concrete Java `Number` type. A transactional settlement
 hook must apply the game effect, persist the applied marker and exact Action Report,
 and remove the Pending Turn atomically. Idempotent hosts instead receive the
 stable operation ID before the Store completes the report transaction. Outbox
@@ -157,10 +161,13 @@ before supporting authenticated remote Rin from Luanti.
 ## Example mods
 
 The Fabric reference is a complete Gradle project pinned to Minecraft 1.21.1
-and Java 21. It embeds the source-first Java SDK in its JAR, stores stable
-world/session identity and bounded workflow state in Saved Data, and schedules
-host work with `MinecraftServer.execute`. It remains `advisory` because
-`markDirty()` is eventual rather than a durable transaction boundary.
+and Java 21. Its common initializer loads for integrated and dedicated logical
+servers. It embeds the source-first Java SDK, stores stable world/session
+identity and bounded workflow state in Saved Data, binds a fresh Host
+generation at `SERVER_STARTED`, and gates all game work on the owning server
+thread. The build runs an official dedicated-server GameTest. It remains
+`advisory` because `markDirty()` is eventual rather than a durable transaction
+boundary.
 
 The BepInEx reference pins the upstream bleeding-edge, unreleased BepInEx 6
 build `6.0.0-be.785` and separates Unity Mono
