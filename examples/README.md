@@ -23,3 +23,7 @@ packaging. They persist stable workflow recovery state, but remain
 markers to the game's authoritative save/idempotency boundary. See the
 [real-host validation matrix](../docs/host-integration-validation.md) before
 claiming production stability.
+
+[`native-host`](native-host) is a dependency-free C99 reference for native
+engines. It runs the shared Host scenarios on GCC/Clang and MSVC without
+introducing an engine, JSON, HTTP, or shell dependency.

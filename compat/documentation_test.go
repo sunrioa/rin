@@ -31,6 +31,7 @@ func TestBilingualDocumentationPairs(t *testing.T) {
 		{"../docs/release-guide.md", "../docs/release-guide.zh-CN.md"},
 		{"../docs/rpg-events.md", "../docs/rpg-events.zh-CN.md"},
 		{"../docs/sdk-and-mods.md", "../docs/sdk-and-mods.zh-CN.md"},
+		{"../examples/native-host/README.md", "../examples/native-host/README.zh-CN.md"},
 		{"../sdk/README.md", "../sdk/README.zh-CN.md"},
 		{"../sdk/python/README.md", "../sdk/python/README.zh-CN.md"},
 		{"../sdk/javascript/README.md", "../sdk/javascript/README.zh-CN.md"},

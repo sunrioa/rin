@@ -74,6 +74,8 @@ release checklist passes. See the [release guide](docs/release-guide.md).
   artifact ports; its Coordinator persists before network, validates exact
   offers, tracks long-running actions, retries an exact Outbox, and reconciles
   stale Epochs.
+- A dependency-free C99 Host reference and shared Host scenario contract,
+  compiled with warnings-as-errors on GCC/Clang and MSVC.
 - An OpenAPI 3.1 wire schema at [`api/openapi.json`](api/openapi.json) and a
   [compatibility matrix](docs/compatibility.md).
 - Bounded-frame NDJSON Session Transfer with immutable export boundaries,

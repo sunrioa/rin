@@ -65,6 +65,8 @@ world.
 ## Cross-language status
 
 The Go package is the normative, type-checked port and state-machine reference.
+The dependency-free [C99 reference](../examples/native-host) applies the same
+Epoch, descriptor, Operation ID, and ActionRun rules on GCC/Clang and MSVC.
 JavaScript, C#, Java, Lua, Godot, Unity, Fabric, BepInEx, and Luanti already
 ship the protocol-v2 Pending Turn and exact-Outbox workflow. Their engine-facing
 interfaces should use these same eight boundaries; language-specific syntax

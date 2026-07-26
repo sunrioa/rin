@@ -54,7 +54,10 @@ NavMesh，Unreal Host 可以映射到 Gameplay Ability 或 Behavior Tree Task，
 
 ## 跨语言状态
 
-Go 包是规范的类型化端口与状态机参考。JavaScript、C#、Java、Lua、Godot、
+Go 包是规范的类型化端口与状态机参考。无依赖
+[C99 参考](../examples/native-host)在 GCC/Clang 与 MSVC 上应用相同的
+Epoch、Descriptor、Operation ID 和 ActionRun 规则。
+JavaScript、C#、Java、Lua、Godot、
 Unity、Fabric、BepInEx 与 Luanti 已提供 Protocol v2 Pending Turn 和精确
 Outbox Workflow；它们的引擎侧接口应采用相同八个边界，语言语法差异不能改变
 所有权、Epoch、重试或 ActionRun 语义。

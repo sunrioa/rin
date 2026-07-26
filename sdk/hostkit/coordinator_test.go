@@ -13,7 +13,16 @@ import (
 	"github.com/sunrioa/rin/protocol"
 )
 
+const (
+	scenarioStaleEpochRejection   = "stale_epoch_rejection"
+	scenarioIdempotentOperation   = "idempotent_operation"
+	scenarioRevokedCapability     = "revoked_capability_rejection"
+	scenarioExactOutboxRetry      = "exact_outbox_retry"
+	scenarioLongActionEpochCancel = "long_action_epoch_cancel"
+)
+
 func TestCoordinatorPersistsBeforeNetworkAndRetriesExactOutbox(t *testing.T) {
+	t.Log(scenarioExactOutboxRetry)
 	fixture := newFixture(t, host.ActionSucceeded)
 	pending, err := fixture.coordinator.BeginDecision(
 		context.Background(), "", fixture.request)
@@ -82,6 +91,7 @@ func TestCoordinatorPersistsBeforeNetworkAndRetriesExactOutbox(t *testing.T) {
 }
 
 func TestCoordinatorRecoversSubmitBeforeJobIDSave(t *testing.T) {
+	t.Log(scenarioIdempotentOperation)
 	fixture := newFixture(t, host.ActionSucceeded)
 	if _, err := fixture.coordinator.BeginDecision(
 		context.Background(), "", fixture.request,
@@ -165,6 +175,8 @@ func TestCoordinatorSupportsLongRunTransition(t *testing.T) {
 }
 
 func TestCoordinatorRevocationAndEpochReconciliationFailClosed(t *testing.T) {
+	t.Log(scenarioStaleEpochRejection, scenarioRevokedCapability,
+		scenarioLongActionEpochCancel)
 	t.Run("revoked capability", func(t *testing.T) {
 		fixture := newFixture(t, host.ActionSucceeded)
 		beginAndResolve(t, fixture)

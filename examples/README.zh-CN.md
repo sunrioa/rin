@@ -19,3 +19,7 @@ Sidecar 基准，以及不回避结果的持久化规则树对照。
 恢复状态，但仍属于 `advisory`。真实接入必须把效果 Apply 与 Operation Marker
 连接到游戏自己的权威存档或幂等边界；声明生产稳定前应执行
 [真实宿主验收矩阵](../docs/host-integration-validation.zh-CN.md)。
+
+[`native-host`](native-host) 是面向原生引擎的无依赖 C99 参考；它在
+GCC/Clang 与 MSVC 上运行共享 Host Scenario，不引入游戏引擎、JSON、HTTP
+或 Shell 依赖。

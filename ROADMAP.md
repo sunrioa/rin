@@ -61,6 +61,7 @@
   Conformance、Doctor 与 Windows 门禁
 - [x] 游戏权威的类型化动作生命周期、Proposal Attempt 与 Outcome Outbox
 - [x] 通用 HostKit 端口与 Coordinator，覆盖长时间 ActionRun 和 Epoch 对账
+- [x] 可移植 C99 Host 参考与跨引擎共享 Scenario Contract
 - [x] 永久 Request/Event ID History 与 Fail-closed 未决 Append 对账
 - [x] 可信 Restore Binding、Snapshot 大小限制与明确 Checksum Trust Boundary
 - [x] Lazy Session 恢复、Range Read、派生 Checkpoint 与全历史运维审计

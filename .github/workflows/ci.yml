@@ -81,6 +81,20 @@ jobs:
           fi
           exit "$status"
 
+  native-host:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Configure portable C99 Host reference
+        run: cmake -S examples/native-host -B .cache/native-host-build
+      - name: Build with platform compiler warnings as errors
+        run: cmake --build .cache/native-host-build --config Release
+      - name: Run native Host scenarios
+        run: ctest --test-dir .cache/native-host-build -C Release --output-on-failure
+
   sdk-python:
     runs-on: ubuntu-latest
     strategy:

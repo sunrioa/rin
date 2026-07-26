@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "contract": "rin.host-scenarios/v1",
+  "scenarios": [
+    {
+      "id": "stale_epoch_rejection",
+      "requirement": "An offer or invocation from a replaced Host, World, or Timeline epoch cannot execute.",
+      "evidence": [
+        "sdk/hostkit/coordinator_test.go",
+        "examples/native-host/tests/test_rin_host.c"
+      ]
+    },
+    {
+      "id": "idempotent_operation",
+      "requirement": "A repeated stable Operation ID cannot repeat its game effect.",
+      "evidence": [
+        "sdk/hostkit/coordinator_test.go",
+        "examples/native-host/tests/test_rin_host.c"
+      ]
+    },
+    {
+      "id": "revoked_capability_rejection",
+      "requirement": "Dynamic capability revocation invalidates an older offer before execution.",
+      "evidence": [
+        "sdk/hostkit/coordinator_test.go",
+        "examples/native-host/tests/test_rin_host.c"
+      ]
+    },
+    {
+      "id": "exact_outbox_retry",
+      "requirement": "A failed report retains the exact payload and stable identities for retry.",
+      "evidence": [
+        "sdk/hostkit/coordinator_test.go"
+      ]
+    },
+    {
+      "id": "long_action_epoch_cancel",
+      "requirement": "An active long-running action is cancelled or becomes outcome-unknown when its epoch is replaced.",
+      "evidence": [
+        "sdk/hostkit/coordinator_test.go"
+      ]
+    }
+  ]
+}
