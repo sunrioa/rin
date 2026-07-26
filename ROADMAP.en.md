@@ -107,6 +107,11 @@ unchecked item is not a supported feature.
 - [x] Integrate the Host Contract into cross-language SDKs, generic scaffolds,
   and C99/Unreal reference adapters; remaining real-host acceptance follows the
   evidence matrix
+- [x] Define vendor-neutral decision, structured-generation, derived-memory,
+  speech, and content-free telemetry ports, including bounded speech caching,
+  cancellation, text-only degradation, and playback reporting
+- [x] Remove obsolete public Go type names and free-form `DecisionDraft`
+  fields without compatibility aliases
 
 ## Preview release gates
 

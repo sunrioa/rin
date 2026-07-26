@@ -67,7 +67,7 @@ Durations use Go syntax such as `250ms`, `15s`, and `2m`.
 ## Provider resilience contract
 
 The timeout settings are cooperative budgets, not runtime preemption. Every
-`provider.Client` implementation must stop work and return promptly after its
+`provider.StructuredGenerationProvider` implementation must stop work and return promptly after its
 input `ctx.Done()` closes; the built-in OpenAI-compatible client follows this
 contract. Go cannot safely terminate an arbitrary blocking implementation, so
 Rin deliberately does not detach each call into a goroutine that could leak

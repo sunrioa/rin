@@ -225,7 +225,11 @@ func (c *blockingClient) waitStarted(t *testing.T) {
 	}
 }
 
-func newManager(t *testing.T, client provider.Client, config generation.Config) *generation.Manager {
+func newManager(
+	t *testing.T,
+	client provider.StructuredGenerationProvider,
+	config generation.Config,
+) *generation.Manager {
 	t.Helper()
 	manager, err := generation.New(client, config)
 	if err != nil {

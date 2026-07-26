@@ -25,6 +25,8 @@ func TestBilingualDocumentationPairs(t *testing.T) {
 		{"../docs/host-durability.md", "../docs/host-durability.zh-CN.md"},
 		{"../docs/host-sdk.md", "../docs/host-sdk.zh-CN.md"},
 		{"../docs/model-policy.md", "../docs/model-policy.zh-CN.md"},
+		{"../docs/open-spiel-validation.md", "../docs/open-spiel-validation.zh-CN.md"},
+		{"../docs/optional-extensions.md", "../docs/optional-extensions.zh-CN.md"},
 		{"../docs/host-scaffolding.md", "../docs/host-scaffolding.zh-CN.md"},
 		{"../docs/host-integration-validation.md", "../docs/host-integration-validation.zh-CN.md"},
 		{"../docs/protocol-v2.md", "../docs/protocol-v2.zh-CN.md"},

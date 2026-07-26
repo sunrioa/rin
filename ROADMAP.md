@@ -96,6 +96,9 @@
 - [x] Schema Fuzz、Registry Race、过期 Epoch/Digest/撤销和状态转换测试
 - [x] 将 Host Contract 接入跨语言 SDK、通用脚手架，以及 C99/Unreal
   Reference Adapter；其余真实宿主验收继续按证据矩阵推进
+- [x] 将决策、结构化生成、派生 Memory、Speech 与无内容 Telemetry 收敛为
+  供应商无关端口；Speech 支持有界 Cache、取消、纯文字降级和播放回报
+- [x] 删除 `DecisionDraft` 旧自由文本字段和旧公开 Go 类型名，不保留兼容 Alias
 
 ## Preview 发布门禁
 

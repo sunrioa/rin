@@ -40,7 +40,7 @@ type CompletionResponse struct {
 	Usage        Usage
 }
 
-type Client interface {
+type StructuredGenerationProvider interface {
 	// Complete must stop its work and return promptly after ctx.Done is
 	// closed. Resilient attempt and total timeouts rely on this cooperative
 	// cancellation contract; Go cannot safely preempt an arbitrary blocking

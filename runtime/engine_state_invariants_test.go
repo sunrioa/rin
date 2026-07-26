@@ -91,18 +91,16 @@ func (s *invariantStore) counts() (int, int) {
 }
 
 type invariantPolicy struct {
-	propose func(context.Context, PolicyContext) (ProposalDraft, error)
+	propose func(context.Context, DecisionContext) (DecisionDraft, error)
 }
 
-func (p invariantPolicy) Propose(ctx context.Context, input PolicyContext) (ProposalDraft, error) {
+func (p invariantPolicy) Propose(ctx context.Context, input DecisionContext) (DecisionDraft, error) {
 	if p.propose != nil {
 		return p.propose(ctx, input)
 	}
-	draft := ProposalDraft{
+	draft := DecisionDraft{
 		OfferID:      input.Request.Offers[0].OfferID,
 		Stance:       "wait",
-		Summary:      "Wait and observe.",
-		Rationale:    "The test policy selects a deterministic candidate.",
 		PolicySource: "test",
 	}
 	if len(input.Request.CandidateGoals) > 0 {
@@ -140,7 +138,7 @@ func invariantEngine(
 	sessionID string,
 	features []string,
 	goals []protocol.Goal,
-	selectedPolicy Policy,
+	selectedPolicy DecisionProvider,
 ) (*Engine, *invariantStore) {
 	t.Helper()
 	eventStore := newInvariantStore()
@@ -365,9 +363,9 @@ func TestRevisionOverflowDoesNotWrapOrAppend(t *testing.T) {
 func TestRevisionOverflowSkipsProposalPolicy(t *testing.T) {
 	const sessionID = "session.proposal-revision-overflow"
 	policyCalled := false
-	selectedPolicy := invariantPolicy{propose: func(context.Context, PolicyContext) (ProposalDraft, error) {
+	selectedPolicy := invariantPolicy{propose: func(context.Context, DecisionContext) (DecisionDraft, error) {
 		policyCalled = true
-		return ProposalDraft{}, errors.New("policy must not be called")
+		return DecisionDraft{}, errors.New("policy must not be called")
 	}}
 	engine, eventStore := invariantEngine(t, sessionID, nil, nil, selectedPolicy)
 	session := engine.sessions[sessionID]
@@ -530,11 +528,11 @@ func TestWorldRevisionOverflowIsExplicitBeforeAppend(t *testing.T) {
 	})
 }
 
-func TestPolicyContextMutationCannotReachLiveStateOrCaller(t *testing.T) {
+func TestDecisionContextMutationCannotReachLiveStateOrCaller(t *testing.T) {
 	const sessionID = "session.policy-isolation"
 	var actorCameFromStateCopy bool
 	injected := errors.New("injected policy failure")
-	selectedPolicy := invariantPolicy{propose: func(_ context.Context, input PolicyContext) (ProposalDraft, error) {
+	selectedPolicy := invariantPolicy{propose: func(_ context.Context, input DecisionContext) (DecisionDraft, error) {
 		input.Actor.Metadata["policy"] = "mutated"
 		input.Actor.Goals[0].Description = "mutated through actor context"
 		actorCameFromStateCopy = input.State.Actors[input.Actor.ID].Metadata["policy"] == "mutated"
@@ -543,7 +541,7 @@ func TestPolicyContextMutationCannotReachLiveStateOrCaller(t *testing.T) {
 		input.State.Actors[input.Actor.ID] = stateActor
 		input.Request.Tags[0] = "mutated"
 		input.Request.Offers[0].Arguments[0] = '['
-		return ProposalDraft{}, injected
+		return DecisionDraft{}, injected
 	}}
 	engine, _ := invariantEngine(
 		t,
@@ -582,11 +580,11 @@ func TestPolicyContextMutationCannotReachLiveStateOrCaller(t *testing.T) {
 	}
 }
 
-func TestPolicyContextMutationIsRaceIsolated(t *testing.T) {
+func TestDecisionContextMutationIsRaceIsolated(t *testing.T) {
 	const sessionID = "session.policy-race-isolation"
 	started := make(chan struct{})
 	release := make(chan struct{})
-	selectedPolicy := invariantPolicy{propose: func(_ context.Context, input PolicyContext) (ProposalDraft, error) {
+	selectedPolicy := invariantPolicy{propose: func(_ context.Context, input DecisionContext) (DecisionDraft, error) {
 		close(started)
 		<-release
 		for index := 0; index < 2_000; index++ {
@@ -594,12 +592,10 @@ func TestPolicyContextMutationIsRaceIsolated(t *testing.T) {
 			input.Request.Offers[0].Description = fmt.Sprintf("request mutation %d", index)
 			goruntime.Gosched()
 		}
-		return ProposalDraft{
+		return DecisionDraft{
 			OfferID:      input.Request.Offers[0].OfferID,
 			GoalID:       "goal.existing",
 			Stance:       "wait",
-			Summary:      "Wait after the concurrent update.",
-			Rationale:    "Exercise successful draft validation against an isolated actor generation.",
 			PolicySource: "test",
 		}, nil
 	}}

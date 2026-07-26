@@ -64,8 +64,8 @@ History。
 
 在线模式只发送当前 Actor 的有限 traits、boundaries、active goals、相关 memories、beliefs、近期行动及本次候选动作。事件日志、完整 Session、Receipts、快照、文件路径、Token 和 API Key 不进入模型数据包。所有游戏文字放在明确标记的 `untrusted_game_data` 下，模型返回值仍需本地白名单验证。
 
-模型输出 Schema 不接受 `summary` 或 `rationale`，所有 Policy Draft 中的兼容
-文本也会被丢弃。运行时只用游戏明确授权展示的 `ActionOffer.description` 与
+模型输出 Schema 不接受 `summary` 或 `rationale`，`DecisionDraft` 也没有自由
+文本字段。运行时只用游戏明确授权展示的 `ActionOffer.description` 与
 固定 stance 模板重建玩家字段；私有 Goal、Boundary、Memory、Belief、Prompt
 和供应商文本不是该函数的输入。`policy_source`、`recalled_memory_ids`、
 `goal_id`、`boundary_id` 与完整 `proposed_goal` 是私有审计/集成元数据，不得

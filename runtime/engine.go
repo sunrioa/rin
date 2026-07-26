@@ -49,7 +49,7 @@ type Engine struct {
 	lifecycleMu           sync.Mutex
 	lifecycleGates        map[string]*sessionLifecycleGate
 	store                 Store
-	policy                Policy
+	decisionProvider      DecisionProvider
 	now                   func() time.Time
 	sessionSoftLimitBytes uint64
 	sessionHardLimitBytes uint64
@@ -58,8 +58,8 @@ type Engine struct {
 	checkpointQuotaSkips  atomic.Uint64
 }
 
-func Open(store Store, policy Policy) (*Engine, error) {
-	return OpenWithOptions(store, policy, EngineOptions{})
+func Open(store Store, decisionProvider DecisionProvider) (*Engine, error) {
+	return OpenWithOptions(store, decisionProvider, EngineOptions{})
 }
 
 type EngineOptions struct {
@@ -72,11 +72,11 @@ type EngineOptions struct {
 
 func OpenWithOptions(
 	store Store,
-	policy Policy,
+	decisionProvider DecisionProvider,
 	options EngineOptions,
 ) (*Engine, error) {
-	if store == nil || policy == nil {
-		return nil, errors.New("store and policy are required")
+	if store == nil || decisionProvider == nil {
+		return nil, errors.New("store and decision provider are required")
 	}
 	if options.SessionHardLimitBytes > 0 &&
 		options.SessionSoftLimitBytes > options.SessionHardLimitBytes {
@@ -93,7 +93,7 @@ func OpenWithOptions(
 		pendingCreates:        make(map[string]uncertainMutationAppend),
 		lifecycleGates:        make(map[string]*sessionLifecycleGate),
 		store:                 store,
-		policy:                policy,
+		decisionProvider:      decisionProvider,
 		now:                   time.Now,
 		sessionSoftLimitBytes: options.SessionSoftLimitBytes,
 		sessionHardLimitBytes: options.SessionHardLimitBytes,
@@ -419,7 +419,7 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 	arbitrationEnabled := protocol.HasFeature(session.state.Features, protocol.FeatureArbitration)
 	session.mu.Unlock()
 
-	draft, err := e.policy.Propose(ctx, PolicyContext{State: stateCopy, Actor: policyActor, Request: policyRequest})
+	draft, err := e.decisionProvider.Propose(ctx, DecisionContext{State: stateCopy, Actor: policyActor, Request: policyRequest})
 	if err != nil {
 		if errors.Is(err, ErrNoSafeAction) {
 			return protocol.ActionProposal{}, false, NewError("no_safe_action", "no candidate action satisfies the actor boundary", err)
@@ -2079,7 +2079,7 @@ func eventEncodeError(err error, message string) error {
 	return NewError("event_encode_failed", message, err)
 }
 
-func validateDraft(request protocol.ProposeRequest, actor protocol.ActorState, draft ProposalDraft) (protocol.ActionOffer, *protocol.Goal, string, error) {
+func validateDraft(request protocol.ProposeRequest, actor protocol.ActorState, draft DecisionDraft) (protocol.ActionOffer, *protocol.Goal, string, error) {
 	var selected protocol.ActionOffer
 	found := false
 	for _, action := range request.Offers {

@@ -36,11 +36,11 @@ type Config struct {
 }
 
 type Manager struct {
-	client provider.Client
-	config Config
-	ctx    context.Context
-	cancel context.CancelFunc
-	queue  chan string
+	provider provider.StructuredGenerationProvider
+	config   Config
+	ctx      context.Context
+	cancel   context.CancelFunc
+	queue    chan string
 
 	mu        sync.Mutex
 	jobs      map[string]*jobState
@@ -97,7 +97,7 @@ func (m *Manager) Diagnostics() Diagnostics {
 		Provider:      provider.CircuitDiagnostics{State: "unavailable"},
 	}
 	m.mu.Unlock()
-	if diagnostics, ok := m.client.(interface {
+	if diagnostics, ok := m.provider.(interface {
 		Diagnostics() provider.CircuitDiagnostics
 	}); ok {
 		result.Provider = diagnostics.Diagnostics()
@@ -107,9 +107,12 @@ func (m *Manager) Diagnostics() Diagnostics {
 
 var genericJSONObjectSchema = json.RawMessage(`{"type":"object","additionalProperties":true}`)
 
-func New(client provider.Client, config Config) (*Manager, error) {
-	if client == nil {
-		return nil, errors.New("generation provider client is required")
+func New(
+	generationProvider provider.StructuredGenerationProvider,
+	config Config,
+) (*Manager, error) {
+	if generationProvider == nil {
+		return nil, errors.New("structured generation provider is required")
 	}
 	if config.Workers <= 0 {
 		config.Workers = 2
@@ -150,7 +153,7 @@ func New(client provider.Client, config Config) (*Manager, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	manager := &Manager{
-		client: client, config: config, ctx: ctx, cancel: cancel,
+		provider: generationProvider, config: config, ctx: ctx, cancel: cancel,
 		queue: make(chan string, config.QueueSize), jobs: make(map[string]*jobState),
 		byRequest: make(map[string]string), cache: make(map[string]cacheEntry),
 		now: time.Now, done: make(chan struct{}),
@@ -317,7 +320,7 @@ func (m *Manager) run(jobID string) {
 	for index, message := range request.Messages {
 		messages[index] = provider.Message{Role: message.Role, Content: message.Content}
 	}
-	response, err := m.client.Complete(jobContext, provider.CompletionRequest{
+	response, err := m.provider.Complete(jobContext, provider.CompletionRequest{
 		Messages: messages,
 		Schema: &provider.ResponseSchema{
 			Name:   "rin_" + strings.ReplaceAll(request.Kind, "-", "_"),

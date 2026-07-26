@@ -19,7 +19,7 @@ type CacheConfig struct {
 }
 
 type Cached struct {
-	policy rinruntime.Policy
+	policy rinruntime.DecisionProvider
 	config CacheConfig
 
 	mu       sync.Mutex
@@ -29,18 +29,18 @@ type Cached struct {
 }
 
 type cacheEntry struct {
-	draft     rinruntime.ProposalDraft
+	draft     rinruntime.DecisionDraft
 	createdAt time.Time
 	expiresAt time.Time
 }
 
 type cacheCall struct {
 	done  chan struct{}
-	draft rinruntime.ProposalDraft
+	draft rinruntime.DecisionDraft
 	err   error
 }
 
-func NewCached(selectedPolicy rinruntime.Policy, config CacheConfig) (*Cached, error) {
+func NewCached(selectedPolicy rinruntime.DecisionProvider, config CacheConfig) (*Cached, error) {
 	if selectedPolicy == nil {
 		return nil, errors.New("cached policy is required")
 	}
@@ -59,10 +59,10 @@ func NewCached(selectedPolicy rinruntime.Policy, config CacheConfig) (*Cached, e
 	}, nil
 }
 
-func (p *Cached) Propose(ctx context.Context, input rinruntime.PolicyContext) (rinruntime.ProposalDraft, error) {
+func (p *Cached) Propose(ctx context.Context, input rinruntime.DecisionContext) (rinruntime.DecisionDraft, error) {
 	key, err := proposalCacheKey(input)
 	if err != nil {
-		return rinruntime.ProposalDraft{}, err
+		return rinruntime.DecisionDraft{}, err
 	}
 	p.mu.Lock()
 	now := p.now()
@@ -83,7 +83,7 @@ func (p *Cached) Propose(ctx context.Context, input rinruntime.PolicyContext) (r
 			}
 			return draft, call.err
 		case <-ctx.Done():
-			return rinruntime.ProposalDraft{}, ctx.Err()
+			return rinruntime.DecisionDraft{}, ctx.Err()
 		}
 	}
 	call := &cacheCall{done: make(chan struct{})}
@@ -105,7 +105,7 @@ func (p *Cached) Propose(ctx context.Context, input rinruntime.PolicyContext) (r
 	return draft, callError
 }
 
-func proposalCacheKey(input rinruntime.PolicyContext) (string, error) {
+func proposalCacheKey(input rinruntime.DecisionContext) (string, error) {
 	payload, err := json.Marshal(struct {
 		SessionID      string `json:"session_id"`
 		StateVersion   any    `json:"state_version"`
@@ -128,7 +128,7 @@ func proposalCacheKey(input rinruntime.PolicyContext) (string, error) {
 	return hex.EncodeToString(digest[:]), nil
 }
 
-func policyStateVersion(input rinruntime.PolicyContext) any {
+func policyStateVersion(input rinruntime.DecisionContext) any {
 	if input.State.WorldRevision > 0 {
 		return struct {
 			WorldRevision uint64 `json:"world_revision"`
@@ -171,7 +171,7 @@ func (p *Cached) enforceLimit() {
 	}
 }
 
-func cloneDraft(draft rinruntime.ProposalDraft) rinruntime.ProposalDraft {
+func cloneDraft(draft rinruntime.DecisionDraft) rinruntime.DecisionDraft {
 	draft.RecalledMemoryIDs = append([]string(nil), draft.RecalledMemoryIDs...)
 	return draft
 }

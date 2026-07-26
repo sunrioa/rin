@@ -259,6 +259,7 @@ policy/        零网络依赖的确定性离线策略
 provider/      OpenAI-compatible 客户端、重试与熔断
 jobs/          有界异步 Proposal worker queue
 generation/    有界结构化 Generation worker queue 与缓存
+extension/     可选 Memory、Speech 与无内容 Telemetry 端口
 adapters/      Ren'Py Python 客户端与桥接层
 sdk/           Python、JavaScript、C#、Java、Lua 通用客户端与路由契约
 compat/        可执行的游戏协议兼容向量
@@ -282,6 +283,10 @@ WebSocket、动态插件执行或任意文件访问。在线模型始终是可�
 可使用 Rin 的确定性 Policy；确认没有创建在线 Proposal 时，游戏也可使用自己
 编写的离线内容。Sidecar 结果未决并不能证明 Proposal 不存在，必须保持 Fail
 Closed，直到完全相同的 Attempt 完成对账。
+
+长期记忆检索、TTS 与遥测通过供应商无关可选端口接入，不会获得游戏动作权威。
+契约、缓存/取消/降级语义和 Ren'Py 等宿主的播放线程边界见
+[可选扩展端口](docs/optional-extensions.zh-CN.md)。
 
 已交付里程碑与剩余 Preview 工作记录在 [ROADMAP.md](ROADMAP.md)。
 

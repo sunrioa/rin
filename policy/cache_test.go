@@ -20,7 +20,7 @@ type countingPolicy struct {
 	err     error
 }
 
-func (p *countingPolicy) Propose(ctx context.Context, _ rinruntime.PolicyContext) (rinruntime.ProposalDraft, error) {
+func (p *countingPolicy) Propose(ctx context.Context, _ rinruntime.DecisionContext) (rinruntime.DecisionDraft, error) {
 	p.mu.Lock()
 	p.calls++
 	call := p.calls
@@ -32,13 +32,13 @@ func (p *countingPolicy) Propose(ctx context.Context, _ rinruntime.PolicyContext
 		select {
 		case <-p.release:
 		case <-ctx.Done():
-			return rinruntime.ProposalDraft{}, ctx.Err()
+			return rinruntime.DecisionDraft{}, ctx.Err()
 		}
 	}
 	if p.err != nil {
-		return rinruntime.ProposalDraft{}, p.err
+		return rinruntime.DecisionDraft{}, p.err
 	}
-	return rinruntime.ProposalDraft{OfferID: "talk", Stance: "engage", Summary: "summary", Rationale: "rationale", PolicySource: "model"}, nil
+	return rinruntime.DecisionDraft{OfferID: "talk", Stance: "engage", PolicySource: "model"}, nil
 }
 
 func (p *countingPolicy) count() int {

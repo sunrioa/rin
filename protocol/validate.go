@@ -670,6 +670,12 @@ func validateArtifactRef(field string, artifact ArtifactRef) error {
 	return nil
 }
 
+// ValidateArtifactRef validates one immutable external artifact independently
+// of an Observation request.
+func ValidateArtifactRef(artifact ArtifactRef) error {
+	return validateArtifactRef("artifact", artifact)
+}
+
 func protocolHostError(prefix string, err error) error {
 	var validation *host.ValidationError
 	if !errors.As(err, &validation) {

@@ -18,9 +18,9 @@ type Deterministic struct {
 	MemoryLimit int
 }
 
-func (p Deterministic) Propose(ctx context.Context, input rinruntime.PolicyContext) (rinruntime.ProposalDraft, error) {
+func (p Deterministic) Propose(ctx context.Context, input rinruntime.DecisionContext) (rinruntime.DecisionDraft, error) {
 	if err := ctx.Err(); err != nil {
-		return rinruntime.ProposalDraft{}, err
+		return rinruntime.DecisionDraft{}, err
 	}
 	memoryLimit := p.MemoryLimit
 	if memoryLimit <= 0 || memoryLimit > 8 {
@@ -44,7 +44,7 @@ func (p Deterministic) Propose(ctx context.Context, input rinruntime.PolicyConte
 			}
 		}
 		if !found {
-			return rinruntime.ProposalDraft{}, rinruntime.ErrNoSafeAction
+			return rinruntime.DecisionDraft{}, rinruntime.ErrNoSafeAction
 		}
 	} else {
 		selected = selectAction(input, goal, memories)
@@ -63,7 +63,7 @@ func (p Deterministic) Propose(ctx context.Context, input rinruntime.PolicyConte
 	for _, memory := range memories {
 		memoryIDs = append(memoryIDs, memory.ID)
 	}
-	draft := rinruntime.ProposalDraft{
+	draft := rinruntime.DecisionDraft{
 		OfferID:           selected.OfferID,
 		Stance:            stance,
 		PolicySource:      "deterministic",
@@ -115,7 +115,7 @@ func selectGoal(goals []protocol.Goal) *protocol.Goal {
 	return &active[0]
 }
 
-func selectAction(input rinruntime.PolicyContext, goal *protocol.Goal, memories []protocol.Memory) protocol.ActionOffer {
+func selectAction(input rinruntime.DecisionContext, goal *protocol.Goal, memories []protocol.Memory) protocol.ActionOffer {
 	type scoredAction struct {
 		action protocol.ActionOffer
 		score  int64
@@ -177,7 +177,7 @@ func selectAction(input rinruntime.PolicyContext, goal *protocol.Goal, memories 
 	return scored[0].action
 }
 
-func tieBreak(input rinruntime.PolicyContext, actionID string) uint64 {
+func tieBreak(input rinruntime.DecisionContext, actionID string) uint64 {
 	payload := fmt.Sprintf("%d\x00%s\x00%s\x00%s\x00%s", input.State.Seed, input.State.SessionID, input.Request.RequestID, input.Actor.ID, actionID)
 	digest := sha256.Sum256([]byte(payload))
 	return binary.BigEndian.Uint64(digest[:8])

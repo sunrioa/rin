@@ -100,14 +100,13 @@ Mutation revision/head or typed Proposal/Arbitration with `duplicate=true`.
 Those coordinates identify the first operation rather than the current live
 head.
 
-### Policy
+### Decision provider
 
-The policy interface returns only a `ProposalDraft`. The runtime does not
-trust its implementation: actions must come from the allowlist, memory and
-goal IDs must exist, stance must be valid, and a triggered actor boundary must
-select its game-authored response. `ProposalDraft.Summary` and
-`ProposalDraft.Rationale` remain only for Go source compatibility and are
-never published.
+The `DecisionProvider` interface returns only a structured `DecisionDraft`.
+The runtime does not trust its implementation: actions must come from the
+allowlist, memory and goal IDs must exist, stance must be valid, and a
+triggered actor boundary must select its game-authored response.
+`DecisionDraft` has no free-form player-text fields.
 
 The runtime is the single player-text information-flow gate. It always
 rebuilds `ActionProposal.summary` from the selected game-authored
@@ -170,7 +169,7 @@ Raw Provider HTTP bodies, prompts, and keys are never written to errors, logs,
 or durable Session state. A validated structured Generation result is retained
 in its bounded process-local Job record and semantic cache until returned; it
 remains untrusted caller-facing content. Attempt and total deadlines rely on
-the `provider.Client` cooperative cancellation contract: an implementation
+the `provider.StructuredGenerationProvider` cooperative cancellation contract: an implementation
 must observe `ctx.Done()` and return promptly. Go cannot forcibly preempt a
 third-party client that blocks forever.
 

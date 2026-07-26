@@ -241,7 +241,7 @@ func TestValidateModelEndpoint(t *testing.T) {
 func TestBuildPolicyModes(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	t.Setenv("RIN_POLICY", "deterministic")
-	selected, mode, err := buildPolicy(logger)
+	selected, mode, err := buildDecisionProvider(logger)
 	if err != nil || selected == nil || mode != "deterministic" {
 		t.Fatalf("deterministic policy: mode=%s err=%v", mode, err)
 	}
@@ -249,19 +249,19 @@ func TestBuildPolicyModes(t *testing.T) {
 	t.Setenv("RIN_POLICY", "model")
 	t.Setenv("RIN_MODEL_BASE_URL", "")
 	t.Setenv("RIN_MODEL", "")
-	if _, _, err := buildPolicy(logger); err == nil {
+	if _, _, err := buildDecisionProvider(logger); err == nil {
 		t.Fatal("missing model configuration should fail")
 	}
 	t.Setenv("RIN_MODEL_BASE_URL", "http://127.0.0.1:9999/v1")
 	t.Setenv("RIN_MODEL", "fixture-model")
 	t.Setenv("RIN_MODEL_API_KEY", "")
-	selected, mode, err = buildPolicy(logger)
+	selected, mode, err = buildDecisionProvider(logger)
 	if err != nil || selected == nil || mode != "model-with-fallback" {
 		t.Fatalf("local model policy: mode=%s err=%v", mode, err)
 	}
 
 	t.Setenv("RIN_MODEL_BASE_URL", "https://models.example/v1")
-	if _, _, err := buildPolicy(logger); err == nil {
+	if _, _, err := buildDecisionProvider(logger); err == nil {
 		t.Fatal("remote model without API key should fail")
 	}
 }

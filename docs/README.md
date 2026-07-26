@@ -16,6 +16,7 @@ releases do not carry a post-1.0 stability guarantee.
 | Proposal, execution, and recovery | [Host action lifecycle](action-lifecycle.md) | [Host 动作生命周期](action-lifecycle.zh-CN.md) |
 | HTTP and state contract | [Protocol v2](protocol-v2.md) | [协议 v2](protocol-v2.zh-CN.md) |
 | Online-model configuration | [Model policy](model-policy.md) | [模型策略](model-policy.zh-CN.md) |
+| Optional decision, memory, speech, and telemetry ports | [Optional extensions](optional-extensions.md) | [可选扩展端口](optional-extensions.zh-CN.md) |
 | Ren'Py, Godot, Unity, and Unreal | [Game adapters](game-adapters.md) | [游戏适配器](game-adapters.zh-CN.md) |
 | Regions, quests, and NPC actions | [RPG event conventions](rpg-events.md) | [RPG 事件约定](rpg-events.zh-CN.md) |
 | Cross-language clients and mods | [SDK and mod kits](sdk-and-mods.md) | [SDK 与 Mod 套件](sdk-and-mods.zh-CN.md) |

@@ -510,7 +510,11 @@ func TestNonRetryableAndAttemptTimeout(t *testing.T) {
 	}
 }
 
-func newTestResilient(t *testing.T, client Client, config ResilienceConfig) *Resilient {
+func newTestResilient(
+	t *testing.T,
+	client StructuredGenerationProvider,
+	config ResilienceConfig,
+) *Resilient {
 	t.Helper()
 	if config.AttemptTimeout == 0 {
 		config.AttemptTimeout = 100 * time.Millisecond

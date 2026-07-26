@@ -193,30 +193,27 @@ type CheckpointStore interface {
 	SaveCheckpoint(sessionID string, checkpoint Checkpoint) error
 }
 
-type PolicyContext struct {
+type DecisionContext struct {
 	State   protocol.SessionState
 	Actor   protocol.ActorState
 	Request protocol.ProposeRequest
 }
 
-type ProposalDraft struct {
-	OfferID string
-	Stance  string
-	// Summary and Rationale are retained for source compatibility with custom
-	// policies, but the engine never publishes them. Player-facing text is
-	// rebuilt from the selected game-authored action and fixed templates.
-	Summary           string
-	Rationale         string
+type DecisionDraft struct {
+	OfferID           string
+	Stance            string
 	PolicySource      string
 	RecalledMemoryIDs []string
 	GoalID            string
 	BoundaryID        string
 }
 
-// Policy proposes an allowed game action. Implementations may be deterministic,
-// model-backed, or scripted, but the runtime validates every returned field.
-type Policy interface {
-	Propose(context.Context, PolicyContext) (ProposalDraft, error)
+// DecisionProvider proposes an allowed game action. Implementations may be
+// deterministic, model-backed, or scripted, but the runtime validates every
+// returned field. Implementations must be safe for concurrent use and return
+// promptly when ctx is cancelled.
+type DecisionProvider interface {
+	Propose(context.Context, DecisionContext) (DecisionDraft, error)
 }
 
 type CodedError struct {

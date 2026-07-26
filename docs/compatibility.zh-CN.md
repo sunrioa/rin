@@ -34,6 +34,7 @@ Rin `0.7.0` 是 **Preview**、pre-1.0 软件。应固定精确 Commit 或已验�
 | File Store | 本地可靠文件系统 | HA/Shared Storage 使用协调 Store |
 | SDK | Source-first | Vendor 完整目录并固定 Rin Revision |
 | Host | 按清单在 macOS/Linux/Windows Build/Test | 真实 Engine/Server 验收另行完成 |
+| 可选 Go 端口 | Decision、Generation、派生 Memory、Speech、Telemetry | Adapter 负责供应商转换与取消 |
 
 ## 可选 Feature
 
@@ -47,6 +48,11 @@ v2 Host 生命周期是基础协议，没有 Feature Flag。当前可选 Session
 - `identifier-history-v1`。
 
 通过 `/health` 协商，并且只启用游戏真正持久化与实现的 Feature。
+
+Go-only 可选扩展端口不是 Wire Feature Flag，也不会改变 Session 权威，详见
+[可选扩展端口](optional-extensions.zh-CN.md)。由于 0.7 仍是 Preview，被替代的
+公共 Go Alias 会被直接删除；Consumer 必须使用 `DecisionContext`、
+`DecisionDraft`、`DecisionProvider` 与 `StructuredGenerationProvider`。
 
 ## 平台矩阵
 

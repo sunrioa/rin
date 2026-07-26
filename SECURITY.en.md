@@ -88,7 +88,7 @@ explicitly marked `untrusted_game_data`, and model output still requires local
 allowlist validation.
 
 The model output schema does not accept `summary` or `rationale`, and
-compatibility text in every Policy Draft is discarded. The runtime rebuilds
+`DecisionDraft` has no free-form text fields. The runtime rebuilds
 player fields only from the game-authorized `ActionOffer.description` and a
 fixed stance template; private Goal, Boundary, Memory, Belief, prompt, and
 provider text are not inputs to that function. `policy_source`,

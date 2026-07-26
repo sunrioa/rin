@@ -8,31 +8,31 @@ import (
 )
 
 type Failover struct {
-	Primary    rinruntime.Policy
-	Fallback   rinruntime.Policy
+	Primary    rinruntime.DecisionProvider
+	Fallback   rinruntime.DecisionProvider
 	OnFallback func(error)
 }
 
-func (p Failover) Propose(ctx context.Context, input rinruntime.PolicyContext) (rinruntime.ProposalDraft, error) {
+func (p Failover) Propose(ctx context.Context, input rinruntime.DecisionContext) (rinruntime.DecisionDraft, error) {
 	if p.Primary == nil || p.Fallback == nil {
-		return rinruntime.ProposalDraft{}, errors.New("primary and fallback policies are required")
+		return rinruntime.DecisionDraft{}, errors.New("primary and fallback policies are required")
 	}
 	draft, err := p.Primary.Propose(ctx, input)
 	if err == nil {
 		return draft, nil
 	}
 	if ctx.Err() != nil {
-		return rinruntime.ProposalDraft{}, ctx.Err()
+		return rinruntime.DecisionDraft{}, ctx.Err()
 	}
 	if errors.Is(err, rinruntime.ErrNoSafeAction) {
-		return rinruntime.ProposalDraft{}, err
+		return rinruntime.DecisionDraft{}, err
 	}
 	if p.OnFallback != nil {
 		p.OnFallback(err)
 	}
 	draft, fallbackError := p.Fallback.Propose(ctx, input)
 	if fallbackError != nil {
-		return rinruntime.ProposalDraft{}, fallbackError
+		return rinruntime.DecisionDraft{}, fallbackError
 	}
 	draft.PolicySource = "deterministic-fallback"
 	return draft, nil

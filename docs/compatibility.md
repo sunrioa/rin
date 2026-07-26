@@ -36,6 +36,7 @@ is a documentation defect.
 | File Store | Local reliable filesystems | Use a coordinated Store for HA/shared storage |
 | SDKs | Source-first | Vendor the full directory and pin the Rin revision |
 | Hosts | macOS/Linux/Windows build/test where listed | Real engine/server acceptance remains separate |
+| Optional Go ports | Decision, generation, derived memory, speech, telemetry | Adapter owns vendor translation and cancellation |
 
 ## Optional features
 
@@ -51,6 +52,12 @@ optional Session features are:
 
 Negotiate through `/health` and enable only features the game actually
 persists and implements.
+
+The Go-only optional extension ports are not wire Feature flags and do not
+change Session authority. See [optional extensions](optional-extensions.md).
+Because 0.7 is Preview, superseded public Go aliases are removed; consumers
+must use `DecisionContext`, `DecisionDraft`, `DecisionProvider`, and
+`StructuredGenerationProvider`.
 
 ## Platform matrix
 

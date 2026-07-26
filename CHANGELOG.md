@@ -25,6 +25,9 @@ across every future minor release.
 - SHA-256-pinned OpenSpiel 2.0.1 semantic tests on macOS/Linux/Windows for
   sequential turns, atomic simultaneous windows, host-owned chance
   transitions, and hidden-information noninterference.
+- Vendor-neutral optional ports for derived memory search, approved-text
+  speech synthesis, immutable audio references, and content-free telemetry,
+  with bounded validation, cancellation, privacy, and degradation tests.
 
 ### Changed
 
@@ -50,6 +53,10 @@ across every future minor release.
   preserves JSON-empty collections explicitly, advances Host/Timeline on
   server restart, and reconciles an interrupted effect as `outcome-unknown`
   instead of replaying it.
+- The public decision and generation boundaries are now
+  `DecisionProvider`, `DecisionContext`, `DecisionDraft`, and
+  `StructuredGenerationProvider`. Obsolete Go type names and the unused
+  free-form draft text fields were removed without compatibility aliases.
 
 ## [0.6.0] - 2026-07-24 - Preview
 

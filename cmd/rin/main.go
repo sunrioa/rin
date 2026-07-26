@@ -111,7 +111,7 @@ Serve options:
 	}
 	engine, err := rinruntime.OpenWithOptions(
 		fileStore,
-		modelRuntime.Policy,
+		modelRuntime.DecisionProvider,
 		rinruntime.EngineOptions{
 			SessionSoftLimitBytes: *sessionSoftLimit,
 			SessionHardLimitBytes: *sessionHardLimit,
@@ -128,8 +128,8 @@ Serve options:
 		return err
 	}
 	var generationManager *generation.Manager
-	if modelRuntime.GenerationClient != nil {
-		generationManager, err = generation.New(modelRuntime.GenerationClient, generation.Config{
+	if modelRuntime.GenerationProvider != nil {
+		generationManager, err = generation.New(modelRuntime.GenerationProvider, generation.Config{
 			Workers: envInt("RIN_GENERATION_WORKERS", 2), QueueSize: envInt("RIN_GENERATION_QUEUE_SIZE", 64),
 			MaxJobs: envInt("RIN_GENERATION_MAX_RETAINED", 512), JobTTL: envDuration("RIN_GENERATION_JOB_TTL", 30*time.Minute),
 			CacheEntries: envInt("RIN_GENERATION_CACHE_ENTRIES", 256), CacheTTL: envDuration("RIN_GENERATION_CACHE_TTL", 30*time.Minute),

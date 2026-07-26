@@ -20,7 +20,7 @@ type ResilienceConfig struct {
 }
 
 type Resilient struct {
-	client Client
+	client StructuredGenerationProvider
 	config ResilienceConfig
 
 	mu                  sync.Mutex
@@ -61,7 +61,10 @@ type circuitPermit struct {
 	halfOpen   bool
 }
 
-func NewResilient(client Client, config ResilienceConfig) (*Resilient, error) {
+func NewResilient(
+	client StructuredGenerationProvider,
+	config ResilienceConfig,
+) (*Resilient, error) {
 	if client == nil {
 		return nil, errors.New("provider client is required")
 	}

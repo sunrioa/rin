@@ -61,7 +61,8 @@ export RIN_MODEL_RESPONSE_FORMAT=json_object
 
 ## Provider 韧性契约
 
-超时配置是“协作式预算”，不是运行时强制抢占。每个 `provider.Client` 实现都必须在输入
+超时配置是“协作式预算”，不是运行时强制抢占。每个
+`provider.StructuredGenerationProvider` 实现都必须在输入
 `ctx.Done()` 关闭后立即停止工作并尽快返回；内置 OpenAI-compatible Client 遵守该契约。
 Go 无法安全终止任意阻塞实现，因此 Rin 不会把每次调用分离到可能永久泄漏的 goroutine 中。
 不合规的第三方 Client 可能超过任一配置超时，并让 `Complete` 一直延迟到它实际返回。

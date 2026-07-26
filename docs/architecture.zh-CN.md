@@ -74,12 +74,11 @@ Request digest 是请求经严格 typed 解码后 canonical JSON 的 SHA-256。�
 duplicate 会返回原始 Mutation revision/head 或 typed Proposal/Arbitration，
 并设置 `duplicate=true`。这些坐标标识首次操作，不是当前 live head。
 
-### 策略
+### 决策 Provider
 
-Policy 接口只返回 `ProposalDraft`。运行时不信任实现：动作必须来自白名单，记忆和
-目标 ID 必须真实存在，stance 必须合法；角色边界被触发时还必须选择游戏编写的响应动作。
-`ProposalDraft.Summary` 与 `ProposalDraft.Rationale` 只为 Go 源码兼容保留，
-永远不会发布。
+`DecisionProvider` 接口只返回结构化 `DecisionDraft`。运行时不信任实现：动作
+必须来自白名单，记忆和目标 ID 必须真实存在，stance 必须合法；角色边界被触发时
+还必须选择游戏编写的响应动作。`DecisionDraft` 不提供玩家文本自由字段。
 
 运行时是唯一的玩家文本信息流门禁：`ActionProposal.summary` 一律由选中的、
 游戏编写的 `ActionOffer.description` 重建，`ActionProposal.rationale` 一律
@@ -119,7 +118,8 @@ Policy 与不合规 Provider 同样是最终权威。
 
 OpenAI-compatible 客户端由标准库实现。每次调用具有 attempt timeout 和 total timeout，只重试网络、429、408 和 5xx 等暂时错误；连续失败会打开 circuit breaker，开放期直接进入离线回退。原始 Provider HTTP 正文、Prompt 和 Key 不写入错误、日志或持久 Session State。经验证的结构化 Generation Result 会保留在有界进程内 Job Record 与 Semantic Cache 中，直到返回调用方；它仍是不可信的调用方 Content。
 
-Attempt 与 total deadline 依赖 `provider.Client` 的协作取消硬契约：实现必须观察
+Attempt 与 total deadline 依赖 `provider.StructuredGenerationProvider` 的协作取消
+硬契约：实现必须观察
 `ctx.Done()` 并及时返回。Go 无法强制抢占一个永久阻塞的第三方 Client。
 
 模型 Draft 按 Session head hash、Actor 和语义请求建立有界内存缓存。相同 key 的并发调用合并成一次供应商请求；状态变化后 head hash 改变，旧结果不会命中新世界状态。

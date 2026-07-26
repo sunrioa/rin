@@ -347,13 +347,13 @@ func newBlockingPolicy() *blockingPolicy {
 	return &blockingPolicy{started: make(chan struct{}), releaseChannel: make(chan struct{})}
 }
 
-func (p *blockingPolicy) Propose(ctx context.Context, _ rinruntime.PolicyContext) (rinruntime.ProposalDraft, error) {
+func (p *blockingPolicy) Propose(ctx context.Context, _ rinruntime.DecisionContext) (rinruntime.DecisionDraft, error) {
 	p.once.Do(func() { close(p.started) })
 	select {
 	case <-p.releaseChannel:
-		return rinruntime.ProposalDraft{OfferID: "talk", Stance: "engage", Summary: "reply", Rationale: "allowed", PolicySource: "test"}, nil
+		return rinruntime.DecisionDraft{OfferID: "talk", Stance: "engage", PolicySource: "test"}, nil
 	case <-ctx.Done():
-		return rinruntime.ProposalDraft{}, ctx.Err()
+		return rinruntime.DecisionDraft{}, ctx.Err()
 	}
 }
 
@@ -409,7 +409,7 @@ func waitJob(t *testing.T, manager *jobs.Manager, id string) protocol.ProposalJo
 	return protocol.ProposalJob{}
 }
 
-func jobEngine(t *testing.T, selectedPolicy rinruntime.Policy, sessionID string) *rinruntime.Engine {
+func jobEngine(t *testing.T, selectedPolicy rinruntime.DecisionProvider, sessionID string) *rinruntime.Engine {
 	t.Helper()
 	engine, err := rinruntime.Open(store.NewMemory(), selectedPolicy)
 	if err != nil {

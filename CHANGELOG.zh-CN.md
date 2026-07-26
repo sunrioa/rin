@@ -21,6 +21,8 @@
   与中断 Active Run 恢复。
 - 在 macOS/Linux/Windows 使用 SHA-256 固定的 OpenSpiel 2.0.1 验证顺序回合、
   原子同时 Window、宿主拥有的 Chance Transition 与隐藏信息 Noninterference。
+- 新增供应商无关的派生 Memory Search、已批准文字 Speech、不可变 Audio Ref 与
+  无内容 Telemetry 可选端口，并覆盖有界校验、取消、隐私与降级测试。
 
 ### 变化
 
@@ -44,6 +46,9 @@
 - 删除 Luanti State Schema v1。Schema v2 绑定宿主提供的内容、显式保留 JSON 空集合、
   在 Server 重启时提升 Host/Timeline，并把中断效果对账为
   `outcome-unknown`，而不是重复执行。
+- 公共决策与生成边界统一为 `DecisionProvider`、`DecisionContext`、
+  `DecisionDraft` 与 `StructuredGenerationProvider`。旧 Go 类型名和无实际用途的
+  Draft 自由文本字段被直接删除，不保留兼容 Alias。
 
 ## [0.6.0] - 2026-07-24 - Preview
 

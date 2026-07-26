@@ -315,6 +315,7 @@ policy/        Deterministic offline policy with no network dependency
 provider/      OpenAI-compatible client, retries, and circuit breaker
 jobs/          Bounded asynchronous proposal worker queue
 generation/    Bounded structured-generation worker queue and cache
+extension/     Optional memory, speech, and content-free telemetry ports
 adapters/      Ren'Py Python client and bridge
 sdk/           Python, JavaScript, C#, Java, and Lua clients and route contract
 compat/        Executable game-protocol compatibility vectors
@@ -341,6 +342,11 @@ remain optional. Provider failure can use Rin's deterministic Policy, and a
 game can use authored offline content when it knows no online Proposal was
 created. Sidecar outcome uncertainty is not proof of absence and must remain
 fail closed until the exact Attempt is reconciled.
+
+Long-term retrieval, TTS, and telemetry integrate through vendor-neutral
+optional ports and receive no game-action authority. See
+[optional extensions](docs/optional-extensions.md) for the contracts,
+cache/cancellation/degradation semantics, and engine audio-thread boundary.
 
 Delivered milestones and remaining Preview work are tracked in
 [ROADMAP.en.md](ROADMAP.en.md).

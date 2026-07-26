@@ -32,9 +32,9 @@ var proposalSchema = json.RawMessage(`{
 }`)
 
 type Model struct {
-	Client      provider.Client
-	MemoryLimit int
-	BeliefLimit int
+	GenerationProvider provider.StructuredGenerationProvider
+	MemoryLimit        int
+	BeliefLimit        int
 }
 
 type modelOutput struct {
@@ -77,9 +77,9 @@ type promptActor struct {
 	Traits      []string `json:"traits"`
 }
 
-func (p Model) Propose(ctx context.Context, input rinruntime.PolicyContext) (rinruntime.ProposalDraft, error) {
-	if p.Client == nil {
-		return rinruntime.ProposalDraft{}, errors.New("model policy client is required")
+func (p Model) Propose(ctx context.Context, input rinruntime.DecisionContext) (rinruntime.DecisionDraft, error) {
+	if p.GenerationProvider == nil {
+		return rinruntime.DecisionDraft{}, errors.New("model decision generation provider is required")
 	}
 	if _, triggered := triggeredBoundary(input.Actor.Boundaries, input.Request.Tags); triggered {
 		draft, err := (Deterministic{MemoryLimit: p.MemoryLimit}).Propose(ctx, input)
@@ -91,9 +91,9 @@ func (p Model) Propose(ctx context.Context, input rinruntime.PolicyContext) (rin
 	packet := p.promptPacket(input)
 	payload, err := json.Marshal(packet)
 	if err != nil {
-		return rinruntime.ProposalDraft{}, fmt.Errorf("encode model packet: %w", err)
+		return rinruntime.DecisionDraft{}, fmt.Errorf("encode model packet: %w", err)
 	}
-	response, err := p.Client.Complete(ctx, provider.CompletionRequest{
+	response, err := p.GenerationProvider.Complete(ctx, provider.CompletionRequest{
 		Messages: []provider.Message{
 			{Role: "system", Content: modelSystemPrompt},
 			{Role: "user", Content: string(payload)},
@@ -103,22 +103,22 @@ func (p Model) Propose(ctx context.Context, input rinruntime.PolicyContext) (rin
 		MaxTokens:   700,
 	})
 	if err != nil {
-		return rinruntime.ProposalDraft{}, err
+		return rinruntime.DecisionDraft{}, err
 	}
 	var output modelOutput
 	decoder := json.NewDecoder(strings.NewReader(response.Content))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&output); err != nil {
-		return rinruntime.ProposalDraft{}, errors.New("model returned invalid proposal JSON")
+		return rinruntime.DecisionDraft{}, errors.New("model returned invalid proposal JSON")
 	}
 	var extra any
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		return rinruntime.ProposalDraft{}, errors.New("model returned more than one JSON value")
+		return rinruntime.DecisionDraft{}, errors.New("model returned more than one JSON value")
 	}
 	if err := validateModelOutput(packet.Contract, output); err != nil {
-		return rinruntime.ProposalDraft{}, err
+		return rinruntime.DecisionDraft{}, err
 	}
-	return rinruntime.ProposalDraft{
+	return rinruntime.DecisionDraft{
 		OfferID:           output.OfferID,
 		Stance:            output.Stance,
 		PolicySource:      "model",
@@ -127,7 +127,7 @@ func (p Model) Propose(ctx context.Context, input rinruntime.PolicyContext) (rin
 	}, nil
 }
 
-func (p Model) promptPacket(input rinruntime.PolicyContext) promptPacket {
+func (p Model) promptPacket(input rinruntime.DecisionContext) promptPacket {
 	memoryLimit := p.MemoryLimit
 	if memoryLimit <= 0 || memoryLimit > 8 {
 		memoryLimit = 6

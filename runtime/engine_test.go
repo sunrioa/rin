@@ -619,8 +619,8 @@ func TestPendingProposalCapacityFailsClosedAndSnapshotRemainsValid(t *testing.T)
 
 type invalidPolicy struct{}
 
-func (invalidPolicy) Propose(context.Context, rinruntime.PolicyContext) (rinruntime.ProposalDraft, error) {
-	return rinruntime.ProposalDraft{OfferID: "execute.arbitrary", Stance: "engage", Summary: "bad", Rationale: "bad"}, nil
+func (invalidPolicy) Propose(context.Context, rinruntime.DecisionContext) (rinruntime.DecisionDraft, error) {
+	return rinruntime.DecisionDraft{OfferID: "execute.arbitrary", Stance: "engage"}, nil
 }
 
 func TestPolicyCannotEscapeCandidateWhitelist(t *testing.T) {
@@ -635,15 +635,13 @@ func TestPolicyCannotEscapeCandidateWhitelist(t *testing.T) {
 type privateTextPolicy struct {
 	actionID   string
 	stance     string
-	summary    string
-	rationale  string
 	boundaryID string
 	withAudit  bool
 }
 
-func (p privateTextPolicy) Propose(_ context.Context, input rinruntime.PolicyContext) (rinruntime.ProposalDraft, error) {
-	draft := rinruntime.ProposalDraft{
-		OfferID: p.actionID, Stance: p.stance, Summary: p.summary, Rationale: p.rationale,
+func (p privateTextPolicy) Propose(_ context.Context, input rinruntime.DecisionContext) (rinruntime.DecisionDraft, error) {
+	draft := rinruntime.DecisionDraft{
+		OfferID: p.actionID, Stance: p.stance,
 		PolicySource: "private-text-test", BoundaryID: p.boundaryID,
 	}
 	if p.withAudit {
@@ -657,28 +655,26 @@ func (p privateTextPolicy) Propose(_ context.Context, input rinruntime.PolicyCon
 	return draft, nil
 }
 
-func TestRuntimeRewritesPrivatePolicyTextAndPreservesStructuredAuditEvidence(t *testing.T) {
+func TestRuntimeAuthorsPlayerTextWithoutPrivateContextAndPreservesStructuredAuditEvidence(t *testing.T) {
 	privateCanaries := []string{
-		"PRIVATE_POLICY_CANARY_33A1",
 		"PRIVATE_ACTOR_CANARY_33A2",
 		"PRIVATE_GOAL_CANARY_33A3",
 		"PRIVATE_MEMORY_CANARY_33A4",
 	}
 	engine := newEngine(t, store.NewMemory(), privateTextPolicy{
 		actionID: "talk", stance: "engage",
-		summary: privateCanaries[0], rationale: strings.Join(privateCanaries, " "),
 		withAudit: true,
 	})
 	const sessionID = "session.proposal-visibility"
 	create := createRequest(sessionID)
-	create.Actors[0].DisplayName = privateCanaries[1]
-	create.Actors[0].Goals[0].Description = privateCanaries[2]
+	create.Actors[0].DisplayName = privateCanaries[0]
+	create.Actors[0].Goals[0].Description = privateCanaries[1]
 	if _, err := engine.CreateSession(create); err != nil {
 		t.Fatal(err)
 	}
 	observation := observeRequest(sessionID, "observe.proposal-visibility", "event.proposal-visibility", 0)
-	observation.Summary = privateCanaries[3]
-	observation.Quote = privateCanaries[3]
+	observation.Summary = privateCanaries[2]
+	observation.Quote = privateCanaries[2]
 	if _, err := engine.Observe(observation); err != nil {
 		t.Fatal(err)
 	}
@@ -706,7 +702,7 @@ func TestRuntimeRewritesPrivatePolicyTextAndPreservesStructuredAuditEvidence(t *
 func TestPlayerTextDoesNotRevealWhetherPrivateBoundaryTriggered(t *testing.T) {
 	const canary = "PRIVATE_BOUNDARY_CANARY_518D"
 	engine := newEngine(t, store.NewMemory(), privateTextPolicy{
-		actionID: "refuse", stance: "refuse", summary: canary, rationale: canary,
+		actionID: "refuse", stance: "refuse",
 	})
 	proposals := make([]protocol.ActionProposal, 0, 2)
 	for index, tags := range [][]string{nil, []string{"private"}} {
@@ -748,7 +744,6 @@ func TestRuntimeRejectsUnsafeCustomPolicyWhenBoundaryTriggers(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			engine := newEngine(t, store.NewMemory(), privateTextPolicy{
 				actionID: testCase.action, stance: testCase.stance,
-				summary: "ignored", rationale: "ignored",
 			})
 			sessionID := "session.custom-policy-boundary." + strings.ReplaceAll(testCase.name, " ", "-")
 			if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
@@ -770,13 +765,13 @@ type blockingPolicy struct {
 	release chan struct{}
 }
 
-func (p blockingPolicy) Propose(ctx context.Context, input rinruntime.PolicyContext) (rinruntime.ProposalDraft, error) {
+func (p blockingPolicy) Propose(ctx context.Context, input rinruntime.DecisionContext) (rinruntime.DecisionDraft, error) {
 	close(p.started)
 	select {
 	case <-p.release:
-		return rinruntime.ProposalDraft{OfferID: "talk", Stance: "engage", Summary: "Mira proposes a reply.", Rationale: "Allowed by the game."}, nil
+		return rinruntime.DecisionDraft{OfferID: "talk", Stance: "engage"}, nil
 	case <-ctx.Done():
-		return rinruntime.ProposalDraft{}, ctx.Err()
+		return rinruntime.DecisionDraft{}, ctx.Err()
 	}
 }
 
@@ -787,7 +782,7 @@ type firstCallBlockingPolicy struct {
 	calls   int
 }
 
-func (p *firstCallBlockingPolicy) Propose(ctx context.Context, input rinruntime.PolicyContext) (rinruntime.ProposalDraft, error) {
+func (p *firstCallBlockingPolicy) Propose(ctx context.Context, input rinruntime.DecisionContext) (rinruntime.DecisionDraft, error) {
 	p.mu.Lock()
 	p.calls++
 	call := p.calls
@@ -797,14 +792,12 @@ func (p *firstCallBlockingPolicy) Propose(ctx context.Context, input rinruntime.
 		select {
 		case <-p.release:
 		case <-ctx.Done():
-			return rinruntime.ProposalDraft{}, ctx.Err()
+			return rinruntime.DecisionDraft{}, ctx.Err()
 		}
 	}
-	return rinruntime.ProposalDraft{
-		OfferID:   "talk",
-		Stance:    "engage",
-		Summary:   "Mira proposes a reply.",
-		Rationale: "Allowed by the game.",
+	return rinruntime.DecisionDraft{
+		OfferID: "talk",
+		Stance:  "engage",
 	}, nil
 }
 
@@ -921,7 +914,7 @@ func TestPolicyWaitDoesNotBlockObservations(t *testing.T) {
 	}
 }
 
-func newEngine(t *testing.T, eventStore rinruntime.Store, selectedPolicy rinruntime.Policy) *rinruntime.Engine {
+func newEngine(t *testing.T, eventStore rinruntime.Store, selectedPolicy rinruntime.DecisionProvider) *rinruntime.Engine {
 	t.Helper()
 	engine, err := rinruntime.Open(eventStore, selectedPolicy)
 	if err != nil {

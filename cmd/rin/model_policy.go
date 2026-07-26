@@ -19,23 +19,26 @@ import (
 )
 
 type modelRuntime struct {
-	Policy           rinruntime.Policy
-	Mode             string
-	GenerationClient provider.Client
+	DecisionProvider   rinruntime.DecisionProvider
+	Mode               string
+	GenerationProvider provider.StructuredGenerationProvider
 }
 
-func buildPolicy(logger *slog.Logger) (rinruntime.Policy, string, error) {
+func buildDecisionProvider(logger *slog.Logger) (rinruntime.DecisionProvider, string, error) {
 	runtime, err := buildModelRuntime(logger)
 	if err != nil {
 		return nil, "", err
 	}
-	return runtime.Policy, runtime.Mode, nil
+	return runtime.DecisionProvider, runtime.Mode, nil
 }
 
 func buildModelRuntime(logger *slog.Logger) (modelRuntime, error) {
 	mode := strings.ToLower(envOr("RIN_POLICY", "deterministic"))
 	if mode == "deterministic" {
-		return modelRuntime{Policy: policy.Deterministic{}, Mode: "deterministic"}, nil
+		return modelRuntime{
+			DecisionProvider: policy.Deterministic{},
+			Mode:             "deterministic",
+		}, nil
 	}
 	if mode != "model" {
 		return modelRuntime{}, errors.New("RIN_POLICY must be deterministic or model")
@@ -82,22 +85,24 @@ func buildModelRuntime(logger *slog.Logger) (modelRuntime, error) {
 	if err != nil {
 		return modelRuntime{}, err
 	}
-	modelPolicy := policy.Model{Client: resilient}
-	cached, err := policy.NewCached(modelPolicy, policy.CacheConfig{
+	modelDecisionProvider := policy.Model{GenerationProvider: resilient}
+	cached, err := policy.NewCached(modelDecisionProvider, policy.CacheConfig{
 		MaxEntries: envInt("RIN_MODEL_CACHE_ENTRIES", 256),
 		TTL:        envDuration("RIN_MODEL_CACHE_TTL", 10*time.Minute),
 	})
 	if err != nil {
 		return modelRuntime{}, err
 	}
-	selectedPolicy := policy.Failover{
+	selectedProvider := policy.Failover{
 		Primary: cached, Fallback: policy.Deterministic{},
 		OnFallback: func(err error) {
 			logger.Warn("model policy used deterministic fallback", "error", err)
 		},
 	}
 	return modelRuntime{
-		Policy: selectedPolicy, Mode: "model-with-fallback", GenerationClient: resilient,
+		DecisionProvider:   selectedProvider,
+		Mode:               "model-with-fallback",
+		GenerationProvider: resilient,
 	}, nil
 }
 

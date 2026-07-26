@@ -15,6 +15,7 @@ Rin `0.7.0` 是 Preview、pre-1.0 软件。文档按公共接口组织，不以�
 | Proposal、执行与恢复 | [Host 动作生命周期](action-lifecycle.zh-CN.md) | [Host action lifecycle](action-lifecycle.md) |
 | HTTP 与状态契约 | [协议 v2](protocol-v2.zh-CN.md) | [Protocol v2](protocol-v2.md) |
 | 在线模型配置 | [模型策略](model-policy.zh-CN.md) | [Model policy](model-policy.md) |
+| 可选决策、记忆、语音与遥测端口 | [可选扩展端口](optional-extensions.zh-CN.md) | [Optional extensions](optional-extensions.md) |
 | Ren'Py、Godot、Unity 与 Unreal | [游戏适配器](game-adapters.zh-CN.md) | [Game adapters](game-adapters.md) |
 | 区域、任务与 NPC 动作 | [RPG 事件约定](rpg-events.zh-CN.md) | [RPG event conventions](rpg-events.md) |
 | 跨语言客户端与 Mod | [SDK 与 Mod 套件](sdk-and-mods.zh-CN.md) | [SDK and mod kits](sdk-and-mods.md) |

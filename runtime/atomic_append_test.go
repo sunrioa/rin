@@ -1194,8 +1194,8 @@ func (s *failProposalBeforeWriteAndLoadOnceStore) appendCallCount() int {
 
 func (p *changingAtomicPolicy) Propose(
 	_ context.Context,
-	_ rinruntime.PolicyContext,
-) (rinruntime.ProposalDraft, error) {
+	_ rinruntime.DecisionContext,
+) (rinruntime.DecisionDraft, error) {
 	p.mu.Lock()
 	p.calls++
 	call := p.calls
@@ -1204,11 +1204,9 @@ func (p *changingAtomicPolicy) Propose(
 	if call > 1 {
 		actionID = "wait"
 	}
-	return rinruntime.ProposalDraft{
-		OfferID:   actionID,
-		Stance:    "engage",
-		Summary:   "A deliberately changing policy result.",
-		Rationale: "Used to prove an uncertain append retry does not invoke policy twice.",
+	return rinruntime.DecisionDraft{
+		OfferID: actionID,
+		Stance:  "engage",
 	}, nil
 }
 
