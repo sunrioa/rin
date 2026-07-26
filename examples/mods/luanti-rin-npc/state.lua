@@ -2,10 +2,16 @@ local module = {}
 local State = {}
 State.__index = State
 
-local storage_key = "workflow_state_v1"
+local storage_key = "rin_host_state"
 local maximum_bytes = 1024 * 1024
 local maximum_players = 128
 local maximum_outcomes = 64
+local player_sentinel = "__rin_state_format"
+local outcome_sentinel = {
+    key = "__rin_state_format",
+    kind = "state-format",
+    version = 2,
+}
 
 local function count(table_value)
     local result = 0
@@ -40,10 +46,62 @@ local function state_error(code, message)
     return { code = code, message = message }
 end
 
+local function copy_table(value, active)
+    if type(value) ~= "table" then return value end
+    active = active or {}
+    if active[value] then error("workflow state contains a cycle") end
+    active[value] = true
+    local result = {}
+    for key, child in pairs(value) do
+        result[copy_table(key, active)] = copy_table(child, active)
+    end
+    active[value] = nil
+    return result
+end
+
+local function valid_binding(value)
+    return type(value) == "table" and
+        valid_id(value.game_id) and valid_id(value.content_id) and
+        type(value.content_version) == "string" and
+        #value.content_version >= 1 and #value.content_version <= 64 and
+        type(value.content_hash) == "string" and
+        value.content_hash:match("^sha256:[a-f0-9]+$") ~= nil and
+        #value.content_hash == 71
+end
+
+local function same_binding(left, right)
+    return valid_binding(left) and valid_binding(right) and
+        left.game_id == right.game_id and
+        left.content_id == right.content_id and
+        left.content_version == right.content_version and
+        left.content_hash == right.content_hash
+end
+
+local function valid_outcome(state, outcome)
+    return type(outcome) == "table" and valid_id(outcome.key) and
+        type(outcome.owner) == "string" and type(state.players[outcome.owner]) == "table" and
+        (outcome.kind == "report" or outcome.kind == "observe") and
+        type(outcome.request) == "table" and
+        outcome.request.protocol_version == "rin.protocol/v2" and valid_id(outcome.request.session_id) and
+        outcome.request.session_id == state.players[outcome.owner].session_id and
+        valid_id(outcome.request.request_id) and safe_integer(outcome.request.tick) and
+        (outcome.kind ~= "report" or
+            (type(outcome.request.report) == "table" and
+                valid_id(outcome.request.report.proposal_id) and
+                valid_id(outcome.request.report.event_id) and
+                (outcome.request.report.decision == "accepted" or
+                    outcome.request.report.decision == "rejected") and
+                type(outcome.request.report.summary) == "string" and #outcome.request.report.summary >= 1)) and
+        (outcome.kind ~= "observe" or valid_id(outcome.request.event_id))
+end
 function module.open(options)
-    if type(options) ~= "table" or type(options.storage) ~= "table" or
+    local storage_type = type(options) == "table" and
+        type(options.storage) or ""
+    if type(options) ~= "table" or
+        (storage_type ~= "table" and storage_type ~= "userdata") or
         type(options.encode) ~= "function" or type(options.decode) ~= "function" or
         type(options.new_world_id) ~= "function" or
+        not valid_binding(options.binding) or
         type(options.hash) ~= "function" then
         return nil, state_error("invalid_state_options", "State options are incomplete")
     end
@@ -62,13 +120,19 @@ function module.open(options)
             return nil, state_error("invalid_world_identity", "World identity is malformed")
         end
         self.state = {
-            version = 1,
+            version = 2,
             world_id = world_id,
-            players = {},
-            outcomes = {},
+            binding = options.binding,
+            host_epoch = 0,
+            world_epoch = 1,
+            timeline_epoch = 0,
+            players = { [player_sentinel] = 2 },
+            outcomes = { outcome_sentinel },
         }
         local ok, err = self:_persist(self.state)
         if not ok then return nil, err end
+        local started, start_error = self:_begin_lifetime()
+        if not started then return nil, start_error end
         return self
     end
     if #raw > maximum_bytes then
@@ -81,6 +145,13 @@ function module.open(options)
     self.state = decoded
     local valid, err = self:_validate()
     if not valid then return nil, err end
+    if not same_binding(self.state.binding, options.binding) then
+        return nil, state_error(
+            "state_binding_mismatch",
+            "Stored content binding does not match the running Mod")
+    end
+    local started, start_error = self:_begin_lifetime()
+    if not started then return nil, start_error end
     return self
 end
 
@@ -96,9 +167,7 @@ function State:_encode(value)
 end
 
 function State:_copy(value)
-    local encoded, encode_error = self:_encode(value)
-    if not encoded then return nil, encode_error end
-    local ok, copied = pcall(self.decode, encoded)
+    local ok, copied = pcall(copy_table, value)
     if not ok or type(copied) ~= "table" then
         return nil, state_error("state_copy_failed", "Could not copy workflow state")
     end
@@ -127,62 +196,71 @@ end
 function State:_validate(candidate)
     local state = candidate or self.state
     local outcome_count = dense_array_length(state and state.outcomes)
-    if state.version ~= 1 or type(state.world_id) ~= "string" or
+    if state.version ~= 2 or type(state.world_id) ~= "string" or
         not state.world_id:match("^[a-f0-9]+$") or #state.world_id ~= 32 or
-        type(state.players) ~= "table" or count(state.players) > maximum_players or
-        outcome_count == nil or outcome_count > maximum_outcomes then
+        not valid_binding(state.binding) or
+        not safe_integer(state.host_epoch) or
+        not safe_integer(state.world_epoch) or state.world_epoch < 1 or
+        not safe_integer(state.timeline_epoch) or
+        type(state.players) ~= "table" or
+        state.players[player_sentinel] ~= 2 or
+        count(state.players) - 1 > maximum_players or
+        outcome_count == nil or outcome_count < 1 or
+        outcome_count - 1 > maximum_outcomes or
+        type(state.outcomes[1]) ~= "table" or
+        state.outcomes[1].key ~= outcome_sentinel.key or
+        state.outcomes[1].kind ~= outcome_sentinel.kind or
+        state.outcomes[1].version ~= outcome_sentinel.version then
         return false, state_error("invalid_state", "Workflow state header is malformed")
     end
     local seen_sessions = {}
     for name, player in pairs(state.players) do
-        if type(name) ~= "string" or name == "" or #name > 64 or
-            type(player) ~= "table" or
-            not valid_id(player.session_id) or
-            seen_sessions[player.session_id] or not safe_integer(player.seed) or
-            not safe_integer(player.sequence) or not safe_integer(player.last_tick) or
-            type(player.create_request) ~= "table" or
-            player.create_request.session_id ~= player.session_id or
-            not valid_id(player.create_request.request_id) then
-            return false, state_error("invalid_state", "Player workflow state is malformed")
-        end
-        seen_sessions[player.session_id] = true
-        if player.attempt ~= nil then
-            local attempt = player.attempt
-            if type(attempt) ~= "table" or attempt.version ~= 1 or
-                not valid_id(attempt.operation_id) or type(attempt.request) ~= "table" or
-                attempt.request.session_id ~= player.session_id or
-                not valid_id(attempt.request.request_id) or
-                not valid_id(attempt.request.actor_id) or
-                not safe_integer(attempt.request.tick) or
-                type(attempt.job_id) ~= "string" or
-                (attempt.job_id ~= "" and not valid_id(attempt.job_id)) or
-                type(player.pending_observe) ~= "table" or
-                player.pending_observe.session_id ~= player.session_id or
-                not valid_id(player.pending_observe.request_id) or
-                not valid_id(player.pending_observe.event_id) or
-                not safe_integer(player.pending_observe.tick) then
-                return false, state_error("invalid_state", "Pending Turn is malformed")
+        if name ~= player_sentinel then
+            if type(name) ~= "string" or name == "" or #name > 64 or
+                type(player) ~= "table" or
+                not valid_id(player.session_id) or
+                seen_sessions[player.session_id] or not safe_integer(player.seed) or
+                not safe_integer(player.sequence) or not safe_integer(player.last_tick) or
+                type(player.create_request) ~= "table" or
+                player.create_request.session_id ~= player.session_id or
+                not valid_id(player.create_request.request_id) then
+                return false, state_error("invalid_state", "Player workflow state is malformed")
             end
-        elseif player.pending_observe ~= nil then
-            return false, state_error("invalid_state", "Observe exists without a Pending Turn")
+            seen_sessions[player.session_id] = true
+            if player.attempt ~= nil then
+                local attempt = player.attempt
+                if type(attempt) ~= "table" or attempt.version ~= 1 or
+                    not valid_id(attempt.operation_id) or type(attempt.request) ~= "table" or
+                    attempt.request.session_id ~= player.session_id or
+                    not valid_id(attempt.request.request_id) or
+                    not valid_id(attempt.request.actor_id) or
+                    not safe_integer(attempt.request.tick) or
+                    type(attempt.job_id) ~= "string" or
+                    (attempt.job_id ~= "" and not valid_id(attempt.job_id)) or
+                    type(player.pending_observe) ~= "table" or
+                    player.pending_observe.session_id ~= player.session_id or
+                    not valid_id(player.pending_observe.request_id) or
+                    not valid_id(player.pending_observe.event_id) or
+                    not safe_integer(player.pending_observe.tick) then
+                    return false, state_error("invalid_state", "Pending Turn is malformed")
+                end
+            elseif player.pending_observe ~= nil then
+                return false, state_error("invalid_state", "Observe exists without a Pending Turn")
+            end
+            if player.active_run ~= nil then
+                local active = player.active_run
+                if type(player.attempt) ~= "table" or type(active) ~= "table" or
+                    active.operation_id ~= player.attempt.operation_id or
+                    not valid_outcome(state, active.recovery_outcome) then
+                    return false, state_error("invalid_state", "Active Run is malformed")
+                end
+            end
         end
     end
     local seen = {}
-    for _, outcome in ipairs(state.outcomes) do
-        if type(outcome) ~= "table" or seen[outcome.key] or
-            not valid_id(outcome.key) or type(outcome.owner) ~= "string" or
-            type(state.players[outcome.owner]) ~= "table" or
-            (outcome.kind ~= "report" and outcome.kind ~= "observe") or
-            type(outcome.request) ~= "table" or
-            not valid_id(outcome.request.session_id) or
-            not valid_id(outcome.request.request_id) or
-            not safe_integer(outcome.request.tick) or
-            (outcome.kind == "report" and
-                (type(outcome.request.report) ~= "table" or
-                    not valid_id(outcome.request.report.proposal_id) or
-                    not valid_id(outcome.request.report.event_id))) or
-            (outcome.kind == "observe" and
-                not valid_id(outcome.request.event_id)) then
+    for index = 2, #state.outcomes do
+        local outcome = state.outcomes[index]
+        if not valid_outcome(state, outcome) or seen[outcome.key] then
             return false, state_error("invalid_state", "Outcome Outbox is malformed")
         end
         seen[outcome.key] = true
@@ -190,18 +268,72 @@ function State:_validate(candidate)
     return true
 end
 
+function State:_begin_lifetime()
+    if self.state.host_epoch >= 9007199254740991 or
+        self.state.timeline_epoch >= 9007199254740991 then
+        return false, state_error("epoch_exhausted", "Host Epoch is exhausted")
+    end
+    local candidate, copy_error = self:_copy(self.state)
+    if not candidate then return false, copy_error end
+    candidate.host_epoch = candidate.host_epoch + 1
+    candidate.timeline_epoch = candidate.timeline_epoch + 1
+    for name, player in pairs(candidate.players) do
+        if name ~= player_sentinel then
+            if player.active_run then
+                if #candidate.outcomes - 1 >= maximum_outcomes then
+                    return false, state_error("outbox_full", "Outcome Outbox is full")
+                end
+                local recovery = player.active_run.recovery_outcome
+                recovery.owner = name
+                table.insert(candidate.outcomes, recovery)
+                player.active_run = nil
+                player.attempt = nil
+                player.pending_observe = nil
+            end
+        end
+    end
+    return self:_persist(candidate)
+end
+
 function State:world_id()
     return self.state.world_id
 end
 
+function State:epoch(session_id)
+    if not valid_id(session_id) then return nil end
+    return {
+        session_id = session_id,
+        world_id = self.state.world_id,
+        host = self.state.host_epoch,
+        world = self.state.world_epoch,
+        timeline = self.state.timeline_epoch,
+    }
+end
+
+function State:advance_epoch(timeline_changed)
+    if type(timeline_changed) ~= "boolean" or
+        self.state.world_epoch >= 9007199254740991 or
+        (timeline_changed and self.state.timeline_epoch >= 9007199254740991) then
+        return false, state_error("epoch_exhausted", "World Epoch is exhausted")
+    end
+    local candidate, copy_error = self:_copy(self.state)
+    if not candidate then return false, copy_error end
+    candidate.world_epoch = candidate.world_epoch + 1
+    if timeline_changed then
+        candidate.timeline_epoch = candidate.timeline_epoch + 1
+    end
+    return self:_persist(candidate)
+end
+
 function State:ensure_player(name, create_request)
-    if type(name) ~= "string" or name == "" or #name > 64 or
+    if type(name) ~= "string" or name == "" or name == player_sentinel or
+        #name > 64 or
         type(create_request) ~= "function" then
         return nil, state_error("invalid_player", "Player identity is malformed")
     end
     local current = self.state.players[name]
     if current then return self:_copy(current) end
-    if count(self.state.players) >= maximum_players then
+    if count(self.state.players) - 1 >= maximum_players then
         return nil, state_error("player_limit", "Workflow state has reached its player limit")
     end
     local digest = self.hash(name)
@@ -307,10 +439,45 @@ function State:save_attempt(name, attempt)
     return self:_persist(candidate)
 end
 
-function State:complete_attempt(name, attempt, outcome)
+function State:begin_action(name, attempt, outcome)
     local player = self.state.players[name]
-    if not player or not matching_attempt(player.attempt, attempt) then return false end
-    if #self.state.outcomes >= maximum_outcomes then
+    local report = type(outcome) == "table" and
+        type(outcome.request) == "table" and outcome.request.report or nil
+    if not player or not matching_attempt(player.attempt, attempt) or
+        type(report) ~= "table" or report.decision ~= "accepted" or
+        type(report.run) ~= "table" or type(report.outcome) ~= "table" then
+        return false, state_error("invalid_active_run", "Active Run is malformed")
+    end
+    local candidate, copy_error = self:_copy(self.state)
+    if not candidate then return false, copy_error end
+    local recovery_outcome, outcome_error = self:_copy(outcome)
+    if not recovery_outcome then return false, outcome_error end
+    report = recovery_outcome.request.report
+    report.summary =
+        "The Luanti Host restarted before the action reached a durable terminal result."
+    report.run.status = "outcome-unknown"
+    report.run.progress = 0
+    report.outcome.status = "outcome-unknown"
+    report.outcome.summary = report.summary
+    candidate.players[name].active_run = {
+        operation_id = attempt.operation_id,
+        recovery_outcome = recovery_outcome,
+    }
+    return self:_persist(candidate)
+end
+
+function State:_complete(name, attempt, outcome, require_active)
+    local player = self.state.players[name]
+    if not player or not matching_attempt(player.attempt, attempt) or
+        (require_active and
+            (type(player.active_run) ~= "table" or
+                player.active_run.operation_id ~= attempt.operation_id)) or
+        (not require_active and player.active_run ~= nil) then
+        return false, state_error(
+            "invalid_active_run",
+            "Active Run does not match the requested settlement")
+    end
+    if #self.state.outcomes - 1 >= maximum_outcomes then
         return false, state_error("outbox_full", "Outcome Outbox is full")
     end
     local candidate, copy_error = self:_copy(self.state)
@@ -319,14 +486,24 @@ function State:complete_attempt(name, attempt, outcome)
     candidate.players[name].last_tick = math.max(
         candidate.players[name].last_tick,
         tonumber(outcome.request.tick) or 0)
+    candidate.players[name].active_run = nil
     candidate.players[name].attempt = nil
     candidate.players[name].pending_observe = nil
     return self:_persist(candidate)
 end
 
+function State:complete_action(name, attempt, outcome)
+    return self:_complete(name, attempt, outcome, true)
+end
+
+function State:settle_without_action(name, attempt, outcome)
+    return self:_complete(name, attempt, outcome, false)
+end
+
 function State:list_outcomes(name)
     local result = {}
-    for _, outcome in ipairs(self.state.outcomes) do
+    for index = 2, #self.state.outcomes do
+        local outcome = self.state.outcomes[index]
         if outcome.owner == name then
             local copied, copy_error = self:_copy(outcome)
             if not copied then return nil, copy_error end
@@ -346,7 +523,8 @@ end
 function State:acknowledge_outcome(name, acknowledged)
     local candidate, copy_error = self:_copy(self.state)
     if not candidate then return false, copy_error end
-    for index, outcome in ipairs(candidate.outcomes) do
+    for index = 2, #candidate.outcomes do
+        local outcome = candidate.outcomes[index]
         if outcome.owner == name and same_outcome(outcome, acknowledged) then
             table.remove(candidate.outcomes, index)
             return self:_persist(candidate)
@@ -362,7 +540,8 @@ function State:pending_observe(name)
 end
 
 function State:has_outcomes(name)
-    for _, outcome in ipairs(self.state.outcomes) do
+    for index = 2, #self.state.outcomes do
+        local outcome = self.state.outcomes[index]
         if outcome.owner == name then return true end
     end
     return false

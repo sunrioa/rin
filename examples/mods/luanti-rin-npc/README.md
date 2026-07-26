@@ -22,34 +22,43 @@ Luanti transport, session wiring, game-owned action policy, and UI behavior.
 
 The mod calls `core.request_http_api()` only at module scope, keeps the returned
 API local, uses `HTTPApiTable.fetch` asynchronously, and schedules polling with
-`core.after`. It re-reads Session immediately before apply. The proposal must
-still be pending, with a matching
-world revision (or creation revision for a non-world proposal). Stale
-proposals are rejected without a game effect. It maps only `talk`, `wait`, and
-`refuse` to fixed game-owned effects, and captures Luanti's monotonic game tick
-at the actual accept/reject.
+`core.after`. It re-reads Session immediately before apply. The Proposal must
+still be pending with a matching revision, and its actor, tick, complete
+Decision Window, and complete Action must exactly match the durable authored
+Offer. Stale or altered Proposals are rejected without a game effect. It maps
+only `talk`, `wait`, and `refuse` to fixed game-owned effects.
 
-`state.lua` persists a generated world identity, per-player Session/Create
-identity, monotonic logical tick floor, sequence, Pending Observe, complete
-Pending Turn, Job ID, and Outcome Outbox. State is limited to 1 MiB, 128
-players, and 64 outcomes. It validates loaded snapshots and publishes a
-copy-on-write in-memory state only after ModStorage accepts the encoded
-candidate. Player names are hashed into Session IDs, avoiding normalization
-collisions.
+`state.lua` accepts Luanti's real ModStorage userdata and persists the
+host-supplied content binding, generated world identity, Host/World/Timeline generations,
+per-player Session/Create identity, monotonic logical tick floor, sequence,
+Pending Observe, complete Pending Turn, Active Run, Job ID, and Outcome
+Outbox. State is limited to 1 MiB, 128 players, and 64 outcomes. Explicit
+format sentinels preserve empty persisted collections because
+`core.write_json` otherwise converts an empty Lua table to JSON `null`.
+Player names are hashed into Session IDs, avoiding normalization collisions.
+The checked-in all-zero content hash is an explicit scaffold placeholder; a
+real Mod must replace it with a hash from its trusted content manifest.
 
 The Lua SDK Workflow owns submit/poll/recovery, Job identity checks, terminal
 no-proposal handling, freshness evaluation, and Outbox draining. It stores the
 Pending Turn before the first request and the Job ID before the first GET.
 After restart, the next command reuses the same request and Job; a confirmed
-missing Job may be resubmitted once. Every report error retains the exact
-Action Report for retry; it is never converted into an Observation.
+missing Job may be resubmitted once. An accepted Active Run is persisted before
+game code. A server restart reconciles it once as `outcome-unknown` instead of
+blindly repeating the effect. Every report error retains the exact Action
+Report for retry; it is never converted into an Observation.
 
 If Rin is unavailable, the mod fails closed or retains work. Because
 Luanti cannot atomically combine an arbitrary world mutation with ModStorage,
-a process crash between the chat effect and state publication can still repeat
-that effect. A production game with a transactional database should implement
-the same Workflow Store contract inside its authoritative transaction before
-claiming a stronger profile.
+the framework cannot prove whether an interrupted effect occurred. A
+production game with a transactional database should implement the same
+Workflow Store contract inside its authoritative transaction before claiming a
+stronger profile.
+
+Luanti cannot distinguish an empty Lua object from an empty Lua array, and
+`core.write_json` serializes both as `null`. The SDK therefore rejects
+ambiguous empty tables instead of emitting invalid protocol JSON. Omit optional
+empty arrays and give every action-argument object at least one authored field.
 
 Luanti's HTTP implementation follows redirects and the Lua API provides no
 per-request switch to disable that behavior. For that reason this example
@@ -58,8 +67,10 @@ do not adapt it to an authenticated remote Rin endpoint without a stricter
 native transport.
 
 Official HTTP API: https://docs.luanti.org/for-creators/api/http-api/
-Official Lua API source: https://github.com/luanti-org/luanti/blob/master/doc/lua_api.md
+Official Lua API: https://api.luanti.org/core-namespace-reference/
 
-Repository verification runs the SDK and restart/write-failure state harness
-on both Lua 5.1 and Lua 5.4. It is a faithful ModStorage boundary harness, not
-a substitute for a game-specific Luanti headless integration test.
+Repository verification runs the SDK and state harness on Lua 5.1/5.4 and
+inside official Luanti 5.16.1 LuaJIT. A real Dedicated Server loads the source
+Mod and a generated standalone scaffold twice against the same world on macOS;
+Windows CI repeats the source-Mod lifecycle using the SHA-256-pinned official
+release.

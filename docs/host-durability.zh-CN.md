@@ -84,9 +84,10 @@ Coordinator 负责通用协议状态机。宿主负责稳定存储、权威 Appl
 Fabric Saved Data 用于跨 Session 保存，但 Mark Dirty 只会安排后续保存，不能
 单独充当网络前持久屏障。Luanti ModStorage 按 `map_save_interval` 持久化，并且
 可能使用 JSON 或 SQLite，Setter 同样不是同步崩溃边界。Luanti 参考仍会保存
-稳定 World/Session Identity、Pending Turn、Job ID、逻辑 Tick 下限与有界
-Outcome Outbox；其 Copy-on-write 发布只能防止运行进程采用被拒绝的写入，
-不能防止下一次世界保存前断电。BepInEx 覆盖约束差异
+Content Binding、稳定 World/Session Identity、Host/World/Timeline Generation、
+Pending Turn、Job ID、逻辑 Tick 下限、Active Run 与有界 Outcome Outbox；
+中断 Active Run 会变成 `outcome-unknown`，不会再次 Apply。Copy-on-write 发布
+只能防止运行进程采用被拒绝的写入，不能防止下一次世界保存前断电。BepInEx 覆盖约束差异
 很大的 Mono、IL2CPP 与 Target Framework；持久保证声明必须来自具体游戏 Plugin，
 不能由 BepInEx 整体代替。参考状态文件使用 Flush + Replace 顺序，但无法把
 任意游戏效果纳入同一个原子事务，因此不能据此提升到 `advisory` 以上。

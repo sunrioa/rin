@@ -72,6 +72,8 @@
   迟到 Callback 拒绝
 - [x] Godot 4.6.3 Headless Authority Generation、完整 Offer Binding、Active
   Run `outcome-unknown` 恢复与 Windows CI
+- [x] Luanti 5.16.1 真实 Dedicated Server 生命周期、真实 ModStorage、
+  完整 Offer Binding、Active Run 恢复与 Windows CI
 - [x] 永久 Request/Event ID History 与 Fail-closed 未决 Append 对账
 - [x] 可信 Restore Binding、Snapshot 大小限制与明确 Checksum Trust Boundary
 - [x] Lazy Session 恢复、Range Read、派生 Checkpoint 与全历史运维审计
@@ -79,7 +81,7 @@
 - [x] 双语 Changelog、兼容矩阵、迁移指南与发布清单
 - [x] 可安装 Node.js 可玩切片、持久化规则树对照、原始基准证据，以及
   Windows/macOS/Linux 验收 Job
-- [ ] 在真实 Fabric、BepInEx、Luanti 游戏版本中完成人工安装与交互验收
+- [ ] 在真实 Fabric、BepInEx 游戏版本及 Luanti 多人/故障注入环境中完成人工交互验收
 
 ## 里程碑 0.7 - 通用 Host 基础
 

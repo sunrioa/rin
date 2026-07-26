@@ -122,6 +122,10 @@ local function validate_request_json(value, depth, active)
     if string_keys > 0 and array_keys > 0 then
         return false, "Rin payload table mixes object and array keys"
     end
+    if string_keys == 0 and array_keys == 0 then
+        return false,
+            "Rin payload contains an ambiguous empty Lua table; add an authored field or omit it"
+    end
     if depth == 0 and array_keys > 0 then
         return false, "Rin payload must be a JSON object"
     end
@@ -544,6 +548,30 @@ local function workflow_error(code, message)
     return failure(code, message)
 end
 
+local function semantic_equal(left, right, active)
+    if type(left) ~= type(right) then return false end
+    if type(left) ~= "table" then
+        if type(left) ~= "number" then return left == right end
+        return left == right and left == left and
+            left ~= math.huge and left ~= -math.huge
+    end
+    active = active or {}
+    if active[left] or active[right] then return false end
+    active[left], active[right] = true, true
+    local count = 0
+    for key, value in pairs(left) do
+        count = count + 1
+        if right[key] == nil or not semantic_equal(value, right[key], active) then
+            active[left], active[right] = nil, nil
+            return false
+        end
+    end
+    local right_count = 0
+    for _ in pairs(right) do right_count = right_count + 1 end
+    active[left], active[right] = nil, nil
+    return count == right_count
+end
+
 local function valid_proposal_job(attempt, job)
     return type(job) == "table" and
         is_protocol_identifier(job.job_id) and job.job_id == attempt.job_id and
@@ -552,13 +580,26 @@ local function valid_proposal_job(attempt, job)
         type(job.status) == "string"
 end
 
-local function valid_proposal(attempt, proposal)
-    return type(proposal) == "table" and
-        is_protocol_identifier(proposal.id) and
-        proposal.session_id == attempt.request.session_id and
-        proposal.request_id == attempt.request.request_id and
-        proposal.actor_id == attempt.request.actor_id and
-        is_nonnegative_json_safe_integer(proposal.tick)
+function rin.resolve_offered_action(request, proposal)
+    if type(proposal) ~= "table" then return nil end
+    if not is_protocol_identifier(proposal.id) or
+        type(request) ~= "table" or
+        proposal.session_id ~= request.session_id or
+        proposal.request_id ~= request.request_id or
+        proposal.actor_id ~= request.actor_id or
+        not is_nonnegative_json_safe_integer(proposal.tick) or
+        proposal.tick ~= request.tick or
+        not semantic_equal(
+            proposal.decision_window,
+            request.decision_window) or
+        type(proposal.action) ~= "table" or
+        type(request.offers) ~= "table" then
+        return nil
+    end
+    for _, offer in ipairs(request.offers) do
+        if semantic_equal(offer, proposal.action) then return offer end
+    end
+    return nil
 end
 
 local function valid_attempt(attempt)
@@ -578,7 +619,8 @@ function rin.new_workflow(client, store)
         return nil, workflow_error("invalid_workflow", "Workflow requires a Rin Client and Store")
     end
     for _, method in ipairs({
-        "load_attempt", "create_attempt", "save_attempt", "complete_attempt",
+        "load_attempt", "create_attempt", "save_attempt", "begin_action",
+        "complete_action", "settle_without_action",
         "list_outcomes", "acknowledge_outcome",
     }) do
         if type(store[method]) ~= "function" then
@@ -641,11 +683,16 @@ function Workflow:_inspect(key, attempt, job, may_resubmit, callback)
         return
     end
     if job.status == "succeeded" then
-        if not valid_proposal(attempt, job.proposal) then
+        local authored_offer =
+            rin.resolve_offered_action(attempt.request, job.proposal)
+        if not authored_offer then
             callback(nil, workflow_error(
-                "proposal_identity_mismatch", "Proposal does not match the Pending Turn"))
+                "proposal_binding_mismatch",
+                "Proposal does not match the complete durable Offer"))
             return
         end
+        job.proposal.action = authored_offer
+        job.proposal.decision_window = attempt.request.decision_window
         callback({ kind = "proposal", attempt = attempt, job = job }, nil)
         return
     end
@@ -752,12 +799,57 @@ local function valid_outcome_entry(entry)
         type(entry.request) ~= "table" then
         return false
     end
-    if not is_protocol_identifier(entry.request.session_id) or
-        not is_protocol_identifier(entry.request.request_id) then
+    if entry.request.protocol_version ~= rin.PROTOCOL_VERSION or
+        not is_protocol_identifier(entry.request.session_id) or
+        not is_protocol_identifier(entry.request.request_id) or
+        not is_nonnegative_json_safe_integer(entry.request.tick) then
         return false
     end
-    return type(entry.request.report) == "table" and
-        is_protocol_identifier(entry.request.report.event_id)
+    local report = entry.request.report
+    return type(report) == "table" and
+        is_protocol_identifier(report.proposal_id) and
+        is_protocol_identifier(report.event_id) and
+        (report.decision == "accepted" or report.decision == "rejected") and
+        type(report.summary) == "string" and #report.summary >= 1
+end
+
+local terminal_action_states = {
+    succeeded = true,
+    failed = true,
+    cancelled = true,
+    interrupted = true,
+    stale = true,
+    ["outcome-unknown"] = true,
+}
+
+local function outcome_matches_proposal(attempt, proposal, entry)
+    local offer = rin.resolve_offered_action(attempt.request, proposal)
+    if not offer or not valid_outcome_entry(entry) or
+        entry.key ~= attempt.operation_id or
+        entry.request.session_id ~= attempt.request.session_id or
+        entry.request.report.proposal_id ~= proposal.id then
+        return false
+    end
+    local report = entry.request.report
+    if report.decision == "rejected" then
+        return report.invocation == nil and report.run == nil and
+            report.outcome == nil
+    end
+    if report.decision ~= "accepted" or type(report.invocation) ~= "table" or
+        type(report.run) ~= "table" or type(report.outcome) ~= "table" then
+        return false
+    end
+    local invocation = {}
+    for key, value in pairs(offer) do
+        if key ~= "description" then invocation[key] = value end
+    end
+    invocation.operation_id = attempt.operation_id
+    return semantic_equal(report.invocation, invocation) and
+        report.run.operation_id == attempt.operation_id and
+        report.outcome.operation_id == attempt.operation_id and
+        terminal_action_states[report.run.status] == true and
+        report.outcome.status == report.run.status and
+        semantic_equal(report.outcome.epoch, offer.expected_epoch)
 end
 
 function Workflow:drain_outbox(key, callback)
@@ -807,14 +899,13 @@ function Workflow:drain_outbox(key, callback)
     next_entry(nil)
 end
 
-function Workflow:apply_and_enqueue(key, attempt, outcome, apply, callback)
+function Workflow:apply_and_enqueue(key, attempt, proposal, outcome, apply, callback)
     if self.busy[key] or self.draining[key] or self.settling[key] then
         callback(nil, workflow_error("workflow_busy", "Pending Turn is already being settled"))
         return
     end
     if not valid_attempt(attempt) or type(apply) ~= "function" or
-        not valid_outcome_entry(outcome) or outcome.key ~= attempt.operation_id or
-        outcome.request.session_id ~= attempt.request.session_id then
+        not outcome_matches_proposal(attempt, proposal, outcome) then
         callback(nil, workflow_error("invalid_workflow", "Outcome settlement is invalid"))
         return
     end
@@ -823,13 +914,29 @@ function Workflow:apply_and_enqueue(key, attempt, outcome, apply, callback)
         self.settling[key] = nil
         callback(result, err)
     end
-    local applied, apply_error = pcall(apply, attempt.operation_id)
-    if not applied then
-        finish(nil, workflow_error("game_apply_failed", tostring(apply_error)))
-        return
+    local accepted = outcome.request.report.decision == "accepted"
+    if accepted then
+        local started, start_error = self.store:begin_action(key, attempt, outcome)
+        if not started then
+            finish(nil, start_error or workflow_error(
+                "workflow_persist_failed",
+                "Could not persist Active Run before execution"))
+            return
+        end
+        local applied, apply_error = pcall(apply, attempt.operation_id)
+        if not applied then
+            finish(nil, workflow_error("game_apply_failed", tostring(apply_error)))
+            return
+        end
     end
-    local completed, complete_error =
-        self.store:complete_attempt(key, attempt, outcome)
+    local completed, complete_error
+    if accepted then
+        completed, complete_error =
+            self.store:complete_action(key, attempt, outcome)
+    else
+        completed, complete_error =
+            self.store:settle_without_action(key, attempt, outcome)
+    end
     if not completed then
         finish(nil, complete_error or workflow_error(
             "workflow_persist_failed", "Could not persist completed Pending Turn"))
@@ -852,7 +959,7 @@ function rin.action_offer(options, window)
         },
         descriptor_digest = options.descriptor_digest,
         description = options.description,
-        arguments = options.arguments or {},
+        arguments = options.arguments,
         targets = options.targets,
         expected_epoch = window.epoch,
         observation_seq = window.observation_seq,
@@ -872,6 +979,8 @@ function rin.immediate_action_report(options)
     }
     if options.accepted then
         local offer = options.proposal.action
+        local status = terminal_action_states[options.status] and
+            options.status or "succeeded"
         report.invocation = {
             operation_id = options.operation_id,
             offer_id = offer.offer_id,
@@ -887,16 +996,16 @@ function rin.immediate_action_report(options)
         }
         report.run = {
             operation_id = options.operation_id,
-            status = "succeeded",
+            status = status,
             progress_seq = 1,
-            progress = 100,
+            progress = status == "succeeded" and 100 or 0,
             updated_at = options.occurred_at,
         }
         report.outcome = {
             operation_id = options.operation_id,
-            status = "succeeded",
+            status = status,
             summary = options.summary,
-            epoch = options.epoch,
+            epoch = offer.expected_epoch,
             world_seq = options.world_seq,
             occurred_at = options.occurred_at,
         }

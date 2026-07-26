@@ -74,6 +74,8 @@ unchecked item is not a supported feature.
   long actions, and late-callback rejection
 - [x] Godot 4.6.3 headless authority generations, complete Offer binding,
   Active Run `outcome-unknown` recovery, and Windows CI
+- [x] Luanti 5.16.1 real dedicated-server lifecycle, real ModStorage,
+  complete Offer binding, Active Run recovery, and Windows CI
 - [x] Permanent request/Event ID history and fail-closed uncertain-append reconciliation
 - [x] Trusted Restore Binding, Snapshot size limits, and explicit checksum trust boundary
 - [x] Lazy Session recovery, range reads, derived checkpoints, and full-history maintenance audit
@@ -81,7 +83,8 @@ unchecked item is not a supported feature.
 - [x] Bilingual Changelog, compatibility matrix, migration guide, and release checklist
 - [x] Installable Node.js playable slice, persistent-rule-tree comparison, raw
   benchmark evidence, and Windows/macOS/Linux acceptance job
-- [ ] Complete manual installation and interaction tests in real Fabric, BepInEx, and Luanti game versions
+- [ ] Complete manual interaction tests in real Fabric/BepInEx games and a
+  Luanti multiplayer/fault-injection environment
 
 ## Milestone 0.7 - Universal-host foundation
 

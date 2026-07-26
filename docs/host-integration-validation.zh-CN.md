@@ -12,7 +12,7 @@ Rin `0.7.0` 是 Preview 软件。编译通过、模拟引擎 API 和面向重启
 | --- | --- | --- |
 | Fabric | 真实 Mod JAR/NBT 往返、官方 Dedicated Server GameTest 与 Authority Matrix | 实时 Sidecar 恢复、多人、强制停止和打包客户端 Integrated Server Smoke |
 | BepInEx Mono/IL2CPP | 真实 BepInEx Package 编译与 Core 重启测试 | 代表性游戏中的 Plugin 加载、游戏 Hook、存档身份和关机流程 |
-| Luanti | Lua 5.1/5.4 Workflow 测试与忠实模拟 ModStorage 的 Harness | 真实 Luanti Headless Server、世界保存和并发玩家 |
+| Luanti | Lua 5.1/5.4 测试，以及 macOS/Windows 上官方 5.16.1 LuaJIT Dedicated Server 与真实 ModStorage 重启测试 | 实时 Sidecar、并发玩家、强制终止、地图保存时序与 Soak |
 | Godot | Linux/Windows 官方 4.6.3 Headless Authority Generation、精确 Offer Binding、Active Run 恢复、重启与文件失败测试 | Editor Session 与 Export Build 中的实时 Sidecar 流量 |
 | Unity | 严格 API Stub：Scene/Domain Generation、NavMesh 编译、取消、迟到 Callback、Active Run/不透明参数恢复与 Windows-safe Replace | Unity Editor Package 导入和 Mono/IL2CPP Player 构建 |
 | Unreal | Runtime Plugin 结构、不安全入口与 Windows 路径测试 | Unreal Header Tool/编译器、Editor 加载、打包、SaveGame 与导航 Runtime |
@@ -65,8 +65,13 @@ Rin `0.7.0` 是 Preview 软件。编译通过、模拟引擎 API 和面向重启
 
 ### Luanti
 
-- 在真实 Luanti Headless Server 中加载 Mod 并配置 `secure.http_mods`。跨地图保存
-  周期、`/shutdown`、强制终止和重开世界验证真实 ModStorage。
+- 真实 Luanti Headless Server（官方 5.16.1 Dedicated Server）已对同一真实
+  World 各加载源码 Mod 与新生成的
+  独立脚手架两次。测试使用真实 ModStorage userdata，在引擎 LuaJIT 内运行
+  SDK/State Suite，确认 World Identity 不变、Host/Timeline Generation 前进；
+  Windows CI 还会使用 SHA-256 固定的官方 ZIP 重复执行。
+- 保持 `secure.http_mods` 配置，并跨地图保存周期、`/shutdown`、强制终止和
+  World 重开验证真实 ModStorage；自动化的正常重启不能替代这些故障边界。
 - 覆盖并发玩家、Sidecar 缓慢/不可用响应，以及 Windows 和 Linux 上的
   Loopback/Redirect Policy。
 

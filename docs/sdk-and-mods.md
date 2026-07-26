@@ -196,11 +196,20 @@ the stage is included in later Observations so memory can affect the next plan.
 The Luanti example is a complete server mod. It calls
 `core.request_http_api()` at module scope, keeps the returned API local, and
 requires `secure.http_mods = rin_npc_example`. Its ModStorage adapter retains a
-stable world/Session identity, complete Pending Turn, Job ID, monotonic tick
-floor, and bounded Outcome Outbox across restart. The Lua SDK Workflow owns
-submit/poll recovery, identity checks, freshness, exact report retry, and
-ACK-before-eviction. The profile remains `advisory` because ModStorage save
-timing and an arbitrary game effect do not form one synchronous transaction.
+host-supplied content binding, stable world/Session identity, Host/World/Timeline
+generations, complete Pending Turn, Job ID, monotonic tick floor, Active Run,
+and bounded Outcome Outbox across restart. The Lua SDK Workflow owns
+submit/poll recovery, complete Decision Window/Offer binding, exact report
+retry, and ACK-before-eviction. It persists an accepted Active Run before game
+code and reconciles an interrupted run once as `outcome-unknown`, never as a
+blind replay. The profile remains `advisory` because ModStorage save timing and
+an arbitrary game effect do not form one synchronous transaction.
+The checked-in all-zero content hash is a scaffold placeholder, not a trusted
+manifest digest.
+
+Luanti encodes both an empty Lua object and empty Lua array as JSON `null`.
+Outgoing SDK requests therefore reject ambiguous empty tables. Omit optional
+empty arrays and include at least one host-authored field in action arguments.
 
 The Godot 4.6.3 reference is a runnable project. Its reusable Workflow stores a
 stable save-slot identity, Host/World/Timeline generations, complete Pending
@@ -233,8 +242,11 @@ Store/Sidecar lifecycle tests on Linux, macOS, and Windows. The platform tests
 cover persistence, restart, and rejection of a second writer. CI runs the
 Python SDK and Ren'Py adapter on Python 3.9 and the current Python 3 release,
 the Lua SDK and Luanti restart/write-failure state harness on Lua 5.1 and 5.4,
-JavaScript on Node 18 and 24, Java on 17 and 25, C# against .NET 6 and 10, and
-the pinned Fabric project and its Saved Data restart test. Both BepInEx
+and the same suites inside official Luanti 5.16.1 LuaJIT. A real Dedicated
+Server reopens the source Mod and a generated scaffold on macOS, while Windows
+CI repeats both lifecycles from a SHA-256-pinned official release ZIP.
+CI also runs JavaScript on Node 18 and 24, Java on 17 and 25, C# against .NET
+6 and 10, and the pinned Fabric project and its Saved Data restart test. Both BepInEx
 backends, restart tests, and install packages build on Linux and Windows. The
 contract generator check prevents drift from OpenAPI to generated route/version
 projections.
@@ -257,7 +269,7 @@ presence of a marker or method name does not prove runtime transport behavior.
 - [.NET HttpClient JSON extensions](https://learn.microsoft.com/en-us/dotnet/api/system.net.http.json)
 - [`System.Text.Json` supported types](https://learn.microsoft.com/en-us/dotnet/standard/serialization/system-text-json/supported-types)
 - [Luanti HTTP API](https://docs.luanti.org/for-creators/api/http-api/)
-- [Luanti Lua API source](https://github.com/luanti-org/luanti/blob/master/doc/lua_api.md)
+- [Luanti Core API](https://api.luanti.org/core-namespace-reference/)
 
 The examples were written for Rin and do not copy implementation code from
 those projects. Links document host lifecycle, metadata, and transport APIs.

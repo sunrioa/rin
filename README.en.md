@@ -276,7 +276,8 @@ not remove the operator's retention or capacity-planning responsibility.
   Thread authorization, and a Behavior Tree ActionRun example.
 - General SDKs: Python 3.9+, Node/Fetch, .NET 6+, Java 17+, and Lua 5.1+.
 - Example mods: Fabric server, BepInEx 6, and a loopback-sidecar-only Luanti
-  server mod.
+  5.16.1 server Mod. Real dedicated-server restart tests cover both its source
+  tree and a newly generated scaffold.
 
 See [game adapters](docs/game-adapters.md) for installation, configuration,
 and offline semantics. RPG region, visibility, quest, and multi-NPC event

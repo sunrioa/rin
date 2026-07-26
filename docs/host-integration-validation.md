@@ -13,7 +13,7 @@ evidence, the engine and Mod examples remain `advisory`.
 | --- | --- | --- |
 | Fabric | Real Mod JAR/NBT round trip, official dedicated-server GameTest, and authority matrix | Live Sidecar recovery, multiplayer, forced-stop, and packaged-client integrated-server smoke |
 | BepInEx Mono/IL2CPP | Real BepInEx package compilation and Core restart tests | Plugin load, game hooks, save identity, and shutdown in representative games |
-| Luanti | Lua 5.1/5.4 workflow tests with a ModStorage-faithful harness | A real Luanti headless server, world saves, and concurrent players |
+| Luanti | Lua 5.1/5.4 tests plus official 5.16.1 LuaJIT Dedicated Server restart tests with real ModStorage on macOS/Windows | Live Sidecar traffic, concurrent players, forced termination, map-save timing, and soak |
 | Godot | Official 4.6.3 headless authority generations, exact Offer binding, Active Run recovery, restart, and file-failure tests on Linux/Windows | Live Sidecar traffic in an editor session and exported build |
 | Unity | Strict API stubs: Scene/Domain generations, NavMesh compile, cancellation, late callbacks, Active Run/opaque-argument recovery, and Windows-safe replacement | Unity Editor package import and Mono/IL2CPP Player builds |
 | Unreal | Runtime Plugin structure, forbidden-surface, and Windows path tests | Unreal Header Tool/compiler, Editor load, packaged builds, SaveGame and navigation runtime |
@@ -74,9 +74,15 @@ unresolved work remains recoverable, and the Outcome Outbox eventually drains.
 
 ### Luanti
 
-- Load the Mod in a real Luanti headless server with `secure.http_mods`
-  configured. Test real ModStorage across map-save intervals, `/shutdown`,
-  forced termination, and world reopen.
+- A real Luanti headless server—the official 5.16.1 Dedicated Server—now
+  loads the source Mod and a newly generated standalone scaffold twice against
+  one real world. The test uses
+  real ModStorage userdata, runs the SDK/state suites in engine LuaJIT, keeps
+  World identity stable, advances Host/Timeline generations, and is repeated
+  in Windows CI with a SHA-256-pinned official ZIP.
+- Keep `secure.http_mods` configured. Test real ModStorage across map-save
+  intervals, `/shutdown`, forced termination, and world reopen; the automated
+  graceful restart is not evidence for these failure boundaries.
 - Exercise simultaneous players, slow/unavailable Sidecar responses, and the
   platform's loopback/redirect policy on Windows and Linux.
 

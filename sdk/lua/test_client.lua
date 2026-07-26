@@ -1,4 +1,5 @@
-local rin = dofile("sdk/lua/rin.lua")
+local rin = dofile(
+    rawget(_G, "RIN_SDK_TEST_PATH") or "sdk/lua/rin.lua")
 assert(rin.VERSION == "0.7.0", "client version projection is stale")
 assert(
     rin.DEFAULT_MAX_RESPONSE_BYTES == 32 * 1024 * 1024,
@@ -81,7 +82,10 @@ for _, test in ipairs(cases) do
     )
 end
 
-local manifest_file = assert(io.open("sdk/conformance/routes.json", "rb"))
+local manifest_file = assert(io.open(
+    rawget(_G, "RIN_SDK_ROUTES_PATH") or
+        "sdk/conformance/routes.json",
+    "rb"))
 local manifest = manifest_file:read("*a")
 manifest_file:close()
 local expected_routes = {}
@@ -238,6 +242,7 @@ end)
 
 local workflow_store = {
     attempt = nil,
+    active = nil,
     outcomes = {},
 }
 function workflow_store:load_attempt() return self.attempt end
@@ -251,7 +256,19 @@ function workflow_store:save_attempt(_, attempt)
     self.attempt = attempt
     return true
 end
-function workflow_store:complete_attempt(_, attempt, outcome)
+function workflow_store:begin_action(_, attempt, _outcome)
+    assert(self.attempt == attempt and not self.active)
+    self.active = attempt.operation_id
+    return true
+end
+function workflow_store:complete_action(_, attempt, outcome)
+    assert(self.attempt == attempt and self.active == attempt.operation_id)
+    self.active = nil
+    table.insert(self.outcomes, outcome)
+    self.attempt = nil
+    return true
+end
+function workflow_store:settle_without_action(_, attempt, outcome)
     assert(self.attempt == attempt)
     table.insert(self.outcomes, outcome)
     self.attempt = nil
@@ -263,6 +280,31 @@ function workflow_store:acknowledge_outcome(_, entry)
     table.remove(self.outcomes, 1)
     return true
 end
+
+local workflow_epoch = {
+    session_id = "session.workflow",
+    world_id = "world.workflow",
+    host = 1,
+    world = 1,
+    timeline = 1,
+}
+local workflow_window = {
+    id = "window.workflow",
+    mode = "sequential",
+    epoch = workflow_epoch,
+    observation_seq = 1,
+    opened_at = { clock = "event", value = 1 },
+    deadline = { clock = "event", value = 2 },
+    actor_ids = { "actor.workflow" },
+}
+local workflow_offer = rin.action_offer({
+    offer_id = "offer.workflow",
+    actor_id = "actor.workflow",
+    capability_id = "dialogue.talk",
+    descriptor_digest = string.rep("a", 64),
+    description = "Say one authored line.",
+    arguments = { authored_action = "offer.workflow" },
+}, workflow_window)
 
 local workflow_requests = 0
 local workflow_reports = 0
@@ -300,6 +342,8 @@ local workflow_client = assert(rin.new({
                         request_id = "request.workflow",
                         actor_id = "actor.workflow",
                         tick = 2,
+                        decision_window = workflow_window,
+                        action = workflow_offer,
                     },
                 },
             }
@@ -325,6 +369,8 @@ local workflow_attempt = assert(workflow:begin(
         request_id = "request.workflow",
         actor_id = "actor.workflow",
         tick = 2,
+        decision_window = workflow_window,
+        offers = { workflow_offer },
     }
 ))
 assert(workflow_requests == 0, "Pending Turn was not persisted before network")
@@ -338,6 +384,7 @@ local applied_operation
 workflow:apply_and_enqueue(
     "player.fixture",
     workflow_resolution.attempt,
+    workflow_resolution.job.proposal,
     {
         key = "operation.workflow",
         owner = "player.fixture",
@@ -346,6 +393,7 @@ workflow:apply_and_enqueue(
             protocol_version = rin.PROTOCOL_VERSION,
             session_id = "session.workflow",
             request_id = "report.workflow",
+            tick = 3,
             report = {
                 proposal_id = "proposal.workflow",
                 event_id = "event.workflow",
@@ -357,11 +405,49 @@ workflow:apply_and_enqueue(
     function(operation_id) applied_operation = operation_id end,
     function(ok, err) assert(ok and not err) end
 )
-assert(applied_operation == "operation.workflow", "Apply lost the stable operation identity")
+assert(applied_operation == nil, "Rejected action reached the game Apply callback")
 workflow:drain_outbox("player.fixture", function(count, err)
     assert(count == 1 and not err)
 end)
 assert(#workflow_store.outcomes == 0 and workflow_reports == 1)
+
+workflow_store.attempt = workflow_resolution.attempt
+local accepted_request = rin.immediate_action_report({
+    session_id = "session.workflow",
+    request_id = "report.workflow.accepted",
+    event_id = "event.workflow.accepted",
+    tick = 4,
+    proposal = workflow_resolution.job.proposal,
+    operation_id = workflow_resolution.attempt.operation_id,
+    accepted = true,
+    summary = "host applied the offer",
+    occurred_at = { clock = "event", value = 4 },
+})
+local accepted_operation
+workflow:apply_and_enqueue(
+    "player.fixture",
+    workflow_resolution.attempt,
+    workflow_resolution.job.proposal,
+    {
+        key = workflow_resolution.attempt.operation_id,
+        owner = "player.fixture",
+        kind = "report",
+        request = accepted_request,
+    },
+    function(operation_id)
+        assert(workflow_store.active == operation_id,
+            "Active Run was not persisted before game Apply")
+        accepted_operation = operation_id
+    end,
+    function(ok, err) assert(ok and not err) end
+)
+assert(accepted_operation == workflow_resolution.attempt.operation_id)
+assert(workflow_store.active == nil and #workflow_store.outcomes == 1)
+workflow:drain_outbox("player.fixture", function(count, err)
+    assert(count == 1 and not err)
+end)
+assert(#workflow_store.outcomes == 0 and workflow_reports == 2)
+
 assert(
     rin.proposal_freshness(
         {

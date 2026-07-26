@@ -24,6 +24,12 @@ end
 
 local rin = dofile(modpath .. "/rin.lua")
 local state_module = dofile(modpath .. "/state.lua")
+local content_binding = {
+    game_id = "luanti",
+    content_id = "rin-npc-example",
+    content_version = "0.7.0",
+    content_hash = "sha256:" .. string.rep("0", 64),
+}
 
 local function encode_json(value)
     local encoded, err = core.write_json(value)
@@ -79,6 +85,7 @@ local workflow_state, state_error = state_module.open({
     storage = core.get_mod_storage(),
     encode = encode_json,
     decode = decode_json,
+    binding = content_binding,
     hash = function(value) return core.sha256(value) end,
     new_world_id = function()
         local entropy = tostring(core.get_us_time()) .. ":" ..
@@ -94,6 +101,29 @@ end
 local workflow, workflow_error = rin.new_workflow(client, workflow_state)
 if not workflow then
     core.log("error", "[rin_npc_example] workflow rejected: " .. workflow_error.code)
+    return
+end
+
+if core.settings:get_bool("rin_npc_example.lifecycle_test", false) then
+    RIN_STATE_TEST_PATH = modpath .. "/state.lua"
+    RIN_CLIENT_TEST_PATH = modpath .. "/rin.lua"
+    dofile(modpath .. "/test_state.lua")
+    RIN_STATE_TEST_PATH = nil
+    RIN_CLIENT_TEST_PATH = nil
+    RIN_SDK_TEST_PATH = modpath .. "/rin.lua"
+    RIN_SDK_ROUTES_PATH = modpath .. "/routes.json"
+    dofile(modpath .. "/test_client.lua")
+    RIN_SDK_TEST_PATH = nil
+    RIN_SDK_ROUTES_PATH = nil
+    core.register_on_mods_loaded(function()
+        local session_id =
+            "luanti.lifecycle." .. workflow_state:world_id():sub(1, 16)
+        local current_epoch = workflow_state:epoch(session_id)
+        core.log("action", "[rin_lifecycle] " .. encode_json(current_epoch))
+        core.after(0.1, function()
+            core.request_shutdown("Rin lifecycle test completed.", false, 0)
+        end)
+    end)
     return
 end
 
@@ -134,12 +164,7 @@ local function create_session_request(session_id, seed)
         protocol_version = rin.PROTOCOL_VERSION,
         request_id = "create." .. session_id,
         session_id = session_id,
-        binding = {
-            game_id = "luanti",
-            content_id = "rin-npc-example",
-            content_version = "0.7.0",
-            content_hash = "sha256:" .. string.rep("0", 64),
-        },
+        binding = content_binding,
         seed = seed,
         actors = {
             {
@@ -194,13 +219,7 @@ local function ensure_session(name, callback)
 end
 
 local function epoch(session_id)
-    return {
-        session_id = session_id,
-        world_id = workflow_state:world_id(),
-        host = 1,
-        world = 1,
-        timeline = 1,
-    }
+    return workflow_state:epoch(session_id)
 end
 
 local function timepoint(tick)
@@ -270,6 +289,7 @@ local function settle(name, attempt, proposal, freshness)
     workflow:apply_and_enqueue(
         name,
         attempt,
+        proposal,
         pending,
         function()
             if applied.accepted then notify(name, line) end
@@ -365,7 +385,7 @@ local function begin_turn(name, message, player)
             capability_id = capability_id,
             descriptor_digest = string.rep("a", 64),
             description = description,
-            arguments = {},
+            arguments = { authored_action = offer_id },
         }, decision_window)
     end
     local propose = {

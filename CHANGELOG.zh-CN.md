@@ -16,6 +16,9 @@
   确定性 Descriptor Digest、动态撤销和执行前最终 TOCTOU 授权检查。
 - Contract 的 Fuzz、Race、过期 Epoch/Offer、Digest 漂移、撤销、持久级别和
   动作状态转换测试。
+- 使用官方 Luanti 5.16.1 Dedicated Server 验证源码 Mod 与生成的独立脚手架，
+  覆盖真实 ModStorage userdata、持久 Authority Generation、完整 Offer Binding
+  与中断 Active Run 恢复。
 
 ### 变化
 
@@ -36,6 +39,9 @@
   `HostCapabilities`/`HostProfile` 已替换为
   `HostDurability`/`HostDurabilityProfile`。旧名称、错误码和文档路径被直接
   删除，不保留兼容 Alias。
+- 删除 Luanti State Schema v1。Schema v2 绑定宿主提供的内容、显式保留 JSON 空集合、
+  在 Server 重启时提升 Host/Timeline，并把中断效果对账为
+  `outcome-unknown`，而不是重复执行。
 
 ## [0.6.0] - 2026-07-24 - Preview
 

@@ -227,7 +227,8 @@ Identifier History；Rin 不提供事件日志自动归档。大 lineage 的完�
 - Unreal：Preview Runtime Plugin 骨架，包含显式 Epoch、Game Thread 授权与
   Behavior Tree ActionRun 示例。
 - 通用 SDK：Python 3.9+、Node/Fetch、.NET 6+、Java 17+ 与 Lua 5.1+。
-- 示例 Mod：Fabric 服务端、BepInEx 6 与本机 Sidecar 限定的 Luanti 服务端 Mod。
+- 示例 Mod：Fabric 服务端、BepInEx 6 与本机 Sidecar 限定的 Luanti 5.16.1
+  服务端 Mod；Luanti 源码和生成脚手架已通过真实 Dedicated Server 重启测试。
 
 安装、配置和离线语义见 [游戏适配文档](docs/game-adapters.zh-CN.md)。RPG 的区域、可见性、任务和多人 NPC 事件约定见 [RPG 事件约定](docs/rpg-events.zh-CN.md)。
 跨语言目录规范、线程边界、凭据策略和 Mod 安装步骤见 [SDK 与 Mod 接入文档](docs/sdk-and-mods.zh-CN.md)。

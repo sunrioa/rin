@@ -49,7 +49,9 @@ func TestPrioritySDKsExposeDurabilityGatedWorkflowCoordinators(t *testing.T) {
 				"function Workflow:resume",
 				"function Workflow:apply_and_enqueue",
 				"function Workflow:drain_outbox",
-				"self.store:complete_attempt",
+				"self.store:begin_action",
+				"self.store:complete_action",
+				"self.store:settle_without_action",
 			},
 		},
 	}

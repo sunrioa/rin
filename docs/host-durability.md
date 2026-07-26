@@ -98,9 +98,11 @@ Fabric Saved Data is designed for cross-session persistence, but marking it
 dirty schedules later saving; that alone is not a durable-before-network
 barrier. Luanti ModStorage persistence is tied to `map_save_interval` and may
 use JSON or SQLite, so a setter is likewise not a synchronous crash boundary.
-The Luanti reference nevertheless persists its stable world/Session identity,
-Pending Turn, Job ID, logical tick floor, and bounded Outcome Outbox; its
-copy-on-write publication protects the running process from a rejected write,
+The Luanti reference nevertheless persists its content binding, stable
+world/Session identity, Host/World/Timeline generations, Pending Turn, Job ID,
+logical tick floor, Active Run, and bounded Outcome Outbox. An interrupted
+Active Run becomes `outcome-unknown` instead of being applied again.
+Copy-on-write publication protects the running process from a rejected write,
 not from power loss before the next world save.
 Godot uses a flushed temporary file plus a recoverable same-directory
 target/backup rename protocol under `user://`. This handles Windows replacement

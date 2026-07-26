@@ -390,6 +390,34 @@ jobs:
           luac5.1 -p examples/mods/luanti-rin-npc/init.lua examples/mods/luanti-rin-npc/state.lua
           luac5.4 -p examples/mods/luanti-rin-npc/init.lua examples/mods/luanti-rin-npc/state.lua
 
+  luanti-reference:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.x"
+          cache: true
+      - name: Generate standalone Luanti scaffold
+        run: >-
+          go run ./cmd/rin init host --engine luanti --id ci_luanti_npc
+          --name "CI Luanti NPC" --output luanti-generated
+      - name: Download and verify Luanti 5.16.1
+        shell: pwsh
+        run: |
+          $url = "https://github.com/luanti-org/luanti/releases/download/5.16.1/luanti-5.16.1-win64.zip"
+          Invoke-WebRequest -Uri $url -OutFile luanti.zip
+          $actual = (Get-FileHash luanti.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne "a70fd87e67cc236f250fca90e5cd30211f3e45937b107158b5367d6ee26aabb8") {
+            throw "Luanti SHA-256 mismatch"
+          }
+          Expand-Archive luanti.zip -DestinationPath luanti
+          python tools/verify_luanti.py --luanti luanti/luanti-5.16.1-win64/bin/luanti.exe
+          python tools/verify_luanti.py --luanti luanti/luanti-5.16.1-win64/bin/luanti.exe --mod luanti-generated
+
   godot-reference:
     strategy:
       fail-fast: false

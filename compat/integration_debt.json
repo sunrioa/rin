@@ -69,7 +69,7 @@
     },
     {
       "path": "examples/mods/luanti-rin-npc/state.lua",
-      "max_lines": 400,
+      "max_lines": 550,
       "durability_profile": "advisory"
     },
     {

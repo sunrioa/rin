@@ -58,8 +58,9 @@ v2 Host 生命周期是基础协议，没有 Feature Flag。当前可选 Session
 | C# SDK/Unity Compile Harness | 已测试 | CI | CI |
 | Unreal Runtime Plugin 静态契约 | 未安装 | CI | CI |
 | Java SDK/Fabric Compile | 已测试 | CI | CI |
-| Lua SDK/Luanti State Test | 已测试 | CI | CI |
-| 真实 Fabric/BepInEx/Luanti/Unity/Unreal Host | 需手工证据 | 需手工证据 | 需手工证据 |
+| Lua SDK/Luanti 5.16.1 Dedicated 生命周期 | 已测试 | Lua CI | 真实 Server CI |
+| 真实 Fabric/BepInEx/Unity/Unreal Host | 需手工证据 | 需手工证据 | 需手工证据 |
+| Luanti 实时 Sidecar/多人/故障注入 | 需手工证据 | 需手工证据 | 需手工证据 |
 
 编译与模拟引擎 API 是有效契约证据，但不能证明真实游戏内 Loader Compatibility、
 Main Thread、Save Integration 或 Long Soak。

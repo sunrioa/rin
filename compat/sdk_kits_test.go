@@ -435,8 +435,9 @@ func TestExampleModsPreserveGameAuthority(t *testing.T) {
 			path: "../examples/mods/luanti-rin-npc/state.lua",
 			required: []string{
 				"function State:create_attempt", "function State:save_attempt",
-				"function State:complete_attempt", "function State:list_outcomes",
-				"function State:acknowledge_outcome",
+				"function State:begin_action", "function State:complete_action",
+				"function State:settle_without_action",
+				"function State:list_outcomes", "function State:acknowledge_outcome",
 			},
 			forbidden: []string{"core."},
 		},

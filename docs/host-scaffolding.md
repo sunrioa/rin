@@ -324,6 +324,13 @@ compatible with Lua 5.1 and 5.4. Add the generated Mod ID to
 headless server. The generator does not write `mod.conf.release`; that field is
 owned by ContentDB.
 
+Repository CI also downloads the SHA-256-pinned official Luanti 5.16.1
+Windows release and loads the source Mod in a real Dedicated Server twice.
+Local macOS verification repeats this for both the source Mod and a newly
+generated scaffold. This proves packaging, real ModStorage userdata, and
+graceful restart generations; it does not prove multiplayer, live Sidecar
+traffic, forced termination, or a long soak.
+
 ## Required game-specific work
 
 The generated README identifies the following authority boundaries. A Mod is
@@ -373,7 +380,8 @@ durable outcome together. See
   without deleting concurrent replacements.
 - [x] Build generated Fabric and both BepInEx projects on Linux and Windows;
   build and package each BepInEx backend, independently verify both install
-  ZIPs, and parse and exercise Luanti output with Lua 5.1 and 5.4.
+  ZIPs, parse and exercise Luanti output with Lua 5.1/5.4, and load it in an
+  official 5.16.1 Windows Dedicated Server.
 - [x] Keep generated READMEs explicit about pinned dependencies, remaining
   game-owned TODOs, Preview status, and the `advisory` capability boundary.
 
@@ -390,8 +398,8 @@ evidence.
   the demo save identity and main-thread effect hook.
 - [ ] Load the generated IL2CPP plugin in a concrete game after Interop
   generation; test AOT behavior, unload, restart, and an actual game hook.
-- [ ] Load the generated Luanti Mod in a real headless server; test
-  `secure.http_mods`, real ModStorage save intervals, concurrent players,
+- [ ] Extend the real Luanti server gate beyond graceful restart: connect a
+  live Sidecar, test real ModStorage save intervals, concurrent players,
   `/shutdown`, and forced termination.
 - [ ] Run the shared crash matrix and at least the documented two-hour or
   1,000-turn Preview soak gate for every host/backend claimed by a release.

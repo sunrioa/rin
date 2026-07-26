@@ -62,8 +62,9 @@ persists and implements.
 | C# SDK/Unity compile harness | tested | CI | CI |
 | Unreal Runtime Plugin static contract | not installed | CI | CI |
 | Java SDK/Fabric compile | tested | CI | CI |
-| Lua SDK/Luanti state tests | tested | CI | CI |
-| Real Fabric/BepInEx/Luanti/Unity/Unreal host | manual evidence required | manual evidence required | manual evidence required |
+| Lua SDK/Luanti 5.16.1 dedicated lifecycle | tested | Lua CI | real server CI |
+| Real Fabric/BepInEx/Unity/Unreal host | manual evidence required | manual evidence required | manual evidence required |
+| Luanti live Sidecar/multiplayer/fault injection | manual evidence required | manual evidence required | manual evidence required |
 
 Compilation and mocked engine APIs are useful contract evidence, but they do
 not prove loader compatibility, main-thread behavior, save integration, or a

@@ -18,6 +18,10 @@ across every future minor release.
   final time-of-check/time-of-use authorization pass.
 - Fuzz, race, stale-epoch, expiry, digest-drift, revocation, durability, and
   action-transition tests for the contract.
+- Official Luanti 5.16.1 dedicated-server lifecycle verification for the
+  source Mod and generated standalone scaffold, including real ModStorage
+  userdata, persistent authority generations, exact Offer binding, and
+  interrupted Active Run recovery.
 
 ### Changed
 
@@ -39,6 +43,10 @@ across every future minor release.
   `HostDurability`/`HostDurabilityProfile` in JavaScript, C#, Java, embedded
   scaffold assets, and reference Mods. Old names, error codes, and documentation
   paths are removed rather than retained as compatibility aliases.
+- Luanti state schema v1 is removed. Schema v2 binds state to host-supplied content,
+  preserves JSON-empty collections explicitly, advances Host/Timeline on
+  server restart, and reconciles an interrupted effect as `outcome-unknown`
+  instead of replaying it.
 
 ## [0.6.0] - 2026-07-24 - Preview
 

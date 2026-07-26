@@ -24,6 +24,10 @@ Sidecar 基准，以及不回避结果的持久化规则树对照。
 GCC/Clang 与 MSVC 上运行共享 Host Scenario，不引入游戏引擎、JSON、HTTP
 或 Shell 依赖。
 
+[`mods/luanti-rin-npc`](mods/luanti-rin-npc) 是完整的 Loopback-only Luanti
+服务端 Mod。官方 Luanti 5.16.1 Dedicated Server 已对同一世界各加载源码 Mod
+和新生成脚手架两次；多人、实时 Sidecar、强制停止与 Soak 仍是人工门禁。
+
 [`unreal/RinHost`](unreal/RinHost) 是 Preview Unreal Runtime Plugin 骨架，
 覆盖显式存档/World Epoch 绑定、Game Thread 授权、类型化 Blueprint Capability
 和 Behavior Tree ActionRun 回报。CI 检查跨平台布局与安全边界；Unreal Editor

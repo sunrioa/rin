@@ -169,10 +169,18 @@ F8 切片还演示了游戏拥有的两阶段 Beacon Quest：Stage 与 Operation
 Luanti 示例是完整服务器 Mod。它只在模块作用域调用
 `core.request_http_api()`，把返回 API 保持为 local，并要求
 `secure.http_mods = rin_npc_example`。其 ModStorage Adapter 会跨重启保留
-稳定 World/Session Identity、完整 Pending Turn、Job ID、单调 Tick 下限与
-有界 Outcome Outbox。Lua SDK Workflow 负责 Submit/Poll Recovery、Identity
-检查、Freshness、精确 Report 重试及 ACK 后 Evict。由于 ModStorage 保存时机与
-任意游戏效果不能组成同步事务，其 Profile 仍为 `advisory`。
+宿主提供的 Content Binding、稳定 World/Session Identity、Host/World/Timeline
+Generation、完整 Pending Turn、Job ID、单调 Tick 下限、Active Run 与有界
+Outcome Outbox。Lua SDK Workflow 负责 Submit/Poll Recovery、完整 Decision
+Window/Offer Binding、精确 Report 重试及 ACK 后 Evict。Accepted Active Run
+会在游戏代码前持久化，中断后只对账一次 `outcome-unknown`，绝不会盲目重放。
+由于 ModStorage 保存时机与任意游戏效果不能组成同步事务，其 Profile 仍为
+`advisory`。
+仓库中的全零 Content Hash 只是脚手架占位符，不是可信 Manifest Digest。
+
+Luanti 会把空 Lua Object 和空 Lua Array 都编码成 JSON `null`，因此 SDK 会拒绝
+出站请求中的歧义空 Table。可选空 Array 应省略，Action Arguments 至少包含一个
+由宿主编写的字段。
 
 Godot 4.6.3 参考是可直接运行的项目。可复用 Workflow 在 `user://` 保存稳定
 Save Slot Identity、Host/World/Timeline Generation、完整 Pending Turn、Job
@@ -201,8 +209,11 @@ CI 执行 Go Format、Vet、Race Test，以及 Linux、macOS、Windows 上的 Ze
 Build 和 File Store/Sidecar 生命周期测试；这些平台测试覆盖持久化、重启与第二
 写者拒绝。CI 还会在 Python 3.9 与当前 Python 3 上运行 Python SDK/Ren'Py，在
 Node 18/24、Java 17/25、.NET 6/10 上运行相应 Client Test，并在 Lua 5.1/5.4
-下运行 Lua Client Test 与 Luanti 重启/写失败状态 Harness。固定版本的
-Fabric 项目及其 Saved Data 重启测试，以及两个 BepInEx Backend、重启测试
+下运行 Lua Client Test 与 Luanti 重启/写失败状态 Harness，并在官方 Luanti
+5.16.1 LuaJIT 内重复这些 Suite。macOS 上真实 Dedicated Server 会重开源码 Mod
+与生成脚手架；Windows CI 使用 SHA-256 固定的官方 Release ZIP 重复两者生命周期。
+CI 还会运行固定版本的 Fabric 项目及其 Saved Data 重启测试，以及两个 BepInEx
+Backend、重启测试
 与安装包都会在 Linux 和 Windows 构建。
 Contract Generator Check 防止 OpenAPI 与生成的
 Route/Version Projection 漂移。
@@ -224,7 +235,7 @@ Envelope Data 与 API Status/Code/Field Mapping；它们不是针对运行中 Si
 - [.NET HttpClient JSON 扩展](https://learn.microsoft.com/en-us/dotnet/api/system.net.http.json)
 - [`System.Text.Json` 支持的类型](https://learn.microsoft.com/en-us/dotnet/standard/serialization/system-text-json/supported-types)
 - [Luanti HTTP API](https://docs.luanti.org/for-creators/api/http-api/)
-- [Luanti Lua API 源码](https://github.com/luanti-org/luanti/blob/master/doc/lua_api.md)
+- [Luanti Core API](https://api.luanti.org/core-namespace-reference/)
 
 这些示例为 Rin 独立编写，没有复制上述项目的实现代码。链接用于说明宿主
 生命周期、元数据和传输 API。Rin SDK、示例与文档按

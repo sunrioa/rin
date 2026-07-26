@@ -83,19 +83,6 @@ func renderLuantiFile(
 			"# Rin local origin. This example intentionally rejects remote origins and tokens.",
 			"# Rin local origin. This scaffold intentionally rejects remote origins and tokens.",
 		)
-	case "test_state.lua":
-		var err error
-		text, err = replaceRequired(
-			text,
-			`local state_module = dofile("examples/mods/luanti-rin-npc/state.lua")`,
-			`local script = arg and arg[0] or "test_state.lua"
-local directory = script:match("^(.*[\\/])") or ""
-local state_module = dofile(directory .. "state.lua")`,
-			relative,
-		)
-		if err != nil {
-			return nil, err
-		}
 	}
 	return []byte(text), nil
 }

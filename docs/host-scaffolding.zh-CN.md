@@ -289,6 +289,11 @@ Lua SDK，并保持语法与状态测试同时兼容 Lua 5.1 和 5.4。把生成
 `secure.http_mods`，再在真实 Luanti Headless Server 中重复生命周期测试。
 生成器不会写入 `mod.conf.release`；该字段由 ContentDB 所有。
 
+仓库 CI 还会下载 SHA-256 固定的官方 Luanti 5.16.1 Windows Release，并在真实
+Dedicated Server 中加载源码 Mod 两次。本机 macOS 验证会对源码 Mod 和新生成
+脚手架各重复一次。该证据覆盖打包、真实 ModStorage userdata 与正常重启
+Generation，不覆盖多人、实时 Sidecar、强制终止或长时间 Soak。
+
 ## 必须完成的游戏专属工作
 
 生成的 README 会标出以下权威边界。每一项都被替换并审查之前，Mod 不应分发：
@@ -332,7 +337,7 @@ Lua SDK，并保持语法与状态测试同时兼容 Lua 5.1 和 5.4。把生成
   保留 Incomplete Marker 供人工审查，并且不删除并发替换的目录或文件。
 - [x] 在 Linux 与 Windows 构建生成的 Fabric 和两个 BepInEx 项目；构建并打包
   每个 BepInEx Backend，独立复验两个安装 ZIP；使用 Lua 5.1 与 5.4
-  解析并运行 Luanti 生成结果。
+  解析并运行 Luanti 生成结果，并在官方 5.16.1 Windows Dedicated Server 加载。
 - [x] 生成 README 必须明确固定依赖、未完成的游戏所有 TODO、Preview 状态与
   `advisory` 能力边界。
 
@@ -346,7 +351,7 @@ Lua SDK，并保持语法与状态测试同时兼容 Lua 5.1 和 5.4。把生成
   与 Main-thread Effect Hook。
 - [ ] 在一款具体游戏完成 Interop 生成后加载 IL2CPP Plugin；测试 AOT 行为、
   Unload、Restart 与实际 Game Hook。
-- [ ] 在真实 Luanti Headless Server 加载生成 Mod；测试 `secure.http_mods`、
+- [ ] 把真实 Luanti Server 门禁扩展到正常重启之外：连接实时 Sidecar，并测试
   真实 ModStorage 保存周期、并发玩家、`/shutdown` 与强杀。
 - [ ] 对每个 Release 声明的 Host/Backend 执行共享崩溃矩阵，以及文档要求的
   至少两小时或 1,000 Turn Preview Soak Gate。

@@ -43,3 +43,8 @@ contract; Editor and Player builds remain manual gates.
 Host/World/Timeline generations, exact Decision Window/Offer binding, and
 Active Run recovery. Official headless binaries exercise the lifecycle on
 Linux and Windows; Editor and exported-build traffic remain manual gates.
+
+[`mods/luanti-rin-npc`](mods/luanti-rin-npc) is a complete loopback-only
+Luanti server Mod. Official Luanti 5.16.1 dedicated servers load both the
+source Mod and a newly generated scaffold twice against the same world;
+multiplayer, live Sidecar, forced-stop, and soak behavior remain manual gates.
