@@ -69,6 +69,10 @@
   持久化、校验精确 Offer、跟踪长动作、精确重试 Outbox 并对账陈旧 Epoch。
 - 无依赖 C99 Host 参考与共享 Host Scenario Contract，在 GCC/Clang 和 MSVC
   上以 Warning-as-error 构建。
+- Preview Unreal Runtime Plugin 骨架，包含显式持久 Epoch 绑定、Game Thread
+  Capability 授权、World 切换的 `outcome-unknown` 处理，以及 Behavior Tree
+  移动 ActionRun 示例。Linux/Windows CI 会检查其布局与受限执行入口；真实
+  Unreal 构建仍是有文档记录的人工门禁。
 - [`api/openapi.json`](api/openapi.json) 中的 OpenAPI 3.1 Wire Schema 与
   [兼容矩阵](docs/compatibility.zh-CN.md)。
 - 有界 frame 的 NDJSON Session Transfer：immutable export boundary、逐 event

@@ -62,6 +62,8 @@
 - [x] 游戏权威的类型化动作生命周期、Proposal Attempt 与 Outcome Outbox
 - [x] 通用 HostKit 端口与 Coordinator，覆盖长时间 ActionRun 和 Epoch 对账
 - [x] 可移植 C99 Host 参考与跨引擎共享 Scenario Contract
+- [x] Preview Unreal Runtime Plugin 骨架，覆盖显式 Epoch 绑定、Game Thread
+  最终授权与 Behavior Tree 长动作回报
 - [x] 永久 Request/Event ID History 与 Fail-closed 未决 Append 对账
 - [x] 可信 Restore Binding、Snapshot 大小限制与明确 Checksum Trust Boundary
 - [x] Lazy Session 恢复、Range Read、派生 Checkpoint 与全历史运维审计
@@ -80,7 +82,8 @@
 - [x] 明确区分 Capability Discovery、每轮游戏授权、执行生命周期和持久保证
 - [x] 跨 SDK 将旧 `HostCapabilities` 清理为准确的 `HostDurability`，不保留别名
 - [x] Schema Fuzz、Registry Race、过期 Epoch/Digest/撤销和状态转换测试
-- [ ] 将 Host Contract 接入跨语言 SDK、通用脚手架和真实引擎 Adapter
+- [x] 将 Host Contract 接入跨语言 SDK、通用脚手架，以及 C99/Unreal
+  Reference Adapter；其余真实宿主验收继续按证据矩阵推进
 
 ## Preview 发布门禁
 

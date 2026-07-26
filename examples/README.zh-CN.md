@@ -23,3 +23,8 @@ Sidecar 基准，以及不回避结果的持久化规则树对照。
 [`native-host`](native-host) 是面向原生引擎的无依赖 C99 参考；它在
 GCC/Clang 与 MSVC 上运行共享 Host Scenario，不引入游戏引擎、JSON、HTTP
 或 Shell 依赖。
+
+[`unreal/RinHost`](unreal/RinHost) 是 Preview Unreal Runtime Plugin 骨架，
+覆盖显式存档/World Epoch 绑定、Game Thread 授权、类型化 Blueprint Capability
+和 Behavior Tree ActionRun 回报。CI 检查跨平台布局与安全边界；Unreal Editor
+构建仍是人工门禁。

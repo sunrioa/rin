@@ -64,6 +64,8 @@ unchecked item is not a supported feature.
 - [x] Game-authoritative typed action lifecycle, Proposal Attempt, and Outcome Outbox
 - [x] Universal HostKit ports and Coordinator with long-running ActionRun and Epoch reconciliation
 - [x] Portable C99 Host reference and shared cross-engine scenario contract
+- [x] Preview Unreal Runtime Plugin skeleton with explicit Epoch binding, final
+  Game Thread authorization, and Behavior Tree long-action reporting
 - [x] Permanent request/Event ID history and fail-closed uncertain-append reconciliation
 - [x] Trusted Restore Binding, Snapshot size limits, and explicit checksum trust boundary
 - [x] Lazy Session recovery, range reads, derived checkpoints, and full-history maintenance audit
@@ -88,8 +90,9 @@ unchecked item is not a supported feature.
   named `HostDurability`, without compatibility aliases
 - [x] Schema fuzz, registry race, stale epoch/digest/revocation, and state
   transition tests
-- [ ] Integrate the Host Contract into cross-language SDKs, generic scaffolds,
-  and real engine adapters
+- [x] Integrate the Host Contract into cross-language SDKs, generic scaffolds,
+  and C99/Unreal reference adapters; remaining real-host acceptance follows the
+  evidence matrix
 
 ## Preview release gates
 

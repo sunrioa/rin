@@ -27,3 +27,9 @@ claiming production stability.
 [`native-host`](native-host) is a dependency-free C99 reference for native
 engines. It runs the shared Host scenarios on GCC/Clang and MSVC without
 introducing an engine, JSON, HTTP, or shell dependency.
+
+[`unreal/RinHost`](unreal/RinHost) is a Preview Unreal Runtime Plugin skeleton
+for explicit save/world Epoch binding, Game Thread authorization, typed
+Blueprint capabilities, and Behavior Tree ActionRun reporting. CI checks its
+portable layout and safety boundary; an Unreal Editor build remains a manual
+gate.

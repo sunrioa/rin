@@ -60,9 +60,10 @@ persists and implements.
 | Python/Ren'Py adapter logic | tested | CI | CI |
 | JavaScript SDK | tested | CI | CI |
 | C# SDK/Unity compile harness | tested | CI | CI |
+| Unreal Runtime Plugin static contract | not installed | CI | CI |
 | Java SDK/Fabric compile | tested | CI | CI |
 | Lua SDK/Luanti state tests | tested | CI | CI |
-| Real Fabric/BepInEx/Luanti/Unity host | manual evidence required | manual evidence required | manual evidence required |
+| Real Fabric/BepInEx/Luanti/Unity/Unreal host | manual evidence required | manual evidence required | manual evidence required |
 
 Compilation and mocked engine APIs are useful contract evidence, but they do
 not prove loader compatibility, main-thread behavior, save integration, or a

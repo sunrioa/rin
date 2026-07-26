@@ -90,6 +90,21 @@ restart, backup recovery, corrupt-state failure, disk-write failure, and raw
 argument preservation on Linux and Windows. This does not replace a licensed
 Unity Editor/Player test.
 
+## Unreal
+
+The Preview [Unreal Runtime Plugin](../examples/unreal/RinHost/README.md) uses a
+`UGameInstanceSubsystem` and an owning-Game-Instance world delegate. The game
+must inject stable Session, Host, World, and Timeline generations from its
+authoritative save; the adapter does not guess them from PIE or map names.
+Capability registration and `AuthorizeAndQueueInvocation` execute on the Game
+Thread, and a Behavior Tree MoveTo task demonstrates monotonic long-action
+reporting. World replacement and timeline forks convert unfinished work to
+`outcome-unknown`.
+
+Linux and Windows CI statically reject unsafe execution surfaces and
+case-insensitive or reserved paths. This is not an Unreal Header Tool, compiler,
+Editor, packaged Player, SaveGame transaction, or navigation runtime test.
+
 ## Mod hosts
 
 Fabric, BepInEx Mono/IL2CPP, and Luanti examples demonstrate server/main-thread

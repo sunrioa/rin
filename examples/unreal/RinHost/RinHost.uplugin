@@ -1,0 +1,18 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.1.0",
+  "FriendlyName": "Rin Host",
+  "Description": "Engine-owned Rin Host boundaries for Unreal Engine.",
+  "Category": "AI",
+  "CreatedBy": "Rin contributors",
+  "CanContainContent": false,
+  "IsBetaVersion": true,
+  "Modules": [
+    {
+      "Name": "RinHost",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ]
+}

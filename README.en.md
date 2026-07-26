@@ -49,7 +49,7 @@ Rin separates character reasoning from game-world facts:
 - If a model is unavailable, Rin falls back to a deterministic policy and
   identifies the source with `policy_source`.
 
-- Ren'Py, Godot 4, and Unity adapters preserve the same
+- Ren'Py, Godot 4, Unity, and Unreal reference adapters preserve the same
   observe/propose/execute/report authority boundary.
 - The engine-neutral `host` contract separates static capabilities, per-turn
   `ActionOffer` values, epoch-bound invocation, and long-action terminal
@@ -272,6 +272,8 @@ not remove the operator's retention or capacity-planning responsibility.
 - Godot 4: asynchronous `HTTPRequest` signal/timer example.
 - Unity: asynchronous `UnityWebRequest` coroutine with bounded response
   handling.
+- Unreal: Preview Runtime Plugin skeleton with explicit Epoch binding, Game
+  Thread authorization, and a Behavior Tree ActionRun example.
 - General SDKs: Python 3.9+, Node/Fetch, .NET 6+, Java 17+, and Lua 5.1+.
 - Example mods: Fabric server, BepInEx 6, and a loopback-sidecar-only Luanti
   server mod.
@@ -312,7 +314,7 @@ generation/    Bounded structured-generation worker queue and cache
 adapters/      Ren'Py Python client and bridge
 sdk/           Python, JavaScript, C#, Java, and Lua clients and route contract
 compat/        Executable game-protocol compatibility vectors
-protocol/      Cross-language v1 data contract
+protocol/      Cross-language v2 data contract
 runtime/       Event state machine, proposal validation, snapshots, scheduling
 store/         JSONL file store and in-memory store
 tools/         Deterministic contract projection generator

@@ -56,9 +56,10 @@ v2 Host 生命周期是基础协议，没有 Feature Flag。当前可选 Session
 | Python/Ren'Py Adapter 逻辑 | 已测试 | CI | CI |
 | JavaScript SDK | 已测试 | CI | CI |
 | C# SDK/Unity Compile Harness | 已测试 | CI | CI |
+| Unreal Runtime Plugin 静态契约 | 未安装 | CI | CI |
 | Java SDK/Fabric Compile | 已测试 | CI | CI |
 | Lua SDK/Luanti State Test | 已测试 | CI | CI |
-| 真实 Fabric/BepInEx/Luanti/Unity Host | 需手工证据 | 需手工证据 | 需手工证据 |
+| 真实 Fabric/BepInEx/Luanti/Unity/Unreal Host | 需手工证据 | 需手工证据 | 需手工证据 |
 
 编译与模拟引擎 API 是有效契约证据，但不能证明真实游戏内 Loader Compatibility、
 Main Thread、Save Integration 或 Long Soak。

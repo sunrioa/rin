@@ -76,6 +76,11 @@ release checklist passes. See the [release guide](docs/release-guide.md).
   stale Epochs.
 - A dependency-free C99 Host reference and shared Host scenario contract,
   compiled with warnings-as-errors on GCC/Clang and MSVC.
+- A Preview Unreal Runtime Plugin skeleton with explicit persisted Epoch
+  binding, Game Thread capability authorization, world-change
+  `outcome-unknown` handling, and a Behavior Tree movement ActionRun example.
+  Linux and Windows CI enforce its layout and restricted execution surface;
+  real Unreal builds remain a documented manual gate.
 - An OpenAPI 3.1 wire schema at [`api/openapi.json`](api/openapi.json) and a
   [compatibility matrix](docs/compatibility.md).
 - Bounded-frame NDJSON Session Transfer with immutable export boundaries,

@@ -95,6 +95,21 @@ jobs:
       - name: Run native Host scenarios
         run: ctest --test-dir .cache/native-host-build -C Release --output-on-failure
 
+  unreal-host:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.9"
+      - name: Verify Unreal Runtime Plugin structure and safety boundary
+        run: python -m unittest tools.test_verify_unreal
+      - name: Verify checked-in Unreal Runtime Plugin
+        run: python tools/verify_unreal.py
+
   sdk-python:
     runs-on: ubuntu-latest
     strategy:

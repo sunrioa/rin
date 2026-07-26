@@ -80,6 +80,20 @@ Harness 会在 Linux、Windows 编译 Package，并验证 Restart、Backup Recov
 损坏状态、磁盘写入失败与原始 Argument 保留。这不能替代有 License 的 Unity
 Editor/Player 测试。
 
+## Unreal
+
+Preview [Unreal Runtime Plugin](../examples/unreal/RinHost/README.zh-CN.md)
+使用 `UGameInstanceSubsystem` 与限定所属 Game Instance 的 World Delegate。
+游戏必须从权威存档注入稳定 Session、Host、World 与 Timeline Generation；
+Adapter 不会从 PIE 或地图名称猜测它们。Capability 注册与
+`AuthorizeAndQueueInvocation` 在 Game Thread 执行，Behavior Tree MoveTo
+Task 演示单调的长动作回报。替换 World 或 Fork Timeline 会把未完成工作改为
+`outcome-unknown`。
+
+Linux 与 Windows CI 会静态拒绝不安全执行入口、大小写冲突和保留路径，但这不等于
+Unreal Header Tool、编译器、Editor、打包 Player、SaveGame 事务或导航 Runtime
+测试。
+
 ## Mod Host
 
 Fabric、BepInEx Mono/IL2CPP 与 Luanti 示例展示 Server/Main Thread Dispatch 和

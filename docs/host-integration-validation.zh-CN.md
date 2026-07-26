@@ -15,6 +15,7 @@ Rin `0.7.0` 是 Preview 软件。编译通过、模拟引擎 API 和面向重启
 | Luanti | Lua 5.1/5.4 Workflow 测试与忠实模拟 ModStorage 的 Harness | 真实 Luanti Headless Server、世界保存和并发玩家 |
 | Godot | 官方 Godot 4 Headless 解析和重启测试 | Editor Session 与 Export Build 中的实时 Sidecar 流量 |
 | Unity | 严格 Unity API Stub 与 .NET 重启测试 | Unity Editor Package 导入和 Mono/IL2CPP Player 构建 |
+| Unreal | Runtime Plugin 结构、不安全入口与 Windows 路径测试 | Unreal Header Tool/编译器、Editor 加载、打包、SaveGame 与导航 Runtime |
 | Ren'Py | Python Adapter 测试 | 引擎存档/读档、Rollback 与 Interaction Restart |
 | Terminal Story | Windows、macOS、Linux 上真实 Sidecar 20 回合 CI | 它是参考游戏，不能证明另一款游戏的 Mod 生命周期 |
 
@@ -78,6 +79,19 @@ Rin `0.7.0` 是 Preview 软件。编译通过、模拟引擎 API 和面向重启
 - 构建并运行 Windows Mono 与 IL2CPP Player，验证 Scene/Domain Reload、
   `Application.persistentDataPath`、Stripping/AOT、Coroutine/主线程、应用退出和
   通用崩溃矩阵。
+
+### Unreal
+
+- 将 `examples/unreal/RinHost` 复制到真实项目 `Plugins` 目录，用项目的准确 Unreal
+  Engine 版本运行 Unreal Header Tool、编译、Editor 加载，并打包 Windows
+  Development 与 Shipping Build。
+- 从真实 SaveGame 恢复稳定 Session/Host/World/Timeline Generation；覆盖 PIE
+  多实例、Server Travel、无缝/非无缝地图切换、存读档、正常关闭、强制终止和
+  World 重开。
+- 在权威 Game Thread 运行 Behavior Tree 移动示例；寻路期间取消、运行中卸载
+  World，并确认迟到 Callback 不能恢复旧 Epoch 或重复 Operation。
+- 声称 Idempotent/Transactional Durability 前，必须用 SaveGame/Database
+  Transaction 替换有界内存 Marker。
 
 ### Ren'Py
 

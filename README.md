@@ -34,7 +34,7 @@ Rin 将“角色思考”和“游戏世界事实”拆开：
 - 在线模型通过异步 Job 预取，慢请求、取消和状态过期不会冻结游戏主线程。
 - 通用结构化 Generation Job 让剧情、任务描述和受限对白也经过 Sidecar，而不是让游戏保存供应商 Key。
 - 模型不可用时自动回退确定性 Policy，并用 `policy_source` 标明来源。
-- Ren'Py、Godot 4 和 Unity 适配器保持同一套
+- Ren'Py、Godot 4、Unity 和 Unreal 参考适配器保持同一套
   observe / propose / execute / report 权威边界。
 - 引擎无关 `host` Contract 区分静态 Capability、每轮 `ActionOffer`、带 Epoch
   的 Invocation 与长动作终态；通用 HostKit 端口与 Coordinator 统一 Pending
@@ -222,6 +222,8 @@ Identifier History；Rin 不提供事件日志自动归档。大 lineage 的完�
 - Ren'Py：纯标准库 Python 客户端、`renpy.invoke_in_thread` 桥接与 authored 离线回退。
 - Godot 4：基于 `HTTPRequest` signal/timer 的异步客户端。
 - Unity：基于 `UnityWebRequest` coroutine 的异步客户端和有界响应处理。
+- Unreal：Preview Runtime Plugin 骨架，包含显式 Epoch、Game Thread 授权与
+  Behavior Tree ActionRun 示例。
 - 通用 SDK：Python 3.9+、Node/Fetch、.NET 6+、Java 17+ 与 Lua 5.1+。
 - 示例 Mod：Fabric 服务端、BepInEx 6 与本机 Sidecar 限定的 Luanti 服务端 Mod。
 
@@ -255,11 +257,11 @@ generation/    有界结构化 Generation worker queue 与缓存
 adapters/      Ren'Py Python 客户端与桥接层
 sdk/           Python、JavaScript、C#、Java、Lua 通用客户端与路由契约
 compat/        可执行的游戏协议兼容向量
-protocol/      可跨语言实现的 v1 数据契约
+protocol/      可跨语言实现的 v2 数据契约
 runtime/       事件状态机、提案验证、快照和调度
 store/         JSONL 文件存储与内存存储
 tools/         确定性契约 Projection Generator
-examples/      Go、Godot、Unity 与 Fabric/BepInEx/Luanti Mod 示例
+examples/      Go、Godot、Unity、Unreal 与 Fabric/BepInEx/Luanti Mod 示例
 ```
 
 可安装的 Node.js
