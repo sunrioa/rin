@@ -64,13 +64,13 @@ jobs:
             [ref]$tokens,
             [ref]$errors)
           if ($errors.Count -ne 0) { throw ($errors -join [Environment]::NewLine) }
-      - name: Test bundled File Store, Sidecar lifecycle, and Mod scaffolding
+      - name: Test bundled File Store, Sidecar lifecycle, and Host scaffolding
         shell: bash
         env:
           CGO_ENABLED: "0"
         run: |
           set +e
-          output="$(go test ./store ./cmd/rin ./internal/modscaffold 2>&1)"
+          output="$(go test ./store ./cmd/rin ./internal/hostscaffold 2>&1)"
           status=$?
           printf '%s\n' "$output"
           if [ "$status" -ne 0 ]; then
@@ -185,7 +185,7 @@ jobs:
         run: ./gradlew clean build --no-daemon
       - name: Generate standalone Fabric scaffold
         run: >-
-          go run ./cmd/rin init mod --host fabric --id ci_fabric_npc
+          go run ./cmd/rin init host --engine fabric --id ci_fabric_npc
           --name "CI Fabric NPC" --namespace io.github.rin_ci
           --output fabric-generated
       - name: Build generated Fabric scaffold outside the example tree
@@ -241,8 +241,8 @@ jobs:
           RinNpc.Core.Tests/bin/Debug/net6.0/RinNpc.Core.Tests.dll
       - name: Generate standalone single-backend BepInEx scaffolds
         run: |
-          go run ./cmd/rin init mod --host bepinex-mono --id ci_mono_npc --name "CI Mono NPC" --namespace io.github.rin_ci --output bepinex-mono-generated
-          go run ./cmd/rin init mod --host bepinex-il2cpp --id ci_il2cpp_npc --name "CI IL2CPP NPC" --namespace io.github.rin_ci --output bepinex-il2cpp-generated
+          go run ./cmd/rin init host --engine bepinex-mono --id ci_mono_npc --name "CI Mono NPC" --namespace io.github.rin_ci --output bepinex-mono-generated
+          go run ./cmd/rin init host --engine bepinex-il2cpp --id ci_il2cpp_npc --name "CI IL2CPP NPC" --namespace io.github.rin_ci --output bepinex-il2cpp-generated
       - name: Restore generated Mono restart tests from lock files
         working-directory: bepinex-mono-generated
         run: dotnet restore CiMonoNpc.Core.Tests/CiMonoNpc.Core.Tests.csproj --locked-mode
@@ -341,7 +341,7 @@ jobs:
         run: lua5.1 examples/mods/luanti-rin-npc/test_state.lua
       - name: Generate standalone Luanti scaffold
         run: >-
-          go run ./cmd/rin init mod --host luanti --id ci_luanti_npc
+          go run ./cmd/rin init host --engine luanti --id ci_luanti_npc
           --name "CI Luanti NPC" --output luanti-generated
       - name: Parse and test generated Luanti scaffold on Lua 5.1 and 5.4
         working-directory: luanti-generated
