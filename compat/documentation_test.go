@@ -23,6 +23,7 @@ func TestBilingualDocumentationPairs(t *testing.T) {
 		{"../docs/game-adapters.md", "../docs/game-adapters.zh-CN.md"},
 		{"../docs/host-contract.md", "../docs/host-contract.zh-CN.md"},
 		{"../docs/host-durability.md", "../docs/host-durability.zh-CN.md"},
+		{"../docs/host-sdk.md", "../docs/host-sdk.zh-CN.md"},
 		{"../docs/model-policy.md", "../docs/model-policy.zh-CN.md"},
 		{"../docs/host-scaffolding.md", "../docs/host-scaffolding.zh-CN.md"},
 		{"../docs/host-integration-validation.md", "../docs/host-integration-validation.zh-CN.md"},

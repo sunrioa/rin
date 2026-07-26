@@ -7,6 +7,10 @@ Thin, source-first clients for the `rin.protocol/v2` HTTP boundary.
 The SDKs remove transport boilerplate without moving game authority into the
 client library.
 
+The type-checked Go reference under [`hostkit`](hostkit) defines the common
+Host ports and restartable Coordinator. Its ownership and lifecycle contract
+is documented in the [Universal Host SDK guide](../docs/host-sdk.md).
+
 SDK workflow helpers validate the integration's declared
 [host durability profile](../docs/host-durability.md). A client library
 cannot manufacture durability or a world transaction that the game does not

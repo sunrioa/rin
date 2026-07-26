@@ -69,6 +69,11 @@ release checklist passes. See the [release guide](docs/release-guide.md).
   BepInEx Mono/IL2CPP, and Luanti projects. `rin add skill`,
   `rin conformance host`, and `rin doctor host` provide sealed capability
   generation, contract checks, and cross-platform runtime diagnostics.
+- A type-checked universal HostKit reference with explicit transport,
+  authority-thread, state, identity, observation, capability, execution, and
+  artifact ports; its Coordinator persists before network, validates exact
+  offers, tracks long-running actions, retries an exact Outbox, and reconciles
+  stale Epochs.
 - An OpenAPI 3.1 wire schema at [`api/openapi.json`](api/openapi.json) and a
   [compatibility matrix](docs/compatibility.md).
 - Bounded-frame NDJSON Session Transfer with immutable export boundaries,

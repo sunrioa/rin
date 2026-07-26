@@ -3,9 +3,9 @@
 [English](host-contract.md) | [简体中文](host-contract.zh-CN.md)
 
 The `host` Go package is Rin's engine-neutral boundary for describing a game
-host and the operations it can safely expose. It is independent of the HTTP
-Session API: the current implementation is a local contract and capability
-registry, not yet a wire route or a cross-language SDK.
+host and the operations it can safely expose. Protocol v2 reuses its exact
+Epoch, capability, offer, invocation, run, and outcome shapes on the HTTP
+boundary; the game still owns local registration and execution.
 
 ## Why this boundary exists
 
@@ -101,11 +101,13 @@ durability it needs, and the registry rejects registration when the host cannot
 provide it. Risk, permissions, execution mode, cancellation, and reversibility
 remain independent axes.
 
-## Delivered boundary and remaining work
+## Delivered boundary
 
-The Go package currently provides validation, deterministic sealing,
+The Go package provides validation, deterministic sealing,
 concurrent registration/discovery, dynamic revocation, offer/invocation/output
-checks, action-state transitions, and race/fuzz coverage. Cross-language DTOs,
-the authority dispatcher, workflow coordinator integration, protocol routes,
-and generated engine-host projects are later milestones and are not claimed by
-this document.
+checks, action-state transitions, and race/fuzz coverage. Protocol v2 and the
+language SDKs carry the typed lifecycle. The
+[Universal Host SDK](host-sdk.md) adds the eight engine-facing ports, durable
+Pending Decision/ActionRun/Outbox state, authority dispatch, exact retry, and
+Epoch reconciliation. Generated Host projects are covered separately by the
+[Host scaffolding guide](host-scaffolding.md).

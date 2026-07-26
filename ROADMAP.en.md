@@ -62,6 +62,7 @@ unchecked item is not a supported feature.
   Fabric, single-backend BepInEx Mono/IL2CPP, and Luanti, plus sealed
   capability generation, conformance, diagnostics, and Windows gates
 - [x] Game-authoritative typed action lifecycle, Proposal Attempt, and Outcome Outbox
+- [x] Universal HostKit ports and Coordinator with long-running ActionRun and Epoch reconciliation
 - [x] Permanent request/Event ID history and fail-closed uncertain-append reconciliation
 - [x] Trusted Restore Binding, Snapshot size limits, and explicit checksum trust boundary
 - [x] Lazy Session recovery, range reads, derived checkpoints, and full-history maintenance audit

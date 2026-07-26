@@ -2,9 +2,9 @@
 
 [English](host-contract.md) | [简体中文](host-contract.zh-CN.md)
 
-`host` Go 包是 Rin 用来描述游戏宿主及其可安全开放操作的引擎无关边界。它与
-HTTP Session API 相互独立：当前交付的是本地 Contract 和 Capability Registry，
-尚不是 Wire Route，也尚未提供跨语言 SDK。
+`host` Go 包是 Rin 用来描述游戏宿主及其可安全开放操作的引擎无关边界。
+Protocol v2 在 HTTP 边界复用其精确 Epoch、Capability、Offer、Invocation、
+Run 与 Outcome Shape；本地注册和执行权仍属于游戏。
 
 ## 为什么需要这条边界
 
@@ -81,9 +81,11 @@ Descriptor Digest。Schema 校验复用维护成熟的
 它们不枚举 Gameplay Capability。Descriptor 声明所需最低持久级别，宿主达不到时
 Registry 会拒绝注册。风险、权限、执行方式、取消和可逆性继续保持相互独立。
 
-## 已交付边界与后续工作
+## 已交付边界
 
 当前 Go 包已提供验证、确定性 Seal、并发注册/发现、动态撤销、Offer/Invocation/
-Output 检查、动作状态转换，以及 Race/Fuzz 覆盖。跨语言 DTO、Authority
-Dispatcher、Workflow Coordinator 集成、Protocol Route 和生成式引擎宿主项目属于
-后续里程碑，本文不提前声称已经支持。
+Output 检查、动作状态转换，以及 Race/Fuzz 覆盖。Protocol v2 与各语言 SDK
+承载类型化生命周期；[通用 Host SDK](host-sdk.zh-CN.md)进一步提供八个引擎侧
+端口、持久 Pending Decision/ActionRun/Outbox、Authority Dispatch、精确重试与
+Epoch 对账。生成 Host 工程由[通用 Host 脚手架指南](host-scaffolding.zh-CN.md)
+单独说明。

@@ -53,8 +53,8 @@ Rin separates character reasoning from game-world facts:
   observe/propose/execute/report authority boundary.
 - The engine-neutral `host` contract separates static capabilities, per-turn
   `ActionOffer` values, epoch-bound invocation, and long-action terminal
-  states. The Go registry is delivered; cross-language integration remains in
-  development.
+  states. Universal HostKit ports and its Coordinator unify Pending Decision,
+  authority-thread execution, ActionRun, exact Outbox, and Epoch reconciliation.
 - Python, JavaScript, C#, Java, and Lua SDKs plus Fabric, BepInEx, and Luanti
   example mods provide quick integration paths.
 - Optional layered memory, conflicting beliefs, candidate subgoals, regional

@@ -6,6 +6,9 @@
 
 这些 SDK 消除传输样板代码，不会把游戏权威移动到客户端库。
 
+[`hostkit`](hostkit) 下的类型化 Go 参考实现定义通用 Host 端口与可重启
+Coordinator；所有权和生命周期契约见[通用 Host SDK 指南](../docs/host-sdk.zh-CN.md)。
+
 SDK Workflow Helper 会校验接入声明的
 [宿主持久 Profile](../docs/host-durability.zh-CN.md)。客户端库不能凭空
 创造游戏没有提供的持久性或世界事务。

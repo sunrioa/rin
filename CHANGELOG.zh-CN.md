@@ -64,6 +64,9 @@
   C#、Java、Lua 契约骨架，以及独立 Fabric、单 Backend BepInEx Mono/IL2CPP
   与 Luanti 项目。`rin add skill`、`rin conformance host` 与
   `rin doctor host` 分别生成密封能力、校验契约并诊断跨平台 Runtime。
+- 类型化通用 HostKit 参考实现，明确 Transport、所属线程、状态、身份、
+  Observation、Capability、执行与 Artifact 八个端口；Coordinator 在联网前
+  持久化、校验精确 Offer、跟踪长动作、精确重试 Outbox 并对账陈旧 Epoch。
 - [`api/openapi.json`](api/openapi.json) 中的 OpenAPI 3.1 Wire Schema 与
   [兼容矩阵](docs/compatibility.zh-CN.md)。
 - 有界 frame 的 NDJSON Session Transfer：immutable export boundary、逐 event
