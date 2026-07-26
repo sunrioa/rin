@@ -46,6 +46,27 @@
         "tools/unity-harness/Program.cs",
         "examples/godot/tests/test_workflow.gd"
       ]
+    },
+    {
+      "id": "simultaneous_window_atomicity",
+      "requirement": "A simultaneous Decision Window collects one legal action per actor and applies the joint action without inventing a turn order.",
+      "evidence": [
+        "tools/verify_open_spiel.py"
+      ]
+    },
+    {
+      "id": "chance_transition_host_owned",
+      "requirement": "A chance transition is resolved by the game and cannot become a model-selectable Action Offer.",
+      "evidence": [
+        "tools/verify_open_spiel.py"
+      ]
+    },
+    {
+      "id": "private_observation_noninterference",
+      "requirement": "Two hidden worlds indistinguishable to an actor produce the same actor Observation and legal Offers.",
+      "evidence": [
+        "tools/verify_open_spiel.py"
+      ]
     }
   ]
 }

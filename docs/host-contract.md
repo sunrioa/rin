@@ -31,7 +31,9 @@ This split follows the useful common ground in Unity ML-Agents' action
 contracts, Unreal Gameplay Ability activation, ROS 2 Actions' long-running
 goal lifecycle, and OpenSpiel/PettingZoo's different decision-time models.
 Rin does not import those frameworks or reproduce their engine-specific world
-models.
+models. The [OpenSpiel validation](open-spiel-validation.md) now exercises
+sequential, simultaneous, chance, and hidden-information mappings on real game
+states.
 
 ## Discovery is not authority
 

@@ -76,6 +76,9 @@ unchecked item is not a supported feature.
   Active Run `outcome-unknown` recovery, and Windows CI
 - [x] Luanti 5.16.1 real dedicated-server lifecycle, real ModStorage,
   complete Offer binding, Active Run recovery, and Windows CI
+- [x] OpenSpiel 2.0.1 real Tic-Tac-Toe, Matrix RPS, and Kuhn poker coverage
+  for sequential, simultaneous, chance, and hidden information, with
+  SHA-256-pinned wheels on macOS/Linux/Windows
 - [x] Permanent request/Event ID history and fail-closed uncertain-append reconciliation
 - [x] Trusted Restore Binding, Snapshot size limits, and explicit checksum trust boundary
 - [x] Lazy Session recovery, range reads, derived checkpoints, and full-history maintenance audit

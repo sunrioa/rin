@@ -74,6 +74,8 @@
   Run `outcome-unknown` 恢复与 Windows CI
 - [x] Luanti 5.16.1 真实 Dedicated Server 生命周期、真实 ModStorage、
   完整 Offer Binding、Active Run 恢复与 Windows CI
+- [x] OpenSpiel 2.0.1：真实 Tic-Tac-Toe、Matrix RPS 与 Kuhn Poker 覆盖顺序、
+  同时、Chance 与隐藏信息；macOS/Linux/Windows Wheel 均以 SHA-256 固定
 - [x] 永久 Request/Event ID History 与 Fail-closed 未决 Append 对账
 - [x] 可信 Restore Binding、Snapshot 大小限制与明确 Checksum Trust Boundary
 - [x] Lazy Session 恢复、Range Read、派生 Checkpoint 与全历史运维审计

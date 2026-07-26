@@ -19,6 +19,8 @@
 - 使用官方 Luanti 5.16.1 Dedicated Server 验证源码 Mod 与生成的独立脚手架，
   覆盖真实 ModStorage userdata、持久 Authority Generation、完整 Offer Binding
   与中断 Active Run 恢复。
+- 在 macOS/Linux/Windows 使用 SHA-256 固定的 OpenSpiel 2.0.1 验证顺序回合、
+  原子同时 Window、宿主拥有的 Chance Transition 与隐藏信息 Noninterference。
 
 ### 变化
 

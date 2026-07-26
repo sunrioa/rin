@@ -23,6 +23,8 @@ Run 与 Outcome Shape；本地注册和执行权仍属于游戏。
 这组公共部分参考了 Unity ML-Agents 的动作契约、Unreal Gameplay Ability 的激活
 方式、ROS 2 Actions 的长任务生命周期，以及 OpenSpiel/PettingZoo 的不同决策
 时间模型。Rin 不依赖这些框架，也不复制它们各自的游戏世界模型。
+[OpenSpiel 验证](open-spiel-validation.zh-CN.md)已经针对真实游戏 State 执行
+顺序、同时、Chance 与隐藏信息映射。
 
 ## Discovery 不等于 Authority
 

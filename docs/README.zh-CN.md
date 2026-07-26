@@ -10,6 +10,7 @@ Rin `0.7.0` 是 Preview、pre-1.0 软件。文档按公共接口组织，不以�
 | 权威 HTTP Wire Schema | [`api/openapi.json`](../api/openapi.json) | [`api/openapi.json`](../api/openapi.json) |
 | 架构、存储与权威边界 | [架构](architecture.zh-CN.md) | [Architecture](architecture.md) |
 | 引擎无关宿主与能力契约 | [宿主契约](host-contract.zh-CN.md) | [Host contract](host-contract.md) |
+| 顺序、同时、Chance 与隐藏信息 | [OpenSpiel 验证](open-spiel-validation.zh-CN.md) | [OpenSpiel validation](open-spiel-validation.md) |
 | 通用 Host 端口与 Coordinator | [通用 Host SDK](host-sdk.zh-CN.md) | [Host SDK](host-sdk.md) |
 | Proposal、执行与恢复 | [Host 动作生命周期](action-lifecycle.zh-CN.md) | [Host action lifecycle](action-lifecycle.md) |
 | HTTP 与状态契约 | [协议 v2](protocol-v2.zh-CN.md) | [Protocol v2](protocol-v2.md) |

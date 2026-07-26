@@ -55,6 +55,9 @@ Rin separates character reasoning from game-world facts:
   `ActionOffer` values, epoch-bound invocation, and long-action terminal
   states. Universal HostKit ports and its Coordinator unify Pending Decision,
   authority-thread execution, ActionRun, exact Outbox, and Epoch reconciliation.
+- Real OpenSpiel games verify sequential, simultaneous, chance, and hidden-
+  information mappings on macOS, Linux, and Windows so the universal contract
+  cannot silently collapse into single-actor turns.
 - Python, JavaScript, C#, Java, and Lua SDKs plus Fabric, BepInEx, and Luanti
   example mods provide quick integration paths.
 - Optional layered memory, conflicting beliefs, candidate subgoals, regional

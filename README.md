@@ -39,6 +39,8 @@ Rin 将“角色思考”和“游戏世界事实”拆开：
 - 引擎无关 `host` Contract 区分静态 Capability、每轮 `ActionOffer`、带 Epoch
   的 Invocation 与长动作终态；通用 HostKit 端口与 Coordinator 统一 Pending
   Decision、所属线程执行、ActionRun、精确 Outbox 和 Epoch 对账。
+- 真实 OpenSpiel 游戏会在 macOS/Linux/Windows 验证顺序、同时、Chance 与
+  隐藏信息映射，防止通用契约暗中退化为单 Actor 顺序回合。
 - Python、JavaScript、C#、Java、Lua SDK 与 Fabric、BepInEx、Luanti 示例 Mod 提供快速接入层。
 - 可选分层记忆、冲突认知、候选小目标、区域休眠和确定性多角色仲裁均由 Session feature 显式启用。
 - 脱敏 Timeline、指定 revision Replay 和 `rin inspect` 让长流程角色行为可以复现和审计。

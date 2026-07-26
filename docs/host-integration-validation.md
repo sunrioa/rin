@@ -18,6 +18,7 @@ evidence, the engine and Mod examples remain `advisory`.
 | Unity | Strict API stubs: Scene/Domain generations, NavMesh compile, cancellation, late callbacks, Active Run/opaque-argument recovery, and Windows-safe replacement | Unity Editor package import and Mono/IL2CPP Player builds |
 | Unreal | Runtime Plugin structure, forbidden-surface, and Windows path tests | Unreal Header Tool/compiler, Editor load, packaged builds, SaveGame and navigation runtime |
 | Ren'Py | Python adapter/Epoch tests; local Ren'Py 8.5.3 lint and rollback harness | Visible engine save/load, interaction restart, and packaged builds |
+| OpenSpiel | Real 2.0.1 sequential/simultaneous/chance/hidden-information games on macOS/Linux/Windows | Semantic oracle only; no engine thread, save, Sidecar, or long-world-action lifecycle |
 | Terminal Story | Real Sidecar 20-turn CI on Windows, macOS, and Linux | It is a reference game, not evidence for another game's Mod lifecycle |
 
 ## Shared crash and recovery matrix

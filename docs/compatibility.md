@@ -61,6 +61,7 @@ persists and implements.
 | JavaScript SDK | tested | CI | CI |
 | C# SDK/Unity compile harness | tested | CI | CI |
 | Unreal Runtime Plugin static contract | not installed | CI | CI |
+| OpenSpiel 2.0.1 decision semantics | tested | CI | CI |
 | Java SDK/Fabric compile | tested | CI | CI |
 | Lua SDK/Luanti 5.16.1 dedicated lifecycle | tested | Lua CI | real server CI |
 | Real Fabric/BepInEx/Unity/Unreal host | manual evidence required | manual evidence required | manual evidence required |

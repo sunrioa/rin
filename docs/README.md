@@ -11,6 +11,7 @@ releases do not carry a post-1.0 stability guarantee.
 | Authoritative HTTP wire schema | [`api/openapi.json`](../api/openapi.json) | [`api/openapi.json`](../api/openapi.json) |
 | Architecture, storage, and authority boundary | [Architecture](architecture.md) | [架构](architecture.zh-CN.md) |
 | Engine-neutral host and capability contract | [Host contract](host-contract.md) | [宿主契约](host-contract.zh-CN.md) |
+| Sequential, simultaneous, chance, and hidden information | [OpenSpiel validation](open-spiel-validation.md) | [OpenSpiel 验证](open-spiel-validation.zh-CN.md) |
 | Universal Host ports and coordinator | [Host SDK](host-sdk.md) | [通用 Host SDK](host-sdk.zh-CN.md) |
 | Proposal, execution, and recovery | [Host action lifecycle](action-lifecycle.md) | [Host 动作生命周期](action-lifecycle.zh-CN.md) |
 | HTTP and state contract | [Protocol v2](protocol-v2.md) | [协议 v2](protocol-v2.zh-CN.md) |

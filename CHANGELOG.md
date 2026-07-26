@@ -22,6 +22,9 @@ across every future minor release.
   source Mod and generated standalone scaffold, including real ModStorage
   userdata, persistent authority generations, exact Offer binding, and
   interrupted Active Run recovery.
+- SHA-256-pinned OpenSpiel 2.0.1 semantic tests on macOS/Linux/Windows for
+  sequential turns, atomic simultaneous windows, host-owned chance
+  transitions, and hidden-information noninterference.
 
 ### Changed
 

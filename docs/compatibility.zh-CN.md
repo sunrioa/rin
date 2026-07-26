@@ -57,6 +57,7 @@ v2 Host 生命周期是基础协议，没有 Feature Flag。当前可选 Session
 | JavaScript SDK | 已测试 | CI | CI |
 | C# SDK/Unity Compile Harness | 已测试 | CI | CI |
 | Unreal Runtime Plugin 静态契约 | 未安装 | CI | CI |
+| OpenSpiel 2.0.1 决策语义 | 已测试 | CI | CI |
 | Java SDK/Fabric Compile | 已测试 | CI | CI |
 | Lua SDK/Luanti 5.16.1 Dedicated 生命周期 | 已测试 | Lua CI | 真实 Server CI |
 | 真实 Fabric/BepInEx/Unity/Unreal Host | 需手工证据 | 需手工证据 | 需手工证据 |
