@@ -172,13 +172,13 @@ def discover_variants(
                 f"{core.relative_to(project)}"
             )
         local_client = project / "Rin.Client" / "Rin.Client.csproj"
-        reference_client = (
-            project.parents[2] / "sdk" / "csharp" / "Rin.Client" /
-            "Rin.Client.csproj"
-        )
-        if not local_client.is_file() and not (
-            _is_reference_project(project) and reference_client.is_file()
-        ):
+        reference_client_exists = False
+        if _is_reference_project(project):
+            reference_client_exists = (
+                project.parents[2] / "sdk" / "csharp" / "Rin.Client" /
+                "Rin.Client.csproj"
+            ).is_file()
+        if not local_client.is_file() and not reference_client_exists:
             raise RuntimeError(
                 f"{project_file.relative_to(project)} requires missing "
                 "Rin.Client/Rin.Client.csproj"

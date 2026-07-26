@@ -49,15 +49,27 @@ class PackageBepInExTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             project = Path(temporary)
             self._write_project(project, "GuideNpc", "Mono")
-            variants = package_bepinex.discover_variants(project)
-            self.assertEqual(["mono"], [variant.name for variant in variants])
-            self.assertEqual("GuideNpc.Mono.dll", variants[0].plugin)
-            self.assertEqual(
-                "BepInEx/plugins/GuideNpc",
-                variants[0].install_root,
-            )
-            with self.assertRaisesRegex(RuntimeError, "no il2cpp"):
-                package_bepinex.discover_variants(project, ["il2cpp"])
+            previous = Path.cwd()
+            try:
+                os.chdir(project.parent)
+                shallow_project = Path(project.name)
+                variants = package_bepinex.discover_variants(shallow_project)
+                self.assertEqual(
+                    ["mono"],
+                    [variant.name for variant in variants],
+                )
+                self.assertEqual("GuideNpc.Mono.dll", variants[0].plugin)
+                self.assertEqual(
+                    "BepInEx/plugins/GuideNpc",
+                    variants[0].install_root,
+                )
+                with self.assertRaisesRegex(RuntimeError, "no il2cpp"):
+                    package_bepinex.discover_variants(
+                        shallow_project,
+                        ["il2cpp"],
+                    )
+            finally:
+                os.chdir(previous)
 
     def test_discovers_both_backends_in_the_canonical_reference_checkout(
         self,
