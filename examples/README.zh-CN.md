@@ -18,4 +18,4 @@ Sidecar 基准，以及不回避结果的持久化规则树对照。
 各引擎与 Mod 目录演示宿主特有的线程和打包方式，并已持久化稳定的 Workflow
 恢复状态，但仍属于 `advisory`。真实接入必须把效果 Apply 与 Operation Marker
 连接到游戏自己的权威存档或幂等边界；声明生产稳定前应执行
-[真实宿主验收矩阵](../docs/mod-integration-validation.zh-CN.md)。
+[真实宿主验收矩阵](../docs/host-integration-validation.zh-CN.md)。

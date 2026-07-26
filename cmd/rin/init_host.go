@@ -9,43 +9,44 @@ import (
 	"path"
 	"strings"
 
-	"github.com/sunrioa/rin/internal/modscaffold"
+	"github.com/sunrioa/rin/internal/hostscaffold"
 )
 
 func runInit(arguments []string, output io.Writer) error {
 	if len(arguments) == 0 {
-		return errors.New("init requires a resource type (supported: mod)")
+		return errors.New("init requires a resource type (supported: host)")
 	}
 	if isHelpArgument(arguments[0]) {
 		_, err := io.WriteString(output, `Usage:
-  rin init mod [options]
+  rin init host [options]
 
 Resources:
-  mod    create a self-contained game Mod scaffold
+  host    create a self-contained game Host scaffold
 `)
 		return err
 	}
-	if arguments[0] != "mod" {
-		return fmt.Errorf("unsupported init resource %q (supported: mod)", arguments[0])
+	if arguments[0] != "host" {
+		return fmt.Errorf("unsupported init resource %q (supported: host)", arguments[0])
 	}
-	return runInitMod(arguments[1:], output)
+	return runInitHost(arguments[1:], output)
 }
 
-func runInitMod(arguments []string, output io.Writer) error {
-	flags := flag.NewFlagSet("rin init mod", flag.ContinueOnError)
+func runInitHost(arguments []string, output io.Writer) error {
+	flags := flag.NewFlagSet("rin init host", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	host := flags.String("host", "", "target host")
-	id := flags.String("id", "", "portable Mod machine identifier")
-	name := flags.String("name", "", "human-readable Mod name; defaults to -id")
+	engine := flags.String("engine", "", "target engine")
+	runtime := flags.String("runtime", "", "custom host runtime")
+	id := flags.String("id", "", "portable Host machine identifier")
+	name := flags.String("name", "", "human-readable Host name; defaults to -id")
 	namespace := flags.String("namespace", "", "lowercase reverse-domain owner namespace")
 	author := flags.String("author", "", "optional author; Luanti requires a ContentDB username")
-	projectVersion := flags.String("version", "0.1.0", "new Mod version")
+	projectVersion := flags.String("version", "0.1.0", "new Host version")
 	destination := flags.String("output", "", "relative output directory; defaults to -id")
 	dryRun := flags.Bool("dry-run", false, "validate and list files without writing")
 	listHosts := flags.Bool("list-hosts", false, "list supported host identifiers")
 	if err := flags.Parse(arguments); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return writeInitModHelp(output)
+			return writeInitHostHelp(output)
 		}
 		return err
 	}
@@ -64,18 +65,18 @@ func runInitMod(arguments []string, output io.Writer) error {
 		}
 		return writeHostList(output)
 	}
-	if *host == "" {
-		return errors.New("-host is required")
+	if *engine == "" {
+		return errors.New("-engine is required")
 	}
 	if *id == "" {
 		return errors.New("-id is required")
 	}
-	options := modscaffold.Options{
-		Host: *host, ID: *id, Name: *name, Namespace: *namespace,
+	options := hostscaffold.Options{
+		Host: *engine, Runtime: *runtime, ID: *id, Name: *name, Namespace: *namespace,
 		Author: *author, Version: *projectVersion, Output: *destination,
 	}
 	if *dryRun {
-		plan, err := modscaffold.Render(options)
+		plan, err := hostscaffold.Render(options)
 		if err != nil {
 			return err
 		}
@@ -94,7 +95,7 @@ func runInitMod(arguments []string, output io.Writer) error {
 		}
 		return nil
 	}
-	result, err := modscaffold.Generate(options)
+	result, err := hostscaffold.Generate(options)
 	if err != nil {
 		return err
 	}
@@ -115,25 +116,26 @@ func runInitMod(arguments []string, output io.Writer) error {
 	return nil
 }
 
-func writeInitModHelp(output io.Writer) error {
+func writeInitHostHelp(output io.Writer) error {
 	_, err := io.WriteString(output, `Usage:
-  rin init mod -host HOST -id MOD_ID [options]
-  rin init mod -list-hosts
+  rin init host -engine ENGINE -id HOST_ID [options]
+  rin init host -list-hosts
 
 Options:
-  -host string        fabric, bepinex-mono, bepinex-il2cpp, or luanti
-  -id string          portable 2-64 character Mod machine identifier
+  -engine string      custom, fabric, bepinex-mono, bepinex-il2cpp, or luanti
+  -runtime string     custom runtime: go, javascript, python, csharp, java, or lua
+  -id string          portable 2-64 character Host machine identifier
   -name string        player-facing display name (defaults to -id)
   -namespace string   lowercase reverse-domain owner; required except for Luanti
   -author string      optional author; Luanti requires a ContentDB username
-  -version string     new Mod version (default "0.1.0")
+  -version string     new Host version (default "0.1.0")
   -output string      new relative directory below the current directory
   -dry-run            validate and list deterministic files without writing
   -list-hosts         list embedded host templates
 
 The destination must not exist. The generator creates a self-contained project,
 never downloads templates, and never overwrites an existing file. See
-docs/mod-scaffolding.md for host build and real-game validation requirements.
+docs/host-scaffolding.md for build and real-game validation requirements.
 `)
 	return err
 }
@@ -143,7 +145,7 @@ func isHelpArgument(argument string) bool {
 }
 
 func writeHostList(output io.Writer) error {
-	for _, host := range modscaffold.Hosts() {
+	for _, host := range hostscaffold.Hosts() {
 		namespace := "unused"
 		if host.RequiresNamespace {
 			namespace = "required"

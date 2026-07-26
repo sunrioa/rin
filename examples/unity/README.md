@@ -26,5 +26,5 @@ scene or prefab. The default loopback HTTP endpoint needs no token.
 runs persistence/restart tests on .NET 6. CI runs it on Linux and Windows.
 This is a package/compiler verification, not a Unity Editor import or built
 Player test. Run the
-[real-host validation matrix](../../docs/mod-integration-validation.md) before
+[real-host validation matrix](../../docs/host-integration-validation.md) before
 claiming compatibility with a particular Unity release or scripting backend.

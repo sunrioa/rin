@@ -1,8 +1,8 @@
-# Mod scaffolding
+# Host scaffolding
 
-[English](mod-scaffolding.md) | [简体中文](mod-scaffolding.zh-CN.md)
+[English](host-scaffolding.md) | [简体中文](host-scaffolding.zh-CN.md)
 
-`rin init mod` creates a self-contained starting project for one supported game
+`rin init host` creates a self-contained starting project for one supported game
 host. It removes mechanical SDK vendoring and manifest wiring; it does not
 guess game-specific save, thread, or world-mutation APIs. Rin `0.7.0` and the
 generated projects are Preview software, and every generated integration starts
@@ -13,7 +13,7 @@ A successful command proves that its inputs and embedded template passed local
 validation. A successful build proves that the generated source compiles
 against the pinned host dependencies. Neither result proves that the Mod is
 stable in a particular game; use the
-[real-host validation matrix](mod-integration-validation.md) before making that
+[real-host validation matrix](host-integration-validation.md) before making that
 claim.
 
 ## Command contract
@@ -21,15 +21,16 @@ claim.
 List the templates embedded in the installed Rin binary:
 
 ```bash
-rin init mod --list-hosts
+rin init host --list-hosts
 ```
 
 Generate a project:
 
 ```text
-rin init mod \
-  --host fabric|bepinex-mono|bepinex-il2cpp|luanti \
-  --id <mod_id> \
+rin init host \
+  --engine custom|fabric|bepinex-mono|bepinex-il2cpp|luanti \
+  --id <host_id> \
+  [--runtime go|javascript|python|csharp|java|lua] \
   [--name <display name>] \
   [--namespace io.github.user] \
   [--author <author>] \
@@ -38,8 +39,11 @@ rin init mod \
   [--dry-run]
 ```
 
-`--host` and `--id` are required. `--name` defaults to the Mod ID,
-`--version` defaults to `0.1.0`, and `--output` defaults to `./<mod_id>`.
+`--engine` and `--id` are required. `--name` defaults to the Host ID,
+`--version` defaults to `0.1.0`, and `--output` defaults to `./<host_id>`.
+`custom` also requires `--runtime` and covers games or engines outside the
+embedded templates without assuming a scene graph, entity system, save format,
+or movement API.
 `--namespace` is required for Fabric and both BepInEx backends; Luanti rejects
 it because this template has no global owner-namespace field. For Fabric it is
 the Java package prefix; for BepInEx it is the globally unique plugin-GUID
@@ -53,8 +57,9 @@ digits, underscores, or hyphens.
 file and SHA-256 inventory, and writes nothing. It is the recommended first
 command when integrating into an existing game repository.
 
-The four exact host IDs are `fabric`, `bepinex-mono`, `bepinex-il2cpp`, and
-`luanti`; names are case-sensitive and no broad `bepinex` alias is accepted.
+The five exact host IDs are `custom`, `fabric`, `bepinex-mono`,
+`bepinex-il2cpp`, and `luanti`; names are case-sensitive and broad aliases are
+not accepted.
 
 ### Identifier rules
 
@@ -69,7 +74,7 @@ The four exact host IDs are `fabric`, `bepinex-mono`, `bepinex-il2cpp`, and
   separators, and Windows device-name segments are rejected.
 - `--version` must use the numeric `major.minor.patch` form, contain at most
   17 ASCII characters, and keep every component between `0` and `65534`.
-  It is the generated Mod's version, not the Rin version.
+  It is the generated Host project's version, not the Rin version.
 - `--output` is a relative path below the current directory. Absolute paths,
   `.`/`..` traversal, alternate Windows separators, drive or UNC paths, and
   output ancestors below the current directory that are symbolic links are
@@ -130,11 +135,42 @@ restore succeed.
 The examples below use generic public identifiers. Run them from the directory
 that is allowed to contain the new project.
 
+### Any game or engine
+
+```bash
+rin init host --engine custom --runtime python --id story_host
+cd story_host
+rin add skill --id movement.follow --effect world-mutation \
+  --execution long-running
+rin conformance host
+rin doctor host
+```
+
+Windows PowerShell:
+
+```powershell
+rin.exe init host --engine custom --runtime csharp --id game_host
+Set-Location game_host
+rin.exe add skill --id movement.follow --effect world-mutation `
+  --execution long-running
+rin.exe conformance host
+rin.exe doctor host
+```
+
+`rin add skill` accepts only namespaced capability IDs and exact versions.
+`--input-schema` and `--output-schema` may provide JSON Schema files up to
+64 KiB; the command canonicalizes each schema, computes the descriptor digest,
+and writes without overwriting under `capabilities/`. `conformance host`
+validates protocol v2, Windows paths, the scaffold manifest, and every sealed
+capability. It reports files changed after generation while allowing normal
+Host implementation edits. `doctor host` additionally reports whether the
+selected runtime is available on the current platform.
+
 ### Fabric
 
 ```bash
-rin init mod \
-  --host fabric \
+rin init host \
+  --engine fabric \
   --id guide_npc \
   --name "Guide NPC" \
   --namespace io.github.example \
@@ -148,7 +184,7 @@ cd guide_npc
 Windows PowerShell:
 
 ```powershell
-rin.exe init mod --host fabric --id guide_npc --name "Guide NPC" `
+rin.exe init host --engine fabric --id guide_npc --name "Guide NPC" `
   --namespace io.github.example --author example --output guide_npc
 Set-Location guide_npc
 .\gradlew.bat clean build --no-daemon
@@ -163,8 +199,8 @@ member of this tested set without repeating the build and real-server gates.
 ### BepInEx Mono
 
 ```bash
-rin init mod \
-  --host bepinex-mono \
+rin init host \
+  --engine bepinex-mono \
   --id guide_npc \
   --name "Guide NPC" \
   --namespace io.github.example \
@@ -183,7 +219,7 @@ python package_bepinex.py --verify-archive dist/guide-npc-bepinex-mono-0.1.0.zip
 Windows PowerShell uses the same `dotnet` commands:
 
 ```powershell
-rin.exe init mod --host bepinex-mono --id guide_npc --name "Guide NPC" `
+rin.exe init host --engine bepinex-mono --id guide_npc --name "Guide NPC" `
   --namespace io.github.example --output guide_npc_mono
 Set-Location guide_npc_mono
 dotnet restore GuideNpc.Core.Tests\GuideNpc.Core.Tests.csproj --locked-mode
@@ -210,8 +246,8 @@ Python 3.9 and newer.
 ### BepInEx IL2CPP
 
 ```bash
-rin init mod \
-  --host bepinex-il2cpp \
+rin init host \
+  --engine bepinex-il2cpp \
   --id guide_npc \
   --name "Guide NPC" \
   --namespace io.github.example \
@@ -230,7 +266,7 @@ python package_bepinex.py --verify-archive dist/guide-npc-bepinex-il2cpp-0.1.0.z
 Windows PowerShell:
 
 ```powershell
-rin.exe init mod --host bepinex-il2cpp --id guide_npc --name "Guide NPC" `
+rin.exe init host --engine bepinex-il2cpp --id guide_npc --name "Guide NPC" `
   --namespace io.github.example --output guide_npc_il2cpp
 Set-Location guide_npc_il2cpp
 dotnet restore GuideNpc.Core.Tests\GuideNpc.Core.Tests.csproj --locked-mode
@@ -261,8 +297,8 @@ unmanifested entries before the archive is presented for extraction.
 ### Luanti
 
 ```bash
-rin init mod \
-  --host luanti \
+rin init host \
+  --engine luanti \
   --id guide_npc \
   --name "Guide NPC" \
   --author example \
@@ -323,12 +359,13 @@ durable outcome together. See
 
 ### Current scaffolding delivery
 
-- [x] Register `init mod`, `--list-hosts`, the four exact host names, and
-  actionable help and error output.
+- [x] Register `init host`, `add skill`, `conformance host`, `doctor host`,
+  the five exact Host names, and actionable help and error output.
 - [x] Enforce host-aware ID, display-name, namespace, semantic-version, output,
   Windows-name, case-collision, and symbolic-link validation before writing.
-- [x] Embed templates and complete Java, C#, or Lua SDK sources in the Rin
-  binary; generate a sorted SHA-256 manifest and preserve required script modes.
+- [x] Provide contract skeletons for Go, JavaScript, Python, C#, Java, and Lua;
+  embed existing templates and complete SDK sources in the Rin binary, generate
+  a sorted SHA-256 manifest, and preserve required script modes.
 - [x] Guarantee no overwrite, no traversal, deterministic dry-run parity, and
   no automatic failure cleanup; retain an incomplete marker for manual review
   without deleting concurrent replacements.

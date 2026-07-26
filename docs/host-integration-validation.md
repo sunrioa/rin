@@ -1,6 +1,6 @@
-# Real-host mod integration validation
+# Real-host integration validation
 
-[English](mod-integration-validation.md) | [简体中文](mod-integration-validation.zh-CN.md)
+[English](host-integration-validation.md) | [简体中文](host-integration-validation.zh-CN.md)
 
 Rin `0.7.0` is Preview software. Compilation, mocked engine APIs, and
 restart-focused unit tests are useful gates, but they do not prove that a Mod

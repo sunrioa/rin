@@ -24,4 +24,4 @@ Loopback HTTP 无需 Token。
 持久化/重启测试；CI 会在 Linux 与 Windows 运行。它是包与编译器验证，不是
 Unity Editor 导入或已构建 Player 测试。声明兼容某个 Unity 版本或 Scripting
 Backend 前，应执行
-[真实宿主验收矩阵](../../docs/mod-integration-validation.zh-CN.md)。
+[真实宿主验收矩阵](../../docs/host-integration-validation.zh-CN.md)。

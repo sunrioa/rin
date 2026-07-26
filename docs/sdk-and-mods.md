@@ -58,14 +58,14 @@ For a new Mod, prefer the offline generator so the host project, complete SDK,
 license notice, pinned dependencies, and SHA-256 inventory stay synchronized:
 
 ```bash
-rin init mod --list-hosts
-rin init mod --host fabric --id guide_npc \
+rin init host --list-hosts
+rin init host --engine fabric --id guide_npc \
   --name "Guide NPC" --namespace io.github.example
 ```
 
 The exact command contract, Windows path rules, and build commands are in the
-[Mod scaffolding guide](mod-scaffolding.md). Generation and compilation do not
-replace the [real-host validation matrix](mod-integration-validation.md).
+[Host scaffolding guide](host-scaffolding.md). Generation and compilation do not
+replace the [real-host validation matrix](host-integration-validation.md).
 
 ## Integration lifecycle
 
@@ -195,7 +195,7 @@ Workflow owns restartable Pending Turn, Job, freshness, settlement, and Outbox
 state under `Application.persistentDataPath`; the game-facing example is 18
 lines. A .NET harness compiles the package against Unity API stubs and exercises
 file recovery on Linux and Windows. Until the
-[real-host validation matrix](mod-integration-validation.md) is executed, this
+[real-host validation matrix](host-integration-validation.md) is executed, this
 does not prove Editor import or Player compatibility with 2021.3 or later
 Unity releases.
 

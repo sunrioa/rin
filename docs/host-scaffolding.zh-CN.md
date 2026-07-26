@@ -1,8 +1,8 @@
-# Mod 脚手架
+# 通用 Host 脚手架
 
-[English](mod-scaffolding.md) | [简体中文](mod-scaffolding.zh-CN.md)
+[English](host-scaffolding.md) | [简体中文](host-scaffolding.zh-CN.md)
 
-`rin init mod` 会为一个已支持的游戏宿主创建自包含起始项目。它消除 SDK
+`rin init host` 会为一个已支持的游戏宿主创建自包含起始项目。它消除 SDK
 Vendoring 与 Manifest 接线等机械工作，但不会猜测游戏专属的存档、线程或世界
 修改 API。Rin `0.7.0` 与生成项目均属于 Preview 软件，每个生成接入都从
 `advisory` 宿主持久保证分级开始。
@@ -10,22 +10,23 @@ Vendoring 与 Manifest 接线等机械工作，但不会猜测游戏专属的存
 生成、编译和真实游戏稳定性是三层不同的证据。命令成功只证明输入与内嵌模板通过
 本地校验；构建成功只证明生成源码能够针对固定的宿主依赖编译。两者都不能证明 Mod
 在某一具体游戏中稳定；作出该声明前必须执行
-[真实宿主验收矩阵](mod-integration-validation.zh-CN.md)。
+[真实宿主验收矩阵](host-integration-validation.zh-CN.md)。
 
 ## 命令契约
 
 列出当前 Rin Binary 内嵌的模板：
 
 ```bash
-rin init mod --list-hosts
+rin init host --list-hosts
 ```
 
 生成项目：
 
 ```text
-rin init mod \
-  --host fabric|bepinex-mono|bepinex-il2cpp|luanti \
-  --id <mod_id> \
+rin init host \
+  --engine custom|fabric|bepinex-mono|bepinex-il2cpp|luanti \
+  --id <host_id> \
+  [--runtime go|javascript|python|csharp|java|lua] \
   [--name <display name>] \
   [--namespace io.github.user] \
   [--author <author>] \
@@ -34,8 +35,10 @@ rin init mod \
   [--dry-run]
 ```
 
-`--host` 与 `--id` 为必填项；`--name` 默认等于 Mod ID，`--version`
-默认是 `0.1.0`，`--output` 默认是 `./<mod_id>`。Fabric 与两个 BepInEx
+`--engine` 与 `--id` 为必填项；`--name` 默认等于 Host ID，`--version`
+默认是 `0.1.0`，`--output` 默认是 `./<host_id>`。`custom` 必须提供
+`--runtime`，用于不在内嵌模板列表中的游戏或引擎；它不会假设 Scene Graph、
+实体系统、存档格式或移动 API。Fabric 与两个 BepInEx
 Backend 必须提供 `--namespace`；Luanti 模板没有全局 Owner Namespace 字段，
 因此会拒绝该参数。Fabric 把它作为 Java Package Prefix；BepInEx 把它作为全局
 唯一 Plugin GUID Prefix，而 C# Namespace 从 `--id` 派生。`--author` 可省略，
@@ -46,8 +49,8 @@ Backend 必须提供 `--namespace`；Luanti 模板没有全局 Owner Namespace �
 `--dry-run` 会执行相同的校验与渲染，输出确定性的文件和 SHA-256 清单，但不写入
 任何内容。向已有游戏仓库接入时，推荐先运行这一命令。
 
-四个精确 Host ID 为 `fabric`、`bepinex-mono`、`bepinex-il2cpp` 与
-`luanti`；名称区分大小写，也不会接受含糊的 `bepinex` Alias。
+五个精确 Host ID 为 `custom`、`fabric`、`bepinex-mono`、
+`bepinex-il2cpp` 与 `luanti`；名称区分大小写，也不会接受含糊的 Alias。
 
 ### 标识符规则
 
@@ -60,7 +63,7 @@ Backend 必须提供 `--namespace`；Luanti 模板没有全局 Owner Namespace �
   Namespace。空 Segment、语言关键字、路径分隔符和 Windows 设备名 Segment
   会被拒绝。
 - `--version` 必须使用数字 `major.minor.patch` 形式，总长最多 17 个 ASCII
-  字符，且每个 Component 都必须处于 `0` 到 `65534`。它是生成 Mod 的版本，
+  字符，且每个 Component 都必须处于 `0` 到 `65534`。它是生成 Host 工程的版本，
   不是 Rin 版本。
 - `--output` 必须是当前目录下的相对路径。绝对路径、`.`/`..` 穿越、替代
   Windows 分隔符、盘符或 UNC Path，以及当前目录以下为符号链接的 Output
@@ -106,11 +109,40 @@ Maven 或 NuGet Source 以取得依赖。Wrapper Distribution、依赖版本和 
 
 以下示例使用通用公开标识符。请在允许容纳新项目的目录中运行。
 
+### 任意游戏或引擎
+
+```bash
+rin init host --engine custom --runtime python --id story_host
+cd story_host
+rin add skill --id movement.follow --effect world-mutation \
+  --execution long-running
+rin conformance host
+rin doctor host
+```
+
+Windows PowerShell：
+
+```powershell
+rin.exe init host --engine custom --runtime csharp --id game_host
+Set-Location game_host
+rin.exe add skill --id movement.follow --effect world-mutation `
+  --execution long-running
+rin.exe conformance host
+rin.exe doctor host
+```
+
+`rin add skill` 只接受带命名空间的能力 ID 和精确版本。可以通过
+`--input-schema`、`--output-schema` 传入不超过 64 KiB 的 JSON Schema；
+命令会规范化 Schema、计算 Descriptor Digest，并以不覆盖方式写入
+`capabilities/`。`conformance host` 校验 Protocol v2、Windows 路径、清单与
+全部密封能力；它会报告生成后被修改的文件，但允许正常的宿主实现修改。
+`doctor host` 在此基础上报告当前平台是否具有所选 Runtime。
+
 ### Fabric
 
 ```bash
-rin init mod \
-  --host fabric \
+rin init host \
+  --engine fabric \
   --id guide_npc \
   --name "Guide NPC" \
   --namespace io.github.example \
@@ -124,7 +156,7 @@ cd guide_npc
 Windows PowerShell：
 
 ```powershell
-rin.exe init mod --host fabric --id guide_npc --name "Guide NPC" `
+rin.exe init host --engine fabric --id guide_npc --name "Guide NPC" `
   --namespace io.github.example --author example --output guide_npc
 Set-Location guide_npc
 .\gradlew.bat clean build --no-daemon
@@ -139,8 +171,8 @@ Gradle 许可与 Notice 只适用于脚手架分发的 Wrapper，不替生成的
 ### BepInEx Mono
 
 ```bash
-rin init mod \
-  --host bepinex-mono \
+rin init host \
+  --engine bepinex-mono \
   --id guide_npc \
   --name "Guide NPC" \
   --namespace io.github.example \
@@ -159,7 +191,7 @@ python package_bepinex.py --verify-archive dist/guide-npc-bepinex-mono-0.1.0.zip
 Windows PowerShell 使用相同的 `dotnet` 命令：
 
 ```powershell
-rin.exe init mod --host bepinex-mono --id guide_npc --name "Guide NPC" `
+rin.exe init host --engine bepinex-mono --id guide_npc --name "Guide NPC" `
   --namespace io.github.example --output guide_npc_mono
 Set-Location guide_npc_mono
 dotnet restore GuideNpc.Core.Tests\GuideNpc.Core.Tests.csproj --locked-mode
@@ -185,8 +217,8 @@ Set，并在复验时强制检查每份 Notice 的受控 SHA-256。该 Helper �
 ### BepInEx IL2CPP
 
 ```bash
-rin init mod \
-  --host bepinex-il2cpp \
+rin init host \
+  --engine bepinex-il2cpp \
   --id guide_npc \
   --name "Guide NPC" \
   --namespace io.github.example \
@@ -205,7 +237,7 @@ python package_bepinex.py --verify-archive dist/guide-npc-bepinex-il2cpp-0.1.0.z
 Windows PowerShell：
 
 ```powershell
-rin.exe init mod --host bepinex-il2cpp --id guide_npc --name "Guide NPC" `
+rin.exe init host --engine bepinex-il2cpp --id guide_npc --name "Guide NPC" `
   --namespace io.github.example --output guide_npc_il2cpp
 Set-Location guide_npc_il2cpp
 dotnet restore GuideNpc.Core.Tests\GuideNpc.Core.Tests.csproj --locked-mode
@@ -232,8 +264,8 @@ Path Traversal、设备名、大小写冲突及未写入 Manifest 的条目。
 ### Luanti
 
 ```bash
-rin init mod \
-  --host luanti \
+rin init host \
+  --engine luanti \
   --id guide_npc \
   --name "Guide NPC" \
   --author example \
@@ -287,12 +319,13 @@ Lua SDK，并保持语法与状态测试同时兼容 Lua 5.1 和 5.4。把生成
 
 ### 本次脚手架交付
 
-- [x] 注册 `init mod`、`--list-hosts`、四个精确 Host 名，以及可操作的 Help
-  与错误输出。
+- [x] 注册 `init host`、`add skill`、`conformance host`、`doctor host`、
+  五个精确 Host 名，以及可操作的 Help 与错误输出。
 - [x] 写入前执行 Host-aware ID、显示名、Namespace、语义版本、输出路径、
   Windows 名称、大小写冲突和符号链接校验。
-- [x] 在 Rin Binary 内嵌模板与完整 Java、C# 或 Lua SDK 源码；生成排序后的
-  SHA-256 Manifest，并保留必要的脚本 Mode。
+- [x] 为任意游戏提供 Go、JavaScript、Python、C#、Java 与 Lua Runtime
+  契约骨架；在 Rin Binary 内嵌现有模板与完整 SDK 源码，生成排序后的 SHA-256
+  Manifest，并保留必要的脚本 Mode。
 - [x] 保证不覆盖、不穿越、Dry-run 与真实生成确定性一致；失败后不自动清理，
   保留 Incomplete Marker 供人工审查，并且不删除并发替换的目录或文件。
 - [x] 在 Linux 与 Windows 构建生成的 Fabric 和两个 BepInEx 项目；构建并打包

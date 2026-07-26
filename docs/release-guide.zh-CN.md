@@ -43,7 +43,7 @@ make build VERSION=0.7.0
 - 没有跟踪文件声称 SDK 已发布到语言 Registry；
 - `terminal-story` 安装/测试与真实 Sidecar 20 回合门禁在 Windows、macOS、
   Linux CI 均通过，且公开价值主张不超出[实测范围](player-value.zh-CN.md)；
-- [真实宿主 Mod 验收矩阵](mod-integration-validation.zh-CN.md)中尚未完成的行作为
+- [真实宿主验收矩阵](host-integration-validation.zh-CN.md)中尚未完成的行作为
   Preview 限制可见，没有被写成已经通过的测试。
 
 本地缺少的语言 Toolchain 必须在打 Tag 前由对应 CI Job 执行。源码 Marker Scan
@@ -85,7 +85,7 @@ Tag 解引用后的 Commit 必须与计划发布的 `origin/main` Commit 相同�
 - 迁移和兼容链接；
 - SDK 采用源码优先分发；
 - 实测玩家价值范围，以及单条持久偏好规则不足以证明 Rin 胜过规则树基线；
-- [真实宿主 Mod 验收矩阵](mod-integration-validation.zh-CN.md)中尚未完成的行。
+- [真实宿主验收矩阵](host-integration-validation.zh-CN.md)中尚未完成的行。
 
 若另行发布 Binary Artifact，应在受控环境中从 Tag Commit 构建并发布 SHA-256
 Checksum。当前仓库不宣称具有自动 Binary Release Pipeline。

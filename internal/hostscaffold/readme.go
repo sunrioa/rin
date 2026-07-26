@@ -1,4 +1,4 @@
-package modscaffold
+package hostscaffold
 
 import (
 	"fmt"
@@ -8,13 +8,19 @@ import (
 func readmeEnglish(options normalizedOptions) string {
 	host := resolvedHost(options)
 	var builder strings.Builder
+	sdkDescription := fmt.Sprintf(
+		"It vendors the complete %s Rin SDK source used by Rin %s and pins the host dependencies listed in [rin-scaffold.json](rin-scaffold.json).",
+		host.Language, escapeMarkdown(options.RinVersion))
+	if options.Host == HostCustom {
+		sdkDescription = fmt.Sprintf(
+			"It contains the sealed Host contract for the %s runtime. Select and vendor the matching Rin source-first SDK when implementing the engine adapter.",
+			host.Language)
+	}
 	fmt.Fprintf(&builder, `# %s
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-This is an offline, deterministic Rin Mod scaffold for **%s**. It vendors the
-complete %s Rin SDK source used by Rin %s and pins the host dependencies listed
-in [rin-scaffold.json](rin-scaffold.json).
+This is an offline, deterministic Rin Host scaffold for **%s**. %s
 
 > Build or harness success is not proof of stability in a real game. This
 > scaffold declares only the Rin "advisory" durability profile. Complete
@@ -22,15 +28,14 @@ in [rin-scaffold.json](rin-scaffold.json).
 
 ## Project
 
-- Mod ID: %s
-- Mod version: %s
+- Host project ID: %s
+- Host project version: %s
 - Host: %s
 - Template status: %s
 `,
 		escapeMarkdown(options.Name),
 		escapeMarkdown(host.Name),
-		host.Language,
-		escapeMarkdown(options.RinVersion),
+		sdkDescription,
 		markdownCode(options.ID),
 		markdownCode(options.Version),
 		markdownCode(host.ID),
@@ -91,7 +96,7 @@ macOS/Linux:
    lifecycle. Keep "RIN_TOKEN" out of saves, logs, and generated files.
 
 Run the applicable checklist in the
-[real-host validation guide](https://github.com/sunrioa/rin/blob/main/docs/mod-integration-validation.md).
+[real-host validation guide](https://github.com/sunrioa/rin/blob/main/docs/host-integration-validation.md).
 The long-run gate is at least two hours or 1,000 turns, including restart and
 fault injection.
 
@@ -114,27 +119,33 @@ code. It does not choose a license for your original game or Mod content.
 func readmeChinese(options normalizedOptions) string {
 	host := resolvedHost(options)
 	var builder strings.Builder
+	sdkDescription := fmt.Sprintf(
+		"它内置 Rin %s 使用的完整 %s SDK 源码，并把宿主依赖固定在 [rin-scaffold.json](rin-scaffold.json) 中。",
+		escapeMarkdown(options.RinVersion), host.Language)
+	if options.Host == HostCustom {
+		sdkDescription = fmt.Sprintf(
+			"它包含面向 %s Runtime 的密封 Host 契约；实现引擎 Adapter 时需要选择并内置匹配的 Rin Source-first SDK。",
+			host.Language)
+	}
 	fmt.Fprintf(&builder, `# %s
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-这是面向 **%s** 的离线、确定性 Rin Mod 脚手架。它内置 Rin %s 使用的完整
-%s SDK 源码，并把宿主依赖固定在 [rin-scaffold.json](rin-scaffold.json) 中。
+这是面向 **%s** 的离线、确定性 Rin Host 脚手架。%s
 
 > 构建或 Harness 通过不等于已在真实游戏稳定运行。该脚手架只声明 Rin
 > "advisory" 能力等级；发布前仍需完成游戏专属接入和真实宿主验收。
 
 ## 项目信息
 
-- Mod ID：%s
-- Mod 版本：%s
+- Host 工程 ID：%s
+- Host 工程版本：%s
 - 宿主：%s
 - 模板状态：%s
 `,
 		escapeMarkdown(options.Name),
 		escapeMarkdown(host.Name),
-		escapeMarkdown(options.RinVersion),
-		host.Language,
+		sdkDescription,
 		markdownCode(options.ID),
 		markdownCode(options.Version),
 		markdownCode(host.ID),
@@ -191,7 +202,7 @@ macOS/Linux：
 6. 让 Rin Sidecar 随游戏启停，或明确记录外部服务生命周期。不得把
    "RIN_TOKEN" 写入存档、日志或生成文件。
 
-请执行[真实宿主验收指南](https://github.com/sunrioa/rin/blob/main/docs/mod-integration-validation.zh-CN.md)
+请执行[真实宿主验收指南](https://github.com/sunrioa/rin/blob/main/docs/host-integration-validation.zh-CN.md)
 中对应清单。长稳门禁至少为两小时或 1,000 Turn，并包含重启与故障注入。
 
 ## 升级 Rin
@@ -267,6 +278,14 @@ func resolvedHost(options normalizedOptions) HostDescriptor {
 
 func hostNotesEnglish(options normalizedOptions) string {
 	switch options.Host {
+	case HostCustom:
+		return fmt.Sprintf(`
+This source skeleton targets the "%s" runtime without assuming a particular
+engine, scene graph, entity system, save format, or movement API. Declare
+capabilities below "capabilities/", add descriptors with "rin add skill", and
+implement the authority-thread boundaries listed in "src/README.md". Run
+"rin conformance host" after every contract change.
+`, options.Runtime)
 	case HostFabric:
 		return fmt.Sprintf(`
 The output is specifically pinned to Minecraft 1.21.1, Java 21, and the listed
@@ -351,6 +370,13 @@ the ModStorage recovery boundary.
 
 func hostNotesChinese(options normalizedOptions) string {
 	switch options.Host {
+	case HostCustom:
+		return fmt.Sprintf(`
+该源码骨架面向 "%s" Runtime，不假设特定引擎、Scene Graph、Entity System、
+存档格式或移动 API。在 "capabilities/" 下声明能力，使用 "rin add skill"
+添加 Descriptor，并实现 "src/README.md" 列出的所属线程边界。每次修改契约后
+运行 "rin conformance host"。
+`, options.Runtime)
 	case HostFabric:
 		return fmt.Sprintf(`
 该输出只固定到 Minecraft 1.21.1、Java 21 与清单中的 Fabric 工具链；不声称兼容

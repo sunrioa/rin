@@ -95,8 +95,8 @@ Unity Editor/Player test.
 Fabric, BepInEx Mono/IL2CPP, and Luanti examples demonstrate server/main-thread
 dispatch plus durable SDK workflow stores. They are advisory references, not
 proof that a generated NPC is safe for every game's save or threading model.
-Use [`rin init mod`](mod-scaffolding.md) to generate a pinned starting project,
-then complete the [real-host validation matrix](mod-integration-validation.md).
+Use [`rin init host`](host-scaffolding.md) to generate a pinned starting project,
+then complete the [real-host validation matrix](host-integration-validation.md).
 
 ## Engine-independent review
 

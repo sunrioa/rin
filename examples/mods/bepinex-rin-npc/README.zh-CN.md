@@ -22,7 +22,7 @@ Assembly 由具体游戏生成，因此仓库不会假装一个通用 `UnityEngi
 真实 IL2CPP Adapter 必须把 `Plugin.ApplyDialogue` 设置为能切回游戏所有者
 线程的 Delegate，并从交互 Hook 调用 `RequestNpcTurnAsync`。编译成功不能
 证明任一 Backend 能在具体游戏中加载；还需执行
-[真实宿主验收矩阵](../../../docs/mod-integration-validation.zh-CN.md)。
+[真实宿主验收矩阵](../../../docs/host-integration-validation.zh-CN.md)。
 
 ## 构建与安装
 

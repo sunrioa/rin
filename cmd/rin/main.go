@@ -41,18 +41,30 @@ func run(arguments []string) (resultErr error) {
 	if len(arguments) > 0 && arguments[0] == "init" {
 		return runInit(arguments[1:], os.Stdout)
 	}
+	if len(arguments) > 0 && arguments[0] == "add" {
+		return runAdd(arguments[1:], os.Stdout)
+	}
+	if len(arguments) > 0 && arguments[0] == "conformance" {
+		return runConformance(arguments[1:], os.Stdout)
+	}
+	if len(arguments) > 0 && arguments[0] == "doctor" {
+		return runDoctor(arguments[1:], os.Stdout)
+	}
 	if len(arguments) > 0 && arguments[0] == "serve" {
 		arguments = arguments[1:]
 	}
 	flags := flag.NewFlagSet("rin serve", flag.ContinueOnError)
 	flags.Usage = func() {
 		fmt.Fprint(flags.Output(), `Usage:
-  rin init mod [options]
+  rin init host [options]
+  rin add skill [options]
+  rin conformance host [options]
+  rin doctor host [options]
   rin inspect [options]
   rin serve [options]
   rin version
 
-Run "rin init mod --help" for the offline Mod generator.
+Run "rin init host --help" for the offline Host generator.
 
 Serve options:
 `)

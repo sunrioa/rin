@@ -1,4 +1,4 @@
-package modscaffold
+package hostscaffold
 
 import (
 	"bytes"

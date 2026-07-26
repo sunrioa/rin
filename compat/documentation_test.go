@@ -24,8 +24,8 @@ func TestBilingualDocumentationPairs(t *testing.T) {
 		{"../docs/host-contract.md", "../docs/host-contract.zh-CN.md"},
 		{"../docs/host-durability.md", "../docs/host-durability.zh-CN.md"},
 		{"../docs/model-policy.md", "../docs/model-policy.zh-CN.md"},
-		{"../docs/mod-scaffolding.md", "../docs/mod-scaffolding.zh-CN.md"},
-		{"../docs/mod-integration-validation.md", "../docs/mod-integration-validation.zh-CN.md"},
+		{"../docs/host-scaffolding.md", "../docs/host-scaffolding.zh-CN.md"},
+		{"../docs/host-integration-validation.md", "../docs/host-integration-validation.zh-CN.md"},
 		{"../docs/protocol-v2.md", "../docs/protocol-v2.zh-CN.md"},
 		{"../docs/release-guide.md", "../docs/release-guide.zh-CN.md"},
 		{"../docs/rpg-events.md", "../docs/rpg-events.zh-CN.md"},
@@ -199,7 +199,7 @@ func TestRelativeDocumentationLinksResolve(t *testing.T) {
 
 func TestRealHostValidationLimitsRemainExplicit(t *testing.T) {
 	required := map[string][]string{
-		"../docs/mod-integration-validation.md": {
+		"../docs/host-integration-validation.md": {
 			"Minecraft Dedicated Server",
 			"BepInEx 6 as bleeding-edge/unreleased",
 			"Luanti headless server",
@@ -208,7 +208,7 @@ func TestRealHostValidationLimitsRemainExplicit(t *testing.T) {
 			"at least two hours or 1,000 turns",
 			"`advisory`",
 		},
-		"../docs/mod-integration-validation.zh-CN.md": {
+		"../docs/host-integration-validation.zh-CN.md": {
 			"Minecraft Dedicated Server",
 			"BepInEx 6 视为 Bleeding-edge/未正式发布",
 			"Luanti Headless Server",

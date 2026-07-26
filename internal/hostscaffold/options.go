@@ -1,4 +1,4 @@
-package modscaffold
+package hostscaffold
 
 import (
 	"errors"
@@ -22,7 +22,7 @@ const (
 )
 
 var (
-	modIDPattern     = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$`)
+	hostIDPattern    = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$`)
 	namespaceSegment = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 	luantiAuthor     = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 	versionPattern   = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
@@ -46,9 +46,10 @@ var javaKeywords = map[string]struct{}{
 	"with": {}, "yield": {},
 }
 
-// Options controls a deterministic Mod scaffold render.
+// Options controls a deterministic Host scaffold render.
 type Options struct {
 	Host      string
+	Runtime   string
 	ID        string
 	Name      string
 	Namespace string
@@ -72,7 +73,30 @@ func normalizeOptions(options Options) (normalizedOptions, error) {
 	if err != nil {
 		return normalizedOptions{}, err
 	}
-	if len(options.ID) < 2 || len(options.ID) > 64 || !modIDPattern.MatchString(options.ID) {
+	runtimeLanguages := map[string]string{
+		"go": "Go", "javascript": "JavaScript", "python": "Python",
+		"csharp": "C#", "java": "Java", "lua": "Lua",
+	}
+	if host.ID == HostCustom {
+		language, ok := runtimeLanguages[options.Runtime]
+		if !ok {
+			return normalizedOptions{}, errors.New(
+				"-runtime for custom hosts must be go, javascript, python, csharp, java, or lua")
+		}
+		host.Language = language
+		host.RuntimePins = []RuntimePin{{Name: "runtime", Version: options.Runtime}}
+		host.UnixVerifyCommands = []string{
+			"rin conformance host",
+			"rin doctor host",
+		}
+		host.WindowsVerifyCommands = []string{
+			"rin.exe conformance host",
+			"rin.exe doctor host",
+		}
+	} else if options.Runtime != "" {
+		return normalizedOptions{}, errors.New("-runtime is only valid with -engine custom")
+	}
+	if len(options.ID) < 2 || len(options.ID) > 64 || !hostIDPattern.MatchString(options.ID) {
 		return normalizedOptions{}, errors.New(
 			"-id must be 2-64 lowercase ASCII letters, digits, or single underscores and start with a letter")
 	}

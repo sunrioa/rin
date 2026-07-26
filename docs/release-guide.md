@@ -48,7 +48,7 @@ The last command must print `0.7.0`. Also verify:
   Windows, macOS, and Linux CI, and public value claims remain inside the
   [measured scope](player-value.md);
 - the incomplete rows in the [real-host Mod validation
-  matrix](mod-integration-validation.md) remain visible as Preview limitations
+  matrix](host-integration-validation.md) remain visible as Preview limitations
   rather than reported as completed tests.
 
 Language toolchains that are unavailable locally must be executed by the
@@ -95,7 +95,7 @@ Use the `0.7.0` section of the [Changelog](../CHANGELOG.md). Keep the word
 - the measured player-value scope and the fact that one persistent preference
   rule does not justify Rin over its rule-tree baseline;
 - remaining rows from the [real-host Mod validation
-  matrix](mod-integration-validation.md).
+  matrix](host-integration-validation.md).
 
 If binary artifacts are published separately, build them from the tagged
 commit in a controlled environment and publish SHA-256 checksums. The

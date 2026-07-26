@@ -1,4 +1,4 @@
-package modscaffold
+package hostscaffold
 
 import (
 	"fmt"
@@ -6,6 +6,7 @@ import (
 )
 
 const (
+	HostCustom        = "custom"
 	HostFabric        = "fabric"
 	HostBepInExMono   = "bepinex-mono"
 	HostBepInExIL2CPP = "bepinex-il2cpp"
@@ -34,6 +35,13 @@ type HostDescriptor struct {
 }
 
 var hostCatalog = map[string]HostDescriptor{
+	HostCustom: {
+		ID:                 HostCustom,
+		Name:               "Custom game engine or runtime",
+		TemplateStatus:     "source-skeleton",
+		RequiresGameHook:   true,
+		RealHostValidation: "required",
+	},
 	HostFabric: {
 		ID:                 HostFabric,
 		Name:               "Fabric dedicated-server Mod",

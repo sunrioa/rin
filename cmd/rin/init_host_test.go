@@ -14,13 +14,13 @@ import (
 	sdkassets "github.com/sunrioa/rin/sdk"
 )
 
-func TestInitModListHostsIsStable(t *testing.T) {
+func TestInitHostListHostsIsStable(t *testing.T) {
 	var first bytes.Buffer
-	if err := runInitMod([]string{"-list-hosts"}, &first); err != nil {
+	if err := runInitHost([]string{"-list-hosts"}, &first); err != nil {
 		t.Fatal(err)
 	}
 	var second bytes.Buffer
-	if err := runInitMod([]string{"-list-hosts"}, &second); err != nil {
+	if err := runInitHost([]string{"-list-hosts"}, &second); err != nil {
 		t.Fatal(err)
 	}
 	if first.String() != second.String() {
@@ -35,7 +35,7 @@ func TestInitModListHostsIsStable(t *testing.T) {
 		}
 		ids = append(ids, fields[0])
 	}
-	want := []string{"bepinex-il2cpp", "bepinex-mono", "fabric", "luanti"}
+	want := []string{"bepinex-il2cpp", "bepinex-mono", "custom", "fabric", "luanti"}
 	if !reflect.DeepEqual(ids, want) {
 		t.Fatalf("host ids = %v, want %v\n%s", ids, want, first.String())
 	}
@@ -44,17 +44,17 @@ func TestInitModListHostsIsStable(t *testing.T) {
 	}
 }
 
-func TestInitModHelpIsActionable(t *testing.T) {
+func TestInitHostHelpIsActionable(t *testing.T) {
 	for _, arguments := range [][]string{
 		{"--help"},
-		{"mod", "--help"},
-		{"mod", "--host", "luanti", "--help"},
+		{"host", "--help"},
+		{"host", "--engine", "luanti", "--help"},
 	} {
 		var output bytes.Buffer
 		if err := runInit(arguments, &output); err != nil {
 			t.Fatalf("runInit(%v): %v", arguments, err)
 		}
-		for _, fragment := range []string{"Usage:", "rin init mod", "self-contained"} {
+		for _, fragment := range []string{"Usage:", "rin init host", "self-contained"} {
 			if !strings.Contains(output.String(), fragment) {
 				t.Errorf("runInit(%v) help is missing %q:\n%s", arguments, fragment, output.String())
 			}
@@ -62,11 +62,11 @@ func TestInitModHelpIsActionable(t *testing.T) {
 	}
 }
 
-func TestInitModHelpTokenCanBeAFlagValue(t *testing.T) {
+func TestInitHostHelpTokenCanBeAFlagValue(t *testing.T) {
 	enterInitTestDirectory(t)
 	var output bytes.Buffer
-	err := runInitMod([]string{
-		"--host", "luanti",
+	err := runInitHost([]string{
+		"--engine", "luanti",
 		"--id", "test_mod",
 		"--name", "--help",
 		"--dry-run",
@@ -79,7 +79,7 @@ func TestInitModHelpTokenCanBeAFlagValue(t *testing.T) {
 	}
 }
 
-func TestInitModRejectsInvalidInvocation(t *testing.T) {
+func TestInitHostRejectsInvalidInvocation(t *testing.T) {
 	tests := []struct {
 		name      string
 		run       func(io *bytes.Buffer) error
@@ -100,30 +100,30 @@ func TestInitModRejectsInvalidInvocation(t *testing.T) {
 			wantError: `unsupported init resource "plugin"`,
 		},
 		{
-			name: "missing host",
+			name: "missing engine",
 			run: func(output *bytes.Buffer) error {
-				return runInitMod(nil, output)
+				return runInitHost(nil, output)
 			},
-			wantError: "-host is required",
+			wantError: "-engine is required",
 		},
 		{
 			name: "missing id",
 			run: func(output *bytes.Buffer) error {
-				return runInitMod([]string{"-host", "luanti"}, output)
+				return runInitHost([]string{"-engine", "luanti"}, output)
 			},
 			wantError: "-id is required",
 		},
 		{
 			name: "unknown host",
 			run: func(output *bytes.Buffer) error {
-				return runInitMod([]string{"-host", "unknown", "-id", "test_mod"}, output)
+				return runInitHost([]string{"-engine", "unknown", "-id", "test_mod"}, output)
 			},
 			wantError: `unsupported host "unknown"`,
 		},
 		{
 			name: "extra argument",
 			run: func(output *bytes.Buffer) error {
-				return runInitMod([]string{"-host", "luanti", "-id", "test_mod", "extra"}, output)
+				return runInitHost([]string{"-engine", "luanti", "-id", "test_mod", "extra"}, output)
 			},
 			wantError: "unexpected arguments: [extra]",
 		},
@@ -142,13 +142,13 @@ func TestInitModRejectsInvalidInvocation(t *testing.T) {
 	}
 }
 
-func TestInitModDryRunListsFilesWithoutWriting(t *testing.T) {
+func TestInitHostDryRunListsFilesWithoutWriting(t *testing.T) {
 	workingDirectory := enterInitTestDirectory(t)
 	target := filepath.Join(workingDirectory, "generated_mod")
 
 	var output bytes.Buffer
-	err := runInitMod([]string{
-		"-host", "luanti",
+	err := runInitHost([]string{
+		"-engine", "luanti",
 		"-id", "test_mod",
 		"-name", "Test Mod",
 		"-output", "generated_mod",
@@ -172,14 +172,47 @@ func TestInitModDryRunListsFilesWithoutWriting(t *testing.T) {
 	}
 }
 
-func TestInitModGeneratesProject(t *testing.T) {
+func TestInitHostGeneratesCustomRuntimeContract(t *testing.T) {
+	workingDirectory := enterInitTestDirectory(t)
+	var output bytes.Buffer
+	err := runInit([]string{
+		"host",
+		"-engine", "custom",
+		"-runtime", "python",
+		"-id", "story_host",
+		"-output", "custom-host",
+	}, &output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, relative := range []string{
+		"rin-host.json",
+		"capabilities/dialogue.say.json",
+		"src/README.md",
+		"rin-scaffold.json",
+	} {
+		if _, err := os.Stat(filepath.Join(workingDirectory, "custom-host", relative)); err != nil {
+			t.Errorf("%s: %v", relative, err)
+		}
+	}
+	hostConfig, err := os.ReadFile(
+		filepath.Join(workingDirectory, "custom-host", "rin-host.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(hostConfig, []byte(`"runtime": "python"`)) {
+		t.Fatalf("custom host runtime missing:\n%s", hostConfig)
+	}
+}
+
+func TestInitHostGeneratesProject(t *testing.T) {
 	workingDirectory := enterInitTestDirectory(t)
 	target := filepath.Join(workingDirectory, "generated_mod")
 
 	var output bytes.Buffer
 	err := runInit([]string{
-		"mod",
-		"-host", "luanti",
+		"host",
+		"-engine", "luanti",
 		"-id", "test_mod",
 		"-name", "Test Mod",
 		"-author", "Test_Author",
@@ -253,7 +286,7 @@ func TestInitModGeneratesProject(t *testing.T) {
 	}
 }
 
-func TestInitModDoesNotOverwriteExistingTarget(t *testing.T) {
+func TestInitHostDoesNotOverwriteExistingTarget(t *testing.T) {
 	workingDirectory := enterInitTestDirectory(t)
 	target := filepath.Join(workingDirectory, "existing_mod")
 	if err := os.Mkdir(target, 0o755); err != nil {
@@ -265,8 +298,8 @@ func TestInitModDoesNotOverwriteExistingTarget(t *testing.T) {
 	}
 
 	var output bytes.Buffer
-	err := runInitMod([]string{
-		"-host", "luanti",
+	err := runInitHost([]string{
+		"-engine", "luanti",
 		"-id", "test_mod",
 		"-output", "existing_mod",
 	}, &output)

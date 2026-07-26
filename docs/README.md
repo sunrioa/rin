@@ -17,8 +17,8 @@ releases do not carry a post-1.0 stability guarantee.
 | Ren'Py, Godot, and Unity | [Game adapters](game-adapters.md) | [游戏适配器](game-adapters.zh-CN.md) |
 | Regions, quests, and NPC actions | [RPG event conventions](rpg-events.md) | [RPG 事件约定](rpg-events.zh-CN.md) |
 | Cross-language clients and mods | [SDK and mod kits](sdk-and-mods.md) | [SDK 与 Mod 套件](sdk-and-mods.zh-CN.md) |
-| Offline Mod project generator | [Mod scaffolding](mod-scaffolding.md) | [Mod 脚手架](mod-scaffolding.zh-CN.md) |
-| Real-game stability and crash validation | [Real-host mod validation](mod-integration-validation.md) | [真实宿主 Mod 验收](mod-integration-validation.zh-CN.md) |
+| Offline Host project generator | [Host scaffolding](host-scaffolding.md) | [通用 Host 脚手架](host-scaffolding.zh-CN.md) |
+| Real-game stability and crash validation | [Real-host validation](host-integration-validation.md) | [真实宿主验收](host-integration-validation.zh-CN.md) |
 | Host persistence guarantees and durability profiles | [Host durability profiles](host-durability.md) | [宿主持久保证分级](host-durability.zh-CN.md) |
 | Security and reporting | [Security](../SECURITY.en.md) | [安全](../SECURITY.md) |
 | Release changes | [Changelog](../CHANGELOG.md) | [变更日志](../CHANGELOG.zh-CN.md) |
@@ -32,7 +32,7 @@ releases do not carry a post-1.0 stability guarantee.
 | Repository overview | [README](../README.en.md) | [项目说明](../README.md) |
 
 SDK-specific quick starts are under [`sdk/`](../sdk/README.md). Use
-[`rin init mod`](mod-scaffolding.md) to generate a self-contained Fabric,
+[`rin init host`](host-scaffolding.md) to generate a self-contained Fabric,
 BepInEx, or Luanti project; the canonical source templates remain under
 [`examples/mods/`](../examples/mods/).
 

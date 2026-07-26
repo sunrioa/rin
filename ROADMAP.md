@@ -56,8 +56,9 @@
 - [x] 源码优先的 Python 3.9+、JavaScript/Node 18+、.NET 6+、Java 17+、Lua 5.1+ Client
 - [x] 统一 20 Route OpenAPI 3.1 Wire Schema 与生成的 SDK Route Inventory
 - [x] Fabric、BepInEx 6 与 Loopback-only Luanti 示例 Mod
-- [x] 离线、确定性的 `rin init mod` 脚手架，覆盖 Fabric、单 Backend
-  BepInEx Mono/IL2CPP、Luanti 与 Windows 构建门禁
+- [x] 离线、确定性的 `rin init host` 契约骨架，覆盖六种自定义 Runtime、
+  Fabric、单 Backend BepInEx Mono/IL2CPP、Luanti，以及密封能力生成、
+  Conformance、Doctor 与 Windows 门禁
 - [x] 游戏权威的类型化动作生命周期、Proposal Attempt 与 Outcome Outbox
 - [x] 永久 Request/Event ID History 与 Fail-closed 未决 Append 对账
 - [x] 可信 Restore Binding、Snapshot 大小限制与明确 Checksum Trust Boundary

@@ -1,4 +1,4 @@
-package modscaffold
+package hostscaffold
 
 import (
 	"bytes"
@@ -156,14 +156,14 @@ func TestBepInExAuthorIsXMLSafeAndNotSilentlyDiscarded(t *testing.T) {
 
 func TestBepInExPackagingClaimsRemainVisibleInScaffoldingDocs(t *testing.T) {
 	required := map[string][]string{
-		"../../docs/mod-scaffolding.md": {
+		"../../docs/host-scaffolding.md": {
 			"python package_bepinex.py",
 			"--verify-archive",
 			"System.Text.Json",
 			"game-specific Interop",
 			"build and package",
 		},
-		"../../docs/mod-scaffolding.zh-CN.md": {
+		"../../docs/host-scaffolding.zh-CN.md": {
 			"python package_bepinex.py",
 			"--verify-archive",
 			"System.Text.Json",

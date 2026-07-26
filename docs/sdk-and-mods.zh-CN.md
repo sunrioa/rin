@@ -53,14 +53,14 @@ Revision 或已验证 Release Tag Vendor 完整 Client 目录。不要只复制�
 SHA-256 清单保持同步：
 
 ```bash
-rin init mod --list-hosts
-rin init mod --host fabric --id guide_npc \
+rin init host --list-hosts
+rin init host --engine fabric --id guide_npc \
   --name "Guide NPC" --namespace io.github.example
 ```
 
 完整命令契约、Windows 路径规则与构建命令见
-[Mod 脚手架指南](mod-scaffolding.zh-CN.md)。生成和编译不能代替
-[真实宿主验收矩阵](mod-integration-validation.zh-CN.md)。
+[通用 Host 脚手架指南](host-scaffolding.zh-CN.md)。生成和编译不能代替
+[真实宿主验收矩阵](host-integration-validation.zh-CN.md)。
 
 ## 接入生命周期
 
@@ -170,7 +170,7 @@ Unity 包声明最低 API Level 为 `2021.3`。Coroutine Workflow 在
 `Application.persistentDataPath` 维护可重启的 Pending Turn、Job、Freshness、
 Settlement 与 Outbox 状态；游戏侧示例只有 18 行。.NET Harness 会在 Linux
 与 Windows 使用 Unity API Stub 编译包并测试文件恢复。在执行
-[真实宿主验收矩阵](mod-integration-validation.zh-CN.md)前，这不能证明包已在
+[真实宿主验收矩阵](host-integration-validation.zh-CN.md)前，这不能证明包已在
 2021.3 或后续 Unity 版本中完成 Editor 导入或 Player 兼容测试。
 
 ## 验证

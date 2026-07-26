@@ -60,9 +60,10 @@
   Generation Job。
 - 源码优先的 Python、JavaScript、C#、Java、Lua Client，以及 Ren'Py、Godot、
   Unity、Fabric、BepInEx、Luanti 接入示例。
-- 离线 `rin init mod` 生成器，可创建独立的 Fabric、单 Backend BepInEx
-  Mono/IL2CPP 与 Luanti 项目，内置 SDK 源码、固定依赖、确定性文件 Hash、
-  Windows 安全路径和禁止覆盖的输出语义。
+- 离线 `rin init host` 生成器，可创建引擎无关的 Go、JavaScript、Python、
+  C#、Java、Lua 契约骨架，以及独立 Fabric、单 Backend BepInEx Mono/IL2CPP
+  与 Luanti 项目。`rin add skill`、`rin conformance host` 与
+  `rin doctor host` 分别生成密封能力、校验契约并诊断跨平台 Runtime。
 - [`api/openapi.json`](api/openapi.json) 中的 OpenAPI 3.1 Wire Schema 与
   [兼容矩阵](docs/compatibility.zh-CN.md)。
 - 有界 frame 的 NDJSON Session Transfer：immutable export boundary、逐 event

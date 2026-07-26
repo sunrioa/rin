@@ -1,4 +1,4 @@
-package modscaffold
+package hostscaffold
 
 import (
 	"strings"
@@ -11,7 +11,9 @@ func testOptions(host string) Options {
 		Author: "example_author", Version: "0.1.0",
 		Output: "guide_npc",
 	}
-	if host != HostLuanti {
+	if host == HostCustom {
+		options.Runtime = "go"
+	} else if host != HostLuanti {
 		options.Namespace = "io.github.example"
 	}
 	return options
@@ -22,6 +24,7 @@ func TestHostsAreStableAndExplicit(t *testing.T) {
 	expected := []string{
 		HostBepInExIL2CPP,
 		HostBepInExMono,
+		HostCustom,
 		HostFabric,
 		HostLuanti,
 	}
@@ -35,6 +38,26 @@ func TestHostsAreStableAndExplicit(t *testing.T) {
 		if hosts[index].RealHostValidation != "required" {
 			t.Errorf("%s must retain an explicit real-host validation gate", id)
 		}
+	}
+}
+
+func TestCustomRuntimeIsExplicit(t *testing.T) {
+	options := testOptions(HostCustom)
+	options.Runtime = ""
+	if _, err := normalizeOptions(options); err == nil ||
+		!strings.Contains(err.Error(), "-runtime for custom hosts") {
+		t.Fatalf("missing custom runtime error = %v", err)
+	}
+	options.Runtime = "rust"
+	if _, err := normalizeOptions(options); err == nil ||
+		!strings.Contains(err.Error(), "-runtime for custom hosts") {
+		t.Fatalf("unsupported custom runtime error = %v", err)
+	}
+	options = testOptions(HostFabric)
+	options.Runtime = "java"
+	if _, err := normalizeOptions(options); err == nil ||
+		!strings.Contains(err.Error(), "only valid with -engine custom") {
+		t.Fatalf("runtime on fixed template error = %v", err)
 	}
 }
 
@@ -196,7 +219,7 @@ func TestLuantiAuthorMustBeAContentDBUsername(t *testing.T) {
 	}
 }
 
-func TestDefaultsDoNotConflateModAndRinVersions(t *testing.T) {
+func TestDefaultsDoNotConflateHostAndRinVersions(t *testing.T) {
 	options := testOptions(HostFabric)
 	options.Name = ""
 	options.Version = ""
@@ -208,10 +231,10 @@ func TestDefaultsDoNotConflateModAndRinVersions(t *testing.T) {
 		t.Fatalf("default display name = %q, want %q", normalized.Name, options.ID)
 	}
 	if normalized.Version != "0.1.0" {
-		t.Fatalf("default Mod version = %q, want 0.1.0", normalized.Version)
+		t.Fatalf("default Host version = %q, want 0.1.0", normalized.Version)
 	}
 	if normalized.Version == normalized.RinVersion {
-		t.Fatal("default Mod version unexpectedly equals the Rin version")
+		t.Fatal("default Host version unexpectedly equals the Rin version")
 	}
 }
 

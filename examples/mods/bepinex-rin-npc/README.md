@@ -24,7 +24,7 @@ IL2CPP adapter must set `Plugin.ApplyDialogue` to a delegate that marshals onto
 the game's owning thread, then call `RequestNpcTurnAsync` from its interaction
 hook. Successful compilation is not proof that either backend loads in a
 particular game; complete the
-[real-host validation matrix](../../../docs/mod-integration-validation.md).
+[real-host validation matrix](../../../docs/host-integration-validation.md).
 
 ## Build and install
 

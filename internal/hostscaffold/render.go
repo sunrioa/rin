@@ -1,4 +1,4 @@
-package modscaffold
+package hostscaffold
 
 import (
 	"crypto/sha256"
@@ -54,6 +54,8 @@ func Render(options Options) (*Plan, error) {
 	}
 	var files []renderedFile
 	switch normalized.Host {
+	case HostCustom:
+		files, err = renderCustom(normalized)
 	case HostFabric:
 		files, err = renderFabric(normalized)
 	case HostBepInExMono, HostBepInExIL2CPP:
@@ -135,7 +137,7 @@ func (plan *Plan) Name() string {
 	return plan.options.Name
 }
 
-// Version returns the generated Mod's version, distinct from the Rin version.
+// Version returns the generated Host project's version, distinct from the Rin version.
 func (plan *Plan) Version() string {
 	return plan.options.Version
 }
@@ -195,6 +197,7 @@ type projectManifest struct {
 	JavaPackage string `json:"java_package,omitempty"`
 	CodeName    string `json:"code_name,omitempty"`
 	PluginGUID  string `json:"plugin_guid,omitempty"`
+	Runtime     string `json:"runtime,omitempty"`
 }
 
 type hostManifest struct {
@@ -230,7 +233,7 @@ func renderManifest(options normalizedOptions, files []renderedFile) ([]byte, er
 	})
 	project := projectManifest{
 		ID: options.ID, Name: options.Name, Version: options.Version,
-		Namespace: options.Namespace,
+		Namespace: options.Namespace, Runtime: options.Runtime,
 	}
 	switch options.Host {
 	case HostFabric:
@@ -238,6 +241,10 @@ func renderManifest(options normalizedOptions, files []renderedFile) ([]byte, er
 	case HostBepInExMono, HostBepInExIL2CPP:
 		project.CodeName = options.CodeName
 		project.PluginGUID = options.PluginGUID
+	}
+	sdkDelivery := "vendored-source"
+	if options.Host == HostCustom {
+		sdkDelivery = "contract-only"
 	}
 	manifest := scaffoldManifest{
 		SchemaVersion: 1,
@@ -254,7 +261,7 @@ func renderManifest(options normalizedOptions, files []renderedFile) ([]byte, er
 		},
 		SDK: sdkManifest{
 			Language: options.HostDescriptor.Language,
-			Delivery: "vendored-source",
+			Delivery: sdkDelivery,
 			License:  "MIT; see LICENSE-RIN.txt",
 		},
 		CapabilityProfile:  "advisory",

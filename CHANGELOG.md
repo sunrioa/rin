@@ -64,10 +64,11 @@ release checklist passes. See the [release guide](docs/release-guide.md).
   retention, cancellation, provider retries, and circuit breaking.
 - Source-first Python, JavaScript, C#, Java, and Lua clients, plus Ren'Py,
   Godot, Unity, Fabric, BepInEx, and Luanti integration examples.
-- An offline `rin init mod` generator for standalone Fabric, single-backend
-  BepInEx Mono/IL2CPP, and Luanti projects, with vendored SDK sources, pinned
-  dependencies, deterministic file hashes, Windows-safe paths, and no-overwrite
-  output.
+- An offline `rin init host` generator for engine-neutral Go, JavaScript,
+  Python, C#, Java, and Lua contract skeletons plus standalone Fabric, single-backend
+  BepInEx Mono/IL2CPP, and Luanti projects. `rin add skill`,
+  `rin conformance host`, and `rin doctor host` provide sealed capability
+  generation, contract checks, and cross-platform runtime diagnostics.
 - An OpenAPI 3.1 wire schema at [`api/openapi.json`](api/openapi.json) and a
   [compatibility matrix](docs/compatibility.md).
 - Bounded-frame NDJSON Session Transfer with immutable export boundaries,

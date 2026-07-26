@@ -84,8 +84,8 @@ Editor/Player 测试。
 
 Fabric、BepInEx Mono/IL2CPP 与 Luanti 示例展示 Server/Main Thread Dispatch 和
 持久 SDK Workflow Store。它们是 Advisory Reference，不证明生成 NPC 已适配
-每个游戏的存档与线程模型。用 [`rin init mod`](mod-scaffolding.zh-CN.md) 生成
-固定起点后，还要完成[真实 Host 验收矩阵](mod-integration-validation.zh-CN.md)。
+每个游戏的存档与线程模型。用 [`rin init host`](host-scaffolding.zh-CN.md) 生成
+固定起点后，还要完成[真实 Host 验收矩阵](host-integration-validation.zh-CN.md)。
 
 ## 引擎无关审查
 

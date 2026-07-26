@@ -1,4 +1,4 @@
-package modscaffold
+package hostscaffold
 
 const editorConfig = `root = true
 
@@ -36,6 +36,15 @@ SOFTWARE.
 
 func gitignoreFor(host string) string {
 	switch host {
+	case HostCustom:
+		return `.rin/
+build/
+dist/
+__pycache__/
+node_modules/
+bin/
+obj/
+`
 	case HostFabric:
 		return `.gradle/
 build/

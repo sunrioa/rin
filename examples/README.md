@@ -21,5 +21,5 @@ The engine and mod directories demonstrate host-specific threading and
 packaging. They persist stable workflow recovery state, but remain
 `advisory`: a real integration must connect effect application and operation
 markers to the game's authoritative save/idempotency boundary. See the
-[real-host validation matrix](../docs/mod-integration-validation.md) before
+[real-host validation matrix](../docs/host-integration-validation.md) before
 claiming production stability.
