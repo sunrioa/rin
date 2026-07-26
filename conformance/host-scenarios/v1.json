@@ -8,7 +8,8 @@
       "evidence": [
         "sdk/hostkit/coordinator_test.go",
         "examples/native-host/tests/test_rin_host.c",
-        "examples/mods/fabric-rin-npc/src/test/java/io/github/sunrioa/rin/example/RinFabricStateTest.java"
+        "examples/mods/fabric-rin-npc/src/test/java/io/github/sunrioa/rin/example/RinFabricStateTest.java",
+        "tools/unity-harness/Program.cs"
       ]
     },
     {
@@ -38,7 +39,8 @@
       "id": "long_action_epoch_cancel",
       "requirement": "An active long-running action is cancelled or becomes outcome-unknown when its epoch is replaced.",
       "evidence": [
-        "sdk/hostkit/coordinator_test.go"
+        "sdk/hostkit/coordinator_test.go",
+        "tools/unity-harness/Program.cs"
       ]
     }
   ]

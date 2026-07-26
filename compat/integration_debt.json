@@ -89,7 +89,7 @@
     },
     {
       "path": "examples/unity/RinClient.cs",
-      "max_lines": 1554,
+      "max_lines": 670,
       "durability_profile": "advisory"
     },
     {
@@ -99,7 +99,37 @@
     },
     {
       "path": "examples/unity/RinUnityWorkflow.cs",
-      "max_lines": 1510,
+      "max_lines": 1060,
+      "durability_profile": "advisory"
+    },
+    {
+      "path": "examples/unity/RinUnityActionGate.cs",
+      "max_lines": 140,
+      "durability_profile": "advisory"
+    },
+    {
+      "path": "examples/unity/RinUnityOfferBinding.cs",
+      "max_lines": 130,
+      "durability_profile": "advisory"
+    },
+    {
+      "path": "examples/unity/RinUnityStateFile.cs",
+      "max_lines": 100,
+      "durability_profile": "advisory"
+    },
+    {
+      "path": "examples/unity/RinUnityStateValidation.cs",
+      "max_lines": 130,
+      "durability_profile": "advisory"
+    },
+    {
+      "path": "examples/unity/RinUnityReportValidation.cs",
+      "max_lines": 90,
+      "durability_profile": "advisory"
+    },
+    {
+      "path": "examples/unity/RinNavMeshAction.cs",
+      "max_lines": 95,
       "durability_profile": "advisory"
     }
   ]

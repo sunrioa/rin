@@ -4,10 +4,29 @@ using System.Text.Json;
 
 namespace UnityEngine
 {
-    public class Object { }
+    public class Object
+    {
+        protected static void Destroy(Object value) { }
+        protected static void DontDestroyOnLoad(Object value) { }
+    }
+    public class GameObject : Object
+    {
+        public T AddComponent<T>() where T : MonoBehaviour, new() => new T();
+    }
     public class MonoBehaviour : Object
     {
+        public GameObject gameObject = new GameObject();
         protected object StartCoroutine(IEnumerator routine) => routine;
+    }
+    public class Transform : Object
+    {
+        public Vector3 position;
+    }
+    public struct Vector3
+    {
+        public float x;
+        public float y;
+        public float z;
     }
     [AttributeUsage(AttributeTargets.Field)]
     public sealed class SerializeField : Attribute { }
@@ -43,6 +62,51 @@ namespace UnityEngine
             JsonSerializer.Serialize(value, value.GetType(), Options);
         public static T FromJson<T>(string value) =>
             JsonSerializer.Deserialize<T>(value, Options);
+    }
+}
+
+namespace UnityEngine.AI
+{
+    public sealed class NavMeshAgent : UnityEngine.MonoBehaviour
+    {
+        public bool isOnNavMesh = true;
+        public bool pathPending;
+        public bool hasPath;
+        public float remainingDistance;
+        public float stoppingDistance;
+        public bool SetDestination(UnityEngine.Vector3 destination)
+        {
+            hasPath = true;
+            return true;
+        }
+        public void ResetPath()
+        {
+            hasPath = false;
+        }
+    }
+}
+
+namespace UnityEngine.SceneManagement
+{
+    public struct Scene
+    {
+        public int handle;
+    }
+    public enum LoadSceneMode
+    {
+        Single,
+        Additive,
+    }
+    public static class SceneManager
+    {
+        private static Scene activeScene = new Scene { handle = 1 };
+        public static event Action<Scene, LoadSceneMode> sceneLoaded;
+        public static Scene GetActiveScene() => activeScene;
+        public static void RaiseSceneLoaded(int handle)
+        {
+            activeScene = new Scene { handle = handle };
+            sceneLoaded?.Invoke(activeScene, LoadSceneMode.Single);
+        }
     }
 }
 

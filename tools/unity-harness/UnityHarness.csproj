@@ -10,7 +10,13 @@
     <Compile Include="UnityStubs.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="../../examples/unity/RinClient.cs" Link="RinClient.cs" />
+    <Compile Include="../../examples/unity/RinUnityActionGate.cs" Link="RinUnityActionGate.cs" />
+    <Compile Include="../../examples/unity/RinUnityOfferBinding.cs" Link="RinUnityOfferBinding.cs" />
+    <Compile Include="../../examples/unity/RinUnityStateFile.cs" Link="RinUnityStateFile.cs" />
+    <Compile Include="../../examples/unity/RinUnityStateValidation.cs" Link="RinUnityStateValidation.cs" />
+    <Compile Include="../../examples/unity/RinUnityReportValidation.cs" Link="RinUnityReportValidation.cs" />
     <Compile Include="../../examples/unity/RinUnityWorkflow.cs" Link="RinUnityWorkflow.cs" />
+    <Compile Include="../../examples/unity/RinNavMeshAction.cs" Link="RinNavMeshAction.cs" />
     <Compile Include="../../examples/unity/RinNpcExample.cs" Link="RinNpcExample.cs" />
   </ItemGroup>
 </Project>

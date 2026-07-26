@@ -1,10 +1,14 @@
+using System;
 using UnityEngine;
+using UnityEngine.AI;
 
 // Game-owned host code stays small: capture an event, ask the reusable
 // coordinator to run one turn, and keep all actual world effects authoritative.
 public sealed class RinNpcExample : MonoBehaviour, IRinUnityHost
 {
     [SerializeField] private RinUnityWorkflow workflow = null;
+    [SerializeField] private NavMeshAgent agent = null;
+    [SerializeField] private Transform authoredDestination = null;
 
     private void Awake()
     {
@@ -37,35 +41,36 @@ public sealed class RinNpcExample : MonoBehaviour, IRinUnityHost
             {
                 new RinActionOfferTemplate
                 {
+                    offer_id = "offer.move_to.authored_destination",
                     capability = new CapabilityRef
                     {
-                        id = "dialogue.say",
+                        id = "movement.move_to",
                         version = "1.0.0",
                     },
                     descriptor_digest =
                         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                    description = "Say the authored greeting to the player.",
-                    arguments_json = "{\"text\":\"Welcome, traveler.\"}",
+                    description = "Walk to the game-authored destination.",
+                    arguments_json = "{\"destination_id\":\"guide_marker\"}",
                 },
             },
         };
     }
 
-    public RinHostActionResult Execute(ActionInvocation invocation)
+    public IRinUnityAction BeginAction(
+        ActionInvocation invocation,
+        Action<RinHostActionResult> completed)
     {
-        if (invocation.capability.id != "dialogue.say")
+        if (invocation.capability.id != "movement.move_to" ||
+            invocation.offer_id != "offer.move_to.authored_destination")
         {
-            return RinHostActionResult.Rejected("Unsupported example capability.");
+            completed(RinHostActionResult.Rejected(
+                "Unsupported example capability."));
+            return RinUnityAction.Completed;
         }
-        // A real game resolves the already-authored arguments and performs the
-        // effect here. For world mutation, persist operation_id in game state.
-        Debug.Log("Rin selected dialogue.say: " + invocation.argumentsJson);
-        return new RinHostActionResult
-        {
-            accepted = true,
-            summary = "The guide delivered the selected line.",
-            world_seq = invocation.observation_seq + 1,
-            occurred_at = invocation.deadline.value,
-        };
+        return RinNavMeshAction.Begin(
+            agent,
+            authoredDestination,
+            invocation,
+            completed);
     }
 }

@@ -33,3 +33,8 @@ for explicit save/world Epoch binding, Game Thread authorization, typed
 Blueprint capabilities, and Behavior Tree ActionRun reporting. CI checks its
 portable layout and safety boundary; an Unreal Editor build remains a manual
 gate.
+
+[`unity`](unity) is an installable UPM reference with Domain/Scene Epochs,
+durable Active Run recovery, cancellable long-action handles, and a
+game-authored NavMesh movement example. Strict API stubs cover its portable
+contract; Editor and Player builds remain manual gates.

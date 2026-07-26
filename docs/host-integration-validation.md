@@ -15,7 +15,7 @@ evidence, the engine and Mod examples remain `advisory`.
 | BepInEx Mono/IL2CPP | Real BepInEx package compilation and Core restart tests | Plugin load, game hooks, save identity, and shutdown in representative games |
 | Luanti | Lua 5.1/5.4 workflow tests with a ModStorage-faithful harness | A real Luanti headless server, world saves, and concurrent players |
 | Godot | Official Godot 4 headless parse and restart tests | Live Sidecar traffic in an editor session and exported build |
-| Unity | Strict Unity API stubs plus .NET restart tests | Unity Editor package import and Mono/IL2CPP Player builds |
+| Unity | Strict API stubs: Scene/Domain generations, NavMesh compile, cancellation, late callbacks, Active Run/opaque-argument recovery, and Windows-safe replacement | Unity Editor package import and Mono/IL2CPP Player builds |
 | Unreal | Runtime Plugin structure, forbidden-surface, and Windows path tests | Unreal Header Tool/compiler, Editor load, packaged builds, SaveGame and navigation runtime |
 | Ren'Py | Python adapter/Epoch tests; local Ren'Py 8.5.3 lint and rollback harness | Visible engine save/load, interaction restart, and packaged builds |
 | Terminal Story | Real Sidecar 20-turn CI on Windows, macOS, and Linux | It is a reference game, not evidence for another game's Mod lifecycle |
@@ -95,6 +95,10 @@ unresolved work remains recoverable, and the Outcome Outbox eventually drains.
 - Build and run Windows Mono and IL2CPP Players. Test scene/domain reload,
   `Application.persistentDataPath`, stripping/AOT, coroutine/main-thread
   behavior, application quit, and the shared crash matrix.
+- Start the NavMesh action, change scene while path following, reload scripts
+  in the Editor, and destroy the Host. Confirm one terminal
+  `cancelled`/`outcome-unknown` report, unchanged raw arguments, and no effect
+  from a late callback. Repeat past the authored deadline.
 
 ### Unreal
 

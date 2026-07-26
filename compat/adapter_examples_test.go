@@ -83,12 +83,17 @@ func TestEngineAdaptersUseTypedHostLifecycle(t *testing.T) {
 			`report["outcome"]`,
 		},
 		"../examples/unity/RinUnityWorkflow.cs": {
-			"IRinUnityHost",
-			"RinTurnInput CaptureTurn(",
-			"RinHostActionResult Execute(",
-			"BuildInvocation(",
+			"host.CaptureTurn(",
+			"RinUnityActionGate",
+			"host.BeginAction(",
 			"BuildReport(",
 			"reportOutbox",
+		},
+		"../examples/unity/RinUnityActionGate.cs": {
+			"IRinUnityHost",
+			"IRinUnityAction BeginAction(",
+			"ReplaceAuthority(",
+			"outcome-unknown",
 		},
 		"../adapters/renpy/rin_client.py": {
 			`"decision_window"`,
@@ -131,13 +136,15 @@ func TestUnityWorkflowPersistsBeforeNetworkAndDrainsBeforeNextTurn(t *testing.T)
 	text := string(payload)
 	for _, required := range []string{
 		"authoritativeStateReady = RestoreAuthoritativeState();",
-		"private const int StateSchemaVersion = 2;",
+		"private const int StateSchemaVersion = 3;",
 		"private PendingTurnState pendingTurn;",
+		"private ActiveRunState activeRun;",
 		"private readonly Dictionary<string, AppliedMarker> applied",
 		"private readonly List<ReportOutboxEntry> reportOutbox",
-		"stream.Flush(true)",
-		"File.Replace(temporary, statePath, backup)",
-		"Execute must remain",
+		"BeginAuthorityLifetime()",
+		"actionGate.ReplaceAuthority(",
+		"offer_arguments_json",
+		"arguments_json",
 		"AdvanceEpoch(bool timelineChanged)",
 	} {
 		if !strings.Contains(text, required) {
@@ -167,6 +174,10 @@ func TestUnityReferenceIsInstallableRestartableAndThin(t *testing.T) {
 		},
 		"../tools/unity-harness/Program.cs": {
 			"restart minted a new identity",
+			"domain reload did not advance Host generation",
+			"scene load did not advance World generation",
+			"late action callback revived a terminal run",
+			"interrupted action did not enter the Outbox",
 			"backup recovery changed identity",
 			"write failure published a new identity",
 			"malformed state was accepted",
@@ -176,7 +187,19 @@ func TestUnityReferenceIsInstallableRestartableAndThin(t *testing.T) {
 			"IRinUnityHost",
 			"workflow.RequestTurn()",
 			"CaptureTurn(",
-			"Execute(",
+			"BeginAction(",
+			"RinNavMeshAction.Begin(",
+		},
+		"../examples/unity/RinNavMeshAction.cs": {
+			"NavMeshAgent",
+			"SetDestination(",
+			"ResetPath()",
+			"outcome-unknown",
+		},
+		"../examples/unity/RinUnityStateFile.cs": {
+			"stream.Flush(true)",
+			"File.Replace(temporary, path, backup)",
+			"MaxStateBytes",
 		},
 	}
 	for path, required := range files {

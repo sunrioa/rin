@@ -3,18 +3,9 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
-using System.Text;
+using System.Threading;
 using UnityEngine;
-
-// The game implements this interface at its authority boundary. Execute must
-// treat invocation.operation_id as an idempotency key if the adapter is used
-// for world mutation: a process can stop after the effect but before the
-// durable outbox write.
-public interface IRinUnityHost
-{
-    RinTurnInput CaptureTurn(long operationSequence, Epoch epoch);
-    RinHostActionResult Execute(ActionInvocation invocation);
-}
+using UnityEngine.SceneManagement;
 
 [Serializable]
 public sealed class RinActionOfferTemplate
@@ -70,10 +61,11 @@ public sealed class RinHostActionResult
 // before network I/O; applied markers and exact action reports survive restart.
 public sealed class RinUnityWorkflow : MonoBehaviour
 {
-    private const int StateSchemaVersion = 2;
-    private const int MaxStateBytes = 1024 * 1024;
+    private const int StateSchemaVersion = 3;
     private const int MaxAppliedMarkers = 256;
     private const int MaxOutboxEntries = 64;
+    private const long MaxJsonInteger = 9007199254740991L;
+    private static RinUnityWorkflow authorityOwner;
 
     [SerializeField] private RinClient rin = null;
     [SerializeField] private MonoBehaviour hostComponent = null;
@@ -99,22 +91,93 @@ public sealed class RinUnityWorkflow : MonoBehaviour
         new Dictionary<string, AppliedMarker>();
     private readonly List<ReportOutboxEntry> reportOutbox =
         new List<ReportOutboxEntry>();
+    private readonly Queue<Action> authorityQueue = new Queue<Action>();
+    private readonly RinUnityActionGate actionGate = new RinUnityActionGate();
+    private ActiveRunState activeRun;
     private bool authoritativeStateReady;
     private bool turnRunning;
     private string statePath;
+    private int authorityThread;
+    private int activeScene;
+    private RinUnityStateFile stateFile;
 
     private void Awake()
     {
+        if (authorityOwner != null &&
+            !ReferenceEquals(authorityOwner, this))
+        {
+            Debug.LogError("Only one RinUnityWorkflow may own a save slot.");
+            Destroy(gameObject);
+            return;
+        }
+        authorityOwner = this;
+        authorityThread = Thread.CurrentThread.ManagedThreadId;
         statePath = Path.Combine(
             Application.persistentDataPath,
             "rin",
             "default.json");
+        stateFile = new RinUnityStateFile(statePath);
         host = hostComponent as IRinUnityHost;
+        if (!ValidConfiguration())
+        {
+            authorityOwner = null;
+            Debug.LogError("Rin Unity Host configuration is invalid.");
+            return;
+        }
         authoritativeStateReady = RestoreAuthoritativeState();
         if (!authoritativeStateReady)
         {
+            authorityOwner = null;
             Debug.LogError(
                 "Rin authoritative state could not be restored; turns are disabled.");
+            return;
+        }
+        if (!BeginAuthorityLifetime())
+        {
+            authorityOwner = null;
+            authoritativeStateReady = false;
+            Debug.LogError(
+                "Rin Host generation could not be advanced; turns are disabled.");
+            return;
+        }
+        activeScene = SceneManager.GetActiveScene().handle;
+        SceneManager.sceneLoaded += OnSceneLoaded;
+        DontDestroyOnLoad(gameObject);
+    }
+
+    private void Update()
+    {
+        while (true)
+        {
+            Action work;
+            lock (authorityQueue)
+            {
+                if (authorityQueue.Count == 0) break;
+                work = authorityQueue.Dequeue();
+            }
+            work();
+        }
+    }
+
+    private void OnDestroy()
+    {
+        if (!ReferenceEquals(authorityOwner, this)) return;
+        authorityOwner = null;
+        SceneManager.sceneLoaded -= OnSceneLoaded;
+        if (!authoritativeStateReady) return;
+        actionGate.ReplaceAuthority(
+            "The Unity Host was destroyed before the action reached a terminal result.");
+        PersistCurrentState();
+    }
+
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        if (scene.handle == activeScene) return;
+        activeScene = scene.handle;
+        if (!AdvanceEpoch(false))
+        {
+            authoritativeStateReady = false;
+            Debug.LogError("Rin scene authority could not be advanced.");
         }
     }
 
@@ -153,15 +216,38 @@ public sealed class RinUnityWorkflow : MonoBehaviour
     // load changes world; loading an earlier save also changes timeline.
     public bool AdvanceEpoch(bool timelineChanged)
     {
-        if (!authoritativeStateReady || pendingTurn != null ||
-            reportOutbox.Count != 0 || worldEpoch == long.MaxValue ||
-            (timelineChanged && timelineEpoch == long.MaxValue))
+        if (!authoritativeStateReady || worldEpoch >= MaxJsonInteger ||
+            (timelineChanged && timelineEpoch >= MaxJsonInteger))
         {
             return false;
         }
         worldEpoch++;
         if (timelineChanged) timelineEpoch++;
-        return PersistCurrentState();
+        actionGate.ReplaceAuthority(
+            timelineChanged
+                ? "The Unity timeline changed while the action was running."
+                : "The Unity scene changed while the action was running.");
+        if (!authoritativeStateReady || !PersistCurrentState())
+        {
+            authoritativeStateReady = false;
+            return false;
+        }
+        return true;
+    }
+
+    public void ObserveAuthoritativeClock(string clock, long value)
+    {
+        if (!authoritativeStateReady || activeRun == null ||
+            value < 0 || value > MaxJsonInteger)
+        {
+            return;
+        }
+        var deadline = activeRun.invocation.deadline;
+        if (deadline != null && deadline.clock == clock && value > deadline.value)
+        {
+            actionGate.ReplaceAuthority(
+                "The Unity action exceeded its game-authored deadline.");
+        }
     }
 
     private IEnumerator RunTurn()
@@ -189,7 +275,7 @@ public sealed class RinUnityWorkflow : MonoBehaviour
 
     private bool CreatePendingTurn()
     {
-        if (operationSequence == long.MaxValue)
+        if (operationSequence >= MaxJsonInteger)
         {
             Debug.LogError("Rin operation sequence is exhausted.");
             return false;
@@ -210,15 +296,23 @@ public sealed class RinUnityWorkflow : MonoBehaviour
             "unity.window." + runId + "." +
             next.ToString(CultureInfo.InvariantCulture);
         var offers = new ActionOffer[input.offers.Length];
+        var offerArguments = new string[input.offers.Length];
+        var offerIds = new HashSet<string>();
         for (var index = 0; index < input.offers.Length; index++)
         {
             var template = input.offers[index];
+            var offerId = string.IsNullOrEmpty(template.offer_id)
+                ? operationId + ".offer." +
+                    (index + 1).ToString(CultureInfo.InvariantCulture)
+                : template.offer_id;
+            if (!RinUnityIds.IsValid(offerId) || !offerIds.Add(offerId))
+            {
+                Debug.LogError("Rin action Offer IDs must be valid and unique.");
+                return false;
+            }
             offers[index] = new ActionOffer
             {
-                offer_id = string.IsNullOrEmpty(template.offer_id)
-                    ? operationId + ".offer." +
-                        (index + 1).ToString(CultureInfo.InvariantCulture)
-                    : template.offer_id,
+                offer_id = offerId,
                 decision_window_id = windowId,
                 actor_id = input.actor_id,
                 capability = template.capability,
@@ -234,6 +328,7 @@ public sealed class RinUnityWorkflow : MonoBehaviour
                     value = input.deadline,
                 },
             };
+            offerArguments[index] = template.arguments_json;
         }
         var requestId =
             "unity.propose." + runId + "." +
@@ -242,6 +337,7 @@ public sealed class RinUnityWorkflow : MonoBehaviour
         {
             version = 1,
             operation_id = operationId,
+            offer_arguments_json = offerArguments,
             observation = new ObserveRequest
             {
                 session_id = SessionId(),
@@ -316,47 +412,57 @@ public sealed class RinUnityWorkflow : MonoBehaviour
         }
 
         AppliedMarker marker;
-        if (!applied.TryGetValue(pendingTurn.operation_id, out marker))
+        if (applied.TryGetValue(pendingTurn.operation_id, out marker))
         {
-            var invocation = BuildInvocation(pendingTurn.operation_id, offered);
-            RinHostActionResult result;
-            try
-            {
-                result = host.Execute(invocation);
-            }
-            catch (Exception hostError)
-            {
-                result = RinHostActionResult.Rejected(
-                    "The host rejected the action after an execution error: " +
-                    hostError.GetType().Name);
-            }
-            if (result == null)
-            {
-                result = RinHostActionResult.Rejected(
-                    "The host returned no action result.");
-            }
-            marker = new AppliedMarker
-            {
-                operation_id = pendingTurn.operation_id,
-                proposal_id = resolved.proposal.id,
-                request = BuildReport(resolved.proposal, invocation, result),
-            };
-            applied.Add(marker.operation_id, marker);
+            if (!CompletePendingTurn(marker)) yield break;
         }
+        else
+        {
+            var invocation = RinUnityOfferBinding.Invocation(
+                pendingTurn.operation_id,
+                offered);
+            if (!RinUnityOfferBinding.EpochEquals(
+                invocation.expected_epoch,
+                CurrentEpoch()))
+            {
+                marker = CreateMarker(
+                    pendingTurn.operation_id,
+                    resolved.proposal,
+                    invocation,
+                    RinHostActionResult.Rejected(
+                        "The Unity Host rejected an offer from a replaced authority."));
+                applied.Add(marker.operation_id, marker);
+                if (!CompletePendingTurn(marker)) yield break;
+            }
+            else
+            {
+                activeRun = new ActiveRunState
+                {
+                    operation_id = pendingTurn.operation_id,
+                    proposal = resolved.proposal,
+                    invocation = invocation,
+                    arguments_json = invocation.argumentsJson,
+                };
+                if (!PersistCurrentState())
+                {
+                    activeRun = null;
+                    Debug.LogError(
+                        "Rin Active Run could not be persisted before execution.");
+                    yield break;
+                }
 
-        reportOutbox.Add(new ReportOutboxEntry
-        {
-            key = marker.operation_id,
-            request = marker.request,
-        });
-        pendingTurn = null;
-        TrimAppliedMarkers();
-        if (!PersistCurrentState())
-        {
-            Debug.LogError(
-                "Rin action result could not be persisted; Execute must remain " +
-                "idempotent for this operation_id.");
-            yield break;
+                var actionFinished = false;
+                actionGate.Begin(
+                    completed => host.BeginAction(invocation, completed),
+                    result =>
+                    {
+                        FinishActiveRun(result);
+                        actionFinished = true;
+                    },
+                    Dispatch);
+                while (!actionFinished) yield return null;
+                if (!authoritativeStateReady) yield break;
+            }
         }
 
         var drained = false;
@@ -368,6 +474,7 @@ public sealed class RinUnityWorkflow : MonoBehaviour
         while (reportOutbox.Count != 0)
         {
             var entry = reportOutbox[0];
+            RinUnityStateValidation.RestoreArguments(entry);
             MutationResult result = null;
             yield return rin.ReportAction(entry.request, value => result = value);
             if (result == null)
@@ -378,11 +485,124 @@ public sealed class RinUnityWorkflow : MonoBehaviour
             reportOutbox.RemoveAt(0);
             if (!PersistCurrentState())
             {
+                reportOutbox.Insert(0, entry);
+                authoritativeStateReady = false;
                 completed(false);
                 yield break;
             }
         }
         completed(true);
+    }
+
+    private bool BeginAuthorityLifetime()
+    {
+        if (hostEpoch >= MaxJsonInteger || timelineEpoch >= MaxJsonInteger)
+        {
+            return false;
+        }
+        hostEpoch++;
+        timelineEpoch++;
+        if (activeRun == null) return PersistCurrentState();
+
+        var interrupted = new RinHostActionResult
+        {
+            accepted = true,
+            status = "outcome-unknown",
+            summary =
+                "The Unity domain reloaded before the action reached a durable terminal result.",
+        };
+        var marker = CreateMarker(
+            activeRun.operation_id,
+            activeRun.proposal,
+            activeRun.invocation,
+            interrupted);
+        if (!applied.ContainsKey(marker.operation_id))
+        {
+            applied.Add(marker.operation_id, marker);
+        }
+        return CompletePendingTurn(marker);
+    }
+
+    private void FinishActiveRun(RinHostActionResult result)
+    {
+        if (activeRun == null) return;
+        var marker = CreateMarker(
+            activeRun.operation_id,
+            activeRun.proposal,
+            activeRun.invocation,
+            result);
+        AppliedMarker existing;
+        if (applied.TryGetValue(marker.operation_id, out existing))
+        {
+            marker = existing;
+        }
+        else
+        {
+            applied.Add(marker.operation_id, marker);
+        }
+        if (!CompletePendingTurn(marker))
+        {
+            authoritativeStateReady = false;
+            Debug.LogError(
+                "Rin action result could not be persisted; the next domain " +
+                "lifetime will reconcile it as outcome-unknown.");
+        }
+    }
+
+    private AppliedMarker CreateMarker(
+        string operationId,
+        ActionProposal proposal,
+        ActionInvocation invocation,
+        RinHostActionResult result)
+    {
+        return new AppliedMarker
+        {
+            operation_id = operationId,
+            proposal_id = proposal.id,
+            arguments_json = invocation.argumentsJson,
+            request = BuildReport(operationId, proposal, invocation, result),
+        };
+    }
+
+    private bool CompletePendingTurn(AppliedMarker marker)
+    {
+        foreach (var existing in reportOutbox)
+        {
+            if (existing.key == marker.operation_id)
+            {
+                pendingTurn = null;
+                activeRun = null;
+                return PersistCurrentState();
+            }
+        }
+        if (reportOutbox.Count >= MaxOutboxEntries)
+        {
+            Debug.LogError("The Rin Unity Outcome Outbox is full.");
+            return false;
+        }
+        reportOutbox.Add(new ReportOutboxEntry
+        {
+            key = marker.operation_id,
+            arguments_json = marker.arguments_json,
+            request = marker.request,
+        });
+        pendingTurn = null;
+        activeRun = null;
+        TrimAppliedMarkers();
+        return PersistCurrentState();
+    }
+
+    private void Dispatch(Action work)
+    {
+        if (Thread.CurrentThread.ManagedThreadId == authorityThread)
+        {
+            work();
+            return;
+        }
+        lock (authorityQueue)
+        {
+            authorityQueue.Enqueue(work);
+        }
     }
 
     private bool TryResolveOfferedAction(
@@ -395,9 +615,10 @@ public sealed class RinUnityWorkflow : MonoBehaviour
         if (proposal.session_id != pendingTurn.request.session_id ||
             proposal.request_id != pendingTurn.request.request_id ||
             proposal.actor_id != pendingTurn.request.actor_id ||
-            proposal.decision_window == null ||
-            proposal.decision_window.id !=
-                pendingTurn.request.decision_window.id ||
+            proposal.tick != pendingTurn.request.tick ||
+            !RinUnityOfferBinding.DecisionWindowEquals(
+                proposal.decision_window,
+                pendingTurn.request.decision_window) ||
             proposal.action == null)
         {
             error = "proposal identity does not match the durable Pending Turn";
@@ -407,6 +628,11 @@ public sealed class RinUnityWorkflow : MonoBehaviour
         {
             if (candidate.offer_id == proposal.action.offer_id)
             {
+                if (!RinUnityOfferBinding.Matches(candidate, proposal.action))
+                {
+                    error = "proposal changed the durable action binding";
+                    return false;
+                }
                 offered = candidate;
                 return true;
             }
@@ -415,32 +641,13 @@ public sealed class RinUnityWorkflow : MonoBehaviour
         return false;
     }
 
-    private static ActionInvocation BuildInvocation(
-        string operationId,
-        ActionOffer offer)
-    {
-        return new ActionInvocation
-        {
-            operation_id = operationId,
-            offer_id = offer.offer_id,
-            decision_window_id = offer.decision_window_id,
-            actor_id = offer.actor_id,
-            capability = offer.capability,
-            descriptor_digest = offer.descriptor_digest,
-            argumentsJson = offer.argumentsJson,
-            targets = offer.targets,
-            expected_epoch = offer.expected_epoch.Copy(),
-            observation_seq = offer.observation_seq,
-            deadline = offer.deadline.Copy(),
-        };
-    }
-
     private ReportActionRequest BuildReport(
+        string operationId,
         ActionProposal proposal,
         ActionInvocation invocation,
         RinHostActionResult result)
     {
-        var suffix = pendingTurn.operation_id.Substring(
+        var suffix = operationId.Substring(
             "unity.operation.".Length);
         var report = new ActionReport
         {
@@ -464,7 +671,7 @@ public sealed class RinUnityWorkflow : MonoBehaviour
                 operation_id = invocation.operation_id,
                 status = TerminalStatus(result.status),
                 progress_seq = 1,
-                progress = 100,
+                progress = TerminalStatus(result.status) == "succeeded" ? 100 : 0,
                 updated_at = new Timepoint
                 {
                     clock = proposal.decision_window.opened_at.clock,
@@ -478,7 +685,7 @@ public sealed class RinUnityWorkflow : MonoBehaviour
                 status = TerminalStatus(result.status),
                 summary = report.summary,
                 code = result.code,
-                epoch = CurrentEpoch(),
+                epoch = invocation.expected_epoch.Copy(),
                 world_seq = result.world_seq > 0
                     ? result.world_seq
                     : observationSequence,
@@ -523,22 +730,22 @@ public sealed class RinUnityWorkflow : MonoBehaviour
 
     private bool RestoreAuthoritativeState()
     {
-        var loaded = LoadState();
+        var loaded = stateFile.Load();
         if (loaded != null)
         {
             return Hydrate(loaded);
         }
-        if (File.Exists(statePath))
+        if (stateFile.PrimaryExists)
         {
             return false;
         }
-        var backup = LoadStateFile(statePath + ".bak");
+        var backup = stateFile.LoadBackup();
         if (backup != null)
         {
             if (!Hydrate(backup)) return false;
             return PersistCurrentState();
         }
-        if (File.Exists(statePath + ".tmp"))
+        if (stateFile.TemporaryExists)
         {
             return false;
         }
@@ -547,39 +754,32 @@ public sealed class RinUnityWorkflow : MonoBehaviour
         hostEpoch = worldEpoch = timelineEpoch = 1;
         operationSequence = observationSequence = lastAuthoritativeTick = 0;
         pendingTurn = null;
+        activeRun = null;
         applied.Clear();
         reportOutbox.Clear();
         return PersistCurrentState();
-    }
-
-    private DurableState LoadState()
-    {
-        return LoadStateFile(statePath);
-    }
-
-    private static DurableState LoadStateFile(string path)
-    {
-        try
-        {
-            if (!File.Exists(path)) return null;
-            var info = new FileInfo(path);
-            if (info.Length <= 0 || info.Length > MaxStateBytes) return null;
-            return JsonUtility.FromJson<DurableState>(
-                File.ReadAllText(path, Encoding.UTF8));
-        }
-        catch (Exception)
-        {
-            return null;
-        }
     }
 
     private bool Hydrate(DurableState state)
     {
         if (state == null || state.schemaVersion != StateSchemaVersion ||
             !RinUnityIds.IsValid(state.runId) ||
+            state.gameId != gameId ||
+            state.contentId != contentId ||
+            state.contentVersion != contentVersion ||
+            state.contentHash != contentHash ||
+            state.worldId != worldId ||
+            state.actorId != actorId ||
             state.operationSequence < 0 || state.hostEpoch <= 0 ||
             state.worldEpoch <= 0 || state.timelineEpoch <= 0 ||
-            state.observationSequence < 0 || state.lastAuthoritativeTick < 0)
+            state.operationSequence > MaxJsonInteger ||
+            state.hostEpoch > MaxJsonInteger ||
+            state.worldEpoch > MaxJsonInteger ||
+            state.timelineEpoch > MaxJsonInteger ||
+            state.observationSequence < 0 ||
+            state.observationSequence > MaxJsonInteger ||
+            state.lastAuthoritativeTick < 0 ||
+            state.lastAuthoritativeTick > MaxJsonInteger)
         {
             return false;
         }
@@ -591,6 +791,7 @@ public sealed class RinUnityWorkflow : MonoBehaviour
         observationSequence = state.observationSequence;
         lastAuthoritativeTick = state.lastAuthoritativeTick;
         pendingTurn = state.pendingTurn;
+        activeRun = state.activeRun;
         applied.Clear();
         reportOutbox.Clear();
 
@@ -598,26 +799,53 @@ public sealed class RinUnityWorkflow : MonoBehaviour
         var entries = state.reportOutbox ?? new ReportOutboxEntry[0];
         if (markers.Length > MaxAppliedMarkers ||
             entries.Length > MaxOutboxEntries ||
-            (pendingTurn != null && !ValidPendingTurn(pendingTurn)))
+            (pendingTurn != null &&
+                !RinUnityStateValidation.Pending(
+                    runId,
+                    SessionId(),
+                    pendingTurn)) ||
+            (activeRun != null &&
+                (pendingTurn == null ||
+                    activeRun.operation_id != pendingTurn.operation_id)))
         {
             return false;
         }
+        if (pendingTurn != null &&
+            !RinUnityStateValidation.RestorePendingArguments(pendingTurn))
+        {
+            return false;
+        }
+        if (activeRun != null)
+        {
+            activeRun.invocation.argumentsJson = activeRun.arguments_json;
+            if (!RinUnityStateValidation.Active(pendingTurn, activeRun))
+            {
+                return false;
+            }
+        }
         foreach (var marker in markers)
         {
-            if (marker == null || !RinUnityIds.IsValid(marker.operation_id) ||
-                marker.request == null || applied.ContainsKey(marker.operation_id))
+            if (!RinUnityReportValidation.Marker(SessionId(), marker) ||
+                applied.ContainsKey(marker.operation_id))
             {
                 return false;
             }
+            RinUnityStateValidation.RestoreArguments(marker);
             applied.Add(marker.operation_id, marker);
         }
+        if (activeRun != null && applied.ContainsKey(activeRun.operation_id))
+        {
+            return false;
+        }
+        var outboxKeys = new HashSet<string>();
         foreach (var entry in entries)
         {
-            if (entry == null || !RinUnityIds.IsValid(entry.key) ||
-                entry.request == null)
+            if (!RinUnityReportValidation.Outbox(SessionId(), entry) ||
+                !outboxKeys.Add(entry.key))
             {
                 return false;
             }
+            RinUnityStateValidation.RestoreArguments(entry);
             reportOutbox.Add(entry);
         }
         return true;
@@ -625,10 +853,16 @@ public sealed class RinUnityWorkflow : MonoBehaviour
 
     private bool PersistCurrentState()
     {
-        return Persist(new DurableState
+        return stateFile.Save(new DurableState
         {
             schemaVersion = StateSchemaVersion,
             runId = runId,
+            gameId = gameId,
+            contentId = contentId,
+            contentVersion = contentVersion,
+            contentHash = contentHash,
+            worldId = worldId,
+            actorId = actorId,
             operationSequence = operationSequence,
             hostEpoch = hostEpoch,
             worldEpoch = worldEpoch,
@@ -636,47 +870,10 @@ public sealed class RinUnityWorkflow : MonoBehaviour
             observationSequence = observationSequence,
             lastAuthoritativeTick = lastAuthoritativeTick,
             pendingTurn = pendingTurn,
+            activeRun = activeRun,
             applied = Values(applied),
             reportOutbox = reportOutbox.ToArray(),
         });
-    }
-
-    private bool Persist(DurableState state)
-    {
-        var temporary = statePath + ".tmp";
-        var backup = statePath + ".bak";
-        try
-        {
-            var directory = Path.GetDirectoryName(statePath);
-            if (string.IsNullOrEmpty(directory)) return false;
-            Directory.CreateDirectory(directory);
-            var bytes = Encoding.UTF8.GetBytes(JsonUtility.ToJson(state));
-            if (bytes.Length <= 0 || bytes.Length > MaxStateBytes) return false;
-            using (var stream = new FileStream(
-                temporary,
-                FileMode.Create,
-                FileAccess.Write,
-                FileShare.None))
-            {
-                stream.Write(bytes, 0, bytes.Length);
-                stream.Flush(true);
-            }
-            if (File.Exists(statePath))
-            {
-                if (File.Exists(backup)) File.Delete(backup);
-                File.Replace(temporary, statePath, backup);
-            }
-            else
-            {
-                File.Move(temporary, statePath);
-            }
-            return true;
-        }
-        catch (Exception error)
-        {
-            Debug.LogError("Could not persist Rin state: " + error.Message);
-            return false;
-        }
     }
 
     private Epoch CurrentEpoch()
@@ -708,8 +905,11 @@ public sealed class RinUnityWorkflow : MonoBehaviour
         if (!RinUnityIds.IsValid(input.actor_id) ||
             input.actor_id != actorId ||
             input.tick < lastAuthoritativeTick ||
+            input.tick > MaxJsonInteger ||
             input.observation_seq <= observationSequence ||
+            input.observation_seq > MaxJsonInteger ||
             input.opened_at < 0 || input.deadline <= input.opened_at ||
+            input.deadline > MaxJsonInteger ||
             (input.clock != "event" && input.clock != "step" &&
                 input.clock != "realtime") ||
             string.IsNullOrWhiteSpace(input.intent) ||
@@ -723,8 +923,11 @@ public sealed class RinUnityWorkflow : MonoBehaviour
             if (offer == null || offer.capability == null ||
                 !RinUnityIds.IsValid(offer.capability.id) ||
                 string.IsNullOrEmpty(offer.capability.version) ||
-                !IsDigest(offer.descriptor_digest) ||
-                string.IsNullOrWhiteSpace(offer.description))
+                !RinUnityIds.IsDigest(offer.descriptor_digest) ||
+                string.IsNullOrWhiteSpace(offer.description) ||
+                !RinUnityJson.IsValidObject(offer.arguments_json) ||
+                (!string.IsNullOrEmpty(offer.offer_id) &&
+                    !RinUnityIds.IsValid(offer.offer_id)))
             {
                 error = "an offer capability or descriptor is invalid";
                 return false;
@@ -733,15 +936,16 @@ public sealed class RinUnityWorkflow : MonoBehaviour
         return true;
     }
 
-    private static bool ValidPendingTurn(PendingTurnState value)
+    private bool ValidConfiguration()
     {
-        return value.version == 1 &&
-            RinUnityIds.IsValid(value.operation_id) &&
-            value.observation != null &&
-            value.request != null &&
-            value.request.decision_window != null &&
-            value.request.offers != null &&
-            value.request.offers.Length > 0;
+        return RinUnityIds.IsValid(gameId) &&
+            RinUnityIds.IsValid(contentId) &&
+            RinUnityIds.IsValid(worldId) &&
+            RinUnityIds.IsValid(actorId) &&
+            !string.IsNullOrWhiteSpace(contentVersion) &&
+            contentVersion.Length <= 64 &&
+            RinUnityIds.IsDigest(contentHash) &&
+            !string.IsNullOrWhiteSpace(actorDisplayName);
     }
 
     private void TrimAppliedMarkers()
@@ -768,20 +972,6 @@ public sealed class RinUnityWorkflow : MonoBehaviour
         return values;
     }
 
-    private static bool IsDigest(string value)
-    {
-        if (value == null || value.Length != 64) return false;
-        foreach (var character in value)
-        {
-            if (!((character >= '0' && character <= '9') ||
-                (character >= 'a' && character <= 'f')))
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
     private static string TerminalStatus(string value)
     {
         switch (value)
@@ -802,43 +992,63 @@ public sealed class RinUnityWorkflow : MonoBehaviour
         return string.IsNullOrWhiteSpace(value) ? fallback : value;
     }
 
-    [Serializable]
-    private sealed class DurableState
-    {
-        public int schemaVersion;
-        public string runId;
-        public long operationSequence;
-        public long hostEpoch;
-        public long worldEpoch;
-        public long timelineEpoch;
-        public long observationSequence;
-        public long lastAuthoritativeTick;
-        public PendingTurnState pendingTurn;
-        public AppliedMarker[] applied;
-        public ReportOutboxEntry[] reportOutbox;
-    }
+}
 
-    [Serializable]
-    private sealed class PendingTurnState
-    {
-        public int version;
-        public string operation_id;
-        public ObserveRequest observation;
-        public ProposeRequest request;
-    }
+[Serializable]
+internal sealed class DurableState
+{
+    public int schemaVersion;
+    public string runId;
+    public string gameId;
+    public string contentId;
+    public string contentVersion;
+    public string contentHash;
+    public string worldId;
+    public string actorId;
+    public long operationSequence;
+    public long hostEpoch;
+    public long worldEpoch;
+    public long timelineEpoch;
+    public long observationSequence;
+    public long lastAuthoritativeTick;
+    public PendingTurnState pendingTurn;
+    public ActiveRunState activeRun;
+    public AppliedMarker[] applied;
+    public ReportOutboxEntry[] reportOutbox;
+}
 
-    [Serializable]
-    private sealed class AppliedMarker
-    {
-        public string operation_id;
-        public string proposal_id;
-        public ReportActionRequest request;
-    }
+[Serializable]
+internal sealed class PendingTurnState
+{
+    public int version;
+    public string operation_id;
+    public string[] offer_arguments_json;
+    public ObserveRequest observation;
+    public ProposeRequest request;
+}
 
-    [Serializable]
-    private sealed class ReportOutboxEntry
-    {
-        public string key;
-        public ReportActionRequest request;
-    }
+[Serializable]
+internal sealed class ActiveRunState
+{
+    public string operation_id;
+    public string arguments_json;
+    public ActionProposal proposal;
+    public ActionInvocation invocation;
+}
+
+[Serializable]
+internal sealed class AppliedMarker
+{
+    public string operation_id;
+    public string proposal_id;
+    public string arguments_json;
+    public ReportActionRequest request;
+}
+
+[Serializable]
+internal sealed class ReportOutboxEntry
+{
+    public string key;
+    public string arguments_json;
+    public ReportActionRequest request;
 }

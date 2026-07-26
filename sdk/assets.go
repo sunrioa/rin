@@ -36,6 +36,7 @@ const Version = protocol.ContractReleaseVersion
 //go:embed csharp/Rin.Client/AuthoritativeWorkflow.cs
 //go:embed csharp/Rin.Client/HostActions.cs
 //go:embed csharp/Rin.Client/HostDurability.cs
+//go:embed csharp/Rin.Client/JsonValues.cs
 //go:embed csharp/Rin.Client/NetStandardPolyfills.cs
 //go:embed csharp/Rin.Client/OpaqueSnapshots.cs
 //go:embed csharp/Rin.Client/ProposalFreshness.cs

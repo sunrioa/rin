@@ -261,6 +261,23 @@ using (var workflowClient = new RinClient(new RinClientOptions(), workflowHandle
         "request.workflow",
         "actor.workflow",
         5);
+    Require(
+        JsonValues.Equivalent(
+            JsonSerializer.SerializeToElement(
+                new Dictionary<string, object?> { ["count"] = 1, ["ok"] = true }),
+            JsonSerializer.SerializeToElement(
+                new Dictionary<string, object?> { ["ok"] = true, ["count"] = 1.0 })),
+        "JSON-semantic offer comparison depends on property order or number type");
+    using var duplicateJson = JsonDocument.Parse("{\"value\":1,\"value\":1}");
+    using var singleJson = JsonDocument.Parse("{\"value\":1}");
+    Require(
+        !JsonValues.Equivalent(duplicateJson.RootElement, singleJson.RootElement),
+        "duplicate JSON properties bypassed exact offer binding");
+    using var hugeJson = JsonDocument.Parse("1e10000");
+    using var differentHugeJson = JsonDocument.Parse("10e9999");
+    Require(
+        !JsonValues.Equivalent(hugeJson.RootElement, differentHugeJson.RootElement),
+        "out-of-range JSON numbers collapsed during offer binding");
     await coordinator.BeginAsync("operation.workflow", proposeRequest);
     var resolved = await coordinator.ResumeAsync(
         TimeSpan.FromMilliseconds(100),
@@ -268,6 +285,47 @@ using (var workflowClient = new RinClient(new RinClientOptions(), workflowHandle
     Require(
         workflowStore.Attempt?.JobId == "job.workflow",
         "Proposal job identity was not persisted before polling");
+    foreach (var changed in new[]
+    {
+        resolved.Proposal with
+        {
+            Action = resolved.Proposal.Action with
+            {
+                DescriptorDigest = new string('b', 64),
+            },
+        },
+        resolved.Proposal with
+        {
+            Action = resolved.Proposal.Action with
+            {
+                Arguments = JsonSerializer.SerializeToElement(
+                    new Dictionary<string, object?> { ["injected"] = true }),
+            },
+        },
+        resolved.Proposal with
+        {
+            DecisionWindow = resolved.Proposal.DecisionWindow with
+            {
+                Deadline = new Timepoint("event", 7),
+            },
+        },
+    })
+    {
+        try
+        {
+            ProposalAttemptCoordinator.RequireResolvedProposalMatches(
+                resolved.Attempt,
+                changed);
+            throw new InvalidOperationException(
+                "mutated Proposal matched the durable Offer");
+        }
+        catch (RinProtocolException exception)
+        {
+            Require(
+                exception.Code == "invalid_job",
+                "mutated Proposal returned the wrong error");
+        }
+    }
     var applied = 0;
     await coordinator.SettleAsync(
         resolved.Attempt,

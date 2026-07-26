@@ -70,6 +70,8 @@ unchecked item is not a supported feature.
   forks, and old-worker invalidation
 - [x] Fabric integrated/dedicated logical-server authority, lifecycle Epochs,
   stale-work rejection, and official dedicated-server GameTest
+- [x] Unity Domain/Scene authority, durable Active Runs, cancellable NavMesh
+  long actions, and late-callback rejection
 - [x] Permanent request/Event ID history and fail-closed uncertain-append reconciliation
 - [x] Trusted Restore Binding, Snapshot size limits, and explicit checksum trust boundary
 - [x] Lazy Session recovery, range reads, derived checkpoints, and full-history maintenance audit

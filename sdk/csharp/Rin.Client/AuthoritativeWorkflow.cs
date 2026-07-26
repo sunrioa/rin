@@ -121,13 +121,7 @@ public sealed class ProposalAttemptCoordinator
             var proposal = job.Value.GetProperty("proposal")
                 .Deserialize<ActionProposal>() ??
                 throw new JsonException("proposal was null");
-            if (proposal.SessionId != attempt.Request.SessionId ||
-                proposal.RequestId != attempt.Request.RequestId)
-            {
-                throw new RinProtocolException(
-                    "invalid_job",
-                    "Resolved Proposal does not match the durable Attempt");
-            }
+            RequireResolvedProposalMatches(attempt, proposal);
             var duplicate = job.Value.TryGetProperty("duplicate", out var duplicateValue) &&
                 duplicateValue.ValueKind == JsonValueKind.True;
             return new ResolvedProposalAttempt(attempt, proposal, duplicate);
@@ -172,9 +166,8 @@ public sealed class ProposalAttemptCoordinator
         attempt = ValidateAttempt(attempt);
         Guard.NotNull(proposal, nameof(proposal));
         Guard.NotNull(report, nameof(report));
-        if (proposal.SessionId != attempt.Request.SessionId ||
-            proposal.RequestId != attempt.Request.RequestId ||
-            report.SessionId != attempt.Request.SessionId ||
+        RequireResolvedProposalMatches(attempt, proposal);
+        if (report.SessionId != attempt.Request.SessionId ||
             report.Report is null ||
             report.Report.ProposalId != proposal.Id)
         {
@@ -184,6 +177,85 @@ public sealed class ProposalAttemptCoordinator
         }
         RequireIdentifier("request_id", report.RequestId);
         RequireIdentifier("event_id", report.Report.EventId);
+    }
+
+    internal static void RequireResolvedProposalMatches(
+        ProposalAttempt attempt,
+        ActionProposal proposal)
+    {
+        attempt = ValidateAttempt(attempt);
+        Guard.NotNull(proposal, nameof(proposal));
+        var selectedAuthoredOffer = false;
+        foreach (var offer in attempt.Request.Offers)
+        {
+            if (OffersEqual(offer, proposal.Action))
+            {
+                selectedAuthoredOffer = true;
+                break;
+            }
+        }
+        if (!RinIds.IsValid(proposal.Id) ||
+            proposal.SessionId != attempt.Request.SessionId ||
+            proposal.RequestId != attempt.Request.RequestId ||
+            proposal.ActorId != attempt.Request.ActorId ||
+            proposal.Tick != attempt.Request.Tick ||
+            !DecisionWindowsEqual(
+                proposal.DecisionWindow,
+                attempt.Request.DecisionWindow) ||
+            !selectedAuthoredOffer)
+        {
+            throw new RinProtocolException(
+                "invalid_job",
+                "Resolved Proposal does not match the durable Attempt");
+        }
+    }
+
+    private static bool DecisionWindowsEqual(
+        DecisionWindow left,
+        DecisionWindow right)
+    {
+        if (left is null || right is null ||
+            left.Id != right.Id ||
+            left.Mode != right.Mode ||
+            left.Epoch != right.Epoch ||
+            left.ObservationSeq != right.ObservationSeq ||
+            left.OpenedAt != right.OpenedAt ||
+            left.Deadline != right.Deadline ||
+            left.ActorIds.Count != right.ActorIds.Count)
+        {
+            return false;
+        }
+        for (var index = 0; index < left.ActorIds.Count; index++)
+        {
+            if (left.ActorIds[index] != right.ActorIds[index]) return false;
+        }
+        return true;
+    }
+
+    private static bool OffersEqual(ActionOfferInput left, ActionOfferInput right)
+    {
+        if (left is null || right is null ||
+            left.OfferId != right.OfferId ||
+            left.DecisionWindowId != right.DecisionWindowId ||
+            left.ActorId != right.ActorId ||
+            left.Capability != right.Capability ||
+            left.DescriptorDigest != right.DescriptorDigest ||
+            left.Description != right.Description ||
+            left.ExpectedEpoch != right.ExpectedEpoch ||
+            left.ObservationSeq != right.ObservationSeq ||
+            left.Deadline != right.Deadline ||
+            !JsonValues.Equivalent(left.Arguments, right.Arguments))
+        {
+            return false;
+        }
+        var leftTargets = left.Targets ?? Array.Empty<HostRef>();
+        var rightTargets = right.Targets ?? Array.Empty<HostRef>();
+        if (leftTargets.Count != rightTargets.Count) return false;
+        for (var index = 0; index < leftTargets.Count; index++)
+        {
+            if (leftTargets[index] != rightTargets[index]) return false;
+        }
+        return true;
     }
 
     private static ProposalAttempt ValidateAttempt(ProposalAttempt? attempt)

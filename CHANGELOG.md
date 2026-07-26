@@ -89,6 +89,9 @@ release checklist passes. See the [release guide](docs/release-guide.md).
   Real lifecycle events bind fresh Host/Timeline generations, exact Epoch
   checks reject work from an earlier server, shutdown closes authority
   dispatch, and an official dedicated-server GameTest runs during the build.
+- A Unity authority lifecycle with Domain/Scene generations, durable opaque
+  Offer arguments and Active Runs, cancellable long-action handles, stale
+  callback rejection, and a game-owned NavMesh movement example.
 - An OpenAPI 3.1 wire schema at [`api/openapi.json`](api/openapi.json) and a
   [compatibility matrix](docs/compatibility.md).
 - Bounded-frame NDJSON Session Transfer with immutable export boundaries,

@@ -93,11 +93,12 @@ The JavaScript/TypeScript and C# SDKs retain their lower-level
 persistence helpers. JavaScript/TypeScript, C#, and Java also expose a
 higher-level `WorkflowCoordinator` that validates the declared Host Capability
 Profile before applying an action. They deliberately define storage contracts
-instead of shipping an in-memory production default. The Java coordinator also
-JSON-semantically binds the returned Proposal actor, tick, Decision Window, and
+instead of shipping an in-memory production default. The Java and C#
+coordinators also JSON-semantically bind the returned Proposal actor, tick,
+Decision Window, and
 complete Action to an original Offer in the durable request; an Offer ID alone
-is never authority. Equivalent JSON numbers remain equal even when a codec
-changes the concrete Java `Number` type. A transactional settlement
+is never authority. Equivalent JSON numbers remain equal in Java even when a
+codec changes the concrete `Number` type. A transactional settlement
 hook must apply the game effect, persist the applied marker and exact Action Report,
 and remove the Pending Turn atomically. Idempotent hosts instead receive the
 stable operation ID before the Store completes the report transaction. Outbox
@@ -168,6 +169,16 @@ generation at `SERVER_STARTED`, and gates all game work on the owning server
 thread. The build runs an official dedicated-server GameTest. It remains
 `advisory` because `markDirty()` is eventual rather than a durable transaction
 boundary.
+
+The Unity UPM reference keeps a stable playthrough/content binding while each
+managed-domain lifetime advances Host/Timeline and each scene replacement
+advances World. It persists raw authored arguments and an Active Run before
+calling game code. Its cancellable action gate ignores callbacks from replaced
+authority and reconciles an interrupted run as `cancelled` or
+`outcome-unknown`. The NavMesh example maps a sealed movement offer to a
+game-owned destination; it is not a visual-control or arbitrary-coordinate
+interface. Strict stubs exercise this lifecycle on Linux and Windows, but an
+Editor import and Mono/IL2CPP Players remain real-host gates.
 
 The BepInEx reference pins the upstream bleeding-edge, unreleased BepInEx 6
 build `6.0.0-be.785` and separates Unity Mono

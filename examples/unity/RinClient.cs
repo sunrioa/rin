@@ -267,6 +267,19 @@ public sealed class RinClient : MonoBehaviour
 
 internal static class RinUnityJson
 {
+    public static bool IsValidObject(string raw)
+    {
+        try
+        {
+            return JsonUtility.FromJson<RinOpaqueJson>(
+                NormalizeObject(raw)) != null;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
     public static string SerializePropose(ProposeRequest request)
     {
         if (request == null || request.offers == null)
@@ -334,6 +347,20 @@ internal static class RinUnityJson
 
 internal static class RinUnityIds
 {
+    public static bool IsDigest(string value)
+    {
+        if (value == null || value.Length != 64) return false;
+        foreach (var character in value)
+        {
+            if (!((character >= '0' && character <= '9') ||
+                (character >= 'a' && character <= 'f')))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public static bool IsValid(string value)
     {
         if (string.IsNullOrEmpty(value) || value.Length > 128 ||

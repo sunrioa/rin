@@ -2,7 +2,7 @@
   "name": "io.github.sunrioa.rin.unity",
   "version": "0.7.0",
   "displayName": "Rin Unity Adapter",
-  "description": "Typed coroutine transport and restartable Host workflow for Rin Protocol v2.",
+  "description": "Typed coroutine transport, authority epochs, and long-running Host actions for Rin Protocol v2.",
   "unity": "2021.3",
   "author": {
     "name": "Rin contributors"

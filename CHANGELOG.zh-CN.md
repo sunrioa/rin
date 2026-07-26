@@ -80,6 +80,9 @@
   Lifecycle Event 会绑定新的 Host/Timeline Generation，精确 Epoch 校验拒绝旧
   Server 工作，Shutdown 会关闭 Authority Dispatch，Build 会运行官方 Dedicated
   Server GameTest。
+- Unity Authority Lifecycle：Domain/Scene Generation、持久化不透明 Offer
+  参数与 Active Run、可取消长动作 Handle、旧 Callback 拒绝，以及游戏拥有的
+  NavMesh 移动示例。
 - [`api/openapi.json`](api/openapi.json) 中的 OpenAPI 3.1 Wire Schema 与
   [兼容矩阵](docs/compatibility.zh-CN.md)。
 - 有界 frame 的 NDJSON Session Transfer：immutable export boundary、逐 event
