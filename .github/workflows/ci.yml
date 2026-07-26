@@ -211,7 +211,19 @@ jobs:
         with:
           python-version: "3.9"
       - name: Test BepInEx packaging diagnostics
-        run: python -m unittest tools.test_package_bepinex
+        shell: bash
+        run: |
+          set +e
+          output="$(python -m unittest tools.test_package_bepinex 2>&1)"
+          status=$?
+          printf '%s\n' "$output"
+          if [ "$status" -ne 0 ]; then
+            escaped="${output//'%'/'%25'}"
+            escaped="${escaped//$'\r'/'%0D'}"
+            escaped="${escaped//$'\n'/'%0A'}"
+            printf '::error title=BepInEx packaging diagnostics::%s\n' "$escaped"
+          fi
+          exit "$status"
       - name: Build deterministic Mono and IL2CPP install packages
         run: python tools/package_bepinex.py
       - name: Restore BepInEx restart tests from lock files
