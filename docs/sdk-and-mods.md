@@ -54,6 +54,19 @@ the complete client directory from one exact Rin repository revision or
 verified release tag. Do not copy a single client file without its README and
 generated conformance inventory.
 
+For a new Mod, prefer the offline generator so the host project, complete SDK,
+license notice, pinned dependencies, and SHA-256 inventory stay synchronized:
+
+```bash
+rin init mod --list-hosts
+rin init mod --host fabric --id guide_npc \
+  --name "Guide NPC" --namespace io.github.example
+```
+
+The exact command contract, Windows path rules, and build commands are in the
+[Mod scaffolding guide](mod-scaffolding.md). Generation and compilation do not
+replace the [real-host validation matrix](mod-integration-validation.md).
+
 ## Integration lifecycle
 
 Every newly created Session must request the `outcome-reporting-v1` safe

@@ -36,16 +36,25 @@ dotnet restore RinNpc.IL2CPP/RinNpc.IL2CPP.csproj --locked-mode
 dotnet build RinNpc.IL2CPP/RinNpc.IL2CPP.csproj -c Release --no-restore
 ```
 
-从仓库根目录在 Linux、macOS 或 Windows 生成确定性安装 ZIP：
+从本目录在 Linux、macOS 或 Windows 生成并独立复验确定性安装 ZIP：
 
 ```bash
-python tools/package_bepinex.py
+python package_bepinex.py
+python package_bepinex.py --verify-archive dist/rin-npc-bepinex-mono-0.6.0.zip
+python package_bepinex.py --verify-archive dist/rin-npc-bepinex-il2cpp-0.6.0.zip
 ```
+
+仓库根目录的 `python tools/package_bepinex.py` 命令会委托给同一个规范 Helper。
 
 把正确 Backend 的 ZIP 解压到游戏根目录，它会生成
 `BepInEx/plugins/RinNpc`。Mono 包含旧 Unity Mono 所需的
-`System.Text.Json` Runtime 依赖；IL2CPP 包使用其 .NET 6 Runtime。两个包
-都不会复制 BepInEx、Unity 或游戏专用 Interop Assembly。
+`System.Text.Json` Runtime 依赖；IL2CPP 包使用其 .NET 6 Runtime。每个包都会
+拒绝对应受审查 Allowlist 之外的全部 DLL，包括 BepInEx、Unity 或游戏专用
+Interop Assembly；扩展 Allowlist 前必须审查 Runtime File 与再分发 Notice。
+两者都会包含
+`LICENSE-RIN.txt`；Mono ZIP 还会包含并复验 `third-party/` 中经过审查的 .NET
+许可与 Notice，IL2CPP ZIP 则有意省略该 Mono 专用集合。`manifest.json` 会记录每个安装文件的 SHA-256
+Checksum。
 
 首次启动后配置：
 

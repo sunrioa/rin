@@ -1,0 +1,7 @@
+/LICENSE text eol=lf
+/examples/mods/** text=auto eol=lf
+/examples/mods/fabric-rin-npc/gradle/wrapper/gradle-wrapper.jar -text -eol
+/examples/mods/bepinex-rin-npc/third-party/*.txt -whitespace
+/sdk/java/** text=auto eol=lf
+/sdk/csharp/Rin.Client/** text=auto eol=lf
+/sdk/lua/rin.lua text eol=lf

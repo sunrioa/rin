@@ -24,6 +24,7 @@ func TestBilingualDocumentationPairs(t *testing.T) {
 		{"../docs/host-capability-profiles.md", "../docs/host-capability-profiles.zh-CN.md"},
 		{"../docs/migration-v0.6.md", "../docs/migration-v0.6.zh-CN.md"},
 		{"../docs/model-policy.md", "../docs/model-policy.zh-CN.md"},
+		{"../docs/mod-scaffolding.md", "../docs/mod-scaffolding.zh-CN.md"},
 		{"../docs/mod-integration-validation.md", "../docs/mod-integration-validation.zh-CN.md"},
 		{"../docs/outcome-reporting.md", "../docs/outcome-reporting.zh-CN.md"},
 		{"../docs/protocol-v1.md", "../docs/protocol-v1.zh-CN.md"},
@@ -106,6 +107,44 @@ func TestRealHostValidationLimitsRemainExplicit(t *testing.T) {
 		for _, fragment := range fragments {
 			if !strings.Contains(string(payload), fragment) {
 				t.Errorf("%s is missing real-host evidence boundary %q", path, fragment)
+			}
+		}
+	}
+}
+
+func TestModScaffoldingClaimsRemainBounded(t *testing.T) {
+	required := map[string][]string{
+		"../docs/mod-scaffolding.md": {
+			"`fabric`",
+			"`bepinex-mono`",
+			"`bepinex-il2cpp`",
+			"`luanti`",
+			"`advisory`",
+			"Neither result proves",
+			"There is intentionally no overwrite or force mode",
+			"Windows PowerShell",
+			"Follow-up real-game validation",
+		},
+		"../docs/mod-scaffolding.zh-CN.md": {
+			"`fabric`",
+			"`bepinex-mono`",
+			"`bepinex-il2cpp`",
+			"`luanti`",
+			"`advisory`",
+			"两者都不能证明 Mod",
+			"不提供覆盖或 Force 模式",
+			"Windows PowerShell",
+			"后续真实游戏验收",
+		},
+	}
+	for path, fragments := range required {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, fragment := range fragments {
+			if !strings.Contains(string(payload), fragment) {
+				t.Errorf("%s is missing scaffold boundary %q", path, fragment)
 			}
 		}
 	}

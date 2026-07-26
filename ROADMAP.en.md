@@ -58,6 +58,8 @@ unchecked item is not a supported feature.
 - [x] Source-first Python 3.9+, JavaScript/Node 18+, .NET 6+, Java 17+, and Lua 5.1+ clients
 - [x] Unified 20-route OpenAPI 3.1 wire schema and generated SDK route inventory
 - [x] Fabric, BepInEx 6, and loopback-only Luanti example mods
+- [x] Offline deterministic `rin init mod` scaffolds for Fabric, single-backend
+  BepInEx Mono/IL2CPP, and Luanti, including Windows build gates
 - [x] Game-authoritative `outcome-reporting-v1`, Proposal Attempt, and Outcome Outbox semantics
 - [x] Permanent request/Event ID history and fail-closed uncertain-append reconciliation
 - [x] Trusted Restore Binding, Snapshot size limits, and explicit checksum trust boundary

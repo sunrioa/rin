@@ -64,13 +64,13 @@ jobs:
             [ref]$tokens,
             [ref]$errors)
           if ($errors.Count -ne 0) { throw ($errors -join [Environment]::NewLine) }
-      - name: Test bundled File Store and Sidecar lifecycle
+      - name: Test bundled File Store, Sidecar lifecycle, and Mod scaffolding
         shell: bash
         env:
           CGO_ENABLED: "0"
         run: |
           set +e
-          output="$(go test ./store ./cmd/rin 2>&1)"
+          output="$(go test ./store ./cmd/rin ./internal/modscaffold 2>&1)"
           status=$?
           printf '%s\n' "$output"
           if [ "$status" -ne 0 ]; then
@@ -171,6 +171,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: gradle/actions/wrapper-validation@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.x"
+          cache: true
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -178,6 +182,14 @@ jobs:
           cache: gradle
       - name: Build installable Fabric JAR and test Saved Data recovery
         working-directory: examples/mods/fabric-rin-npc
+        run: ./gradlew clean build --no-daemon
+      - name: Generate standalone Fabric scaffold
+        run: >-
+          go run ./cmd/rin init mod --host fabric --id ci_fabric_npc
+          --name "CI Fabric NPC" --namespace io.github.rin_ci
+          --output fabric-generated
+      - name: Build generated Fabric scaffold outside the example tree
+        working-directory: fabric-generated
         run: ./gradlew clean build --no-daemon
 
   bepinex-plugin:
@@ -188,12 +200,16 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.x"
+          cache: true
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "6.0.x"
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.11"
+          python-version: "3.9"
       - name: Test BepInEx packaging diagnostics
         run: python -m unittest tools.test_package_bepinex
       - name: Build deterministic Mono and IL2CPP install packages
@@ -211,10 +227,59 @@ jobs:
         run: >-
           dotnet exec
           RinNpc.Core.Tests/bin/Debug/net6.0/RinNpc.Core.Tests.dll
+      - name: Generate standalone single-backend BepInEx scaffolds
+        run: |
+          go run ./cmd/rin init mod --host bepinex-mono --id ci_mono_npc --name "CI Mono NPC" --namespace io.github.rin_ci --output bepinex-mono-generated
+          go run ./cmd/rin init mod --host bepinex-il2cpp --id ci_il2cpp_npc --name "CI IL2CPP NPC" --namespace io.github.rin_ci --output bepinex-il2cpp-generated
+      - name: Restore generated Mono restart tests from lock files
+        working-directory: bepinex-mono-generated
+        run: dotnet restore CiMonoNpc.Core.Tests/CiMonoNpc.Core.Tests.csproj --locked-mode
+      - name: Build generated Mono restart tests
+        working-directory: bepinex-mono-generated
+        run: >-
+          dotnet build CiMonoNpc.Core.Tests/CiMonoNpc.Core.Tests.csproj
+          -c Release --no-restore --nologo -m:1
+          -p:UseSharedCompilation=false -p:BuildInParallel=false
+      - name: Execute generated Mono restart tests
+        working-directory: bepinex-mono-generated
+        run: >-
+          dotnet exec
+          CiMonoNpc.Core.Tests/bin/Release/net6.0/CiMonoNpc.Core.Tests.dll
+      - name: Restore generated Mono plugin from lock files
+        working-directory: bepinex-mono-generated
+        run: dotnet restore CiMonoNpc.Mono/CiMonoNpc.Mono.csproj --locked-mode
+      - name: Build generated Mono plugin
+        working-directory: bepinex-mono-generated
+        run: >-
+          dotnet build CiMonoNpc.Mono/CiMonoNpc.Mono.csproj
+          -c Release --no-restore --nologo -m:1
+          -p:UseSharedCompilation=false -p:BuildInParallel=false
+      - name: Package and verify generated Mono install ZIP
+        working-directory: bepinex-mono-generated
+        run: |
+          python package_bepinex.py
+          python package_bepinex.py --verify-archive dist/ci-mono-npc-bepinex-mono-0.1.0.zip
+      - name: Restore generated IL2CPP plugin from lock files
+        working-directory: bepinex-il2cpp-generated
+        run: dotnet restore CiIl2cppNpc.IL2CPP/CiIl2cppNpc.IL2CPP.csproj --locked-mode
+      - name: Build generated IL2CPP plugin
+        working-directory: bepinex-il2cpp-generated
+        run: >-
+          dotnet build CiIl2cppNpc.IL2CPP/CiIl2cppNpc.IL2CPP.csproj
+          -c Release --no-restore --nologo -m:1
+          -p:UseSharedCompilation=false -p:BuildInParallel=false
+      - name: Package and verify generated IL2CPP install ZIP
+        working-directory: bepinex-il2cpp-generated
+        run: |
+          python package_bepinex.py
+          python package_bepinex.py --verify-archive dist/ci-il2cpp-npc-bepinex-il2cpp-0.1.0.zip
       - uses: actions/upload-artifact@v7
         with:
           name: bepinex-${{ runner.os }}
-          path: examples/mods/bepinex-rin-npc/dist/*.zip
+          path: |
+            examples/mods/bepinex-rin-npc/dist/*.zip
+            bepinex-mono-generated/dist/*.zip
+            bepinex-il2cpp-generated/dist/*.zip
           if-no-files-found: error
 
   sdk-csharp:
@@ -248,6 +313,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.x"
+          cache: true
       - name: Update package index for Lua
         run: sudo apt-get update
       - name: Install Lua
@@ -258,6 +327,21 @@ jobs:
         run: lua5.4 sdk/lua/test_client.lua
       - name: Test Luanti restart state on Lua 5.1
         run: lua5.1 examples/mods/luanti-rin-npc/test_state.lua
+      - name: Generate standalone Luanti scaffold
+        run: >-
+          go run ./cmd/rin init mod --host luanti --id ci_luanti_npc
+          --name "CI Luanti NPC" --output luanti-generated
+      - name: Parse and test generated Luanti scaffold on Lua 5.1 and 5.4
+        working-directory: luanti-generated
+        run: |
+          luac5.1 -p init.lua
+          luac5.1 -p state.lua
+          luac5.1 -p rin.lua
+          lua5.1 test_state.lua
+          luac5.4 -p init.lua
+          luac5.4 -p state.lua
+          luac5.4 -p rin.lua
+          lua5.4 test_state.lua
       - name: Test Luanti restart state on Lua 5.4
         run: lua5.4 examples/mods/luanti-rin-npc/test_state.lua
       - name: Parse Luanti integration on both Lua versions

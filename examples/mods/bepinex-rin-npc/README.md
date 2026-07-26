@@ -38,18 +38,28 @@ dotnet restore RinNpc.IL2CPP/RinNpc.IL2CPP.csproj --locked-mode
 dotnet build RinNpc.IL2CPP/RinNpc.IL2CPP.csproj -c Release --no-restore
 ```
 
-From the repository root, build deterministic install ZIPs on Linux, macOS,
-or Windows:
+From this directory, build and independently verify deterministic install ZIPs
+on Linux, macOS, or Windows:
 
 ```bash
-python tools/package_bepinex.py
+python package_bepinex.py
+python package_bepinex.py --verify-archive dist/rin-npc-bepinex-mono-0.6.0.zip
+python package_bepinex.py --verify-archive dist/rin-npc-bepinex-il2cpp-0.6.0.zip
 ```
+
+The repository-root `python tools/package_bepinex.py` command delegates to this
+same canonical helper.
 
 Extract the ZIP for the correct backend into the game root. It creates
 `BepInEx/plugins/RinNpc`. The Mono bundle includes the `System.Text.Json`
 runtime dependencies needed by older Unity Mono installations; the IL2CPP
-bundle relies on its .NET 6 runtime. Neither bundle copies BepInEx, Unity, nor
-game-specific interop assemblies.
+bundle relies on its .NET 6 runtime. Each bundle rejects every DLL outside its
+reviewed allowlist, including BepInEx, Unity, and game-specific interop
+assemblies. Review runtime files and redistribution notices before extending
+an allowlist. Both include `LICENSE-RIN.txt`; the Mono ZIP
+also includes the reviewed, content-pinned .NET license and notices from
+`third-party/`, while the IL2CPP ZIP deliberately omits this Mono-only set. Their
+`manifest.json` records every install file's SHA-256 checksum.
 
 Start the game once, then configure:
 

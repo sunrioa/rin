@@ -180,6 +180,12 @@ func TestVersionProjection(t *testing.T) {
 	}
 }
 
+func TestRootHelpReturnsSuccess(t *testing.T) {
+	if err := run([]string{"--help"}); err != nil {
+		t.Fatalf("run(--help) returned %v", err)
+	}
+}
+
 func TestValidateListenAddress(t *testing.T) {
 	tests := []struct {
 		name        string

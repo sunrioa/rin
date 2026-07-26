@@ -16,6 +16,7 @@ Rin `0.6.0` 是 Preview、pre-1.0 软件。文档按公共接口组织，不以�
 | Ren'Py、Godot 与 Unity | [游戏适配器](game-adapters.zh-CN.md) | [Game adapters](game-adapters.md) |
 | 区域、任务与 NPC 动作 | [RPG 事件约定](rpg-events.zh-CN.md) | [RPG event conventions](rpg-events.md) |
 | 跨语言客户端与 Mod | [SDK 与 Mod 套件](sdk-and-mods.zh-CN.md) | [SDK and mod kits](sdk-and-mods.md) |
+| 离线 Mod 项目生成器 | [Mod 脚手架](mod-scaffolding.zh-CN.md) | [Mod scaffolding](mod-scaffolding.md) |
 | 真实游戏稳定性与崩溃验收 | [真实宿主 Mod 验收](mod-integration-validation.zh-CN.md) | [Real-host mod validation](mod-integration-validation.md) |
 | 宿主持久保证与能力分级 | [宿主能力分级](host-capability-profiles.zh-CN.md) | [Host capability profiles](host-capability-profiles.md) |
 | 安全与漏洞报告 | [安全](../SECURITY.md) | [Security](../SECURITY.en.md) |
@@ -30,8 +31,9 @@ Rin `0.6.0` 是 Preview、pre-1.0 软件。文档按公共接口组织，不以�
 | 已交付里程碑与 Preview 门禁 | [路线图](../ROADMAP.md) | [Roadmap](../ROADMAP.en.md) |
 | 仓库总览 | [项目说明](../README.md) | [README](../README.en.md) |
 
-各语言 SDK 快速开始位于 [`sdk/`](../sdk/README.zh-CN.md)。Fabric、
-BepInEx 和 Luanti 安装模板位于 [`examples/mods/`](../examples/mods/)。
+各语言 SDK 快速开始位于 [`sdk/`](../sdk/README.zh-CN.md)。使用
+[`rin init mod`](mod-scaffolding.zh-CN.md) 可以生成自包含的 Fabric、BepInEx
+或 Luanti 项目；规范源码模板仍位于 [`examples/mods/`](../examples/mods/)。
 
 标准 [MIT License](../LICENSE) 英文原文是具有约束力的许可证文本。
 

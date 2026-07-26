@@ -79,6 +79,21 @@ The default listener is `127.0.0.1:7374`. Check the service with:
 curl http://127.0.0.1:7374/health
 ```
 
+Generate a standalone, pinned Mod starting project without downloading a
+template:
+
+```bash
+go run ./cmd/rin init mod --list-hosts
+go run ./cmd/rin init mod \
+  --host fabric --id guide_npc --name "Guide NPC" \
+  --namespace io.github.example
+```
+
+Fabric, BepInEx Mono, BepInEx IL2CPP, and Luanti are supported. The generator
+vendors the complete source-first SDK and refuses to overwrite existing paths;
+see the [Mod scaffolding guide](docs/mod-scaffolding.md) for Windows commands,
+pinned versions, and the real-game validation boundary.
+
 Run the minimal development quickstart:
 
 ```bash

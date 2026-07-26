@@ -57,6 +57,19 @@ go run ./cmd/rin serve -data ./rin-data
 curl http://127.0.0.1:7374/health
 ```
 
+无需下载在线模板，即可生成自包含、固定依赖的 Mod 起始项目：
+
+```bash
+go run ./cmd/rin init mod --list-hosts
+go run ./cmd/rin init mod \
+  --host fabric --id guide_npc --name "Guide NPC" \
+  --namespace io.github.example
+```
+
+当前支持 Fabric、BepInEx Mono、BepInEx IL2CPP 与 Luanti。生成器会内置完整的
+Source-first SDK，并拒绝覆盖已有路径；Windows 命令、固定版本和真实游戏验收
+边界见 [Mod 脚手架指南](docs/mod-scaffolding.zh-CN.md)。
+
 运行最小开发 Quickstart：
 
 ```bash

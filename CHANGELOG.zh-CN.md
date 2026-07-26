@@ -28,6 +28,9 @@
   Generation Job。
 - 源码优先的 Python、JavaScript、C#、Java、Lua Client，以及 Ren'Py、Godot、
   Unity、Fabric、BepInEx、Luanti 接入示例。
+- 离线 `rin init mod` 生成器，可创建独立的 Fabric、单 Backend BepInEx
+  Mono/IL2CPP 与 Luanti 项目，内置 SDK 源码、固定依赖、确定性文件 Hash、
+  Windows 安全路径和禁止覆盖的输出语义。
 - [`api/openapi.json`](api/openapi.json) 中的 OpenAPI 3.1 wire Schema、
   [兼容矩阵](docs/compatibility.zh-CN.md)和
   [v0.6 迁移指南](docs/migration-v0.6.zh-CN.md)。

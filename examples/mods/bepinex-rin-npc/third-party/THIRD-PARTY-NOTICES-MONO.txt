@@ -1,0 +1,49 @@
+Rin BepInEx Mono redistributed dependency notice inventory
+
+This directory contains the reviewed license and third-party notice texts for
+the eight pinned .NET libraries that package_bepinex.py redistributes in the
+BepInEx Mono install ZIP. It does not apply to the IL2CPP package, which does
+not redistribute these libraries.
+
+All eight NuGet packages carry the same Microsoft MIT LICENSE.TXT. Its text is
+stored once as LICENSE-DOTNET.txt with CRLF line endings normalized to LF.
+Identical THIRD-PARTY-NOTICES.TXT files are also stored once and mapped below.
+No notice text has otherwise been edited.
+
+Redistributed library / locked NuGet version / reviewed notice asset:
+
+- Microsoft.Bcl.AsyncInterfaces.dll / Microsoft.Bcl.AsyncInterfaces 8.0.0 /
+  THIRD-PARTY-NOTICES-MICROSOFT-BCL-8.0.txt
+- System.Buffers.dll / System.Buffers 4.5.1 /
+  THIRD-PARTY-NOTICES-DOTNET-STANDARD-2.0.txt
+- System.Memory.dll / System.Memory 4.5.5 /
+  THIRD-PARTY-NOTICES-DOTNET-STANDARD-2.0.txt
+- System.Numerics.Vectors.dll / System.Numerics.Vectors 4.4.0 /
+  THIRD-PARTY-NOTICES-NUMERICS-VECTORS-4.4.txt
+- System.Runtime.CompilerServices.Unsafe.dll /
+  System.Runtime.CompilerServices.Unsafe 6.0.0 /
+  THIRD-PARTY-NOTICES-RUNTIME-UNSAFE-6.0.txt
+- System.Text.Encodings.Web.dll / System.Text.Encodings.Web 8.0.0 /
+  THIRD-PARTY-NOTICES-MICROSOFT-BCL-8.0.txt
+- System.Text.Json.dll / System.Text.Json 8.0.6 /
+  THIRD-PARTY-NOTICES-TEXT-JSON-8.0.6.txt
+- System.Threading.Tasks.Extensions.dll /
+  System.Threading.Tasks.Extensions 4.5.4 /
+  THIRD-PARTY-NOTICES-DOTNET-STANDARD-2.0.txt
+
+Original NuGet file SHA-256 values before CRLF-to-LF normalization:
+
+- shared LICENSE.TXT:
+  d7a68596ab69b06f51ca278a6545148e4269a9381c26d597c13df5d88e08cf5b
+- Microsoft.Bcl.AsyncInterfaces 8.0.0 and System.Text.Encodings.Web 8.0.0
+  THIRD-PARTY-NOTICES.TXT:
+  19c19dcac9f3ee6302cfbc6745bb8e79f08efc4c933eb8dc5509bf14b88347ec
+- System.Buffers 4.5.1, System.Memory 4.5.5, and
+  System.Threading.Tasks.Extensions 4.5.4 THIRD-PARTY-NOTICES.TXT:
+  7864a01e2fdef7e8fdf81b906efb1466f083206affea7ba7e6dadea429754765
+- System.Numerics.Vectors 4.4.0 THIRD-PARTY-NOTICES.TXT:
+  0ef4dce1f4e8965f19a3b8b2f984f337d5c35e5aaf7f8a36b95aec66c301963a
+- System.Runtime.CompilerServices.Unsafe 6.0.0 THIRD-PARTY-NOTICES.TXT:
+  a6344bfb229bc08d1071cec400eea216e307439f961c5943ec1b56d2245acb95
+- System.Text.Json 8.0.6 THIRD-PARTY-NOTICES.TXT:
+  b60b2912da28eaa6518593c9e2efb5334ee062d3c42e80d8fdfa806b3dc52977

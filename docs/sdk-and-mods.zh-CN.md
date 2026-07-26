@@ -49,6 +49,19 @@ SDK 采用源码优先分发，尚未发布到语言 Registry。应从同一个�
 Revision 或已验证 Release Tag Vendor 完整 Client 目录。不要只复制单个 Client
 文件而遗漏 README 和生成的 Conformance Inventory。
 
+新 Mod 应优先使用离线生成器，让宿主工程、完整 SDK、许可证声明、固定依赖与
+SHA-256 清单保持同步：
+
+```bash
+rin init mod --list-hosts
+rin init mod --host fabric --id guide_npc \
+  --name "Guide NPC" --namespace io.github.example
+```
+
+完整命令契约、Windows 路径规则与构建命令见
+[Mod 脚手架指南](mod-scaffolding.zh-CN.md)。生成和编译不能代替
+[真实宿主验收矩阵](mod-integration-validation.zh-CN.md)。
+
 ## 接入生命周期
 
 每个新建 Session 都必须请求 `outcome-reporting-v1` 安全基线。只有

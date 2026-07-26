@@ -38,10 +38,26 @@ func run(arguments []string) (resultErr error) {
 	if len(arguments) > 0 && arguments[0] == "inspect" {
 		return runInspect(arguments[1:], os.Stdout)
 	}
+	if len(arguments) > 0 && arguments[0] == "init" {
+		return runInit(arguments[1:], os.Stdout)
+	}
 	if len(arguments) > 0 && arguments[0] == "serve" {
 		arguments = arguments[1:]
 	}
 	flags := flag.NewFlagSet("rin serve", flag.ContinueOnError)
+	flags.Usage = func() {
+		fmt.Fprint(flags.Output(), `Usage:
+  rin init mod [options]
+  rin inspect [options]
+  rin serve [options]
+  rin version
+
+Run "rin init mod --help" for the offline Mod generator.
+
+Serve options:
+`)
+		flags.PrintDefaults()
+	}
 	address := flags.String("addr", envOr("RIN_ADDR", "127.0.0.1:7374"), "listen address")
 	dataDirectory := flags.String("data", envOr("RIN_DATA_DIR", "./rin-data"), "event and snapshot directory")
 	allowRemote := flags.Bool("allow-remote", false, "allow a non-loopback listen address")
@@ -57,6 +73,9 @@ func run(arguments []string) (resultErr error) {
 		"per-Session managed byte hard limit; 0 disables",
 	)
 	if err := flags.Parse(arguments); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 	if flags.NArg() != 0 {
