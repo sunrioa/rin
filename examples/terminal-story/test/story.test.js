@@ -324,7 +324,9 @@ test("publication creates and reloads a nested save directory", async () => {
   assert.equal(reloaded.game.preference, "coffee");
 });
 
-test("directory publication retries a failed existing-boundary fence", async () => {
+test("POSIX directory publication retries a failed existing-boundary fence", {
+  skip: process.platform === "win32",
+}, async () => {
   const directory = await mkdtemp(join(tmpdir(), "rin-story-fence-test-"));
   const store = new StoryWorkflowStore(
     join(directory, "slot", "chapter", "save.json"),
