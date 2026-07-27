@@ -22,6 +22,8 @@ Generation 的迟到 Callback 会被忽略。Domain Reload 会把持久 Active R
 
 本地校验与协议上限一致：Identifier 最多 96 个安全字符，所有 Wire Counter
 最高为 `9007199254740991`。
+只有合法 ACK `session_id` 与持久化 Report Session 精确一致时，Outcome Outbox
+才会删除对应条目；ACK 缺失或串到其他 Session 时，条目会保留并按原请求重试。
 
 `RinNpcExample` 演示游戏编写的 `movement.move_to` Offer。
 `RinNavMeshAction` 拥有 `NavMeshAgent.SetDestination`，跨帧观察完成、取消时

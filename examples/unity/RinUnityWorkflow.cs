@@ -477,7 +477,10 @@ public sealed class RinUnityWorkflow : MonoBehaviour
             RinUnityStateValidation.RestoreArguments(entry);
             MutationResult result = null;
             yield return rin.ReportAction(entry.request, value => result = value);
-            if (result == null)
+            if (!RinUnityReportValidation.Acknowledgement(
+                SessionId(),
+                entry,
+                result))
             {
                 completed(false);
                 yield break;

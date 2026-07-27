@@ -272,6 +272,11 @@ final class WorkflowCoordinatorTest {
                                         "code", "temporarily_unavailable",
                                         "message", "retry later"));
                     }
+                    if (json.equals("missing-session")) {
+                        return Map.of(
+                                "ok", true,
+                                "data", Map.of("duplicate", false));
+                    }
                     return Map.of(
                             "ok", true,
                             "data", Map.of(
@@ -318,6 +323,41 @@ final class WorkflowCoordinatorTest {
             require(
                     store.outcomes.size() == 1,
                     "wrong-Session ACK removed the durable Outcome");
+            reportBody.set("missing-session");
+            try {
+                new WorkflowCoordinator(client, store).drainOutbox().join();
+                throw new AssertionError("missing-Session ACK was accepted");
+            } catch (java.util.concurrent.CompletionException expected) {
+                require(
+                        expected.getCause() instanceof RinConfigurationException &&
+                                ((RinConfigurationException) expected.getCause())
+                                        .code().equals("invalid_outbox_ack"),
+                        "missing-Session ACK returned the wrong error");
+            }
+            require(
+                    store.outcomes.size() == 1,
+                    "missing-Session ACK removed the durable Outcome");
+            OutcomeOutboxEntry validOutcome = store.outcomes.get(0);
+            Map<String, Object> missingSession =
+                    new LinkedHashMap<>(validOutcome.report());
+            missingSession.remove("session_id");
+            store.outcomes.set(
+                    0,
+                    new OutcomeOutboxEntry(validOutcome.key(), missingSession));
+            try {
+                new WorkflowCoordinator(client, store).drainOutbox().join();
+                throw new AssertionError("missing durable Session reached the transport");
+            } catch (java.util.concurrent.CompletionException expected) {
+                require(
+                        expected.getCause() instanceof RinConfigurationException &&
+                                ((RinConfigurationException) expected.getCause())
+                                        .code().equals("invalid_workflow"),
+                        "missing durable Session returned the wrong error");
+            }
+            require(
+                    store.outcomes.size() == 1,
+                    "malformed durable Outcome was removed");
+            store.outcomes.set(0, validOutcome);
             reportBody.set("success");
             require(
                     new WorkflowCoordinator(client, store).drainOutbox().join() == 1,

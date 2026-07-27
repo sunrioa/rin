@@ -291,6 +291,7 @@ export class OutcomeOutbox {
           );
         }
         const report = cloneProtocolObject(entry.report);
+        requireIdentifier("session_id", report.session_id);
         requireIdentifier("request_id", report.request_id);
         requireIdentifier("event_id", report.report?.event_id);
         const result = await this.client.reportAction(report);

@@ -160,6 +160,7 @@ public final class WorkflowCoordinator {
         if (index >= entries.size()) return CompletableFuture.completedFuture(index);
         OutcomeOutboxEntry entry = Objects.requireNonNull(entries.get(index), "Outbox entry");
         Map<String, Object> request = entry.report();
+        requireIdentifier("session_id", request.get("session_id"));
         requireIdentifier("request_id", request.get("request_id"));
         requireIdentifier("event_id", actionReport(request).get("event_id"));
         return client.reportAction(request)

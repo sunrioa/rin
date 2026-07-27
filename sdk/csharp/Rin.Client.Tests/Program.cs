@@ -221,7 +221,7 @@ using (var typedProposalClient = new RinClient(
         "fresh world Proposal was rejected");
 }
 
-var wrongWorkflowAckSession = false;
+var workflowAckSession = "session.workflow";
 var workflowHandler = new RecordingHandler
 {
     ResponseBodyFactory = request =>
@@ -255,11 +255,13 @@ var workflowHandler = new RecordingHandler
                 },
             });
         }
-        var acknowledgmentSession = wrongWorkflowAckSession
-            ? "session.other"
-            : "session.workflow";
+        if (workflowAckSession.Length == 0)
+        {
+            return "{\"ok\":true,\"data\":{\"revision\":3,\"head_hash\":\"" +
+                new string('a', 64) + "\",\"duplicate\":true}}";
+        }
         return "{\"ok\":true,\"data\":{\"session_id\":\"" +
-            acknowledgmentSession + "\"," +
+            workflowAckSession + "\"," +
             "\"revision\":3,\"head_hash\":\"" + new string('a', 64) +
             "\",\"duplicate\":true}}";
     },
@@ -357,7 +359,7 @@ using (var workflowClient = new RinClient(new RinClientOptions(), workflowHandle
     Require(workflowStore.Outcomes.Count == 1, "settlement did not create Outbox entry");
 
     var outbox = new OutcomeOutbox(workflowClient, workflowStore);
-    wrongWorkflowAckSession = true;
+    workflowAckSession = "session.other";
     try
     {
         await outbox.DrainAsync();
@@ -372,7 +374,42 @@ using (var workflowClient = new RinClient(new RinClientOptions(), workflowHandle
     Require(
         workflowStore.Outcomes.Count == 1,
         "wrong-Session ACK removed the durable Outcome");
-    wrongWorkflowAckSession = false;
+    workflowAckSession = "";
+    try
+    {
+        await outbox.DrainAsync();
+        throw new InvalidOperationException("missing-Session ACK removed an Outcome");
+    }
+    catch (RinConfigurationException exception)
+    {
+        Require(
+            exception.Code == "invalid_outbox_ack",
+            "missing-Session ACK returned the wrong error");
+    }
+    Require(
+        workflowStore.Outcomes.Count == 1,
+        "missing-Session ACK removed the durable Outcome");
+    workflowAckSession = "session.workflow";
+    var validOutcome = workflowStore.Outcomes[0];
+    workflowStore.Outcomes[0] = validOutcome with
+    {
+        Report = validOutcome.Report with { SessionId = "" },
+    };
+    try
+    {
+        await outbox.DrainAsync();
+        throw new InvalidOperationException("missing durable Session reached the transport");
+    }
+    catch (RinConfigurationException exception)
+    {
+        Require(
+            exception.Code == "invalid_outbox",
+            "missing durable Session returned the wrong error");
+    }
+    Require(
+        workflowStore.Outcomes.Count == 1,
+        "malformed durable Outcome was removed");
+    workflowStore.Outcomes[0] = validOutcome;
     Require(await outbox.DrainAsync() == 1, "Outcome Outbox did not drain");
     Require(workflowStore.Outcomes.Count == 0, "acknowledged Outcome was retained");
 

@@ -424,11 +424,23 @@ workflow:drain_outbox("player.fixture", function(count, err)
     assert(not count and err and err.code == "invalid_outbox_ack")
 end)
 assert(#workflow_store.outcomes == 1, "wrong-Session ACK removed the Outcome")
+workflow_ack_session = nil
+workflow:drain_outbox("player.fixture", function(count, err)
+    assert(not count and err and err.code == "invalid_outbox_ack")
+end)
+assert(#workflow_store.outcomes == 1, "missing-Session ACK removed the Outcome")
+local valid_outcome_session = workflow_store.outcomes[1].request.session_id
+workflow_store.outcomes[1].request.session_id = nil
+workflow:drain_outbox("player.fixture", function(count, err)
+    assert(not count and err and err.code == "invalid_outbox")
+end)
+assert(#workflow_store.outcomes == 1, "malformed durable Outcome was removed")
+workflow_store.outcomes[1].request.session_id = valid_outcome_session
 workflow_ack_session = "session.workflow"
 workflow:drain_outbox("player.fixture", function(count, err)
     assert(count == 1 and not err)
 end)
-assert(#workflow_store.outcomes == 0 and workflow_reports == 2)
+assert(#workflow_store.outcomes == 0 and workflow_reports == 3)
 
 workflow_store.attempt = workflow_resolution.attempt
 local accepted_request = rin.immediate_action_report({
@@ -465,7 +477,7 @@ assert(workflow_store.active == nil and #workflow_store.outcomes == 1)
 workflow:drain_outbox("player.fixture", function(count, err)
     assert(count == 1 and not err)
 end)
-assert(#workflow_store.outcomes == 0 and workflow_reports == 3)
+assert(#workflow_store.outcomes == 0 and workflow_reports == 4)
 
 assert(
     rin.proposal_freshness(

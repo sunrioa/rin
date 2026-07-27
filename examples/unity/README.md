@@ -26,6 +26,9 @@ again blindly.
 
 Local validation uses the protocol ceilings: identifiers are at most 96 safe
 characters and all wire counters are at most `9007199254740991`.
+An Outcome Outbox entry is removed only when a valid acknowledgement
+`session_id` exactly matches the durable report Session. Missing or crossed
+acknowledgements leave the entry pending for exact retry.
 
 `RinNpcExample` demonstrates a game-authored `movement.move_to` offer.
 `RinNavMeshAction` owns `NavMeshAgent.SetDestination`, observes completion over

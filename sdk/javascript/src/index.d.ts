@@ -477,7 +477,7 @@ export interface OutcomeOutboxEntry {
 
 export interface OutcomeOutboxStore {
   listOutcomeReports(): Promise<OutcomeOutboxEntry[]>;
-  /** Called only after the central Outbox verifies the ACK Session. */
+  /** Durably removes only the exact entry after the central Outbox verifies its ACK Session. */
   acknowledgeOutcome(entry: OutcomeOutboxEntry, result: MutationResult): Promise<void>;
 }
 

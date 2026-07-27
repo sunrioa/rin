@@ -894,6 +894,7 @@ function Workflow:drain_outbox(key, callback)
                 return
             end
             if type(result) ~= "table" or
+                not is_protocol_identifier(result.session_id) or
                 result.session_id ~= entry.request.session_id then
                 next_entry(workflow_error(
                     "invalid_outbox_ack",

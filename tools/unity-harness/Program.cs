@@ -266,6 +266,24 @@ internal static class Program
             Require(entry.arguments_json == invocation.argumentsJson &&
                 entry.request.report.invocation.argumentsJson == invocation.argumentsJson,
                 "restart changed opaque invocation arguments");
+            Require(
+                !RinUnityReportValidation.Acknowledgement(
+                    epoch.session_id,
+                    entry,
+                    new MutationResult { session_id = "unity.session.other" }),
+                "cross-Session ACK removed a Unity Outcome");
+            Require(
+                !RinUnityReportValidation.Acknowledgement(
+                    epoch.session_id,
+                    entry,
+                    new MutationResult()),
+                "missing-Session ACK removed a Unity Outcome");
+            Require(
+                RinUnityReportValidation.Acknowledgement(
+                    epoch.session_id,
+                    entry,
+                    new MutationResult { session_id = epoch.session_id }),
+                "matching Unity Outcome ACK was rejected");
             Invoke(recovered, "OnDestroy");
 
             var corrupted = JsonUtility.FromJson<DurableState>(

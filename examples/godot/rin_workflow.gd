@@ -312,6 +312,8 @@ func drain_outbox() -> bool:
 		var result = response.get("data")
 		if (
 			not result is Dictionary
+			or typeof(result.get("session_id")) != TYPE_STRING
+			or not HostContract.valid_id(result.get("session_id"))
 			or str(result.get("session_id", ""))
 				!= str(entry["request"].get("session_id", ""))
 		):

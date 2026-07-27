@@ -19,6 +19,17 @@ internal static class RinUnityReportValidation
             Report(sessionId, entry.key, entry.arguments_json, entry.request);
     }
 
+    public static bool Acknowledgement(
+        string sessionId,
+        ReportOutboxEntry entry,
+        MutationResult result)
+    {
+        return Outbox(sessionId, entry) &&
+            result != null &&
+            RinUnityIds.IsValid(result.session_id) &&
+            result.session_id == entry.request.session_id;
+    }
+
     private static bool Report(
         string sessionId,
         string operationId,

@@ -325,7 +325,7 @@ public interface IOutcomeOutboxStore
     ValueTask<IReadOnlyList<OutcomeOutboxEntry>> ListAsync(
         CancellationToken cancellationToken = default);
 
-    /// <summary>Called only after the central Outbox verifies the ACK Session.</summary>
+    /// <summary>Durably removes only the exact entry after its ACK Session is verified.</summary>
     ValueTask AcknowledgeAsync(
         OutcomeOutboxEntry entry,
         MutationResult result,
@@ -364,7 +364,8 @@ public sealed class OutcomeOutbox
             {
                 Guard.NotNull(entry, nameof(entry));
                 var report = Guard.NotNull(entry.Report, nameof(entry.Report));
-                if (!RinIds.IsValid(report.RequestId) ||
+                if (!RinIds.IsValid(report.SessionId) ||
+                    !RinIds.IsValid(report.RequestId) ||
                     report.Report is null ||
                     !RinIds.IsValid(report.Report.EventId))
                 {
