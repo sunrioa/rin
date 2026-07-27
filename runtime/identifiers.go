@@ -300,6 +300,40 @@ func prepareIdentifierEvent(
 	current protocol.IdentifierHistory,
 	event protocol.EventRecord,
 ) (identifierEventDelta, error) {
+	delta, err := decodeIdentifierEventDelta(event)
+	if err != nil {
+		return identifierEventDelta{}, err
+	}
+	if delta.imported != nil {
+		if err := validateIdentifierMerge(current, *delta.imported); err != nil {
+			return identifierEventDelta{}, err
+		}
+	}
+	return delta, nil
+}
+
+func prepareLedgerIdentifierEvent(
+	current identifierLedger,
+	event protocol.EventRecord,
+) (identifierLedger, error) {
+	delta, err := decodeIdentifierEventDelta(event)
+	if err != nil {
+		return identifierLedger{}, err
+	}
+	if delta.imported != nil {
+		if err := validateIdentifierLedgerMerge(
+			current,
+			*delta.imported,
+		); err != nil {
+			return identifierLedger{}, err
+		}
+	}
+	return current.withDelta(delta)
+}
+
+func decodeIdentifierEventDelta(
+	event protocol.EventRecord,
+) (identifierEventDelta, error) {
 	delta := identifierEventDelta{event: event}
 	if event.Type == EventSessionRestored {
 		var payload restoredPayload
@@ -314,9 +348,6 @@ func prepareIdentifierEvent(
 				return identifierEventDelta{}, err
 			}
 		}
-		if err := validateIdentifierMerge(current, imported); err != nil {
-			return identifierEventDelta{}, err
-		}
 		delta.imported = &imported
 	}
 	identity, eventIDs, err := requestIdentityFromEvent(event)
@@ -326,6 +357,47 @@ func prepareIdentifierEvent(
 	delta.request = identity
 	delta.events = eventIDs
 	return delta, nil
+}
+
+func validateIdentifierLedgerMerge(
+	current identifierLedger,
+	imported protocol.IdentifierHistory,
+) error {
+	for requestID, value := range imported.Requests {
+		existing, found, err := current.request(requestID)
+		if err != nil {
+			return err
+		}
+		if !found ||
+			reflect.DeepEqual(existing, value) ||
+			existing.Ambiguous ||
+			value.Ambiguous {
+			continue
+		}
+		return fmt.Errorf(
+			"%w: request id %q identifies different historical operations",
+			ErrCorruptLog,
+			requestID,
+		)
+	}
+	for eventID, value := range imported.Events {
+		existing, found, err := current.event(eventID)
+		if err != nil {
+			return err
+		}
+		if !found ||
+			reflect.DeepEqual(existing, value) ||
+			existing.Ambiguous ||
+			value.Ambiguous {
+			continue
+		}
+		return fmt.Errorf(
+			"%w: event id %q identifies different historical events",
+			ErrCorruptLog,
+			eventID,
+		)
+	}
+	return nil
 }
 
 // applyIdentifierDelta publishes a previously validated delta. Ledger entries
@@ -395,16 +467,7 @@ func validateIdentifierMerge(
 
 func addRequestIdentity(history *protocol.IdentifierHistory, requestID string, value protocol.RequestIdentity) {
 	if existing, found := history.Requests[requestID]; found {
-		existing.Ambiguous = true
-		existing.RequestHash = ""
-		existing.ResultRevision = 0
-		existing.ResultHeadHash = ""
-		existing.Proposal = nil
-		existing.Arbitration = nil
-		if existing.Kind != value.Kind {
-			existing.Kind = ""
-		}
-		history.Requests[requestID] = existing
+		history.Requests[requestID] = mergeRequestIdentity(existing, value)
 		return
 	}
 	history.Requests[requestID] = value
@@ -415,88 +478,30 @@ func addEventIdentity(history *protocol.IdentifierHistory, eventID string, value
 		return
 	}
 	if existing, found := history.Events[eventID]; found {
-		existing.Ambiguous = true
-		if existing.Kind != value.Kind {
-			existing.Kind = ""
-		}
-		if existing.RequestID != value.RequestID {
-			existing.RequestID = ""
-		}
-		existing.Revision = 0
-		history.Events[eventID] = existing
+		history.Events[eventID] = mergeEventIdentity(existing, value)
 		return
 	}
 	history.Events[eventID] = value
 }
 
-func mergeIdentifierHistories(
-	current protocol.IdentifierHistory,
-	imported protocol.IdentifierHistory,
-) (protocol.IdentifierHistory, error) {
-	result, err := cloneIdentifierHistory(current)
-	if err != nil {
-		return protocol.IdentifierHistory{}, err
-	}
-	normalizeIdentifierHistory(&imported)
-	result.CoverageComplete = current.CoverageComplete && imported.CoverageComplete
-	for requestID, value := range imported.Requests {
-		existing, found := result.Requests[requestID]
-		if !found {
-			result.Requests[requestID] = value
-			continue
-		}
-		if reflect.DeepEqual(existing, value) {
-			continue
-		}
-		if existing.Ambiguous || value.Ambiguous {
-			addRequestIdentity(&result, requestID, value)
-			continue
-		}
-		return protocol.IdentifierHistory{}, fmt.Errorf(
-			"%w: request id %q identifies different historical operations",
-			ErrCorruptLog,
-			requestID,
-		)
-	}
-	for eventID, value := range imported.Events {
-		existing, found := result.Events[eventID]
-		if !found {
-			result.Events[eventID] = value
-			continue
-		}
-		if reflect.DeepEqual(existing, value) {
-			continue
-		}
-		if existing.Ambiguous || value.Ambiguous {
-			addEventIdentity(&result, eventID, value)
-			continue
-		}
-		return protocol.IdentifierHistory{}, fmt.Errorf(
-			"%w: event id %q identifies different historical events",
-			ErrCorruptLog,
-			eventID,
-		)
-	}
-	return result, nil
-}
-
-func identifierRequest(
-	history protocol.IdentifierHistory,
+func identifierLedgerRequest(
+	ledger identifierLedger,
 	requestID, kind, digest string,
 ) (protocol.RequestIdentity, bool, error) {
-	identity, found := history.Requests[requestID]
+	identity, found, err := ledger.request(requestID)
+	if err != nil {
+		return protocol.RequestIdentity{}, false, err
+	}
 	if !found {
 		return protocol.RequestIdentity{}, false, nil
 	}
-	if identity.Ambiguous || identity.Kind != kind || identity.RequestHash == "" || identity.RequestHash != digest {
+	if identity.Ambiguous ||
+		identity.Kind != kind ||
+		identity.RequestHash == "" ||
+		identity.RequestHash != digest {
 		return protocol.RequestIdentity{}, true, requestConflict(requestID)
 	}
 	return identity, true, nil
-}
-
-func identifierEventExists(history protocol.IdentifierHistory, eventID string) bool {
-	_, exists := history.Events[eventID]
-	return exists
 }
 
 func mutationResultFromIdentity(

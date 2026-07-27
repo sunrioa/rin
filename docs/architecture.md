@@ -180,6 +180,16 @@ into one provider request. Restore and Transfer lineage changes therefore
 cannot reuse a draft produced for a different authority state, even when a
 world revision repeats.
 
+The permanent Request/Event identity ledger uses one bounded 512-entry hot map
+per loaded Session. Older identities are sealed into immutable encoded
+segments with Bloom routing; a normal new identifier avoids decoding cold
+segments, while an old exact retry decodes only candidate segments. Snapshot
+and checkpoint creation capture immutable segment references under the Session
+lock and materialize the complete protocol `IdentifierHistory` outside it.
+The public Snapshot and Transfer formats therefore remain complete and
+unchanged, but a million-turn Session no longer requires a million-entry Go
+map to remain resident.
+
 ### Async jobs
 
 `jobs.Manager` uses bounded workers and a bounded queue. A game first submits

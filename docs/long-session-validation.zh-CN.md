@@ -12,6 +12,11 @@ Rin 不会把 NPC 的完整生命周期塞进应用日志或一个不断增长�
 | 可选语义检索 | 可丢弃 `MemoryIndex`；重建或删除不会修改权威 History |
 | 运维日志/Telemetry | 不含内容的 Request 与 Lifecycle Metadata；保留由外部日志轮转负责 |
 
+已加载 Session 只保留最多 512 项的 Hot Identity Map。永久的旧 Request/Event
+Identity 存放在带 Bloom 路由的不可变编码 Segment 中；只有显式
+Snapshot/Checkpoint 操作才临时物化完整 Payload。Hot Map 淘汰后，Exact Retry
+与废弃分支 ID 永不复用仍保持权威并有测试覆盖。
+
 随附 File Store 会 gzip 压缩可重建 Checkpoint，同时让权威 Hash-chained
 Event Log 保持普通 JSONL。
 
@@ -34,7 +39,7 @@ Archive Session 会冻结 Event Chain Anchor 并把 Session 设为只读，但�
 
 测试会确认：权威 Revision/Head 在重启后不变，详细 Memory 有界，较旧 Memory
 形成 Summary，Event/Index/Snapshot 字节统计非零，历史查询仍有效，并且关闭
-Store 前会排空 Checkpoint Worker。
+Store 前会排空 Checkpoint Worker；分段 Index 淘汰后旧 Exact Retry 仍可恢复。
 
 完整 365 天容量测试作为独立普通测试门禁运行。Race Build 会排除这一项磁盘容量
 测试，以保持在 Go 标准测试超时内；完整 Race Suite 仍覆盖 File Store Artifact

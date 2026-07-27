@@ -35,8 +35,18 @@ func (e *Engine) ensureLoaded(session *managedSession) error {
 			ErrCorruptLog,
 		)
 	}
+	ledger, err := identifierLedgerFromHistory(identifiers)
+	if err != nil {
+		session.lastLoadErrorCode = "replay_failed"
+		session.mu.Unlock()
+		return NewError(
+			"replay_failed",
+			"session identifier history could not be indexed",
+			err,
+		)
+	}
 	session.state = state
-	session.identifiers = identifiers
+	session.identifiers = ledger
 	session.lineageEpoch = lineageEpoch
 	if lifecycle, ok := e.store.(LifecycleStore); ok {
 		status, lifecycleErr := lifecycle.Lifecycle(session.id)
@@ -480,7 +490,7 @@ func loadVerifiedAnchor(
 
 type checkpointCapture struct {
 	state        protocol.SessionState
-	identifiers  protocol.IdentifierHistory
+	identifiers  identifierLedger
 	lineageEpoch uint64
 }
 
@@ -518,27 +528,7 @@ func (e *Engine) queueCheckpointLocked(session *managedSession) {
 		// therefore the published object graph is immutable once captured here.
 		state:        session.state,
 		lineageEpoch: session.lineageEpoch,
-		identifiers: protocol.IdentifierHistory{
-			Version:          session.identifiers.Version,
-			CoverageComplete: session.identifiers.CoverageComplete,
-			Requests: make(
-				map[string]protocol.RequestIdentity,
-				len(session.identifiers.Requests),
-			),
-			Events: make(
-				map[string]protocol.EventIdentity,
-				len(session.identifiers.Events),
-			),
-		},
-	}
-	// Identifier ledger entries are immutable after insertion (including the
-	// pointed-to Proposal/Arbitration values), so shallow map snapshots detach
-	// map ownership without doing linear JSON work under the mutation lock.
-	for requestID, identity := range session.identifiers.Requests {
-		capture.identifiers.Requests[requestID] = identity
-	}
-	for eventID, identity := range session.identifiers.Events {
-		capture.identifiers.Events[eventID] = identity
+		identifiers:  session.identifiers.capture(),
 	}
 
 	session.checkpointMu.Lock()
@@ -567,11 +557,15 @@ func (e *Engine) runCheckpointWorker(
 ) {
 	defer e.finishCheckpointWorker()
 	for {
-		checkpoint, err := BuildCheckpoint(
-			capture.state,
-			capture.identifiers,
-			capture.lineageEpoch,
-		)
+		identifiers, err := capture.identifiers.materialize()
+		var checkpoint Checkpoint
+		if err == nil {
+			checkpoint, err = BuildCheckpoint(
+				capture.state,
+				identifiers,
+				capture.lineageEpoch,
+			)
+		}
 		if err == nil {
 			// A checkpoint is only a derived cache. A failure here must never
 			// reverse a mutation whose event is already durable and published.

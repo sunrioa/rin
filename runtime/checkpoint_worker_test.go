@@ -250,7 +250,14 @@ func BenchmarkCheckpointBoundaryCapture(b *testing.B) {
 
 	close(release)
 	waitCheckpointSignal(b, finished, "benchmark checkpoint save did not finish")
-	b.ReportMetric(float64(len(session.identifiers.Requests)), "request-identities")
+	identifiers, err := session.identifiers.materialize()
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportMetric(
+		float64(len(identifiers.Requests)),
+		"request-identities",
+	)
 }
 
 type checkpointBaseStore struct {

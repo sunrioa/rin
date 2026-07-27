@@ -20,7 +20,7 @@ type managedSession struct {
 	id                 string
 	loaded             bool
 	state              protocol.SessionState
-	identifiers        protocol.IdentifierHistory
+	identifiers        identifierLedger
 	uncertainMutations map[string]uncertainMutationAppend
 	lineageEpoch       uint64
 	archived           bool
@@ -35,6 +35,66 @@ type managedSession struct {
 type uncertainMutationAppend struct {
 	event       protocol.EventRecord
 	requestHash string
+}
+
+func newLoadedManagedSession(
+	id string,
+	state protocol.SessionState,
+	identifiers protocol.IdentifierHistory,
+	lineageEpoch uint64,
+) (*managedSession, error) {
+	ledger, err := identifierLedgerFromHistory(identifiers)
+	if err != nil {
+		return nil, NewError(
+			"identifier_index_failed",
+			"could not build the bounded identifier index",
+			err,
+		)
+	}
+	return &managedSession{
+		id:           id,
+		loaded:       true,
+		state:        state,
+		identifiers:  ledger,
+		lineageEpoch: lineageEpoch,
+	}, nil
+}
+
+func retainedRequestIdentity(
+	identifiers identifierLedger,
+	requestID string,
+) (protocol.RequestIdentity, error) {
+	identity, found, err := identifiers.request(requestID)
+	if err != nil {
+		return protocol.RequestIdentity{}, NewError(
+			"identifier_index_failed",
+			"could not read the bounded identifier index",
+			err,
+		)
+	}
+	if !found {
+		return protocol.RequestIdentity{}, NewError(
+			"identifier_index_failed",
+			"the persisted request identity is unavailable",
+			ErrCorruptLog,
+		)
+	}
+	return identity, nil
+}
+
+func retainedEventExists(
+	identifiers identifierLedger,
+	eventID string,
+) (bool, error) {
+	_, found, err := identifiers.event(eventID)
+	if err != nil {
+		return false, NewError(
+			"identifier_index_failed",
+			"could not read the bounded identifier index",
+			err,
+		)
+	}
+	return found, nil
 }
 
 type sessionLifecycleGate struct {
@@ -219,8 +279,14 @@ func (e *Engine) CreateSession(request protocol.CreateSessionRequest) (protocol.
 		if confirmErr != nil {
 			return protocol.MutationResult{}, confirmErr
 		}
-		managed := &managedSession{
-			id: request.SessionID, loaded: true, state: state, identifiers: identifiers,
+		managed, err := newLoadedManagedSession(
+			request.SessionID,
+			state,
+			identifiers,
+			0,
+		)
+		if err != nil {
+			return protocol.MutationResult{}, err
 		}
 		managed.mu.Lock()
 		e.queueCheckpointLocked(managed)
@@ -229,7 +295,13 @@ func (e *Engine) CreateSession(request protocol.CreateSessionRequest) (protocol.
 		delete(e.pendingCreates, request.SessionID)
 		e.sessions[request.SessionID] = managed
 		e.mu.Unlock()
-		identity := identifiers.Requests[request.RequestID]
+		identity, err := retainedRequestIdentity(
+			managed.identifiers,
+			request.RequestID,
+		)
+		if err != nil {
+			return protocol.MutationResult{}, err
+		}
 		return mutationResultFromIdentity(state.SessionID, identity, false), nil
 	}
 	if exists {
@@ -238,7 +310,7 @@ func (e *Engine) CreateSession(request protocol.CreateSessionRequest) (protocol.
 		}
 		existing.mu.Lock()
 		defer existing.mu.Unlock()
-		identity, used, lookupErr := identifierRequest(
+		identity, used, lookupErr := identifierLedgerRequest(
 			existing.identifiers,
 			request.RequestID,
 			EventSessionCreated,
@@ -276,8 +348,14 @@ func (e *Engine) CreateSession(request protocol.CreateSessionRequest) (protocol.
 		}
 		return protocol.MutationResult{}, err
 	}
-	managed := &managedSession{
-		id: request.SessionID, loaded: true, state: state, identifiers: identifiers,
+	managed, err := newLoadedManagedSession(
+		request.SessionID,
+		state,
+		identifiers,
+		0,
+	)
+	if err != nil {
+		return protocol.MutationResult{}, err
 	}
 	managed.mu.Lock()
 	e.queueCheckpointLocked(managed)
@@ -285,7 +363,14 @@ func (e *Engine) CreateSession(request protocol.CreateSessionRequest) (protocol.
 	e.mu.Lock()
 	e.sessions[request.SessionID] = managed
 	e.mu.Unlock()
-	return mutationResultFromIdentity(state.SessionID, identifiers.Requests[request.RequestID], false), nil
+	identity, err := retainedRequestIdentity(
+		managed.identifiers,
+		request.RequestID,
+	)
+	if err != nil {
+		return protocol.MutationResult{}, err
+	}
+	return mutationResultFromIdentity(state.SessionID, identity, false), nil
 }
 
 func (e *Engine) Observe(request protocol.ObserveRequest) (protocol.MutationResult, error) {
@@ -330,7 +415,12 @@ func (e *Engine) Observe(request protocol.ObserveRequest) (protocol.MutationResu
 	if err := validateFactVisibility(session.state, request.Facts, "facts"); err != nil {
 		return protocol.MutationResult{}, err
 	}
-	if identifierEventExists(session.identifiers, request.EventID) {
+	if exists, lookupErr := retainedEventExists(
+		session.identifiers,
+		request.EventID,
+	); lookupErr != nil {
+		return protocol.MutationResult{}, lookupErr
+	} else if exists {
 		return protocol.MutationResult{}, NewFieldError("event_exists", "event id was already observed", "event_id", ErrConflict)
 	}
 	event, err := newEvent(
@@ -346,9 +436,16 @@ func (e *Engine) Observe(request protocol.ObserveRequest) (protocol.MutationResu
 	if err := e.appendAndApply(session, event); err != nil {
 		return protocol.MutationResult{}, err
 	}
+	identity, err = retainedRequestIdentity(
+		session.identifiers,
+		request.RequestID,
+	)
+	if err != nil {
+		return protocol.MutationResult{}, err
+	}
 	return mutationResultFromIdentity(
 		session.state.SessionID,
-		session.identifiers.Requests[request.RequestID],
+		identity,
 		false,
 	), nil
 }
@@ -595,7 +692,14 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 	if err := e.appendAndApply(session, event); err != nil {
 		return protocol.ActionProposal{}, false, err
 	}
-	result, resultErr := proposalFromIdentity(session.identifiers.Requests[request.RequestID])
+	identity, err = retainedRequestIdentity(
+		session.identifiers,
+		request.RequestID,
+	)
+	if err != nil {
+		return protocol.ActionProposal{}, false, err
+	}
+	result, resultErr := proposalFromIdentity(identity)
 	return result, false, resultErr
 }
 
@@ -661,7 +765,12 @@ func (e *Engine) ReportAction(request protocol.ReportActionRequest) (protocol.Mu
 	if err := validateFactVisibility(session.state, report.Facts, "report.facts"); err != nil {
 		return protocol.MutationResult{}, err
 	}
-	if identifierEventExists(session.identifiers, report.EventID) {
+	if exists, lookupErr := retainedEventExists(
+		session.identifiers,
+		report.EventID,
+	); lookupErr != nil {
+		return protocol.MutationResult{}, lookupErr
+	} else if exists {
 		return protocol.MutationResult{}, NewFieldError("event_exists", "event id was already observed or reported", "report.event_id", ErrConflict)
 	}
 	actor := session.state.Actors[proposal.ActorID]
@@ -698,9 +807,16 @@ func (e *Engine) ReportAction(request protocol.ReportActionRequest) (protocol.Mu
 	if err := e.appendAndApply(session, event); err != nil {
 		return protocol.MutationResult{}, err
 	}
+	identity, err = retainedRequestIdentity(
+		session.identifiers,
+		request.RequestID,
+	)
+	if err != nil {
+		return protocol.MutationResult{}, err
+	}
 	return mutationResultFromIdentity(
 		session.state.SessionID,
-		session.identifiers.Requests[request.RequestID],
+		identity,
 		false,
 	), nil
 }
@@ -938,7 +1054,12 @@ func (e *Engine) ReportActionBatch(request protocol.BatchActionReportRequest) (p
 			return protocol.MutationResult{}, NewFieldError("duplicate_actor", "batch may contain at most one proposal per actor", "reports", ErrConflict)
 		}
 		actors[proposal.ActorID] = struct{}{}
-		if identifierEventExists(session.identifiers, report.EventID) {
+		if exists, lookupErr := retainedEventExists(
+			session.identifiers,
+			report.EventID,
+		); lookupErr != nil {
+			return protocol.MutationResult{}, lookupErr
+		} else if exists {
 			return protocol.MutationResult{}, NewFieldError("event_exists", "batch event id was already observed", field+".event_id", ErrConflict)
 		}
 		if _, duplicate := eventIDs[report.EventID]; duplicate {
@@ -980,9 +1101,16 @@ func (e *Engine) ReportActionBatch(request protocol.BatchActionReportRequest) (p
 	if err := e.appendAndApply(session, event); err != nil {
 		return protocol.MutationResult{}, err
 	}
+	identity, err = retainedRequestIdentity(
+		session.identifiers,
+		request.RequestID,
+	)
+	if err != nil {
+		return protocol.MutationResult{}, err
+	}
 	return mutationResultFromIdentity(
 		session.state.SessionID,
-		session.identifiers.Requests[request.RequestID],
+		identity,
 		false,
 	), nil
 }
@@ -1045,9 +1173,16 @@ func (e *Engine) SetActorActivity(request protocol.SetActorActivityRequest) (pro
 	if err := e.appendAndApply(session, event); err != nil {
 		return protocol.MutationResult{}, err
 	}
+	identity, err = retainedRequestIdentity(
+		session.identifiers,
+		request.RequestID,
+	)
+	if err != nil {
+		return protocol.MutationResult{}, err
+	}
 	return mutationResultFromIdentity(
 		session.state.SessionID,
-		session.identifiers.Requests[request.RequestID],
+		identity,
 		false,
 	), nil
 }
@@ -1136,7 +1271,14 @@ func (e *Engine) Arbitrate(request protocol.ArbitrateRequest) (protocol.Arbitrat
 	if err := e.appendAndApply(session, event); err != nil {
 		return protocol.ArbitrationRecord{}, false, err
 	}
-	result, resultErr := arbitrationFromIdentity(session.identifiers.Requests[request.RequestID])
+	identity, err = retainedRequestIdentity(
+		session.identifiers,
+		request.RequestID,
+	)
+	if err != nil {
+		return protocol.ArbitrationRecord{}, false, err
+	}
+	result, resultErr := arbitrationFromIdentity(identity)
 	return result, false, resultErr
 }
 
@@ -1177,8 +1319,18 @@ func (e *Engine) Snapshot(request protocol.SessionRequest) (protocol.Snapshot, e
 		return protocol.Snapshot{}, err
 	}
 	session.mu.Lock()
-	snapshot, err := snapshotWithIdentifiers(session.state, session.identifiers)
+	state := session.state
+	identifiers := session.identifiers.capture()
 	session.mu.Unlock()
+	history, err := identifiers.materialize()
+	if err != nil {
+		return protocol.Snapshot{}, NewError(
+			"snapshot_failed",
+			"could not read the bounded identifier index",
+			err,
+		)
+	}
+	snapshot, err := snapshotWithIdentifiers(state, history)
 	if err != nil {
 		if ErrorCode(err) == "snapshot_too_large" {
 			return protocol.Snapshot{}, err
@@ -1259,9 +1411,14 @@ func (e *Engine) Restore(request protocol.RestoreRequest) (protocol.MutationResu
 		if confirmErr != nil {
 			return protocol.MutationResult{}, confirmErr
 		}
-		managed := &managedSession{
-			id: request.SessionID, loaded: true,
-			state: state, identifiers: identifiers, lineageEpoch: 1,
+		managed, err := newLoadedManagedSession(
+			request.SessionID,
+			state,
+			identifiers,
+			1,
+		)
+		if err != nil {
+			return protocol.MutationResult{}, err
 		}
 		managed.mu.Lock()
 		e.queueCheckpointLocked(managed)
@@ -1270,20 +1427,20 @@ func (e *Engine) Restore(request protocol.RestoreRequest) (protocol.MutationResu
 		delete(e.pendingCreates, request.SessionID)
 		e.sessions[request.SessionID] = managed
 		e.mu.Unlock()
+		identity, err := retainedRequestIdentity(
+			managed.identifiers,
+			request.RequestID,
+		)
+		if err != nil {
+			return protocol.MutationResult{}, err
+		}
 		return mutationResultFromIdentity(
 			state.SessionID,
-			identifiers.Requests[request.RequestID],
+			identity,
 			false,
 		), nil
 	}
 	if !exists {
-		if _, mergeErr := mergeIdentifierHistories(newIdentifierHistory(true), importedIdentifiers); mergeErr != nil {
-			return protocol.MutationResult{}, NewError(
-				"identifier_history_conflict",
-				"snapshot identifier history conflicts with the target lineage",
-				errors.Join(ErrConflict, mergeErr),
-			)
-		}
 		event, err := newEvent(
 			protocol.SessionState{},
 			EventSessionRestored,
@@ -1312,9 +1469,14 @@ func (e *Engine) Restore(request protocol.RestoreRequest) (protocol.MutationResu
 			}
 			return protocol.MutationResult{}, err
 		}
-		managed := &managedSession{
-			id: request.SessionID, loaded: true,
-			state: state, identifiers: identifiers, lineageEpoch: 1,
+		managed, err := newLoadedManagedSession(
+			request.SessionID,
+			state,
+			identifiers,
+			1,
+		)
+		if err != nil {
+			return protocol.MutationResult{}, err
 		}
 		managed.mu.Lock()
 		e.queueCheckpointLocked(managed)
@@ -1322,9 +1484,16 @@ func (e *Engine) Restore(request protocol.RestoreRequest) (protocol.MutationResu
 		e.mu.Lock()
 		e.sessions[request.SessionID] = managed
 		e.mu.Unlock()
+		identity, err := retainedRequestIdentity(
+			managed.identifiers,
+			request.RequestID,
+		)
+		if err != nil {
+			return protocol.MutationResult{}, err
+		}
 		return mutationResultFromIdentity(
 			state.SessionID,
-			identifiers.Requests[request.RequestID],
+			identity,
 			false,
 		), nil
 	}
@@ -1355,7 +1524,10 @@ func (e *Engine) Restore(request protocol.RestoreRequest) (protocol.MutationResu
 	if handled {
 		return mutationResultFromIdentity(session.state.SessionID, identity, duplicate), nil
 	}
-	if _, mergeErr := mergeIdentifierHistories(session.identifiers, importedIdentifiers); mergeErr != nil {
+	if mergeErr := validateIdentifierLedgerMerge(
+		session.identifiers,
+		importedIdentifiers,
+	); mergeErr != nil {
 		return protocol.MutationResult{}, NewError(
 			"identifier_history_conflict",
 			"snapshot identifier history conflicts with the current lineage",
@@ -1379,9 +1551,16 @@ func (e *Engine) Restore(request protocol.RestoreRequest) (protocol.MutationResu
 	if err := e.appendAndApply(session, event); err != nil {
 		return protocol.MutationResult{}, err
 	}
+	identity, err = retainedRequestIdentity(
+		session.identifiers,
+		request.RequestID,
+	)
+	if err != nil {
+		return protocol.MutationResult{}, err
+	}
 	return mutationResultFromIdentity(
 		session.state.SessionID,
-		session.identifiers.Requests[request.RequestID],
+		identity,
 		false,
 	), nil
 }
@@ -1592,13 +1771,18 @@ func (e *Engine) resolveMutationRetry(
 	requestID, kind, requestHash string,
 	compatibleRequestHashes ...string,
 ) (protocol.RequestIdentity, bool, bool, error) {
-	identity, used, err := identifierRequest(session.identifiers, requestID, kind, requestHash)
+	identity, used, err := identifierLedgerRequest(
+		session.identifiers,
+		requestID,
+		kind,
+		requestHash,
+	)
 	if err != nil {
 		for _, compatibleHash := range compatibleRequestHashes {
 			if compatibleHash == requestHash {
 				continue
 			}
-			compatibleIdentity, compatibleUsed, compatibleErr := identifierRequest(
+			compatibleIdentity, compatibleUsed, compatibleErr := identifierLedgerRequest(
 				session.identifiers,
 				requestID,
 				kind,
@@ -1628,7 +1812,11 @@ func (e *Engine) resolveMutationRetry(
 			return protocol.RequestIdentity{}, false, false, err
 		}
 		delete(session.uncertainMutations, requestID)
-		return session.identifiers.Requests[requestID], true, false, nil
+		identity, identityErr := retainedRequestIdentity(
+			session.identifiers,
+			requestID,
+		)
+		return identity, true, false, identityErr
 	}
 	if len(session.uncertainMutations) > 0 {
 		return protocol.RequestIdentity{}, false, false, unresolvedMutationError(session)
@@ -1664,7 +1852,10 @@ func (e *Engine) appendAndApply(session *managedSession, event protocol.EventRec
 	if err := ensureSessionStateSize(state, e.maxSessionStateBytes); err != nil {
 		return err
 	}
-	identifierDelta, err := prepareIdentifierEvent(session.identifiers, event)
+	identifierCandidate, err := prepareLedgerIdentifierEvent(
+		session.identifiers,
+		event,
+	)
 	if err != nil {
 		return NewError("event_apply_failed", "event identifiers could not be applied", err)
 	}
@@ -1692,7 +1883,7 @@ func (e *Engine) appendAndApply(session *managedSession, event protocol.EventRec
 				// Hash were regenerated.
 				if retryErr := e.store.Append(session.state.SessionID, tail); retryErr == nil {
 					session.state = reconciledState
-					applyIdentifierDelta(&session.identifiers, reconciledIdentifiers)
+					session.identifiers = reconciledIdentifiers
 					advanceLineageEpoch(session, tail)
 					e.maybeSaveCheckpoint(session, tail)
 					return nil
@@ -1714,7 +1905,7 @@ func (e *Engine) appendAndApply(session *managedSession, event protocol.EventRec
 		return e.rememberUncertainMutation(session, event, appendErr)
 	}
 	session.state = state
-	applyIdentifierDelta(&session.identifiers, identifierDelta)
+	session.identifiers = identifierCandidate
 	advanceLineageEpoch(session, event)
 	e.maybeSaveCheckpoint(session, event)
 	return nil
@@ -1958,36 +2149,39 @@ func (e *Engine) createAndConfirm(
 
 func reconcileTail(
 	current protocol.SessionState,
-	currentIdentifiers protocol.IdentifierHistory,
+	currentIdentifiers identifierLedger,
 	events []protocol.EventRecord,
 	event protocol.EventRecord,
 ) (
 	protocol.EventRecord,
 	protocol.SessionState,
-	identifierEventDelta,
+	identifierLedger,
 	bool,
 	error,
 ) {
 	if len(events) == 0 {
-		return protocol.EventRecord{}, protocol.SessionState{}, identifierEventDelta{}, false, nil
+		return protocol.EventRecord{}, protocol.SessionState{}, identifierLedger{}, false, nil
 	}
 	tail := events[len(events)-1]
 	sameSequenceAndHash := tail.Sequence == event.Sequence && tail.Hash == event.Hash
 	if !sameSequenceAndHash && !eventsLogicallyEqual(tail, event) {
-		return protocol.EventRecord{}, protocol.SessionState{}, identifierEventDelta{}, false, nil
+		return protocol.EventRecord{}, protocol.SessionState{}, identifierLedger{}, false, nil
 	}
 	reconciled, err := clone(current)
 	if err != nil {
-		return protocol.EventRecord{}, protocol.SessionState{}, identifierEventDelta{}, false, err
+		return protocol.EventRecord{}, protocol.SessionState{}, identifierLedger{}, false, err
 	}
 	normalizeWritableState(&reconciled)
 	reconciled, err = applyEvent(reconciled, tail)
 	if err != nil {
-		return protocol.EventRecord{}, protocol.SessionState{}, identifierEventDelta{}, false, err
+		return protocol.EventRecord{}, protocol.SessionState{}, identifierLedger{}, false, err
 	}
-	reconciledIdentifiers, err := prepareIdentifierEvent(currentIdentifiers, tail)
+	reconciledIdentifiers, err := prepareLedgerIdentifierEvent(
+		currentIdentifiers,
+		tail,
+	)
 	if err != nil {
-		return protocol.EventRecord{}, protocol.SessionState{}, identifierEventDelta{}, false, err
+		return protocol.EventRecord{}, protocol.SessionState{}, identifierLedger{}, false, err
 	}
 	return tail, reconciled, reconciledIdentifiers, true, nil
 }

@@ -127,6 +127,13 @@ Actor State 的 Digest 与语义请求建立有界内存缓存。相同 Key 的�
 供应商请求；Restore 或 Transfer 改变权威 Lineage 后，即使 World Revision 重复，
 也不会复用另一权威状态生成的 Draft。
 
+永久 Request/Event Identity Ledger 对每个已加载 Session 只保留一个最多 512 项的
+Hot Map；更旧 Identity 会封装为带 Bloom 路由的不可变编码 Segment。普通新 ID
+无需解码 Cold Segment，旧 Exact Retry 只按需解码可能命中的 Segment。Snapshot 与
+Checkpoint 在 Session Lock 内只捕获不可变 Segment 引用，随后在锁外临时物化完整
+协议 `IdentifierHistory`。因此公开 Snapshot/Transfer 格式仍完整且不变，但百万
+Turn Session 不再常驻百万项 Go Map。
+
 ### 异步任务
 
 `jobs.Manager` 使用有界 worker 和 queue。游戏先提交 `/v2/jobs/propose`，继续渲染与接收输入，再通过 GET 轮询。若思考期间 Session 变化，Job 结束为 `stale`，不会写入旧提案；取消会沿 context 传递到 HTTP Provider。

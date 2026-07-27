@@ -75,8 +75,9 @@ func (e *Engine) Replay(request protocol.ReplayRequest) (protocol.Snapshot, erro
 		session.mu.Unlock()
 		return protocol.Snapshot{}, NewFieldError("revision_not_found", "requested revision does not exist", "revision", ErrNotFound)
 	}
-	identifiers, err := cloneIdentifierHistory(session.identifiers)
+	identifierCapture := session.identifiers.capture()
 	session.mu.Unlock()
+	identifiers, err := identifierCapture.materialize()
 	if err != nil {
 		return protocol.Snapshot{}, NewError(
 			"replay_failed",

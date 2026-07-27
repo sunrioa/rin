@@ -12,6 +12,12 @@ ever-growing prompt. It separates four storage classes:
 | Optional semantic search | Disposable `MemoryIndex`; rebuild or delete it without changing authoritative history |
 | Operational logs/telemetry | Content-free request and lifecycle metadata; external log rotation owns retention |
 
+Loaded Sessions keep only a 512-entry hot identity map. Permanent older
+Request/Event identities live in immutable encoded segments with Bloom
+routing; complete Snapshot/Checkpoint payloads are materialized only for those
+explicit operations. Exact retries and abandoned-branch non-reuse remain
+authoritative and are covered after hot-map eviction.
+
 The bundled File Store gzip-compresses rebuildable checkpoints while keeping
 the authoritative hash-chained event log as plain JSONL.
 
@@ -36,7 +42,8 @@ tombstone policy when data must be removed.
 
 The test asserts that the authoritative revision/head survives restart,
 detailed memories remain bounded, older memories have summaries, event/index/
-snapshot byte accounting is nonzero, historical queries still work, and
+snapshot byte accounting is nonzero, old exact retries survive segmented-index
+eviction, historical queries still work, and
 shutdown drains checkpoint workers before the Store is closed.
 
 The complete 365-day capacity test runs as a dedicated ordinary-test gate. Race

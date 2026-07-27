@@ -573,6 +573,14 @@ func (w *runtimeTransferWriter) Publish(
 			err,
 		))
 	}
+	ledger, err := identifierLedgerFromHistory(w.identifiers)
+	if err != nil {
+		return w.fail(NewError(
+			"transfer_replay_failed",
+			"replayed transfer identifiers could not be indexed",
+			err,
+		))
+	}
 	if publishErr := w.staged.Publish(complete); publishErr != nil {
 		recovery, recoverable := w.engine.store.(TransferRecoveryStore)
 		if !recoverable {
@@ -601,7 +609,7 @@ func (w *runtimeTransferWriter) Publish(
 		id:           w.manifest.SessionID,
 		loaded:       true,
 		state:        w.state,
-		identifiers:  w.identifiers,
+		identifiers:  ledger,
 		lineageEpoch: w.lineageGeneration,
 	}
 	w.engine.mu.Lock()
