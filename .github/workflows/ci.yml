@@ -302,10 +302,16 @@ jobs:
         run: >-
           dotnet exec
           RinNpc.Core.Tests/bin/Debug/net6.0/RinNpc.Core.Tests.dll
-      - name: Generate standalone single-backend BepInEx scaffolds
-        run: |
-          go run ./cmd/rin init host --engine bepinex-mono --id ci_mono_npc --name "CI Mono NPC" --namespace io.github.rin_ci --output bepinex-mono-generated
-          go run ./cmd/rin init host --engine bepinex-il2cpp --id ci_il2cpp_npc --name "CI IL2CPP NPC" --namespace io.github.rin_ci --output bepinex-il2cpp-generated
+      - name: Generate standalone BepInEx Mono scaffold
+        run: >-
+          go run ./cmd/rin init host --engine bepinex-mono --id ci_mono_npc
+          --name "CI Mono NPC" --namespace io.github.rin_ci
+          --output bepinex-mono-generated
+      - name: Generate standalone BepInEx IL2CPP scaffold
+        run: >-
+          go run ./cmd/rin init host --engine bepinex-il2cpp --id ci_il2cpp_npc
+          --name "CI IL2CPP NPC" --namespace io.github.rin_ci
+          --output bepinex-il2cpp-generated
       - name: Restore generated Mono restart tests from lock files
         working-directory: bepinex-mono-generated
         run: dotnet restore CiMonoNpc.Core.Tests/CiMonoNpc.Core.Tests.csproj --locked-mode
