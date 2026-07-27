@@ -163,8 +163,12 @@ rin.exe doctor host
 and writes without overwriting under `capabilities/`. `conformance host`
 validates protocol v2, Windows paths, the scaffold manifest, and every sealed
 capability. It reports files changed after generation while allowing normal
-Host implementation edits. `doctor host` additionally reports whether the
-selected runtime is available on the current platform.
+Host implementation edits. `doctor host` additionally runs the selected
+runtime's version command with a two-second deadline. A PATH entry is reported
+as `available` only when the command exits successfully and returns recognized
+version output; stale version-manager shims are reported as `unusable`.
+Missing, unusable, and timed-out runtimes remain warnings because the same Host
+project may be built on another supported platform.
 
 ### Fabric
 

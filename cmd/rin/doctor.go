@@ -24,9 +24,9 @@ func runDoctor(arguments []string, output io.Writer) error {
 			_, writeErr := io.WriteString(output, `Usage:
   rin doctor host [-path HOST_PROJECT]
 
-Runs Host conformance checks and reports whether the selected runtime executable
-is available on this machine. Runtime absence is reported as a warning because
-the same project may be built on another supported platform.
+Runs Host conformance checks and a bounded runtime version probe. Runtime
+absence or an unusable command shim is reported as a warning because the same
+project may be built on another supported platform.
 `)
 			return writeErr
 		}
@@ -39,15 +39,19 @@ the same project may be built on another supported platform.
 	if err != nil {
 		return err
 	}
-	status := "missing"
-	if report.Available {
-		status = "available"
+	version := ""
+	if report.Version != "" {
+		version = fmt.Sprintf(" version=%q", report.Version)
+	}
+	detail := ""
+	if report.Detail != "" {
+		detail = fmt.Sprintf(" detail=%q", report.Detail)
 	}
 	fmt.Fprintf(
 		output,
-		"Host %s: conformance=pass platform=%s runtime=%s executable=%s (%s).\n",
+		"Host %s: conformance=pass platform=%s runtime=%s executable=%s status=%s%s%s.\n",
 		report.Conformance.Manifest.Project.ID, report.Platform, report.Runtime,
-		report.Executable, status,
+		report.Executable, report.Status, version, detail,
 	)
 	return nil
 }

@@ -49,6 +49,7 @@ func TestHostProjectCommands(t *testing.T) {
 	}
 	for _, fragment := range []string{
 		"conformance=pass", "runtime=python", "executable=python3",
+		"status=",
 	} {
 		if !strings.Contains(output.String(), fragment) {
 			t.Errorf("doctor output is missing %q: %s", fragment, output.String())

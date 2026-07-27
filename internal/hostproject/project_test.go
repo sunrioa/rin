@@ -1,9 +1,11 @@
 package hostproject
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/internal/hostscaffold"
@@ -66,13 +68,142 @@ func TestInspectReportsGeneratedFileMutation(t *testing.T) {
 
 func TestDoctorReportsRuntimeWithoutRequiringIt(t *testing.T) {
 	root := generateCustomHost(t)
-	report, err := Doctor(root)
+	report, err := doctor(
+		root,
+		func(executable string) (string, error) {
+			if executable != "python3" {
+				t.Fatalf("unexpected executable lookup %q", executable)
+			}
+			return filepath.Join(root, "python3"), nil
+		},
+		func(
+			path string,
+			runtimeID string,
+			arguments []string,
+		) runtimeProbeResult {
+			if path != filepath.Join(root, "python3") ||
+				runtimeID != "python" ||
+				len(arguments) != 1 ||
+				arguments[0] != "--version" {
+				t.Fatalf(
+					"unexpected runtime probe: %q %q %v",
+					path,
+					runtimeID,
+					arguments,
+				)
+			}
+			return runtimeProbeResult{
+				status:  RuntimeAvailable,
+				version: "Python 3.12.1",
+			}
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if report.Runtime != "python" || report.Executable != "python3" ||
-		report.Platform == "" {
+		report.Platform == "" || report.Status != RuntimeAvailable ||
+		report.Version != "Python 3.12.1" {
 		t.Fatalf("unexpected doctor report: %+v", report)
+	}
+}
+
+func TestDoctorDoesNotTreatFailedShimAsRuntime(t *testing.T) {
+	root := generateCustomHost(t)
+	report, err := doctor(
+		root,
+		func(string) (string, error) {
+			return filepath.Join(root, "python3"), nil
+		},
+		func(string, string, []string) runtimeProbeResult {
+			return runtimeProbeResult{
+				status: RuntimeUnusable,
+				detail: "runtime version probe could not execute successfully",
+			}
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Status != RuntimeUnusable || report.Version != "" {
+		t.Fatalf("failed shim reported as a runtime: %+v", report)
+	}
+}
+
+func TestDoctorUsesWorkingPythonCommandAfterStaleShim(t *testing.T) {
+	root := generateCustomHost(t)
+	report, err := doctor(
+		root,
+		func(executable string) (string, error) {
+			switch executable {
+			case "python3":
+				return filepath.Join(root, "stale-python3"), nil
+			case "python":
+				return filepath.Join(root, "python"), nil
+			default:
+				return "", os.ErrNotExist
+			}
+		},
+		func(path, _ string, _ []string) runtimeProbeResult {
+			if filepath.Base(path) == "python" {
+				return runtimeProbeResult{
+					status:  RuntimeAvailable,
+					version: "Python 3.12.1",
+				}
+			}
+			return runtimeProbeResult{status: RuntimeUnusable}
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Status != RuntimeAvailable || report.Executable != "python" {
+		t.Fatalf("working Windows-compatible command was not selected: %+v", report)
+	}
+}
+
+func TestRuntimeVersionProbeIsBoundedAndRecognizesRuntime(t *testing.T) {
+	t.Setenv("RIN_RUNTIME_PROBE_HELPER", "success")
+	success := probeRuntime(
+		os.Args[0],
+		"python",
+		[]string{"-test.run=^TestRuntimeProbeHelper$"},
+		time.Second,
+	)
+	if success.status != RuntimeAvailable ||
+		success.version != "Python 3.12.1" {
+		t.Fatalf("successful probe = %+v", success)
+	}
+
+	t.Setenv("RIN_RUNTIME_PROBE_HELPER", "hang")
+	started := time.Now()
+	timedOut := probeRuntime(
+		os.Args[0],
+		"python",
+		[]string{"-test.run=^TestRuntimeProbeHelper$"},
+		40*time.Millisecond,
+	)
+	if timedOut.status != RuntimeProbeTimedOut {
+		t.Fatalf("hanging probe = %+v", timedOut)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("hanging probe exceeded its bounded cleanup: %s", elapsed)
+	}
+}
+
+func TestRuntimeProbeHelper(t *testing.T) {
+	switch os.Getenv("RIN_RUNTIME_PROBE_HELPER") {
+	case "":
+		return
+	case "success":
+		fmt.Fprintln(os.Stdout, "Python 3.12.1")
+		os.Exit(0)
+	case "hang":
+		for {
+			time.Sleep(time.Hour)
+		}
+	default:
+		os.Exit(2)
 	}
 }
 

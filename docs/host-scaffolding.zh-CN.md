@@ -136,7 +136,10 @@ rin.exe doctor host
 命令会规范化 Schema、计算 Descriptor Digest，并以不覆盖方式写入
 `capabilities/`。`conformance host` 校验 Protocol v2、Windows 路径、清单与
 全部密封能力；它会报告生成后被修改的文件，但允许正常的宿主实现修改。
-`doctor host` 在此基础上报告当前平台是否具有所选 Runtime。
+`doctor host` 还会用两秒期限执行所选 Runtime 的版本命令。只有命令成功退出且
+返回可识别的版本信息时才报告 `available`；失效的版本管理器 shim 会报告为
+`unusable`。Runtime 缺失、不可用或探测超时仍是警告，因为同一 Host 项目可能
+会在另一受支持平台构建。
 
 ### Fabric
 
