@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import unittest
 
-from tools.verify_luanti import available_udp_port, validate_version
+from tools.verify_luanti import (
+    available_udp_port,
+    github_escape,
+    validate_version,
+)
 
 
 class VerifyLuantiTests(unittest.TestCase):
@@ -22,6 +26,12 @@ class VerifyLuantiTests(unittest.TestCase):
 
     def test_allocates_valid_udp_port(self) -> None:
         self.assertIn(available_udp_port(), range(1, 65536))
+
+    def test_escapes_github_annotation_commands(self) -> None:
+        self.assertEqual(
+            github_escape("100%\r\nfailed"),
+            "100%25%0D%0Afailed",
+        )
 
 
 if __name__ == "__main__":

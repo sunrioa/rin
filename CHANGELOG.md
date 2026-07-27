@@ -78,7 +78,8 @@ across every future minor release.
   disk-volume workload past Go's standard timeout.
 - Luanti lifecycle verification accepts exact and build-qualified version
   output and allocates a fresh UDP port per server run, matching Windows and
-  macOS release binaries without relying on the engine's default port.
+  macOS release binaries without relying on the engine's default port. CI
+  failures expose escaped server diagnostics as step annotations.
 
 ## [0.6.0] - 2026-07-24 - Preview
 

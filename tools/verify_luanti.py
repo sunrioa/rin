@@ -30,6 +30,10 @@ def available_udp_port() -> int:
         return listener.getsockname()[1]
 
 
+def github_escape(value: str) -> str:
+    return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
 def run(command: list[str], environment: dict[str, str]) -> str:
     try:
         completed = subprocess.run(
@@ -181,4 +185,12 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit as error:
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            print(
+                "::error title=Luanti Host lifecycle::"
+                + github_escape(str(error))
+            )
+        raise
