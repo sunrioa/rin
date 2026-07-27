@@ -96,6 +96,79 @@ test("failed settlement publish leaves memory and disk at the retryable Attempt"
   assert.equal(store.document.outbox.length, 1);
 });
 
+test("post-rename fence failure adopts disk state and blocks stale writes", async () => {
+  const store = await temporaryStore();
+  await store.ensureSessionId("session.fixture");
+  await store.beginRinTurn("tea", 1);
+  const attempt = {
+    version: 1,
+    operation_id: "operation.fixture",
+    request: { request_id: "request.fixture", session_id: "session.fixture" },
+    job_id: "job.fixture",
+  };
+  await store.createProposalAttempt(attempt);
+  const fence = store.fencePublishedEntry.bind(store);
+  store.fencePublishedEntry = async () => {
+    throw new Error("injected post-rename fence failure");
+  };
+
+  await assert.rejects(
+    store.settleProposalAttempt({
+      attempt,
+      report: { request_id: "report.fixture" },
+      apply: async () => store.recordRinAction({ id: "offer.tea" }),
+    }),
+    (error) => error.code === "story_publication_uncertain",
+  );
+
+  const persisted = JSON.parse(await readFile(store.path, "utf8"));
+  assert.deepEqual(store.document, persisted);
+  assert.deepEqual(persisted.game.applied_action_ids, ["offer.tea"]);
+  assert.equal(persisted.outbox.length, 1);
+  await assert.rejects(
+    store.rememberPreference("coffee"),
+    /reload before another mutation/,
+  );
+
+  store.fencePublishedEntry = fence;
+  await store.load();
+  await store.rememberPreference("coffee");
+  assert.equal(store.game.preference, "coffee");
+  assert.deepEqual(store.game.applied_action_ids, ["offer.tea"]);
+  assert.equal(store.document.outbox.length, 1);
+});
+
+test("stale acknowledgement cannot delete a replaced Outbox report", async () => {
+  const store = await temporaryStore();
+  await store.ensureSessionId("session.fixture");
+  await store.beginRinTurn("tea", 1);
+  const attempt = {
+    version: 1,
+    operation_id: "operation.fixture",
+    request: { request_id: "request.fixture", session_id: "session.fixture" },
+    job_id: "job.fixture",
+  };
+  await store.createProposalAttempt(attempt);
+  await store.settleProposalAttempt({
+    attempt,
+    report: { request_id: "report.fixture", summary: "original" },
+    apply: async () => store.recordRinAction({ id: "offer.tea" }),
+  });
+  const stale = (await store.listOutcomeReports())[0];
+  await store.commit((next) => {
+    next.outbox[0].report.summary = "replacement";
+  });
+
+  await assert.rejects(
+    store.acknowledgeOutcome(stale),
+    /changed before acknowledgement/,
+  );
+
+  const remaining = await store.listOutcomeReports();
+  assert.equal(remaining.length, 1);
+  assert.equal(remaining[0].report.summary, "replacement");
+});
+
 test("failed file replacement keeps memory unchanged and removes its temporary file", async () => {
   const directory = await mkdtemp(join(tmpdir(), "rin-story-rename-test-"));
   const blockedTarget = join(directory, "save-target");
@@ -118,6 +191,33 @@ test("publication creates and reloads a nested save directory", async () => {
 
   const reloaded = await new StoryWorkflowStore(store.path).load();
   assert.equal(reloaded.game.preference, "coffee");
+});
+
+test("directory publication retries a failed existing-boundary fence", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "rin-story-fence-test-"));
+  const store = new StoryWorkflowStore(
+    join(directory, "slot", "chapter", "save.json"),
+  );
+  const syncDirectory = store.syncDirectory.bind(store);
+  let boundaryAttempts = 0;
+  store.syncDirectory = async (path) => {
+    if (path === directory && ++boundaryAttempts === 1) {
+      throw new Error("injected directory fence failure");
+    }
+    await syncDirectory(path);
+  };
+
+  await assert.rejects(
+    store.rememberPreference("tea"),
+    /injected directory fence failure/,
+  );
+  assert.deepEqual(await readdir(directory), ["slot"]);
+  assert.equal(store.game.preference, "");
+
+  await store.rememberPreference("tea");
+  assert.equal(boundaryAttempts, 2);
+  const reloaded = await new StoryWorkflowStore(store.path).load();
+  assert.equal(reloaded.game.preference, "tea");
 });
 
 test("Rin presentation runs only after the authoritative settlement commits", async () => {

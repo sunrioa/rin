@@ -291,9 +291,9 @@ export class OutcomeOutbox {
           );
         }
         const report = cloneProtocolObject(entry.report);
-        requireIdentifier("session_id", report.session_id);
-        requireIdentifier("request_id", report.request_id);
-        requireIdentifier("event_id", report.report?.event_id);
+        requireOutboxIdentifier("session_id", report.session_id);
+        requireOutboxIdentifier("request_id", report.request_id);
+        requireOutboxIdentifier("event_id", report.report?.event_id);
         const result = await this.client.reportAction(report);
         if (!isObject(result) || result.session_id !== report.session_id) {
           throw new RinConfigurationError(
@@ -830,6 +830,15 @@ function requireIdentifier(field, value) {
     throw new RinConfigurationError(
       "invalid_workflow",
       `${field} must be a protocol identifier`,
+    );
+  }
+}
+
+function requireOutboxIdentifier(field, value) {
+  if (!isProtocolIdentifier(value)) {
+    throw new RinConfigurationError(
+      "invalid_outbox",
+      `Outcome Outbox ${field} must be a protocol identifier`,
     );
   }
 }

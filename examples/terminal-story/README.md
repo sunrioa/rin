@@ -68,6 +68,13 @@ authoritative database/save transaction. Save schema 2 intentionally rejects
 the earlier preview field `shown_action_ids`, which incorrectly conflated a
 durable game effect with later UI presentation.
 
+If rename succeeds but its final durability fence fails, the Store adopts the
+published document in memory and rejects every later mutation until `load()`
+reconciles the file. It never continues from the stale pre-rename document.
+Outcome acknowledgement also compares the complete durable entry, so a delayed
+ACK cannot remove a same-key report that changed while the request was in
+flight.
+
 For a non-interactive run:
 
 ```bash

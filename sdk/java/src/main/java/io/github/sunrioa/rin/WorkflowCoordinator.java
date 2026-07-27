@@ -1,6 +1,7 @@
 package io.github.sunrioa.rin;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -144,7 +145,7 @@ public final class WorkflowCoordinator {
                                     "invalid_outbox",
                                     "Outcome Outbox returned null"));
                 }
-                return drainEntries(List.copyOf(entries), 0);
+                return drainEntries(new ArrayList<>(entries), 0);
             });
         } catch (Throwable failure) {
             draining.set(false);
@@ -158,11 +159,23 @@ public final class WorkflowCoordinator {
             List<OutcomeOutboxEntry> entries,
             int index) {
         if (index >= entries.size()) return CompletableFuture.completedFuture(index);
-        OutcomeOutboxEntry entry = Objects.requireNonNull(entries.get(index), "Outbox entry");
+        OutcomeOutboxEntry entry = entries.get(index);
+        if (entry == null || entry.report() == null) {
+            return CompletableFuture.failedFuture(
+                    new RinConfigurationException(
+                            "invalid_outbox",
+                            "Outcome Outbox entry must contain an Action Report"));
+        }
         Map<String, Object> request = entry.report();
-        requireIdentifier("session_id", request.get("session_id"));
-        requireIdentifier("request_id", request.get("request_id"));
-        requireIdentifier("event_id", actionReport(request).get("event_id"));
+        try {
+            requireOutboxIdentifier("session_id", request.get("session_id"));
+            requireOutboxIdentifier("request_id", request.get("request_id"));
+            requireOutboxIdentifier(
+                    "event_id",
+                    outboxActionReport(request).get("event_id"));
+        } catch (Throwable failure) {
+            return CompletableFuture.failedFuture(failure);
+        }
         return client.reportAction(request)
                 .thenCompose(result -> {
                     if (result == null ||
@@ -290,6 +303,26 @@ public final class WorkflowCoordinator {
         @SuppressWarnings("unchecked")
         Map<String, Object> report = (Map<String, Object>) raw;
         return report;
+    }
+
+    private static Map<String, Object> outboxActionReport(Map<String, Object> request) {
+        Object value = request.get("report");
+        if (!(value instanceof Map<?, ?> raw)) {
+            throw new RinConfigurationException(
+                    "invalid_outbox",
+                    "Outcome Outbox entry must contain a typed action report");
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> report = (Map<String, Object>) raw;
+        return report;
+    }
+
+    private static void requireOutboxIdentifier(String field, Object value) {
+        if (!RinClient.isProtocolIdentifier(value)) {
+            throw new RinConfigurationException(
+                    "invalid_outbox",
+                    "Outcome Outbox " + field + " must be a protocol identifier");
+        }
     }
 
     private static String requiredIdentifier(String field, Object value) {

@@ -58,6 +58,11 @@ Store 使用 Copy-on-write：Write 或 Rename 失败时，内存 Document 与旧
 自己的权威数据库/存档事务。Save Schema 2 会拒绝使用 `shown_action_ids` 的早期
 Preview 存档，因为旧字段错误地把持久游戏效果与稍后的 UI 呈现混为一谈。
 
+如果 Rename 已成功但最终持久化栅栏失败，Store 会在内存中采用已发布 Document，
+并拒绝后续所有变更，直到 `load()` 重新核对文件；它不会继续从 Rename 前的旧
+Document 写入。Outcome ACK 还会比较完整的持久化条目，因此迟到 ACK 不能删除
+请求在途期间发生变化的同 Key Report。
+
 非交互运行：
 
 ```bash

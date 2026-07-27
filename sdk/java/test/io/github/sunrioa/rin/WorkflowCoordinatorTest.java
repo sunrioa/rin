@@ -349,9 +349,9 @@ final class WorkflowCoordinatorTest {
                 throw new AssertionError("missing durable Session reached the transport");
             } catch (java.util.concurrent.CompletionException expected) {
                 require(
-                        expected.getCause() instanceof RinConfigurationException &&
+                                expected.getCause() instanceof RinConfigurationException &&
                                 ((RinConfigurationException) expected.getCause())
-                                        .code().equals("invalid_workflow"),
+                                        .code().equals("invalid_outbox"),
                         "missing durable Session returned the wrong error");
             }
             require(

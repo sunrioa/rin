@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { mkdir, open, readFile, rename, stat, unlink } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 const EMPTY_DOCUMENT = Object.freeze({
   version: 2,
@@ -20,6 +21,7 @@ export class StoryWorkflowStore {
     this.path = path;
     this.document = structuredClone(EMPTY_DOCUMENT);
     this.committing = false;
+    this.publicationUncertain = false;
     this.settlementDraft = null;
   }
 
@@ -36,6 +38,10 @@ export class StoryWorkflowStore {
   }
 
   async load() {
+    if (this.committing) {
+      throw new Error("cannot reload during a story save mutation");
+    }
+    this.document = structuredClone(EMPTY_DOCUMENT);
     try {
       const parsed = JSON.parse(await readFile(this.path, "utf8"));
       validateDocument(parsed);
@@ -43,6 +49,7 @@ export class StoryWorkflowStore {
     } catch (error) {
       if (error?.code !== "ENOENT") throw error;
     }
+    this.publicationUncertain = false;
     return this;
   }
 
@@ -147,11 +154,19 @@ export class StoryWorkflowStore {
     const index = this.document.outbox.findIndex((item) => item.key === entry.key);
     if (index < 0) throw new Error("Outcome Outbox entry disappeared");
     await this.commit((next) => {
+      if (!isDeepStrictEqual(next.outbox[index], entry)) {
+        throw new Error("Outcome Outbox entry changed before acknowledgement");
+      }
       next.outbox.splice(index, 1);
     });
   }
 
   async commit(mutate) {
+    if (this.publicationUncertain) {
+      throw new Error(
+        "story save publication is uncertain; reload before another mutation",
+      );
+    }
     if (this.committing) {
       throw new Error("concurrent story save mutation is not allowed");
     }
@@ -160,7 +175,17 @@ export class StoryWorkflowStore {
       const next = clone(this.document);
       await mutate(next);
       validateDocument(next);
-      await this.publish(next);
+      try {
+        await this.publish(next);
+      } catch (error) {
+        if (error instanceof StoryPublicationUncertainError) {
+          // Rename already made this the only defensible in-process view.
+          // Block later writes until load() reconciles it with the filesystem.
+          this.document = next;
+          this.publicationUncertain = true;
+        }
+        throw error;
+      }
       this.document = next;
     } finally {
       this.committing = false;
@@ -169,10 +194,7 @@ export class StoryWorkflowStore {
 
   async publish(document) {
     const directory = dirname(this.path);
-    const firstCreated = await mkdir(directory, { recursive: true });
-    if (firstCreated && process.platform !== "win32") {
-      await fenceCreatedDirectories(firstCreated, directory);
-    }
+    await this.makeDirectoryTreeDurable(directory);
     const temporary = `${this.path}.${process.pid}.${randomUUID()}.tmp`;
     let created = false;
     try {
@@ -186,12 +208,38 @@ export class StoryWorkflowStore {
       }
       await rename(temporary, this.path);
       created = false;
-      await fencePublishedEntry(this.path);
+      try {
+        await this.fencePublishedEntry();
+      } catch (error) {
+        throw new StoryPublicationUncertainError(error);
+      }
     } finally {
       if (created) {
         await unlink(temporary).catch(() => {});
       }
     }
+  }
+
+  async makeDirectoryTreeDurable(directory) {
+    if (process.platform === "win32") {
+      await mkdir(directory, { recursive: true });
+      return;
+    }
+    await makeDirectoryTreeSynced(directory, (path) => this.syncDirectory(path));
+  }
+
+  async syncDirectory(path) {
+    await syncPath(path, "r");
+  }
+
+  async fencePublishedEntry() {
+    if (process.platform === "win32") {
+      // Node cannot portably open a Windows directory for FlushFileBuffers.
+      // Reopen the renamed file with write access and flush that handle instead.
+      await syncPath(this.path, "r+");
+      return;
+    }
+    await this.syncDirectory(dirname(this.path));
   }
 }
 
@@ -209,33 +257,41 @@ function validateDocument(value) {
   }
 }
 
-async function fenceCreatedDirectories(firstCreated, targetDirectory) {
-  const first = resolve(firstCreated);
-  const target = resolve(targetDirectory);
-  const suffix = relative(first, target);
-  if (suffix.startsWith("..") || isAbsolute(suffix)) {
-    throw new Error("created story save directory is outside its target");
-  }
-  const parents = [];
-  let current = target;
+async function makeDirectoryTreeSynced(path, syncDirectory) {
+  const target = resolve(path);
+  const missing = [];
+  let boundary = target;
   while (true) {
-    parents.unshift(dirname(current));
-    if (current === first) break;
-    current = dirname(current);
+    try {
+      const info = await stat(boundary);
+      if (!info.isDirectory()) {
+        throw new Error(`${boundary} is not a directory`);
+      }
+      break;
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      missing.push(boundary);
+      const parent = dirname(boundary);
+      if (parent === boundary) {
+        throw new Error(`no existing parent for ${target}`);
+      }
+      boundary = parent;
+    }
   }
-  for (const parent of parents) {
-    await syncPath(parent, "r");
+  // Retry the nearest existing boundary first. It may have been created by a
+  // previous attempt whose parent fence failed.
+  await syncDirectory(dirname(boundary));
+  for (let index = missing.length - 1; index >= 0; index--) {
+    const directory = missing[index];
+    try {
+      await mkdir(directory);
+    } catch (error) {
+      if (error?.code !== "EEXIST" || !(await stat(directory)).isDirectory()) {
+        throw error;
+      }
+    }
+    await syncDirectory(dirname(directory));
   }
-}
-
-async function fencePublishedEntry(path) {
-  if (process.platform === "win32") {
-    // Node cannot portably open a Windows directory for FlushFileBuffers.
-    // Reopen the renamed file with write access and flush that handle instead.
-    await syncPath(path, "r+");
-    return;
-  }
-  await syncPath(dirname(path), "r");
 }
 
 async function syncPath(path, flags) {
@@ -244,5 +300,16 @@ async function syncPath(path, flags) {
     await handle.sync();
   } finally {
     await handle.close();
+  }
+}
+
+class StoryPublicationUncertainError extends Error {
+  constructor(cause) {
+    super(
+      "story save was renamed but its durability fence failed; reload before retry",
+      { cause },
+    );
+    this.name = "StoryPublicationUncertainError";
+    this.code = "story_publication_uncertain";
   }
 }

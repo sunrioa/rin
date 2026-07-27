@@ -311,7 +311,7 @@ test("Outcome Outbox acknowledges only confirmed exact Action Report success", a
   await assert.rejects(
     outbox.drain(),
     (error) => error instanceof RinConfigurationError &&
-      error.code === "invalid_workflow",
+      error.code === "invalid_outbox",
   );
   assert.equal(entries.length, 1);
   entries[0].report.session_id = sessionId;
