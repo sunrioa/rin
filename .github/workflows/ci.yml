@@ -437,6 +437,8 @@ jobs:
             throw "Luanti SHA-256 mismatch"
           }
           Expand-Archive luanti.zip -DestinationPath luanti
+      - name: Test Luanti verifier portability
+        run: python -m unittest tools.test_verify_luanti
       - name: Verify checked-in Luanti Host lifecycle
         run: >-
           python tools/verify_luanti.py

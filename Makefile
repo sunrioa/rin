@@ -8,14 +8,14 @@ JAVA ?= java
 LUA ?= lua
 VERSION ?= 0.7.0
 
-.PHONY: fmt test verify contract-check contract-write test-go test-long-session test-adapters test-unreal test-sdks test-sdk-python test-sdk-javascript test-sdk-csharp test-sdk-java test-sdk-lua test-terminal-story race vet build
+.PHONY: fmt test verify contract-check contract-write test-go test-long-session test-adapters test-unreal test-luanti test-sdks test-sdk-python test-sdk-javascript test-sdk-csharp test-sdk-java test-sdk-lua test-terminal-story race vet build
 
 fmt:
 	$(GO) fmt ./...
 
 test: test-go test-adapters test-unreal
 
-verify: contract-check vet race test-long-session test-adapters test-unreal test-sdks test-terminal-story
+verify: contract-check vet race test-long-session test-adapters test-unreal test-luanti test-sdks test-terminal-story
 
 contract-check:
 	$(PYTHON) tools/generate_contract.py --check
@@ -36,6 +36,9 @@ test-adapters:
 test-unreal:
 	$(PYTHON) -m unittest tools.test_verify_unreal
 	$(PYTHON) tools/verify_unreal.py
+
+test-luanti:
+	$(PYTHON) -m unittest tools.test_verify_luanti
 
 test-sdks: test-sdk-python test-sdk-javascript test-sdk-csharp test-sdk-java test-sdk-lua
 

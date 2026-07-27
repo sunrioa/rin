@@ -9,6 +9,7 @@ import os
 import pathlib
 import re
 import shutil
+import socket
 import subprocess
 import tempfile
 
@@ -16,6 +17,17 @@ import tempfile
 VERSION = "5.16.1"
 MARKER = re.compile(r"\[rin_lifecycle\]\s+(\{.*\})")
 SERVER_TIMEOUT_SECONDS = 90
+
+
+def validate_version(output: str) -> None:
+    if not re.match(rf"^Luanti {re.escape(VERSION)}(?:\s|$)", output):
+        raise SystemExit(f"expected Luanti {VERSION}, got {output!r}")
+
+
+def available_udp_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        return listener.getsockname()[1]
 
 
 def run(command: list[str], environment: dict[str, str]) -> str:
@@ -81,8 +93,7 @@ def main() -> None:
         text=True,
         timeout=30,
     ).stdout
-    if not version.startswith(f"Luanti {VERSION} "):
-        raise SystemExit(f"expected Luanti {VERSION}, got {version!r}")
+    validate_version(version)
 
     with tempfile.TemporaryDirectory(prefix="rin-luanti-") as temporary:
         root = pathlib.Path(temporary)
@@ -134,26 +145,28 @@ def main() -> None:
         )
         environment = os.environ.copy()
         environment["LUANTI_USER_PATH"] = str(user)
-        command = [
-            executable,
-            "--server",
-            "--world",
-            str(world),
-            "--gameid",
-            "rin_test",
-            "--config",
-            str(config),
-            "--port",
-            "0",
-            "--color",
-            "never",
-            "--log-timestamp",
-            "none",
-            "--logfile",
-            "",
-        ]
-        first = epoch(run(command, environment))
-        second = epoch(run(command, environment))
+        def command() -> list[str]:
+            return [
+                executable,
+                "--server",
+                "--world",
+                str(world),
+                "--gameid",
+                "rin_test",
+                "--config",
+                str(config),
+                "--port",
+                str(available_udp_port()),
+                "--color",
+                "never",
+                "--log-timestamp",
+                "none",
+                "--logfile",
+                "",
+            ]
+
+        first = epoch(run(command(), environment))
+        second = epoch(run(command(), environment))
         if (
             second["world_id"] != first["world_id"]
             or second["world"] != first["world"]
