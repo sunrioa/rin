@@ -11,6 +11,11 @@ import (
 // decodes only identifiers and enum-like state; authored and model text stays
 // inside the authenticated state/replay APIs.
 func (e *Engine) Timeline(request protocol.TimelineRequest) (protocol.TimelineResponse, error) {
+	finish, err := e.beginOperation()
+	if err != nil {
+		return protocol.TimelineResponse{}, err
+	}
+	defer finish()
 	if err := protocol.ValidateTimeline(request); err != nil {
 		return protocol.TimelineResponse{}, validationError(err)
 	}
@@ -51,6 +56,11 @@ func (e *Engine) Timeline(request protocol.TimelineRequest) (protocol.TimelineRe
 // Replay reconstructs a session at an exact event-log revision without
 // mutating current state or writing a snapshot.
 func (e *Engine) Replay(request protocol.ReplayRequest) (protocol.Snapshot, error) {
+	finish, err := e.beginOperation()
+	if err != nil {
+		return protocol.Snapshot{}, err
+	}
+	defer finish()
 	if err := protocol.ValidateReplay(request); err != nil {
 		return protocol.Snapshot{}, validationError(err)
 	}

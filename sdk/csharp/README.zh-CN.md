@@ -27,7 +27,7 @@ preset 时 Fail Closed。请通过 `RinIds.Create("request")` 和
 `RinIds.Create("event")` 生成一次稳定 ID，将其随操作持久化，并在每次 exact
 retry 中复用。
 
-与 OpenAPI 对齐的模型和强类型 overload 覆盖权威 create/propose/commit
+与 OpenAPI 对齐的模型和强类型 overload 覆盖权威 create/propose/action-report
 流程。`MutationResult` 与 `ProposalResult` 会通过 `AdditiveFields` 保留未来
 新增的响应字段。
 

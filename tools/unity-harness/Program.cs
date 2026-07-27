@@ -243,7 +243,9 @@ internal static class Program
             Require(GetNullable(recovered, "pendingTurn") == null,
                 "domain reload retained a settled Pending Turn");
             var outbox = (System.Collections.IList)Get(recovered, "reportOutbox");
-            Require(outbox.Count == 1, "interrupted action did not enter the Outbox");
+            Require(
+                outbox.Count == 1,
+                "recovery_state_cleanup: interrupted action did not enter the Outbox");
             var entry = (ReportOutboxEntry)outbox[0];
             Require(entry.request.report.outcome.status == "outcome-unknown",
                 "interrupted action used the wrong terminal status");

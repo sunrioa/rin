@@ -598,6 +598,8 @@ func (s *Server) respond(response http.ResponseWriter, request *http.Request, da
 		status = http.StatusTooManyRequests
 	case errors.Is(err, generation.ErrClosed):
 		status = http.StatusServiceUnavailable
+	case errors.Is(err, rinruntime.ErrClosed):
+		status = http.StatusServiceUnavailable
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		status = http.StatusRequestTimeout
 	}

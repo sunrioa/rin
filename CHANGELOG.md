@@ -28,6 +28,10 @@ across every future minor release.
 - Vendor-neutral optional ports for derived memory search, approved-text
   speech synthesis, immutable audio references, and content-free telemetry,
   with bounded validation, cancellation, privacy, and degradation tests.
+- An accelerated-year File Store regression covering 1,460 observations, 365
+  proposal/outcome cycles, monthly snapshots, restart, historical retrieval,
+  storage accounting, and final Session archive.
+- Host scenarios for authority-thread nonblocking and recovery-state cleanup.
 
 ### Changed
 
@@ -57,6 +61,9 @@ across every future minor release.
   `DecisionProvider`, `DecisionContext`, `DecisionDraft`, and
   `StructuredGenerationProvider`. Obsolete Go type names and the unused
   free-form draft text fields were removed without compatibility aliases.
+- `Engine.Close(ctx)` now rejects new operations and drains in-flight calls,
+  transfer imports, and asynchronous checkpoint workers before the
+  caller-owned Store is closed. The CLI uses this ordering on every exit path.
 
 ## [0.6.0] - 2026-07-24 - Preview
 

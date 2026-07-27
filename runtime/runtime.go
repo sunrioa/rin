@@ -16,6 +16,7 @@ var (
 	ErrNoSafeAction = errors.New("no safe action")
 	ErrCorruptLog   = errors.New("corrupt event log")
 	ErrRetired      = errors.New("retired session")
+	ErrClosed       = errors.New("runtime closed")
 )
 
 const (
@@ -186,8 +187,9 @@ type Checkpoint struct {
 // indefinitely locking authoritative event operations. Within one Engine,
 // Runtime bounds work to one worker and one latest pending capture per managed
 // Session. Multiple Engines sharing a Store can each have such a worker.
-// Runtime has no Close/drain contract for a Store implementation that blocks
-// SaveCheckpoint forever.
+// Engine.Close waits for every started call to return before the caller closes
+// the Store, but its Context cannot preempt this context-free method. A Store
+// that blocks SaveCheckpoint forever therefore makes Close time out.
 type CheckpointStore interface {
 	LoadCheckpoint(sessionID string, atOrBeforeRevision uint64) (Checkpoint, error)
 	SaveCheckpoint(sessionID string, checkpoint Checkpoint) error

@@ -92,3 +92,25 @@ func TestSessionQuotaMapsToInsufficientStorage(t *testing.T) {
 		)
 	}
 }
+
+func TestClosedRuntimeMapsToServiceUnavailable(t *testing.T) {
+	response := httptest.NewRecorder()
+	server := &Server{}
+	server.respond(
+		response,
+		nil,
+		nil,
+		rinruntime.NewError(
+			"runtime_closed",
+			"runtime is closed",
+			rinruntime.ErrClosed,
+		),
+	)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf(
+			"status = %d, want %d",
+			response.Code,
+			http.StatusServiceUnavailable,
+		)
+	}
+}

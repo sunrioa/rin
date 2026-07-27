@@ -14,9 +14,16 @@ type Diagnostics struct {
 	CheckpointQuotaSkips       uint64         `json:"checkpoint_quota_skips"`
 	SessionSoftLimitBytes      uint64         `json:"session_soft_limit_bytes"`
 	SessionHardLimitBytes      uint64         `json:"session_hard_limit_bytes"`
+	Closed                     bool           `json:"closed"`
+	ActiveOperations           int            `json:"active_operations"`
 }
 
 func (e *Engine) Diagnostics() Diagnostics {
+	e.shutdownMu.Lock()
+	closed := e.closed
+	activeOperations := e.activeOperations
+	checkpointWorkers := e.checkpointWorkers
+	e.shutdownMu.Unlock()
 	e.mu.RLock()
 	sessions := make([]*managedSession, 0, len(e.sessions))
 	for _, session := range e.sessions {
@@ -33,6 +40,9 @@ func (e *Engine) Diagnostics() Diagnostics {
 		CheckpointQuotaSkips:       e.checkpointQuotaSkips.Load(),
 		SessionSoftLimitBytes:      e.sessionSoftLimitBytes,
 		SessionHardLimitBytes:      e.sessionHardLimitBytes,
+		Closed:                     closed,
+		ActiveOperations:           activeOperations,
+		CheckpointWorkers:          checkpointWorkers,
 	}
 	for _, session := range sessions {
 		session.mu.Lock()
@@ -47,9 +57,8 @@ func (e *Engine) Diagnostics() Diagnostics {
 		session.mu.Unlock()
 
 		session.checkpointMu.Lock()
-		if session.checkpointRunning {
-			result.CheckpointWorkers++
-		}
+		// Worker count is tracked at Engine scope so Close can wait without
+		// scanning Session locks.
 		if session.checkpointPending != nil {
 			result.CheckpointPending++
 		}
@@ -59,7 +68,12 @@ func (e *Engine) Diagnostics() Diagnostics {
 }
 
 func (e *Engine) Ready() error {
-	_, err := e.store.ListSessions()
+	finish, err := e.beginOperation()
+	if err != nil {
+		return err
+	}
+	defer finish()
+	_, err = e.store.ListSessions()
 	if err != nil {
 		return errors.New("Session Store is not readable")
 	}

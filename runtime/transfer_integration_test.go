@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sunrioa/rin/policy"
 	"github.com/sunrioa/rin/protocol"
@@ -313,6 +314,46 @@ func TestTransferImportHardQuotaFailsBeforePublication(t *testing.T) {
 		SessionID:       sessionID,
 	}); !errors.Is(err, rinruntime.ErrNotFound) {
 		t.Fatalf("quota-rejected import became visible: %v", err)
+	}
+}
+
+func TestEngineCloseWaitsForTransferImportAbort(t *testing.T) {
+	source := transferEngine(t, store.NewMemory())
+	const sessionID = "session.transfer-close"
+	createTransferSession(t, source, sessionID)
+	sink := &collectingTransferSink{}
+	if err := source.ExportTransfer(
+		context.Background(),
+		protocol.SessionRequest{
+			ProtocolVersion: protocol.Version,
+			SessionID:       sessionID,
+		},
+		sink,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	targetStore, err := store.OpenFile(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer targetStore.Close()
+	target := transferEngine(t, targetStore)
+	writer, err := target.BeginTransferImport(sink.manifest, sink.manifest.Binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	closeContext, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := target.Close(closeContext); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Close error = %v, want deadline for retained import writer", err)
+	}
+	if err := writer.Abort(); err != nil {
+		t.Fatal(err)
+	}
+	if err := target.Close(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }
 

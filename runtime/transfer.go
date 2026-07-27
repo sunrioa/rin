@@ -26,6 +26,11 @@ func (e *Engine) ExportTransfer(
 	request protocol.SessionRequest,
 	sink TransferSink,
 ) error {
+	finish, err := e.beginOperation()
+	if err != nil {
+		return err
+	}
+	defer finish()
 	if ctx == nil {
 		return NewError(
 			"transfer_invalid",
@@ -213,6 +218,16 @@ func (e *Engine) BeginTransferImport(
 	manifest protocol.TransferManifest,
 	expectedBinding protocol.Binding,
 ) (TransferWriter, error) {
+	finish, err := e.beginOperation()
+	if err != nil {
+		return nil, err
+	}
+	releaseOperation := true
+	defer func() {
+		if releaseOperation {
+			finish()
+		}
+	}()
 	if err := protocol.ValidateTransferManifest(manifest); err != nil {
 		return nil, validationError(err)
 	}
@@ -276,6 +291,7 @@ func (e *Engine) BeginTransferImport(
 		)
 	}
 	release = false
+	releaseOperation = false
 	return &runtimeTransferWriter{
 		engine:          e,
 		manifest:        manifest,
@@ -284,6 +300,7 @@ func (e *Engine) BeginTransferImport(
 		identifiers:     newIdentifierHistory(true),
 		unlockLifecycle: unlockLifecycle,
 		hardLimitBytes:  e.sessionHardLimitBytes,
+		finishOperation: finish,
 	}, nil
 }
 
@@ -302,6 +319,7 @@ type runtimeTransferWriter struct {
 	failed            error
 	hardLimitBytes    uint64
 	managedBytes      uint64
+	finishOperation   func()
 }
 
 var _ TransferWriter = (*runtimeTransferWriter)(nil)
@@ -480,6 +498,10 @@ func (w *runtimeTransferWriter) finish() {
 	if w.unlockLifecycle != nil {
 		w.unlockLifecycle()
 		w.unlockLifecycle = nil
+	}
+	if w.finishOperation != nil {
+		w.finishOperation()
+		w.finishOperation = nil
 	}
 }
 

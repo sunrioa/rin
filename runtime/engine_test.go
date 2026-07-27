@@ -55,12 +55,12 @@ func TestEngineEndToEnd(t *testing.T) {
 		"Mira asked a careful follow-up question.",
 	)
 	report.Report.Tags = []string{"conversation"}
-	committed, err := engine.ReportAction(report)
+	recorded, err := engine.ReportAction(report)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if committed.Revision != 4 {
-		t.Fatalf("expected revision 4, got %d", committed.Revision)
+	if recorded.Revision != 4 {
+		t.Fatalf("expected revision 4, got %d", recorded.Revision)
 	}
 
 	state, err := engine.State(sessionRequest("session.flow"))
@@ -165,7 +165,7 @@ func TestBoundaryRequiresSafeCandidate(t *testing.T) {
 	}
 }
 
-func TestCommitReportsAcceptedOutcomeAfterStateAdvances(t *testing.T) {
+func TestActionReportRecordsAcceptedOutcomeAfterStateAdvances(t *testing.T) {
 	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
 	_, _ = engine.CreateSession(createRequest("session.late-accepted"))
 	proposal, _, err := engine.Propose(context.Background(), proposeRequest("session.late-accepted", "propose.late", 0, nil))
@@ -209,7 +209,7 @@ func TestCommitReportsAcceptedOutcomeAfterStateAdvances(t *testing.T) {
 	}
 }
 
-func TestCommitReportsRejectedOutcomeAfterStateAdvances(t *testing.T) {
+func TestActionReportRecordsRejectedOutcomeAfterStateAdvances(t *testing.T) {
 	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
 	_, _ = engine.CreateSession(createRequest("session.late-rejected"))
 	proposal, _, err := engine.Propose(context.Background(), proposeRequest("session.late-rejected", "propose.reject", 0, nil))
@@ -241,10 +241,10 @@ func TestCommitReportsRejectedOutcomeAfterStateAdvances(t *testing.T) {
 	}
 }
 
-func TestCommitRejectsTickBeforeProposal(t *testing.T) {
+func TestActionReportRejectsTickBeforeProposal(t *testing.T) {
 	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
-	_, _ = engine.CreateSession(createRequest("session.commit-tick"))
-	proposal, _, err := engine.Propose(context.Background(), proposeRequest("session.commit-tick", "propose.tick", 2, nil))
+	_, _ = engine.CreateSession(createRequest("session.report-tick"))
+	proposal, _, err := engine.Propose(context.Background(), proposeRequest("session.report-tick", "propose.tick", 2, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +259,7 @@ func TestCommitRejectsTickBeforeProposal(t *testing.T) {
 	if !errors.Is(err, rinruntime.ErrConflict) || rinruntime.ErrorCode(err) != "tick_regressed" {
 		t.Fatalf("expected tick_regressed, got %v", err)
 	}
-	state, _ := engine.State(sessionRequest("session.commit-tick"))
+	state, _ := engine.State(sessionRequest("session.report-tick"))
 	if state.Proposals[proposal.ID].Status != "pending" {
 		t.Fatalf("invalid outcome resolved proposal: %+v", state.Proposals[proposal.ID])
 	}
@@ -415,13 +415,13 @@ func TestFreshRestoreRetainsPendingProposalForSavedOutcomeOutbox(t *testing.T) {
 	reportRequest.Report.GoalUpdates = []protocol.GoalUpdate{{
 		GoalID: "goal.connect", ProgressDelta: 4, Status: "completed",
 	}}
-	firstCommit, err := restored.ReportAction(reportRequest)
+	firstReport, err := restored.ReportAction(reportRequest)
 	if err != nil {
 		t.Fatalf("saved outcome report after restore failed: %v", err)
 	}
-	repeatedCommit, err := restored.ReportAction(reportRequest)
-	if err != nil || !repeatedCommit.Duplicate || repeatedCommit.Revision != firstCommit.Revision {
-		t.Fatalf("full-receipt outcome retry must be idempotent: first=%+v repeated=%+v err=%v", firstCommit, repeatedCommit, err)
+	repeatedReport, err := restored.ReportAction(reportRequest)
+	if err != nil || !repeatedReport.Duplicate || repeatedReport.Revision != firstReport.Revision {
+		t.Fatalf("full-receipt outcome retry must be idempotent: first=%+v repeated=%+v err=%v", firstReport, repeatedReport, err)
 	}
 	state, err = restored.State(sessionRequest(sessionID))
 	if err != nil {

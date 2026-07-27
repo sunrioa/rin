@@ -23,6 +23,10 @@
   原子同时 Window、宿主拥有的 Chance Transition 与隐藏信息 Noninterference。
 - 新增供应商无关的派生 Memory Search、已批准文字 Speech、不可变 Audio Ref 与
   无内容 Telemetry 可选端口，并覆盖有界校验、取消、隐私与降级测试。
+- 新增加速一年 File Store 回归：1,460 次 Observation、365 次
+  Proposal/Outcome、每月 Snapshot、重启、历史检索、存储统计与最终 Session
+  Archive。
+- 新增 Authority Thread 非阻塞与 Recovery State Cleanup Host Scenario。
 
 ### 变化
 
@@ -49,6 +53,8 @@
 - 公共决策与生成边界统一为 `DecisionProvider`、`DecisionContext`、
   `DecisionDraft` 与 `StructuredGenerationProvider`。旧 Go 类型名和无实际用途的
   Draft 自由文本字段被直接删除，不保留兼容 Alias。
+- `Engine.Close(ctx)` 现在会拒绝新操作，并在调用方关闭 Store 前排空在途调用、
+  Transfer Import 与异步 Checkpoint Worker；CLI 的全部退出路径均使用该顺序。
 
 ## [0.6.0] - 2026-07-24 - Preview
 

@@ -287,6 +287,8 @@ Closed，直到完全相同的 Attempt 完成对账。
 长期记忆检索、TTS 与遥测通过供应商无关可选端口接入，不会获得游戏动作权威。
 契约、缓存/取消/降级语义和 Ren'Py 等宿主的播放线程边界见
 [可选扩展端口](docs/optional-extensions.zh-CN.md)。
+持续运行时的 Event Log、Memory Projection、语义索引、运维日志边界和加速一年
+回归见[长会话验证](docs/long-session-validation.zh-CN.md)。
 
 已交付里程碑与剩余 Preview 工作记录在 [ROADMAP.md](ROADMAP.md)。
 

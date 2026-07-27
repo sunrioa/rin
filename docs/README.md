@@ -22,6 +22,7 @@ releases do not carry a post-1.0 stability guarantee.
 | Cross-language clients and mods | [SDK and mod kits](sdk-and-mods.md) | [SDK 与 Mod 套件](sdk-and-mods.zh-CN.md) |
 | Offline Host project generator | [Host scaffolding](host-scaffolding.md) | [通用 Host 脚手架](host-scaffolding.zh-CN.md) |
 | Real-game stability and crash validation | [Real-host validation](host-integration-validation.md) | [真实宿主验收](host-integration-validation.zh-CN.md) |
+| Accelerated-year storage and lifecycle validation | [Long-session validation](long-session-validation.md) | [长会话验证](long-session-validation.zh-CN.md) |
 | Host persistence guarantees and durability profiles | [Host durability profiles](host-durability.md) | [宿主持久保证分级](host-durability.zh-CN.md) |
 | Security and reporting | [Security](../SECURITY.en.md) | [安全](../SECURITY.md) |
 | Release changes | [Changelog](../CHANGELOG.md) | [变更日志](../CHANGELOG.zh-CN.md) |

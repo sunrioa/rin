@@ -440,8 +440,8 @@ func TestWorldRevisionOverflowIsExplicitBeforeAppend(t *testing.T) {
 		})
 	})
 
-	t.Run("commit", func(t *testing.T) {
-		const sessionID = "session.world-overflow-commit"
+	t.Run("action_report", func(t *testing.T) {
+		const sessionID = "session.world-overflow-action-report"
 		engine, eventStore := invariantEngine(
 			t,
 			sessionID,
@@ -665,8 +665,8 @@ func TestFactVisibilityRejectsUnknownActorsBeforeAppend(t *testing.T) {
 		}
 	})
 
-	t.Run("commit", func(t *testing.T) {
-		const sessionID = "session.visibility-commit"
+	t.Run("action_report", func(t *testing.T) {
+		const sessionID = "session.visibility-action-report"
 		engine, eventStore := invariantEngine(t, sessionID, nil, nil, invariantPolicy{})
 		proposal, _, err := engine.Propose(context.Background(), invariantPropose(sessionID, "propose.visibility", nil))
 		if err != nil {
@@ -677,11 +677,11 @@ func TestFactVisibilityRejectsUnknownActorsBeforeAppend(t *testing.T) {
 		report.Report.Facts = []protocol.Fact{unknownFact}
 		_, err = engine.ReportAction(report)
 		if ErrorCode(err) != "unknown_actor" || ErrorField(err) != "report.facts[0].visibility[1]" {
-			t.Fatalf("unknown commit visibility actor should fail precisely, got %v", err)
+			t.Fatalf("unknown action report visibility actor should fail precisely, got %v", err)
 		}
 		after, _ := eventStore.counts()
 		if after != before {
-			t.Fatalf("invalid commit changed append count from %d to %d", before, after)
+			t.Fatalf("invalid action report changed append count from %d to %d", before, after)
 		}
 	})
 
@@ -755,7 +755,7 @@ func TestPendingProposedGoalsReserveActorCapacity(t *testing.T) {
 		[]protocol.Goal{invariantGoal("goal.over-capacity")},
 	)
 	if _, _, err := engine.Propose(context.Background(), differentGoal); ErrorCode(err) != "goal_capacity" {
-		t.Fatalf("33rd committed-or-reserved goal should fail, got %v", err)
+		t.Fatalf("33rd recorded-or-reserved goal should fail, got %v", err)
 	}
 	after, _ := eventStore.counts()
 	if after != before {
@@ -780,9 +780,9 @@ func TestPendingProposedGoalsReserveActorCapacity(t *testing.T) {
 	}
 }
 
-func TestCommitPathsDefendProposedGoalCapacity(t *testing.T) {
+func TestActionReportPathsDefendProposedGoalCapacity(t *testing.T) {
 	for _, batch := range []bool{false, true} {
-		name := "commit"
+		name := "action_report"
 		if batch {
 			name = "batch"
 		}
@@ -1027,7 +1027,7 @@ func TestEventIDExistsIncludesGoalAndObservationReceiptSources(t *testing.T) {
 				Kind:     EventObserved,
 				EntityID: "event.receipt-source",
 			},
-			"commit.not-an-event-source": {
+			"report.not-an-event-source": {
 				Kind:     EventActionReported,
 				EntityID: "proposal.entity",
 			},

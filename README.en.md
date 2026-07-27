@@ -347,6 +347,9 @@ Long-term retrieval, TTS, and telemetry integrate through vendor-neutral
 optional ports and receive no game-action authority. See
 [optional extensions](docs/optional-extensions.md) for the contracts,
 cache/cancellation/degradation semantics, and engine audio-thread boundary.
+See [long-session validation](docs/long-session-validation.md) for event-log,
+memory-projection, semantic-index, operational-log boundaries and the
+accelerated-year regression.
 
 Delivered milestones and remaining Preview work are tracked in
 [ROADMAP.en.md](ROADMAP.en.md).

@@ -215,7 +215,7 @@ local recovered_outcomes = assert(recovered_active:list_outcomes("player-one"))
 assert(#recovered_outcomes == 1 and
     recovered_outcomes[1].request.report.run.status == "outcome-unknown" and
     recovered_outcomes[1].request.report.outcome.status == "outcome-unknown",
-    "server restart did not reconcile Active Run as outcome-unknown")
+    "recovery_state_cleanup: server restart did not reconcile Active Run as outcome-unknown")
 
 backing.rin_host_state = encode({
     version = 1,

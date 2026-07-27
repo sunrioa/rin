@@ -13,15 +13,15 @@ import (
 	"github.com/sunrioa/rin/store"
 )
 
-func TestCommitAppendFailureDoesNotMutateLiveStateAndRetryReplays(t *testing.T) {
+func TestActionReportAppendFailureDoesNotMutateLiveStateAndRetryReplays(t *testing.T) {
 	eventStore := newFailOnceAppendStore(store.NewMemory())
 	engine := newEngine(t, eventStore, policy.Deterministic{})
-	const sessionID = "session.atomic-commit"
+	const sessionID = "session.atomic-action-report"
 
 	if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
 	}
-	proposal, _, err := engine.Propose(context.Background(), proposeRequest(sessionID, "propose.atomic-commit", 0, nil))
+	proposal, _, err := engine.Propose(context.Background(), proposeRequest(sessionID, "propose.atomic-action-report", 0, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,8 +31,8 @@ func TestCommitAppendFailureDoesNotMutateLiveStateAndRetryReplays(t *testing.T) 
 	}
 	request := successfulReportRequest(
 		proposal,
-		"report.atomic-commit",
-		"event.atomic-commit",
+		"report.atomic-action-report",
+		"event.atomic-action-report",
 		proposal.Tick,
 		"The game applied the action before reporting it.",
 	)
@@ -77,7 +77,7 @@ func TestCommitAppendFailureDoesNotMutateLiveStateAndRetryReplays(t *testing.T) 
 	}
 }
 
-func TestBatchCommitAppendFailureDoesNotMutateLiveStateAndRetryReplays(t *testing.T) {
+func TestBatchActionReportAppendFailureDoesNotMutateLiveStateAndRetryReplays(t *testing.T) {
 	eventStore := newFailOnceAppendStore(store.NewMemory())
 	engine := newEngine(t, eventStore, policy.Deterministic{})
 	create := twoActorWorldRequest("session.atomic-batch")
@@ -164,7 +164,7 @@ func TestBatchCommitAppendFailureDoesNotMutateLiveStateAndRetryReplays(t *testin
 	}
 }
 
-func TestCommitReconcilesPostWriteAppendErrorWithoutDuplicateLogEntry(t *testing.T) {
+func TestActionReportReconcilesPostWriteAppendErrorWithoutDuplicateLogEntry(t *testing.T) {
 	eventStore := newFailAfterAppendOnceStore(store.NewMemory())
 	engine := newEngine(t, eventStore, policy.Deterministic{})
 	const sessionID = "session.atomic-post-write"
@@ -253,7 +253,7 @@ func TestAppendReconciliationNeverPublishesUnverifiedLoadedEvent(t *testing.T) {
 	}
 }
 
-func TestCommitRecoversWhenPostWriteConfirmationInitiallyFails(t *testing.T) {
+func TestActionReportRecoversWhenPostWriteConfirmationInitiallyFails(t *testing.T) {
 	eventStore := newFailAfterAppendAndConfirmationStore(store.NewMemory())
 	engine := newEngine(t, eventStore, policy.Deterministic{})
 	const sessionID = "session.atomic-confirmation"

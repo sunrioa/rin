@@ -23,6 +23,14 @@ evidence, the engine and Mod examples remain `advisory`.
 
 ## Shared crash and recovery matrix
 
+The checked-in `rin.host-scenarios/v1` contract indexes executable evidence
+for stale Epoch rejection, stable Operation idempotency, dynamic capability
+revocation, exact Outbox retry, long-action Epoch cancellation, authority
+thread nonblocking, recovery cleanup, simultaneous decisions, host-owned
+chance, and hidden-information noninterference. A scenario entry proves only
+the listed evidence files and their CI runners; it does not imply every engine
+has passed every case. Host-specific gaps below remain manual release gates.
+
 Run every applicable case against a copy of a real save. Kill the game or
 Sidecar at the named boundary; do not substitute an exception thrown inside a
 unit test.

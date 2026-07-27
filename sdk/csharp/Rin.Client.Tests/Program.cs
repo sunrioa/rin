@@ -1241,7 +1241,7 @@ sealed class TestAuthoritativeStore : IWorkflowStore
     public async ValueTask SettleAsync(
         ProposalAttempt attempt,
         ActionProposal proposal,
-        ReportActionRequest commit,
+        ReportActionRequest report,
         Func<CancellationToken, ValueTask> apply,
         CancellationToken cancellationToken = default)
     {
@@ -1251,14 +1251,14 @@ sealed class TestAuthoritativeStore : IWorkflowStore
                 "settlement did not use the stored Attempt");
         }
         await apply(cancellationToken);
-        Outcomes.Add(new OutcomeOutboxEntry("outcome.workflow", commit));
+        Outcomes.Add(new OutcomeOutboxEntry("outcome.workflow", report));
         Attempt = null;
     }
 
     public ValueTask CompleteAsync(
         ProposalAttempt attempt,
         ActionProposal proposal,
-        ReportActionRequest commit,
+        ReportActionRequest report,
         CancellationToken cancellationToken = default)
     {
         if (Attempt != attempt)
@@ -1266,7 +1266,7 @@ sealed class TestAuthoritativeStore : IWorkflowStore
             throw new InvalidOperationException(
                 "completion did not use the stored Attempt");
         }
-        Outcomes.Add(new OutcomeOutboxEntry("outcome.workflow", commit));
+        Outcomes.Add(new OutcomeOutboxEntry("outcome.workflow", report));
         Attempt = null;
         return ValueTask.CompletedTask;
     }

@@ -16,7 +16,7 @@ unchecked item is not a supported feature.
 - [x] Go standard-library HTTP Sidecar
 - [x] Multi-actor Sessions, observations, memories, beliefs, and goals
 - [x] Character boundaries and candidate-action allowlists
-- [x] Proposal/Commit separation of world authority
+- [x] Proposal/Action Report separation of world authority
 - [x] Tick scheduling and urgent proposals
 - [x] Request IDs, revisions, stale Proposal protection, and deterministic policy
 - [x] Hash-chained JSONL, Snapshot, Restore, and deterministic Replay
@@ -112,6 +112,11 @@ unchecked item is not a supported feature.
   cancellation, text-only degradation, and playback reporting
 - [x] Remove obsolete public Go type names and free-form `DecisionDraft`
   fields without compatibility aliases
+- [x] Add bounded `Engine.Close(ctx)` draining for in-flight operations,
+  transfers, and checkpoints before CLI Store close
+- [x] Add an accelerated-year File Store regression with 1,460 observations,
+  365 daily actions, monthly snapshots, restart, history retrieval, byte
+  accounting, and archive
 
 ## Preview release gates
 

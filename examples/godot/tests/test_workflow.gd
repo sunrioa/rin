@@ -315,7 +315,7 @@ func _initialize() -> void:
 	)
 	_check(
 		not recovered_active.has_attempt(),
-		"Active Run recovery retained an executable Pending Turn",
+		"recovery_state_cleanup: Active Run recovery retained an executable Pending Turn",
 	)
 	_check(
 		await recovered_active.drain_outbox(),

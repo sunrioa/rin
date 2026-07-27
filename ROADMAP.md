@@ -14,7 +14,7 @@
 - [x] Go 标准库 HTTP Sidecar
 - [x] 多角色 Session、Observation、Memory、Belief 与 Goal
 - [x] 角色 Boundary 和 Candidate Action Allowlist
-- [x] Proposal/Commit 世界权威分离
+- [x] Proposal/Action Report 世界权威分离
 - [x] Tick 调度与 Urgent Proposal
 - [x] Request ID、Revision、过期 Proposal 保护与确定性 Policy
 - [x] Hash-chained JSONL、Snapshot、Restore 与确定性 Replay
@@ -99,6 +99,10 @@
 - [x] 将决策、结构化生成、派生 Memory、Speech 与无内容 Telemetry 收敛为
   供应商无关端口；Speech 支持有界 Cache、取消、纯文字降级和播放回报
 - [x] 删除 `DecisionDraft` 旧自由文本字段和旧公开 Go 类型名，不保留兼容 Alias
+- [x] `Engine.Close(ctx)` 有界排空在途 Operation、Transfer 与 Checkpoint，
+  CLI 在 Store Close 前调用
+- [x] 加速一年 File Store 回归，覆盖 1,460 次 Observation、365 次每日动作、
+  月度 Snapshot、重启、历史检索、容量统计与 Archive
 
 ## Preview 发布门禁
 

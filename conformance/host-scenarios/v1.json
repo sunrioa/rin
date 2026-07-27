@@ -48,6 +48,26 @@
       ]
     },
     {
+      "id": "authority_thread_nonblocking",
+      "requirement": "Provider and transport work does not synchronously wait on the game authority thread; world access is dispatched back to that thread.",
+      "evidence": [
+        "compat/adapter_examples_test.go",
+        "examples/mods/fabric-rin-npc/src/gametest/java/io/github/sunrioa/rin/example/FabricAuthorityGameTest.java"
+      ]
+    },
+    {
+      "id": "recovery_state_cleanup",
+      "requirement": "Epoch replacement, recovery, or unload invalidates process-local work and reconciles retained active work without reviving a stale callback.",
+      "evidence": [
+        "runtime/shutdown_test.go",
+        "sdk/hostkit/coordinator_test.go",
+        "adapters/renpy/test_rin_client.py",
+        "examples/mods/luanti-rin-npc/test_state.lua",
+        "tools/unity-harness/Program.cs",
+        "examples/godot/tests/test_workflow.gd"
+      ]
+    },
+    {
       "id": "simultaneous_window_atomicity",
       "requirement": "A simultaneous Decision Window collects one legal action per actor and applies the joint action without inventing a turn order.",
       "evidence": [

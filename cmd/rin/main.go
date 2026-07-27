@@ -120,6 +120,11 @@ Serve options:
 	if err != nil {
 		return err
 	}
+	defer func() {
+		closeContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		resultErr = errors.Join(resultErr, engine.Close(closeContext))
+	}()
 	jobManager, err := jobs.New(engine, jobs.Config{
 		Workers: envInt("RIN_JOB_WORKERS", 2), QueueSize: envInt("RIN_JOB_QUEUE_SIZE", 64),
 		MaxJobs: envInt("RIN_JOB_MAX_RETAINED", 512), JobTTL: envDuration("RIN_JOB_TTL", 30*time.Minute),
@@ -205,7 +210,14 @@ Serve options:
 	if generationManager != nil {
 		generationError = generationManager.Close(shutdownContext)
 	}
-	return errors.Join(serveError, shutdownError, jobsError, generationError)
+	runtimeError := engine.Close(shutdownContext)
+	return errors.Join(
+		serveError,
+		shutdownError,
+		jobsError,
+		generationError,
+		runtimeError,
+	)
 }
 
 func validateListenAddress(address string, allowRemote bool, token string) error {

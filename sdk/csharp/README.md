@@ -29,7 +29,7 @@ Create stable identities once with `RinIds.Create("request")` and
 every exact retry.
 
 OpenAPI-aligned models and typed overloads cover the authoritative
-create/propose/commit path. `MutationResult` and `ProposalResult` retain
+create/propose/action-report path. `MutationResult` and `ProposalResult` retain
 additive response fields through `AdditiveFields`.
 
 `WorkflowCoordinator` combines the compatible `ProposalAttemptCoordinator` and

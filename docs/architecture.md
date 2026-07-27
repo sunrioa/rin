@@ -246,7 +246,7 @@ scene tree.
 ### Observability
 
 Timeline extracts only IDs and enum states from event payloads. It does not
-return the player's original words, story summaries, commit outcomes, or
+return the player's original words, story summaries, action outcomes, or
 model content. On the bundled file store, Timeline reads a bounded revision
 range and does not rerun the reducer over the complete log for every page.
 Replay uses the newest usable checkpoint at or before the selected revision,
@@ -426,10 +426,12 @@ immediately when the call returns.
 `SaveCheckpoint` may run concurrently with `Append`, `Load`, `Head`, or
 `LoadRange` for the same Session. A CheckpointStore must be concurrency-safe
 and isolate expensive derived-artifact work from synchronization needed by
-authoritative event operations. Runtime does not expose a Close/drain
-operation: a Store that blocks `SaveCheckpoint` forever can strand the one
-bounded worker for that managed Session in that Engine, though it must not
-change the durable mutation result. The file store keeps the two newest valid
+authoritative event operations. `Engine.Close(ctx)` prevents new operations
+and waits for in-flight calls, transfer imports, and checkpoint workers before
+the caller closes its Store. Cancellation bounds that wait but cannot preempt
+a non-compliant Store that blocks `SaveCheckpoint` forever; a timed-out Engine
+remains closed and `Close` may be retried after the dependency is released.
+The file store keeps the two newest valid
 checkpoint files per Session. Checkpoints deliberately do not use the public
 16 MiB inline Snapshot ceiling, because they never cross the Snapshot JSON API
 boundary. They remain sensitive event-log-level state.

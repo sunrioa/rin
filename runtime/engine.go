@@ -56,6 +56,12 @@ type Engine struct {
 	allowLegacyCreation   bool
 	checkpointFailures    atomic.Uint64
 	checkpointQuotaSkips  atomic.Uint64
+	shutdownMu            sync.Mutex
+	shutdownDone          chan struct{}
+	shutdownSignaled      bool
+	closed                bool
+	activeOperations      int
+	checkpointWorkers     int
 }
 
 func Open(store Store, decisionProvider DecisionProvider) (*Engine, error) {
@@ -98,6 +104,7 @@ func OpenWithOptions(
 		sessionSoftLimitBytes: options.SessionSoftLimitBytes,
 		sessionHardLimitBytes: options.SessionHardLimitBytes,
 		allowLegacyCreation:   options.AllowLegacySessionCreation,
+		shutdownDone:          make(chan struct{}),
 	}
 	ids, err := store.ListSessions()
 	if err != nil {
@@ -116,6 +123,11 @@ func OpenWithOptions(
 // intentionally lazy so one large or damaged Session does not bind startup
 // latency or availability for unrelated Sessions.
 func (e *Engine) VerifyAll() error {
+	finish, err := e.beginOperation()
+	if err != nil {
+		return err
+	}
+	defer finish()
 	e.mu.RLock()
 	ids := make([]string, 0, len(e.sessions))
 	for id := range e.sessions {
@@ -132,6 +144,11 @@ func (e *Engine) VerifyAll() error {
 }
 
 func (e *Engine) CreateSession(request protocol.CreateSessionRequest) (protocol.MutationResult, error) {
+	finish, err := e.beginOperation()
+	if err != nil {
+		return protocol.MutationResult{}, err
+	}
+	defer finish()
 	if err := protocol.ValidateCreateSession(request); err != nil {
 		return protocol.MutationResult{}, validationError(err)
 	}
@@ -229,6 +246,11 @@ func (e *Engine) CreateSession(request protocol.CreateSessionRequest) (protocol.
 }
 
 func (e *Engine) Observe(request protocol.ObserveRequest) (protocol.MutationResult, error) {
+	finish, err := e.beginOperation()
+	if err != nil {
+		return protocol.MutationResult{}, err
+	}
+	defer finish()
 	if err := protocol.ValidateObserve(request); err != nil {
 		return protocol.MutationResult{}, validationError(err)
 	}
@@ -289,6 +311,11 @@ func (e *Engine) Observe(request protocol.ObserveRequest) (protocol.MutationResu
 }
 
 func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (protocol.ActionProposal, bool, error) {
+	finish, err := e.beginOperation()
+	if err != nil {
+		return protocol.ActionProposal{}, false, err
+	}
+	defer finish()
 	if err := ctx.Err(); err != nil {
 		return protocol.ActionProposal{}, false, NewError("proposal_canceled", "proposal request was canceled", err)
 	}
@@ -525,6 +552,11 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 }
 
 func (e *Engine) ReportAction(request protocol.ReportActionRequest) (protocol.MutationResult, error) {
+	finish, err := e.beginOperation()
+	if err != nil {
+		return protocol.MutationResult{}, err
+	}
+	defer finish()
 	if err := protocol.ValidateReportAction(request); err != nil {
 		return protocol.MutationResult{}, validationError(err)
 	}
@@ -771,12 +803,17 @@ func terminalActionStatus(status host.ActionRunStatus) bool {
 }
 
 func (e *Engine) ReportActionBatch(request protocol.BatchActionReportRequest) (protocol.MutationResult, error) {
+	finish, err := e.beginOperation()
+	if err != nil {
+		return protocol.MutationResult{}, err
+	}
+	defer finish()
 	if err := protocol.ValidateBatchActionReport(request); err != nil {
 		return protocol.MutationResult{}, validationError(err)
 	}
 	requestHash, err := requestDigest(request)
 	if err != nil {
-		return protocol.MutationResult{}, NewError("request_encode_failed", "could not identify batch commit request", err)
+		return protocol.MutationResult{}, NewError("request_encode_failed", "could not identify batch action report request", err)
 	}
 	session, err := e.mutationSession(request.SessionID)
 	if err != nil {
@@ -903,6 +940,11 @@ func (e *Engine) ReportActionBatch(request protocol.BatchActionReportRequest) (p
 }
 
 func (e *Engine) SetActorActivity(request protocol.SetActorActivityRequest) (protocol.MutationResult, error) {
+	finish, err := e.beginOperation()
+	if err != nil {
+		return protocol.MutationResult{}, err
+	}
+	defer finish()
 	if err := protocol.ValidateSetActorActivity(request); err != nil {
 		return protocol.MutationResult{}, validationError(err)
 	}
@@ -963,6 +1005,11 @@ func (e *Engine) SetActorActivity(request protocol.SetActorActivityRequest) (pro
 }
 
 func (e *Engine) Arbitrate(request protocol.ArbitrateRequest) (protocol.ArbitrationRecord, bool, error) {
+	finish, err := e.beginOperation()
+	if err != nil {
+		return protocol.ArbitrationRecord{}, false, err
+	}
+	defer finish()
 	if err := protocol.ValidateArbitrate(request); err != nil {
 		return protocol.ArbitrationRecord{}, false, validationError(err)
 	}
@@ -1046,6 +1093,11 @@ func (e *Engine) Arbitrate(request protocol.ArbitrateRequest) (protocol.Arbitrat
 }
 
 func (e *Engine) State(request protocol.SessionRequest) (protocol.SessionState, error) {
+	finish, err := e.beginOperation()
+	if err != nil {
+		return protocol.SessionState{}, err
+	}
+	defer finish()
 	if err := protocol.ValidateSessionRequest(request); err != nil {
 		return protocol.SessionState{}, validationError(err)
 	}
@@ -1064,6 +1116,11 @@ func (e *Engine) State(request protocol.SessionRequest) (protocol.SessionState, 
 }
 
 func (e *Engine) Snapshot(request protocol.SessionRequest) (protocol.Snapshot, error) {
+	finish, err := e.beginOperation()
+	if err != nil {
+		return protocol.Snapshot{}, err
+	}
+	defer finish()
 	if err := protocol.ValidateSessionRequest(request); err != nil {
 		return protocol.Snapshot{}, validationError(err)
 	}
@@ -1101,6 +1158,11 @@ func (e *Engine) Snapshot(request protocol.SessionRequest) (protocol.Snapshot, e
 }
 
 func (e *Engine) Restore(request protocol.RestoreRequest) (protocol.MutationResult, error) {
+	finish, err := e.beginOperation()
+	if err != nil {
+		return protocol.MutationResult{}, err
+	}
+	defer finish()
 	if err := protocol.ValidateRestore(request); err != nil {
 		return protocol.MutationResult{}, validationError(err)
 	}
@@ -1277,6 +1339,11 @@ func (e *Engine) Restore(request protocol.RestoreRequest) (protocol.MutationResu
 }
 
 func (e *Engine) DueAgents(request protocol.DueAgentsRequest) (protocol.DueAgentsResponse, error) {
+	finish, err := e.beginOperation()
+	if err != nil {
+		return protocol.DueAgentsResponse{}, err
+	}
+	defer finish()
 	if err := protocol.ValidateDueAgents(request); err != nil {
 		return protocol.DueAgentsResponse{}, validationError(err)
 	}

@@ -10,6 +10,11 @@ import (
 func (e *Engine) SessionStats(
 	request protocol.SessionRequest,
 ) (protocol.SessionStats, error) {
+	finish, err := e.beginOperation()
+	if err != nil {
+		return protocol.SessionStats{}, err
+	}
+	defer finish()
 	if err := protocol.ValidateSessionRequest(request); err != nil {
 		return protocol.SessionStats{}, validationError(err)
 	}
@@ -67,6 +72,11 @@ func (e *Engine) SessionStats(
 func (e *Engine) ArchiveSession(
 	request protocol.ArchiveSessionRequest,
 ) (protocol.ArchiveSessionResult, error) {
+	finish, err := e.beginOperation()
+	if err != nil {
+		return protocol.ArchiveSessionResult{}, err
+	}
+	defer finish()
 	if err := protocol.ValidateArchiveSession(request); err != nil {
 		return protocol.ArchiveSessionResult{}, validationError(err)
 	}
@@ -159,6 +169,11 @@ func (e *Engine) ArchiveSession(
 func (e *Engine) DeleteSession(
 	request protocol.DeleteSessionRequest,
 ) (protocol.DeleteSessionResult, error) {
+	finish, err := e.beginOperation()
+	if err != nil {
+		return protocol.DeleteSessionResult{}, err
+	}
+	defer finish()
 	if err := protocol.ValidateDeleteSession(request); err != nil {
 		return protocol.DeleteSessionResult{}, validationError(err)
 	}

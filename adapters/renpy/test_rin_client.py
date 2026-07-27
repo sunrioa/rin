@@ -430,7 +430,7 @@ class RinClientTests(unittest.TestCase):
             registry.schedule(changed, lambda worker: None)
         self.assertEqual(caught.exception.code, "request_id_conflict")
 
-    def test_epoch_change_invalidates_workers_and_ignores_late_results(self):
+    def test_recovery_state_cleanup_invalidates_workers_and_ignores_late_results(self):
         client = _client_with_opener()
         registry = rin_client.BackgroundProposalRegistry(client)
         request = _proposal_request()

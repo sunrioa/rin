@@ -274,7 +274,7 @@ func TestValidateIdentifierHistoryRejectsInvalidResultAssociations(t *testing.T)
 			name: "event kind must match request",
 			mutate: func(history *IdentifierHistory) {
 				identity := history.Events["event.observe"]
-				identity.Kind = "action.committed"
+				identity.Kind = "invalid.event.kind"
 				history.Events["event.observe"] = identity
 			},
 			field: "identifier_history.events.event.observe.kind",

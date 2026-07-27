@@ -132,7 +132,7 @@ Request Tag 与有界召回记忆的 Tag 可以继续偏好 `kind` 或 `id` 相�
 模型只决定建议哪个允许动作，以及哪些已提供的 Memory/Goal ID 参与了选择。私有 Goal、
 Boundary、Memory、Belief、Trait、Intent 和近期上下文文本可以影响选择，但绝不能复制到
 输出；严格 Schema 会拒绝 `summary` 与 `rationale` 字段。Rin 的运行时重建是最终信息流
-门禁，不依赖私密字符串匹配。模型不能直接 commit，也不能改变世界状态。
+门禁，不依赖私密字符串匹配。模型不能直接应用动作，也不能改变世界状态。
 
 `policy_source`、`recalled_memory_ids`、`goal_id`、运行时推导的 `boundary_id`
 以及完整 `proposed_goal` 都是私有审计/集成字段；它们的存在或取值可能泄露角色

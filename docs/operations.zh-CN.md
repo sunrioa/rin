@@ -58,6 +58,7 @@ JSON Diagnostics Snapshot 包含：
 - 已知、已加载和当前不可读 Session 数，以及有界错误码分组；
 - 尚未解决的持久 Mutation Barrier；
 - Active/Pending Checkpoint、Checkpoint Failure 与 Quota Skip；
+- Runtime Closed 状态与 Active Engine Operation 数；
 - Proposal/Generation Queue Depth/Capacity、Retained/Max-retained Job 和状态计数；
 - Generation Cache 大小与 Provider Circuit Breaker 状态；
 - HTTP Request、In-flight、4xx/5xx 以及累计耗时。
@@ -85,8 +86,10 @@ Client 可发送 `Rin-Request-ID`，值为 1–96 个 ASCII 字母、数字、`.
 Method、匹配后的 Route Template、Status 和 Duration；不记录 Raw Path、
 Query、Header 或 Body。
 
-停机时，应在 `/ready` 失败后停止路由新流量，让 HTTP Server Drain，再关闭
-Job Manager。随附 CLI 在 SIGINT/SIGTERM（或对应 Windows Console/Service
-Signal）后执行有界 Graceful Shutdown。不得绕过
+停机时，应在 `/ready` 失败后停止路由新流量，让 HTTP Server Drain，关闭
+Job Manager，调用 `Engine.Close(ctx)`，最后才能关闭由调用方拥有的 Store。
+`Engine.Close` 会拒绝新操作，并等待在途 Request、Transfer Writer 与
+Checkpoint Worker。随附 CLI 在 SIGINT/SIGTERM（或对应 Windows
+Console/Service Signal）后按此顺序执行有界 Graceful Shutdown。不得绕过
 [Session 生命周期](session-lifecycle.zh-CN.md)的备份规则复制或修改在线
 Data Directory。

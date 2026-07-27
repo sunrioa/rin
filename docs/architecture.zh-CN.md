@@ -314,10 +314,11 @@ checkpoint 完成，所以调用返回时 checkpoint 可能尚不可见。
 
 同一 Session 的 `SaveCheckpoint` 可能与 `Append`、`Load`、`Head` 或
 `LoadRange` 并发。CheckpointStore 必须 concurrency-safe，并把昂贵的派生
-artifact 工作与权威事件操作所需的同步隔离。Runtime 不提供 Close/drain：
-如果 Store 永久阻塞 `SaveCheckpoint`，该 Engine 中对应 managed Session
-唯一且有界的 worker 可能一直滞留，但不得改变 durable mutation 的结果。File
-Store 默认保留每个 Session 最近 2 个有效 checkpoint 文件。Checkpoint 不会
+Artifact 工作与权威事件操作所需的同步隔离。`Engine.Close(ctx)` 会阻止新操作，
+并在调用方关闭 Store 前等待在途调用、Transfer Import 与 Checkpoint Worker。
+Context 可以限制等待时间，但不能抢占永久阻塞 `SaveCheckpoint` 的不合规 Store；
+超时后的 Engine 仍保持关闭，依赖恢复后可再次调用 `Close` 完成排空。File Store
+默认保留每个 Session 最近 2 个有效 checkpoint 文件。Checkpoint 不会
 经过 Snapshot JSON API，因此有意不应用公共 16 MiB inline Snapshot 上限；
 但它仍是与事件日志同敏感级别的数据。
 

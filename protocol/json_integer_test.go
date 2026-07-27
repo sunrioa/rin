@@ -53,9 +53,9 @@ func TestRequestJSONSafeIntegerBoundaries(t *testing.T) {
 				Offers:         []ActionOffer{testActionOffer("session.test", "npc.test", "wait", 1)},
 			})
 		}},
-		{"commit", func(tick int64) error {
+		{"action_report", func(tick int64) error {
 			return ValidateReportAction(ReportActionRequest{
-				ProtocolVersion: Version, SessionID: "session.test", RequestID: "request.commit",
+				ProtocolVersion: Version, SessionID: "session.test", RequestID: "request.report",
 				Tick: tick,
 				Report: ActionReport{
 					ProposalID: "proposal.test", EventID: "event.report",

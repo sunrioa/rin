@@ -99,11 +99,11 @@ func TestOccurrenceMetadataIsServerOwnedAndNonNegative(t *testing.T) {
 		t.Fatal("candidate goal supplied server-owned updated_tick")
 	}
 
-	commit := validTerminalReport("commit.metadata", "event.test", []protocol.Fact{{
+	report := validTerminalReport("report.metadata", "event.test", []protocol.Fact{{
 		SubjectID: "door", Predicate: "state", Object: "open",
 		Confidence: 100, ObservedTick: -1,
 	}})
-	if err := protocol.ValidateReportAction(commit); err == nil {
+	if err := protocol.ValidateReportAction(report); err == nil {
 		t.Fatal("negative fact observed_tick should fail")
 	}
 
@@ -128,9 +128,9 @@ func TestOccurrenceMetadataIsServerOwnedAndNonNegative(t *testing.T) {
 				ObservationSeq:  1,
 			})
 		},
-		"commit": func() error {
+		"action_report": func() error {
 			return protocol.ValidateReportAction(validTerminalReport(
-				"commit.metadata-positive",
+				"report.metadata-positive",
 				"event.metadata-positive",
 				[]protocol.Fact{serverStampedFact},
 			))

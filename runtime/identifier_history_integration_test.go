@@ -1004,14 +1004,14 @@ func TestIdentifierHistoryRejectsAlteredPayloadForEveryMutation(t *testing.T) {
 	})
 
 	t.Run("report", func(t *testing.T) {
-		const sessionID = "session.identifier-altered-commit"
+		const sessionID = "session.identifier-altered-report"
 		engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
 		if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
 			t.Fatal(err)
 		}
 		proposal, _, err := engine.Propose(
 			context.Background(),
-			proposeRequest(sessionID, "propose.identifier-altered-commit", 0, nil),
+			proposeRequest(sessionID, "propose.identifier-altered-report", 0, nil),
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -1030,7 +1030,7 @@ func TestIdentifierHistoryRejectsAlteredPayloadForEveryMutation(t *testing.T) {
 		altered := request
 		altered.Report.Summary = "A different rejection outcome."
 		if _, err := engine.ReportAction(altered); err == nil {
-			t.Fatal("altered commit unexpectedly succeeded")
+			t.Fatal("altered action report unexpectedly succeeded")
 		} else {
 			assertIdentifierRequestConflict(t, err)
 		}

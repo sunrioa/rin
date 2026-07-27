@@ -73,7 +73,7 @@ func runMutationStateClosureSequence(t *testing.T, operations []byte) {
 		case 1:
 			before := mustEngineState(t, engine, sessionID)
 			tick := before.Tick + 1
-			request := invariantPropose(sessionID, "propose.commit.property."+suffix, nil)
+			request := invariantPropose(sessionID, "propose.action-report.property."+suffix, nil)
 			request.Tick = tick
 			request.Urgent = true
 			proposal, _, err := engine.Propose(context.Background(), request)

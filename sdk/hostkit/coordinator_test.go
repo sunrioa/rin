@@ -19,6 +19,7 @@ const (
 	scenarioRevokedCapability     = "revoked_capability_rejection"
 	scenarioExactOutboxRetry      = "exact_outbox_retry"
 	scenarioLongActionEpochCancel = "long_action_epoch_cancel"
+	scenarioRecoveryStateCleanup  = "recovery_state_cleanup"
 )
 
 func TestCoordinatorPersistsBeforeNetworkAndRetriesExactOutbox(t *testing.T) {
@@ -176,7 +177,7 @@ func TestCoordinatorSupportsLongRunTransition(t *testing.T) {
 
 func TestCoordinatorRevocationAndEpochReconciliationFailClosed(t *testing.T) {
 	t.Log(scenarioStaleEpochRejection, scenarioRevokedCapability,
-		scenarioLongActionEpochCancel)
+		scenarioLongActionEpochCancel, scenarioRecoveryStateCleanup)
 	t.Run("revoked capability", func(t *testing.T) {
 		fixture := newFixture(t, host.ActionSucceeded)
 		beginAndResolve(t, fixture)
@@ -278,7 +279,7 @@ func TestCoordinatorRevocationAndEpochReconciliationFailClosed(t *testing.T) {
 		occurredAt := host.Timepoint{Clock: host.ClockEvent, Value: 12}
 		outcome := host.ActionOutcome{
 			OperationID: state.Actions[0].Invocation.OperationID,
-			Status:      host.ActionSucceeded, Summary: "effect was found committed",
+			Status:      host.ActionSucceeded, Summary: "effect was found persisted",
 			Epoch:    state.Actions[0].Invocation.ExpectedEpoch,
 			WorldSeq: 3, OccurredAt: occurredAt,
 		}

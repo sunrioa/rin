@@ -324,7 +324,7 @@ func TestOptionalZeroDefaultsMatchTypedValidatorSemantics(t *testing.T) {
 			delete(value["facts"].([]any)[0].(map[string]any), "confidence")
 		}},
 		{"propose tick", "ProposeRequest", func(value map[string]any) { delete(value, "tick") }},
-		{"commit tick", "ReportActionRequest", func(value map[string]any) { delete(value, "tick") }},
+		{"action report tick", "ReportActionRequest", func(value map[string]any) { delete(value, "tick") }},
 		{"batch tick", "BatchActionReportRequest", func(value map[string]any) { delete(value, "tick") }},
 		{"generation temperature", "GenerationRequest", func(value map[string]any) {
 			delete(value, "temperature")

@@ -7,6 +7,7 @@ import (
 )
 
 func TestEngineAdaptersKeepNetworkWorkOffAuthorityThreads(t *testing.T) {
+	t.Log("authority_thread_nonblocking")
 	tests := []struct {
 		name      string
 		path      string

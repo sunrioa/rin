@@ -22,6 +22,13 @@ Rin `0.7.0` 是 Preview 软件。编译通过、模拟引擎 API 和面向重启
 
 ## 通用崩溃与恢复矩阵
 
+仓库内 `rin.host-scenarios/v1` Contract 会索引以下场景的可执行证据：旧 Epoch
+拒绝、稳定 Operation 幂等、动态 Capability 撤销、精确 Outbox Retry、长动作
+Epoch Cancel、Authority Thread 非阻塞、恢复清理、同时决策、Host-owned Chance
+与隐藏信息 Noninterference。一个 Scenario Entry 只证明列出的 Evidence File
+及其 CI Runner，不表示每个引擎都已经通过所有场景；下列 Host-specific 缺口仍是
+人工发布门禁。
+
 所有适用场景都应针对真实存档的副本执行。在指定边界强制结束游戏或 Sidecar，不要用
 单元测试中抛出的异常代替真实进程终止。
 

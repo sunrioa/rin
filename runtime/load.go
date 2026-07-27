@@ -520,6 +520,10 @@ func (e *Engine) queueCheckpointLocked(session *managedSession) {
 		session.checkpointMu.Unlock()
 		return
 	}
+	if !e.beginCheckpointWorker() {
+		session.checkpointMu.Unlock()
+		return
+	}
 	session.checkpointRunning = true
 	session.checkpointMu.Unlock()
 
@@ -531,6 +535,7 @@ func (e *Engine) runCheckpointWorker(
 	checkpoints CheckpointStore,
 	capture checkpointCapture,
 ) {
+	defer e.finishCheckpointWorker()
 	for {
 		checkpoint, err := BuildCheckpoint(
 			capture.state,

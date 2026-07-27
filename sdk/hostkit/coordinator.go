@@ -249,7 +249,7 @@ func (coordinator *Coordinator) DispatchAndEnqueue(
 	if err != nil {
 		return ActionRecord{}, err
 	}
-	var committed ActionRecord
+	var persisted ActionRecord
 	commitErr := coordinator.store.CommitEffect(
 		ctx,
 		state.Revision,
@@ -301,14 +301,14 @@ func (coordinator *Coordinator) DispatchAndEnqueue(
 			if err := next.Validate(); err != nil {
 				return WorkflowState{}, err
 			}
-			committed = record
+			persisted = record
 			return next, nil
 		},
 	)
 	if commitErr != nil {
 		return ActionRecord{}, commitErr
 	}
-	return committed, nil
+	return persisted, nil
 }
 
 // TransitionRequest records a later long-running action callback.

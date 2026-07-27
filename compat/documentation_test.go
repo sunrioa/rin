@@ -29,6 +29,7 @@ func TestBilingualDocumentationPairs(t *testing.T) {
 		{"../docs/optional-extensions.md", "../docs/optional-extensions.zh-CN.md"},
 		{"../docs/host-scaffolding.md", "../docs/host-scaffolding.zh-CN.md"},
 		{"../docs/host-integration-validation.md", "../docs/host-integration-validation.zh-CN.md"},
+		{"../docs/long-session-validation.md", "../docs/long-session-validation.zh-CN.md"},
 		{"../docs/protocol-v2.md", "../docs/protocol-v2.zh-CN.md"},
 		{"../docs/release-guide.md", "../docs/release-guide.zh-CN.md"},
 		{"../docs/rpg-events.md", "../docs/rpg-events.zh-CN.md"},

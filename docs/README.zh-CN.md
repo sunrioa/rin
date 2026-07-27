@@ -21,6 +21,7 @@ Rin `0.7.0` 是 Preview、pre-1.0 软件。文档按公共接口组织，不以�
 | 跨语言客户端与 Mod | [SDK 与 Mod 套件](sdk-and-mods.zh-CN.md) | [SDK and mod kits](sdk-and-mods.md) |
 | 离线 Host 项目生成器 | [通用 Host 脚手架](host-scaffolding.zh-CN.md) | [Host scaffolding](host-scaffolding.md) |
 | 真实游戏稳定性与崩溃验收 | [真实宿主验收](host-integration-validation.zh-CN.md) | [Real-host validation](host-integration-validation.md) |
+| 加速一年存储与生命周期验证 | [长会话验证](long-session-validation.zh-CN.md) | [Long-session validation](long-session-validation.md) |
 | 宿主持久保证与分级 | [宿主持久保证分级](host-durability.zh-CN.md) | [Host durability profiles](host-durability.md) |
 | 安全与漏洞报告 | [安全](../SECURITY.md) | [Security](../SECURITY.en.md) |
 | 发布变化 | [变更日志](../CHANGELOG.zh-CN.md) | [Changelog](../CHANGELOG.md) |

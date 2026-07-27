@@ -62,6 +62,7 @@ The JSON diagnostics snapshot reports:
   code;
 - unresolved durable-mutation barriers;
 - active/pending checkpoint work, checkpoint failures, and quota skips;
+- Runtime closed state and active Engine operation count;
 - Proposal and Generation queue depth/capacity, retained/max-retained Jobs, and
   status counts;
 - Generation cache size and Provider Circuit Breaker state;
@@ -94,7 +95,10 @@ only this ID, method, matched route template, status, and duration; raw paths,
 query strings, headers, and bodies are excluded.
 
 On shutdown, stop routing new traffic after `/ready` fails, allow the HTTP
-server to drain, and then close Job Managers. The bundled CLI performs a
-bounded graceful shutdown after SIGINT/SIGTERM (or the corresponding Windows
-console/service signal). Never copy or modify the live data directory without
-following the backup rules in [Session lifecycle](session-lifecycle.md).
+server to drain, close Job Managers, call `Engine.Close(ctx)`, and only then
+close the caller-owned Store. `Engine.Close` rejects new operations and waits
+for in-flight requests, transfer writers, and checkpoint workers. The bundled
+CLI performs this bounded ordering after SIGINT/SIGTERM (or the corresponding
+Windows console/service signal). Never copy or modify the live data directory
+without following the backup rules in
+[Session lifecycle](session-lifecycle.md).

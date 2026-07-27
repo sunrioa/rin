@@ -14,7 +14,9 @@ public final class FabricAuthorityGameTest implements FabricGameTest {
         FabricHostRuntime runtime = FabricHostRuntime.current(server);
 
         context.assertTrue(server.isDedicated(), "GameTest did not start a dedicated server");
-        context.assertTrue(server.isOnThread(), "GameTest is not on the server thread");
+        context.assertTrue(
+                server.isOnThread(),
+                "authority_thread_nonblocking: GameTest is not on the server thread");
         context.assertEquals(
                 FabricHostEpoch.AuthorityKind.DEDICATED,
                 runtime.epoch().authorityKind(),

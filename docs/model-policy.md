@@ -160,7 +160,7 @@ memory/goal IDs informed that choice. Private goal, boundary, memory, belief,
 trait, intent, and recent-context text may influence selection but must never
 be copied into output; the strict schema rejects `summary` and `rationale`
 fields. Rin's runtime reconstruction is the final information-flow gate and
-does not rely on secret-string matching. The model cannot commit or change
+does not rely on secret-string matching. The model cannot apply or change
 world state.
 
 `policy_source`, `recalled_memory_ids`, `goal_id`, the runtime-derived
