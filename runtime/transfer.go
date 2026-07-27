@@ -428,12 +428,22 @@ func (w *runtimeTransferWriter) Publish(
 			err,
 		))
 	}
-	if err := w.staged.Publish(complete); err != nil {
-		return w.fail(NewError(
-			"transfer_publish_failed",
-			"could not publish staged transfer",
-			err,
-		))
+	if publishErr := w.staged.Publish(complete); publishErr != nil {
+		recovery, recoverable := w.engine.store.(TransferRecoveryStore)
+		if !recoverable {
+			return w.fail(NewError(
+				"transfer_publish_failed",
+				"could not publish staged transfer",
+				publishErr,
+			))
+		}
+		if confirmErr := recovery.ConfirmTransfer(w.manifest); confirmErr != nil {
+			return w.fail(NewError(
+				"transfer_publish_failed",
+				"could not confirm the published transfer target",
+				errors.Join(publishErr, confirmErr),
+			))
+		}
 	}
 	if err := w.engine.verifySessionFromGenesis(w.manifest.SessionID); err != nil {
 		return w.fail(NewError(

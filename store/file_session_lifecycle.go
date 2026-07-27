@@ -139,6 +139,13 @@ func (s *File) Archive(
 	var existing rinruntime.ArchiveRecord
 	if err := decodeJSONFile(path, &existing); err == nil {
 		if archiveRecordsEqual(existing, record) {
+			if err := s.fencePublishedFile(
+				path,
+				directory,
+				"archive marker",
+			); err != nil {
+				return rinruntime.ArchiveRecord{}, false, err
+			}
 			return existing, true, nil
 		}
 		return rinruntime.ArchiveRecord{}, false, rinruntime.ErrConflict
@@ -173,14 +180,23 @@ func (s *File) Delete(
 	}
 	defer done()
 	tombstone := s.tombstonePath(record.SessionID)
+	tombstones := filepath.Dir(tombstone)
 	var existing rinruntime.DeleteRecord
 	if err := decodeJSONFile(tombstone, &existing); err == nil {
 		if !deleteRecordsEqual(existing, record) {
 			return rinruntime.DeleteRecord{}, false, rinruntime.ErrRetired
 		}
+		if err := s.fencePublishedFile(
+			tombstone,
+			tombstones,
+			"Session tombstone",
+		); err != nil {
+			return rinruntime.DeleteRecord{}, false, err
+		}
 		if err := s.finishDeletedSession(directory); err != nil {
 			return rinruntime.DeleteRecord{}, false, err
 		}
+		s.clearSessionCaches(record.SessionID)
 		return existing, true, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return rinruntime.DeleteRecord{}, false, err
@@ -199,7 +215,6 @@ func (s *File) Delete(
 		archive.Anchor != record.Anchor {
 		return rinruntime.DeleteRecord{}, false, rinruntime.ErrConflict
 	}
-	tombstones := filepath.Dir(tombstone)
 	if err := s.writeJSONAtomically(
 		tombstones,
 		".tombstone-*.tmp",
@@ -243,32 +258,64 @@ func (s *File) sessionAnchorLocked(
 }
 
 func (s *File) finishDeletedSession(directory string) error {
-	if _, err := os.Stat(directory); errors.Is(err, os.ErrNotExist) {
-		return nil
-	} else if err != nil {
-		return err
-	}
 	sessions := filepath.Dir(directory)
-	deleting, err := os.MkdirTemp(
-		sessions,
-		".deleting-"+filepath.Base(directory)+"-*.tmp",
-	)
+	prefix := ".deleting-" + filepath.Base(directory) + "-"
+	deleting, err := pendingDeletingDirectories(sessions, prefix)
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(deleting); err != nil {
-		return err
+	if _, statErr := os.Stat(directory); statErr == nil {
+		candidate, err := os.MkdirTemp(sessions, prefix+"*.tmp")
+		if err != nil {
+			return err
+		}
+		if err := os.Remove(candidate); err != nil {
+			return err
+		}
+		if err := renameDurably(directory, candidate); err != nil {
+			return err
+		}
+		deleting = append(deleting, candidate)
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return statErr
+	} else if len(deleting) == 0 {
+		return nil
 	}
-	if err := renameDurably(directory, deleting); err != nil {
-		return err
-	}
+
+	// Fence a rename from either this attempt or a previous uncertain attempt
+	// before removing the only visible copy of the retired Session.
 	if err := s.syncDir(sessions); err != nil {
 		return err
 	}
-	if err := os.RemoveAll(deleting); err != nil {
-		return err
+	var removeErr error
+	for _, candidate := range deleting {
+		if err := os.RemoveAll(candidate); err != nil {
+			removeErr = errors.Join(removeErr, err)
+		}
+	}
+	if removeErr != nil {
+		return removeErr
 	}
 	return s.syncDir(sessions)
+}
+
+func pendingDeletingDirectories(
+	sessions string,
+	prefix string,
+) ([]string, error) {
+	entries, err := os.ReadDir(sessions)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]string, 0)
+	for _, entry := range entries {
+		if entry.IsDir() &&
+			strings.HasPrefix(entry.Name(), prefix) &&
+			strings.HasSuffix(entry.Name(), ".tmp") {
+			result = append(result, filepath.Join(sessions, entry.Name()))
+		}
+	}
+	return result, nil
 }
 
 func (s *File) clearSessionCaches(sessionID string) {

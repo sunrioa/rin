@@ -155,11 +155,22 @@ type TransferWriter interface {
 }
 
 // TransferStore is an optional Store capability for bounded-memory,
-// complete-lineage import. BeginTransfer must reject an existing target and
-// create only invisible staging. Runtime must not emulate this capability by
-// calling Create and Append because that would expose a partial Session.
+// complete-lineage import. BeginTransfer must reject an unrelated existing
+// target. After a post-rename durability failure, it may instead return a
+// confirmation writer only when the complete existing lineage matches the
+// exact manifest. New data must use invisible staging. Runtime must not emulate
+// this capability by calling Create and Append because that would expose a
+// partial Session.
 type TransferStore interface {
 	BeginTransfer(manifest protocol.TransferManifest) (TransferWriter, error)
+}
+
+// TransferRecoveryStore confirms a target that became visible after
+// TransferWriter.Publish crossed its atomic rename but could not confirm the
+// parent-directory durability fence. An exact import retry may adopt only a
+// target whose complete lineage matches manifest.
+type TransferRecoveryStore interface {
+	ConfirmTransfer(manifest protocol.TransferManifest) error
 }
 
 // Checkpoint is a derived replay cache, not an exported or imported Snapshot.

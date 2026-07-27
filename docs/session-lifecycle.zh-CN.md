@@ -53,6 +53,10 @@ File Store 删除使用每 Session Event 与 Artifact Lock。它先把最小 Tom
 会根据 Tombstone 完成被中断的删除，之后才能暴露 Store。Windows 使用
 Write-through Rename；受支持 POSIX 平台使用 Rename 加 Directory Sync。
 
+Archive 或 Delete 的 Exact Retry 会先重新同步已可见 Marker 及其父目录，再返回
+成功。如果 Session Rename 已发生但父目录 Sync 失败，Retry 会找到内部 Deleting
+Directory，完成 Fence 后将其移除。不能仅因 Tombstone File 可见就把它视为已持久。
+
 Tombstone 不包含 Event、Snapshot、生成文本、Actor、Fact、Goal 或 Binding 值，
 只保留：
 
@@ -78,6 +82,8 @@ Tombstone 不包含 Event、Snapshot、生成文本、Actor、Fact、Goal 或 Bi
 - 若 Mutation 的保守编码预留会超过 Hard Limit，则在 Append 前返回
   `507 session_quota_exceeded`；
 - 已持久 Request 的 Exact Retry 仍可读取和对账；
+- 不确定 Mutation Retry 复用首次 Append 前已批准的 Reservation，可能已经存在的
+  Event 不会被重复计费；
 - 超限时 Stats、Export、Archive 与 Delete 仍可用；
 - 可以跳过派生 Artifact，但绝不能截断 Event History。
 

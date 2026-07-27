@@ -73,6 +73,12 @@ across every future minor release.
 - Epochs are bound to their containing Session, host sequence fields enforce
   positive JSON-safe integers, and wire/persisted JSON rejects duplicate
   object member names consistently.
+- Exact Archive/Delete retries now re-fence visible markers and finish
+  post-rename deletion directories. Transfer Publish can confirm or exactly
+  retry a complete target after a parent-directory sync failure.
+- Exact retries of uncertain event appends reuse their original storage
+  reservation instead of being blocked by charging a possibly present event
+  twice.
 - Correct current documentation evidence for the 28-route SDK inventory,
   100-turn Terminal Story gate, Windows/macOS Luanti verification, and
   Linux/macOS Ren'Py coverage; remove the deleted recovery-example command.

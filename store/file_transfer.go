@@ -25,11 +25,13 @@ type fileTransferWriter struct {
 	previousRev  uint64
 	previousHash string
 	done         func()
+	confirmOnly  bool
 	finished     bool
 	failed       error
 }
 
 var _ rinruntime.TransferStore = (*File)(nil)
+var _ rinruntime.TransferRecoveryStore = (*File)(nil)
 var _ rinruntime.TransferWriter = (*fileTransferWriter)(nil)
 
 func (s *File) BeginTransfer(
@@ -63,7 +65,28 @@ func (s *File) BeginTransfer(
 		return nil, err
 	}
 	if _, err := os.Stat(target); err == nil {
-		return nil, rinruntime.ErrConflict
+		// A normally published target is not an import retry. Only a target
+		// left unconfirmed by a failed post-rename durability fence may enter
+		// the exact confirmation path.
+		if s.sessionDurabilityIsConfirmed(manifest.SessionID) {
+			return nil, rinruntime.ErrConflict
+		}
+		if err := s.confirmTransferLocked(manifest, target); err != nil {
+			return nil, errors.Join(rinruntime.ErrConflict, err)
+		}
+		hasher := protocol.NewTransferStreamHasher()
+		if err := hasher.WriteManifest(manifest); err != nil {
+			return nil, err
+		}
+		release = false
+		return &fileTransferWriter{
+			store:       s,
+			manifest:    manifest,
+			hasher:      hasher,
+			target:      target,
+			done:        done,
+			confirmOnly: true,
+		}, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
@@ -119,6 +142,11 @@ func (w *fileTransferWriter) WriteEvent(
 	); err != nil {
 		return w.fail(err)
 	}
+	if w.confirmOnly {
+		w.previousRev = frame.Record.Sequence
+		w.previousHash = frame.Record.Hash
+		return nil
+	}
 	payload, err := encodeEventRecord(frame.Record)
 	if err != nil {
 		return w.fail(err)
@@ -154,6 +182,10 @@ func (w *fileTransferWriter) Publish(
 	if err := w.hasher.VerifyComplete(complete, w.manifest); err != nil {
 		return w.fail(err)
 	}
+	if w.confirmOnly {
+		w.finish()
+		return nil
+	}
 	if err := w.events.Sync(); err != nil {
 		return w.fail(err)
 	}
@@ -172,11 +204,69 @@ func (w *fileTransferWriter) Publish(
 		return w.fail(err)
 	}
 	w.staging = ""
+	if err := w.store.syncDir(filepath.Dir(w.target)); err != nil {
+		w.finish()
+		return err
+	}
 	w.store.markSessionDurabilityConfirmed(w.manifest.SessionID)
 	w.store.setCachedIndex(w.manifest.SessionID, w.index)
-	syncErr := w.store.syncDir(filepath.Dir(w.target))
 	w.finish()
-	return syncErr
+	return nil
+}
+
+func (s *File) ConfirmTransfer(
+	manifest protocol.TransferManifest,
+) error {
+	if err := protocol.ValidateTransferManifest(manifest); err != nil {
+		return err
+	}
+	directory, done, err := s.beginSession(manifest.SessionID)
+	if err != nil {
+		return err
+	}
+	defer done()
+	return s.confirmTransferLocked(manifest, directory)
+}
+
+func (s *File) confirmTransferLocked(
+	manifest protocol.TransferManifest,
+	directory string,
+) error {
+	if err := s.ensureSessionDurability(manifest.SessionID, directory); err != nil {
+		return err
+	}
+	if err := s.rejectDurabilityUncertainty(manifest.SessionID); err != nil {
+		return err
+	}
+	file, err := openEventFile(directory, os.O_RDONLY)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Rebuild from the authoritative log instead of trusting an index cached
+	// before the failed parent fence.
+	s.deleteCachedIndex(manifest.SessionID)
+	index, err := s.rebuildEventIndex(manifest.SessionID, directory, file)
+	if err != nil {
+		return err
+	}
+	if uint64(len(index.entries)) != manifest.EventCount ||
+		manifest.TerminalRevision != manifest.EventCount {
+		return rinruntime.ErrConflict
+	}
+	last, err := readIndexedEvent(file, index.entries[len(index.entries)-1])
+	if err != nil {
+		return err
+	}
+	if err := verifyIndexedEvent(index.entries, len(index.entries)-1, last); err != nil {
+		return err
+	}
+	if last.Sequence != manifest.TerminalRevision ||
+		last.Hash != manifest.TerminalHeadHash {
+		return rinruntime.ErrConflict
+	}
+	return nil
 }
 
 func (w *fileTransferWriter) Abort() error {

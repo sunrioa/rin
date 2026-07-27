@@ -91,10 +91,14 @@ generation。首版只导出完整本地 Event Log。未来的增量 Transfer �
 5. 通过同目录 atomic rename 一次发布；
 6. 同步父目录。
 
-解析、校验、取消、容量、sync 或 rename 失败只能清理或保留不可见 staging
-数据，不能创建可访问的部分 Session。未实现 `TransferStore` 的自定义 Store
-继续支持现有 API，但 Import 返回 `transfer_unavailable`；Runtime 不用
-`Create`/`Append` 模拟非原子导入。
+解析、校验、取消、容量与 Rename 之前的失败只能清理或保留不可见 Staging。
+Atomic Rename 之后若父目录 Sync 失败，完整 Target 可能已经可见但其持久结果仍
+不确定；它绝不会是部分 Session。`TransferRecoveryStore` 会重新 Fence 并校验
+完全相同的 Manifest Boundary；客户端重发同一 Import Stream 后即可确认并注册。
+不同 Manifest 或 Stream 仍返回 `session_exists`。
+
+未实现 `TransferStore` 的自定义 Store 继续支持现有 API，但 Import 返回
+`transfer_unavailable`；Runtime 不用 `Create`/`Append` 模拟非原子导入。
 
 ### 5. 导入目标与 Binding
 

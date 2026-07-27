@@ -60,6 +60,121 @@ func TestFileTransferStagesAndPublishesCompleteLineageAtomically(t *testing.T) {
 	}
 }
 
+func TestRuntimeTransferRecoversPublishedTargetAfterParentFenceFailure(t *testing.T) {
+	tests := []struct {
+		name              string
+		failParentSyncs   int
+		expectFirstResult bool
+	}{
+		{
+			name:              "same publish confirms transient failure",
+			failParentSyncs:   1,
+			expectFirstResult: true,
+		},
+		{
+			name:              "exact import retry confirms persistent failure",
+			failParentSyncs:   2,
+			expectFirstResult: false,
+		},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			sessionID := "session.transfer-publish-" +
+				strings.ReplaceAll(testCase.name, " ", "-")
+			manifest, frames, complete := fileTransferFixture(t, sessionID, 2)
+			fileStore, err := OpenFile(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer fileStore.Close()
+			engine, err := rinruntime.Open(fileStore, policy.Deterministic{})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			sessions := filepath.Join(fileStore.root, "sessions")
+			sentinel := errors.New("injected transfer parent fence failure")
+			realSyncDir := fileStore.syncDir
+			parentSyncs := 0
+			fileStore.syncDir = func(path string) error {
+				if path == sessions {
+					parentSyncs++
+					if parentSyncs <= testCase.failParentSyncs {
+						return sentinel
+					}
+				}
+				return realSyncDir(path)
+			}
+
+			writer := beginRuntimeTransfer(
+				t,
+				engine,
+				manifest,
+				frames,
+			)
+			firstErr := writer.Publish(complete)
+			if testCase.expectFirstResult {
+				if firstErr != nil {
+					t.Fatalf("transient parent fence was not recovered: %v", firstErr)
+				}
+			} else {
+				if !errors.Is(firstErr, sentinel) ||
+					rinruntime.ErrorCode(firstErr) != "transfer_publish_failed" {
+					t.Fatalf("first Publish error = %v", firstErr)
+				}
+				if err := writer.Abort(); err != nil {
+					t.Fatal(err)
+				}
+				fileStore.syncDir = realSyncDir
+				writer = beginRuntimeTransfer(
+					t,
+					engine,
+					manifest,
+					frames,
+				)
+				if err := writer.Publish(complete); err != nil {
+					t.Fatalf("exact import retry did not adopt target: %v", err)
+				}
+			}
+
+			state, err := engine.State(protocol.SessionRequest{
+				ProtocolVersion: protocol.Version,
+				SessionID:       sessionID,
+			})
+			if err != nil {
+				t.Fatalf("published target was not registered: %v", err)
+			}
+			if state.Revision != manifest.TerminalRevision ||
+				state.HeadHash != manifest.TerminalHeadHash {
+				t.Fatalf("registered transfer boundary mismatch: %+v", state)
+			}
+			if !fileStore.sessionDurabilityIsConfirmed(sessionID) {
+				t.Fatal("recovered target was registered before durability confirmation")
+			}
+		})
+	}
+}
+
+func beginRuntimeTransfer(
+	t *testing.T,
+	engine *rinruntime.Engine,
+	manifest protocol.TransferManifest,
+	frames []protocol.TransferEvent,
+) rinruntime.TransferWriter {
+	t.Helper()
+	writer, err := engine.BeginTransferImport(manifest, manifest.Binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, frame := range frames {
+		if err := writer.WriteEvent(frame); err != nil {
+			_ = writer.Abort()
+			t.Fatalf("write transfer event %d: %v", index+1, err)
+		}
+	}
+	return writer
+}
+
 func TestFileTransferCorruptionAndTruncationNeverPublish(t *testing.T) {
 	tests := []struct {
 		name string

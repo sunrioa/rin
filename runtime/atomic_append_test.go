@@ -507,6 +507,52 @@ func TestUncertainProposalBlocksOtherMutationsUntilExactRetry(t *testing.T) {
 	}
 }
 
+func TestExactUncertainMutationRetryUsesOriginalQuotaReservation(t *testing.T) {
+	const hardLimit = uint64(1 << 20)
+	memory := store.NewMemory()
+	failing := newFailAfterAppendAndConfirmationStore(memory)
+	eventStore := &quotaInflatingStore{
+		failAfterAppendAndConfirmationStore: failing,
+		lifecycle:                           memory,
+		hardLimit:                           hardLimit,
+	}
+	engine, err := rinruntime.OpenWithOptions(
+		eventStore,
+		policy.Deterministic{},
+		rinruntime.EngineOptions{SessionHardLimitBytes: hardLimit},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const sessionID = "session.atomic-uncertain-quota"
+	if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
+		t.Fatal(err)
+	}
+	request := observeRequest(
+		sessionID,
+		"observe.atomic-uncertain-quota",
+		"event.atomic-uncertain-quota",
+		1,
+	)
+
+	failing.failPostWriteAndConfirmation()
+	if _, err := engine.Observe(request); rinruntime.ErrorCode(err) != "mutation_outcome_unknown" {
+		t.Fatalf("failed confirmation = %v, want mutation_outcome_unknown", err)
+	}
+	eventStore.setInflated(true)
+	if _, err := engine.Observe(request); err != nil {
+		t.Fatalf("exact retry was blocked by charging quota twice: %v", err)
+	}
+	state, err := engine.State(sessionRequest(sessionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Revision != 2 ||
+		state.Receipts[request.RequestID].Kind != rinruntime.EventObserved {
+		t.Fatalf("uncertain retry did not publish exactly one event: %+v", state)
+	}
+}
+
 func TestProposalRequestHashRejectsAlteredRetriesAfterReplay(t *testing.T) {
 	eventStore := store.NewMemory()
 	engine := newEngine(t, eventStore, policy.Deterministic{})
@@ -823,6 +869,15 @@ type failAfterAppendAndConfirmationStore struct {
 	forceConflict bool
 }
 
+type quotaInflatingStore struct {
+	*failAfterAppendAndConfirmationStore
+	lifecycle rinruntime.LifecycleStore
+	hardLimit uint64
+
+	mu       sync.Mutex
+	inflated bool
+}
+
 type corruptProposalReconcileOnceStore struct {
 	rinruntime.Store
 
@@ -888,6 +943,49 @@ func newFailAfterAppendOnceStore(delegate rinruntime.Store) *failAfterAppendOnce
 
 func newFailAfterAppendAndConfirmationStore(delegate rinruntime.Store) *failAfterAppendAndConfirmationStore {
 	return &failAfterAppendAndConfirmationStore{Store: delegate}
+}
+
+func (s *quotaInflatingStore) setInflated(inflated bool) {
+	s.mu.Lock()
+	s.inflated = inflated
+	s.mu.Unlock()
+}
+
+func (s *quotaInflatingStore) Lifecycle(
+	sessionID string,
+) (rinruntime.SessionLifecycle, error) {
+	return s.lifecycle.Lifecycle(sessionID)
+}
+
+func (s *quotaInflatingStore) Stats(
+	sessionID string,
+) (rinruntime.StoreSessionStats, error) {
+	stats, err := s.lifecycle.Stats(sessionID)
+	if err != nil {
+		return rinruntime.StoreSessionStats{}, err
+	}
+	s.mu.Lock()
+	inflated := s.inflated
+	s.mu.Unlock()
+	if inflated {
+		stats = rinruntime.StoreSessionStats{
+			EventCount:    stats.EventCount,
+			EventLogBytes: s.hardLimit,
+		}
+	}
+	return stats, nil
+}
+
+func (s *quotaInflatingStore) Archive(
+	record rinruntime.ArchiveRecord,
+) (rinruntime.ArchiveRecord, bool, error) {
+	return s.lifecycle.Archive(record)
+}
+
+func (s *quotaInflatingStore) Delete(
+	record rinruntime.DeleteRecord,
+) (rinruntime.DeleteRecord, bool, error) {
+	return s.lifecycle.Delete(record)
 }
 
 func newCorruptProposalReconcileOnceStore(delegate rinruntime.Store) *corruptProposalReconcileOnceStore {

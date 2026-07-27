@@ -63,6 +63,12 @@ again. Startup sees the tombstone and finishes an interrupted deletion before
 exposing the Store. Windows uses write-through rename; supported POSIX
 platforms use rename plus directory sync.
 
+An exact Archive or Delete retry re-syncs an already visible marker and its
+parent before reporting success. If the Session rename crossed its durability
+boundary but the parent sync failed, the retry finds the internal deleting
+directory, completes the fence, and removes it. A tombstone is never treated as
+durable merely because its file is visible.
+
 The tombstone contains no Event, Snapshot, generated text, Actor, Fact, Goal,
 or Binding values. It retains only:
 
@@ -90,6 +96,8 @@ disables that limit:
 - a mutation whose conservative encoded-size reservation would exceed the hard
   limit fails before append with `507 session_quota_exceeded`;
 - exact retries of durable requests remain readable and reconcilable;
+- an uncertain mutation retry reuses the reservation approved before its first
+  append attempt, so a possibly present event is never charged twice;
 - Stats, export, archive, and deletion remain available over quota;
 - derived artifact creation may be skipped, but event history is never
   truncated.

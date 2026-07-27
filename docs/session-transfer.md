@@ -105,8 +105,13 @@ Import cannot append directly into a live Session. Store gains an optional
 5. publishes once through a same-directory atomic rename;
 6. syncs the parent directory.
 
-Parsing, validation, cancellation, capacity, sync, or rename failures may only
-remove or retain invisible staging data; they cannot expose a partial Session.
+Parsing, validation, cancellation, capacity, and pre-rename failures may only
+remove or retain invisible staging data. A parent-directory sync failure after
+the atomic rename can expose the complete target with an uncertain durability
+outcome, never a partial Session. `TransferRecoveryStore` fences and verifies
+that exact manifest boundary; the same Import stream can then confirm and
+register it. A different manifest or stream remains `session_exists`.
+
 Custom Stores without `TransferStore` retain existing APIs while Import returns
 `transfer_unavailable`. Runtime must not simulate a non-atomic import through
 `Create` and `Append`.

@@ -85,6 +85,20 @@ func (s *File) writeArtifactAtomically(
 	return s.syncDir(directory)
 }
 
+func (s *File) fencePublishedFile(
+	path string,
+	directory string,
+	kind string,
+) error {
+	if err := s.syncEventFile(path); err != nil {
+		return fmt.Errorf("sync existing %s: %w", kind, err)
+	}
+	if err := s.syncDir(directory); err != nil {
+		return fmt.Errorf("sync %s directory: %w", kind, err)
+	}
+	return nil
+}
+
 func decodeJSONFile(path string, target any) error {
 	file, err := os.Open(path)
 	if err != nil {
@@ -302,11 +316,12 @@ func (s *File) SaveCheckpoint(sessionID string, checkpoint rinruntime.Checkpoint
 		checkpoint.Revision,
 		checkpoint.Checksum,
 	); existingErr == nil {
-		if err := s.syncEventFile(destination); err != nil {
-			return fmt.Errorf("sync existing checkpoint: %w", err)
-		}
-		if err := s.syncDir(directory); err != nil {
-			return fmt.Errorf("sync checkpoint directory: %w", err)
+		if err := s.fencePublishedFile(
+			destination,
+			directory,
+			"checkpoint",
+		); err != nil {
+			return err
 		}
 		return s.retainCheckpointFiles(directory, sessionID, checkpointRetentionCount)
 	} else if !errors.Is(existingErr, os.ErrNotExist) {

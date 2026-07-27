@@ -842,11 +842,12 @@ func (s *File) SaveSnapshot(sessionID string, snapshot protocol.Snapshot) error 
 		snapshot.StateHash,
 		&snapshot.IdentifierHistoryHash,
 	); existingErr == nil {
-		if err := s.syncEventFile(destination); err != nil {
-			return fmt.Errorf("sync existing snapshot: %w", err)
-		}
-		if err := s.syncDir(directory); err != nil {
-			return fmt.Errorf("sync snapshot directory: %w", err)
+		if err := s.fencePublishedFile(
+			destination,
+			directory,
+			"snapshot",
+		); err != nil {
+			return err
 		}
 		return s.retainSnapshotFiles(directory, sessionID, snapshotRetentionCount)
 	} else if !errors.Is(existingErr, os.ErrNotExist) {

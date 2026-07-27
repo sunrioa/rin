@@ -1589,11 +1589,18 @@ func (e *Engine) resolveMutationRetry(
 }
 
 func (e *Engine) appendAndApply(session *managedSession, event protocol.EventRecord) error {
-	if len(session.uncertainMutations) > 0 && !isUncertainMutationRetry(session, event) {
+	uncertainRetry := isUncertainMutationRetry(session, event)
+	if len(session.uncertainMutations) > 0 && !uncertainRetry {
 		return unresolvedMutationError(session)
 	}
-	if err := e.checkSessionQuota(session.id, managedEventBytes(event)); err != nil {
-		return err
+	// The first attempt reserved quota before it reached Store.Append.
+	// Uncertainty blocks every other mutation and artifact write, so the exact
+	// event retry consumes that existing reservation rather than charging the
+	// same event a second time after it may already be present in Store stats.
+	if !uncertainRetry {
+		if err := e.checkSessionQuota(session.id, managedEventBytes(event)); err != nil {
+			return err
+		}
 	}
 	candidate, err := clone(session.state)
 	if err != nil {

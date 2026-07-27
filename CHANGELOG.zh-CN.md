@@ -62,6 +62,11 @@
   自洽哈希的恶意 Event 会返回损坏日志错误，不再解引用缺失的动作生命周期记录。
 - Epoch 现在与外层 Session 绑定；Host Sequence 字段统一要求正数且 JSON-safe；
   Wire 与持久化 JSON 统一拒绝重复 Object Member Name。
+- Archive/Delete Exact Retry 现在会重新 Fence 已可见 Marker，并完成 Rename
+  之后遗留的 Deleting Directory。Transfer Publish 在父目录 Sync 失败后可确认
+  或精确重试完整 Target。
+- 不确定 Event Append 的 Exact Retry 会复用原 Storage Reservation，不再对可能
+  已经存在的同一 Event 重复计费。
 - 修正当前文档中的 28 Route SDK 清单、Terminal Story 100 回合门禁、
   Windows/macOS Luanti 验证及 Linux/macOS Ren'Py 覆盖范围，并删除已移除的
   Recovery 示例命令。
