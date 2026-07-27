@@ -265,7 +265,7 @@ def wait_ready(base_url: str, process: subprocess.Popen[bytes]) -> None:
         if process.poll() is not None:
             raise RuntimeError(f"Rin Sidecar exited before readiness ({process.returncode})")
         try:
-            status, envelope = request(base_url, "GET", "/health", timeout=0.25)
+            status, envelope = request(base_url, "GET", "/health", timeout=1.0)
             if status == 200 and envelope.get("ok") is True:
                 return
         except (AssertionError, OSError, TimeoutError):
