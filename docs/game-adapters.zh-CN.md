@@ -64,9 +64,10 @@ Worker 结果变成 `stale_epoch`。Bridge 在 Load 后调用
 Registry 仍是进程内对象；持久剧情状态必须保存完整 Pending Turn 与返回的 Job ID。
 Worker、Lock、HTTP Response 与 Token 都不得写入 Rollback/Save Data。Python 测试
 覆盖进程重启、旧存档 Load、重复 Rollback、Persistent Ledger Merge、上限、损坏
-状态、Worker 失效与迟到完成；这些逻辑测试在 macOS、Linux、Windows 运行。本机
-Ren'Py 8.5.3 Lint 和真引擎 Rollback Harness 已通过。真实项目仍须在准确 Ren'Py
-Build 中验证可见 Save/Load、Screen 更新、Shutdown 与 Sidecar Restart。
+状态、Worker 失效与迟到完成。该 Suite 在 Linux CI 运行；本地 macOS 的
+Ren'Py 8.5.3 Lint 和真引擎 Rollback Harness 已通过，Windows 执行尚未自动化。
+真实项目仍须在准确 Ren'Py Build 中验证可见 Save/Load、Screen 更新、Shutdown
+与 Sidecar Restart。
 
 ## Godot 4
 

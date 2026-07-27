@@ -325,11 +325,11 @@ headless server. The generator does not write `mod.conf.release`; that field is
 owned by ContentDB.
 
 Repository CI also downloads the SHA-256-pinned official Luanti 5.16.1
-Windows release and loads the source Mod in a real Dedicated Server twice.
-Local macOS verification repeats this for both the source Mod and a newly
-generated scaffold. This proves packaging, real ModStorage userdata, and
-graceful restart generations; it does not prove multiplayer, live Sidecar
-traffic, forced termination, or a long soak.
+Windows release and loads both the source Mod and a newly generated scaffold
+in a real Dedicated Server twice. Local macOS verification repeats the same
+two lifecycles. This proves packaging, real ModStorage userdata, and graceful
+restart generations; it does not prove multiplayer, live Sidecar traffic,
+forced termination, or a long soak.
 
 ## Required game-specific work
 

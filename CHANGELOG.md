@@ -67,6 +67,9 @@ across every future minor release.
 
 ### Fixed
 
+- Correct current documentation evidence for the 28-route SDK inventory,
+  100-turn Terminal Story gate, Windows/macOS Luanti verification, and
+  Linux/macOS Ren'Py coverage; remove the deleted recovery-example command.
 - Health capability negotiation now encodes an empty recommended feature
   baseline as `[]` instead of `null`, matching every SDK's array contract.
 - The Windows Luanti lifecycle gate allows bounded cold-start time and reports

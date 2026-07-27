@@ -26,7 +26,7 @@ Identity 与有界恢复状态，但其存储无法与任意游戏世界效果�
 | Lua | 5.1 | Callback | 注入 Codec 和 Transport | Luanti、嵌入式 Lua 引擎 |
 
 每套实现暴露由 OpenAPI 生成到
-[`sdk/conformance/routes.json`](../sdk/conformance/routes.json) 的 20 Route
+[`sdk/conformance/routes.json`](../sdk/conformance/routes.json) 的 28 Route
 Inventory。该清单只核对覆盖，不是第二份 Wire Contract，也不是行为证明。
 Python 和 JavaScript 没有运行时依赖；C# 在 .NET 6 使用 Framework API，
 其 .NET Standard 2.0 兼容 Target 固定 `System.Text.Json`；
@@ -210,8 +210,9 @@ Build 和 File Store/Sidecar 生命周期测试；这些平台测试覆盖持久
 写者拒绝。CI 还会在 Python 3.9 与当前 Python 3 上运行 Python SDK/Ren'Py，在
 Node 18/24、Java 17/25、.NET 6/10 上运行相应 Client Test，并在 Lua 5.1/5.4
 下运行 Lua Client Test 与 Luanti 重启/写失败状态 Harness，并在官方 Luanti
-5.16.1 LuaJIT 内重复这些 Suite。macOS 上真实 Dedicated Server 会重开源码 Mod
-与生成脚手架；Windows CI 使用 SHA-256 固定的官方 Release ZIP 重复两者生命周期。
+5.16.1 LuaJIT 内重复这些 Suite。本地 macOS 验证会用真实 Dedicated Server 重开
+源码 Mod 与生成脚手架；Windows CI 使用 SHA-256 固定的官方 Release ZIP 重复
+两者生命周期。
 CI 还会运行固定版本的 Fabric 项目及其 Saved Data 重启测试，以及两个 BepInEx
 Backend、重启测试
 与安装包都会在 Linux 和 Windows 构建。

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -215,6 +216,70 @@ func TestCurrentDocumentationMatchesGeneratedContractIdentity(t *testing.T) {
 	}
 }
 
+func TestCurrentDocumentationEvidenceMatchesRepository(t *testing.T) {
+	routesPayload, err := os.ReadFile("../sdk/conformance/routes.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var routes struct {
+		Operations []json.RawMessage `json:"operations"`
+	}
+	if err := json.Unmarshal(routesPayload, &routes); err != nil {
+		t.Fatal(err)
+	}
+	if len(routes.Operations) == 0 {
+		t.Fatal("generated route inventory is empty")
+	}
+	assertSourceMarkers(
+		t,
+		"../docs/sdk-and-mods.md",
+		[]string{fmt.Sprintf("%d-route inventory", len(routes.Operations))},
+		[]string{"20-route inventory"},
+	)
+	assertSourceMarkers(
+		t,
+		"../docs/sdk-and-mods.zh-CN.md",
+		[]string{fmt.Sprintf("%d Route", len(routes.Operations))},
+		[]string{"20 Route"},
+	)
+
+	workflow, err := os.ReadFile("../.github/workflows/ci.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	turnMatch := regexp.MustCompile(`benchmark\.js --iterations ([0-9]+)`).
+		FindStringSubmatch(string(workflow))
+	if len(turnMatch) != 2 {
+		t.Fatal("terminal-story CI turn count is not declared")
+	}
+	turns, err := strconv.Atoi(turnMatch[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{
+		"../docs/host-integration-validation.md",
+		"../docs/release-guide.md",
+	} {
+		assertSourceMarkers(
+			t,
+			path,
+			[]string{fmt.Sprintf("%d-turn", turns)},
+			[]string{"20-turn"},
+		)
+	}
+	for _, path := range []string{
+		"../docs/host-integration-validation.zh-CN.md",
+		"../docs/release-guide.zh-CN.md",
+	} {
+		assertSourceMarkers(
+			t,
+			path,
+			[]string{fmt.Sprintf("%d 回合", turns)},
+			[]string{"20 回合"},
+		)
+	}
+}
+
 func TestCurrentGuidesDoNotTeachRemovedProtocol(t *testing.T) {
 	roots := []string{
 		"../README.md",
@@ -266,6 +331,30 @@ func TestCurrentGuidesDoNotTeachRemovedProtocol(t *testing.T) {
 				if strings.Contains(string(payload), marker) {
 					t.Errorf("%s still teaches removed protocol marker %q", path, marker)
 				}
+			}
+		}
+	}
+}
+
+func TestDocumentedRepositoryGoRunTargetsExist(t *testing.T) {
+	command := regexp.MustCompile(`(?m)^\s*go run (\./[^\s\\]+)`)
+	for _, path := range []string{"../README.md", "../README.en.md"} {
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, match := range command.FindAllStringSubmatch(string(payload), -1) {
+			target := filepath.Join("..", filepath.FromSlash(match[1]))
+			if _, err := os.Stat(target); err != nil {
+				t.Errorf("%s documents missing go run target %q", path, match[1])
+				continue
+			}
+			if tracked, checked := repositoryTracks(target); checked && !tracked {
+				t.Errorf(
+					"%s documents go run target %q hidden by an untracked local path",
+					path,
+					match[1],
+				)
 			}
 		}
 	}
@@ -383,6 +472,9 @@ func TestRealHostValidationLimitsRemainExplicit(t *testing.T) {
 			"Minecraft Dedicated Server",
 			"BepInEx 6 as bleeding-edge/unreleased",
 			"Luanti headless server",
+			"Windows CI uses",
+			"locally on macOS",
+			"Linux CI runs",
 			"Unity Editor package import",
 			"Mono and IL2CPP Players",
 			"at least two hours or 1,000 turns",
@@ -392,19 +484,25 @@ func TestRealHostValidationLimitsRemainExplicit(t *testing.T) {
 			"Minecraft Dedicated Server",
 			"BepInEx 6 视为 Bleeding-edge/未正式发布",
 			"Luanti Headless Server",
+			"Windows CI 使用",
+			"本地 macOS 通过",
+			"Linux CI 运行",
 			"Unity Editor Package 导入",
 			"Windows Mono 与 IL2CPP Player",
 			"至少两小时或 1,000 Turn",
 			"`advisory`",
 		},
 		"../docs/game-adapters.md": {
-			"macOS, Linux, and Windows",
+			"Linux CI",
+			"Windows execution is not yet",
+			"automated.",
 			"licensed",
 			"vision",
 			"TTS consumes approved dialogue",
 		},
 		"../docs/game-adapters.zh-CN.md": {
-			"macOS、Linux、Windows",
+			"Linux CI",
+			"Windows 执行尚未自动化",
 			"Unity",
 			"Vision Model",
 			"TTS",

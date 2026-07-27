@@ -16,9 +16,11 @@ validator; dependencies and licenses are listed in
 Documentation index: [English](docs/README.md) |
 [简体中文](docs/README.zh-CN.md)
 
-**Release status:** `0.7.0` Preview (pre-1.0). The project documents migration
-behavior but does not promise compatibility across every future minor release.
-Pin an exact repository revision or verified release tag. See the
+**Current development status:** the source identifies itself as `0.7.0`
+Preview (pre-1.0). Until its verified release tag is created, treat it as an
+unreleased development version. The project documents migration behavior but
+does not promise compatibility across every future minor release. Pin an exact
+repository revision or verified release tag. See the
 [changelog](CHANGELOG.md), [compatibility matrix](docs/compatibility.md),
 [Protocol v2 guide](docs/protocol-v2.md), and
 [release guide](docs/release-guide.md).
@@ -108,12 +110,11 @@ go run ./examples/basic
 ```
 
 It demonstrates Session creation and Observe only; it does not persist the
-identities required in production. The complete Proposal Attempt, applied
-marker, Outcome Outbox, crash recovery, and safe file-persistence example is:
-
-```bash
-go run ./examples/recovery
-```
+identities required in production. See the [Host action
+lifecycle](docs/action-lifecycle.md) and [game adapters](docs/game-adapters.md)
+for the production Proposal Attempt, applied marker, Outcome Outbox, and crash
+recovery pattern. The runnable full vertical slice is
+[`examples/terminal-story`](examples/terminal-story/).
 
 Production integrations should use a dedicated sidecar token:
 

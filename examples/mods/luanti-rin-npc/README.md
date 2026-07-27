@@ -70,7 +70,7 @@ Official HTTP API: https://docs.luanti.org/for-creators/api/http-api/
 Official Lua API: https://api.luanti.org/core-namespace-reference/
 
 Repository verification runs the SDK and state harness on Lua 5.1/5.4 and
-inside official Luanti 5.16.1 LuaJIT. A real Dedicated Server loads the source
-Mod and a generated standalone scaffold twice against the same world on macOS;
-Windows CI repeats the source-Mod lifecycle using the SHA-256-pinned official
-release.
+inside official Luanti 5.16.1 LuaJIT. Local macOS verification uses a real
+Dedicated Server to load the source Mod and a generated standalone scaffold
+twice against the same world; Windows CI repeats both with the SHA-256-pinned
+official release.

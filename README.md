@@ -13,8 +13,10 @@ JSON Schema 2020-12 校验库；依赖与许可见
 
 文档索引：[简体中文](docs/README.zh-CN.md) | [English](docs/README.md)
 
-**发布状态：** `0.7.0` Preview（pre-1.0）。项目会记录迁移行为，但不承诺后续
-每个 minor 版本都保持兼容。接入方应固定精确仓库 Revision 或已验证 Release Tag。
+**当前开发状态：** 源代码标识为 `0.7.0` Preview（pre-1.0）；对应的已验证
+Release Tag 创建前，应把它视为未发布的开发版本。项目会记录迁移行为，但不承诺
+后续每个 minor 版本都保持兼容。接入方应固定精确仓库 Revision 或已验证
+Release Tag。
 另见[变更日志](CHANGELOG.zh-CN.md)、[兼容矩阵](docs/compatibility.zh-CN.md)、
 [协议 v2 指南](docs/protocol-v2.zh-CN.md)和
 [发布指南](docs/release-guide.zh-CN.md)。
@@ -82,13 +84,11 @@ Host 契约；同时提供 Fabric、BepInEx Mono、BepInEx IL2CPP 与 Luanti 模
 go run ./examples/basic
 ```
 
-它只演示 Session 创建与 Observe，不持久化生产所需的身份。完整的
-Proposal Attempt、Applied Marker、Outcome Outbox、崩溃恢复与安全文件落盘示例
-独立位于：
-
-```bash
-go run ./examples/recovery
-```
+它只演示 Session 创建与 Observe，不持久化生产所需的身份。生产接入所需的
+Proposal Attempt、Applied Marker、Outcome Outbox 与崩溃恢复模式见
+[Host 动作生命周期](docs/action-lifecycle.zh-CN.md)和
+[游戏 Adapter](docs/game-adapters.zh-CN.md)；可运行的完整纵向切片位于
+[`examples/terminal-story`](examples/terminal-story/)。
 
 生产接入建议设置独立 Sidecar Token：
 

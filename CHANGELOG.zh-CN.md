@@ -58,6 +58,9 @@
 
 ### 修复
 
+- 修正当前文档中的 28 Route SDK 清单、Terminal Story 100 回合门禁、
+  Windows/macOS Luanti 验证及 Linux/macOS Ren'Py 覆盖范围，并删除已移除的
+  Recovery 示例命令。
 - Health 能力协商现在把空的推荐 Feature Baseline 编码为 `[]` 而不是 `null`，
   与所有 SDK 的数组契约一致。
 - Windows Luanti 生命周期门禁为冷启动保留有界时间，并把 Archive、源码 Host

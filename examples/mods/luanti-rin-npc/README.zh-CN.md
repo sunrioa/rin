@@ -60,5 +60,5 @@ Luanti HTTP 实现会跟随重定向，而 Lua API 没有单请求关闭开关�
 官方 Lua API：https://api.luanti.org/core-namespace-reference/
 
 仓库会在 Lua 5.1/5.4 与官方 Luanti 5.16.1 LuaJIT 内执行 SDK 和状态 Harness。
-真实 Dedicated Server 会在 macOS 对同一世界加载源码 Mod 与生成的独立脚手架
-各两次；Windows CI 使用 SHA-256 固定的官方 Release 重复源码 Mod 生命周期。
+本地 macOS 验证会让真实 Dedicated Server 对同一世界加载源码 Mod 与生成的独立
+脚手架各两次；Windows CI 使用 SHA-256 固定的官方 Release 重复验证两者。

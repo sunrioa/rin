@@ -6,19 +6,19 @@ Rin `0.7.0` 是 Preview 软件。编译通过、模拟引擎 API 和面向重启
 门禁，但不能证明 Mod 在真实游戏内稳定。下列对应行尚未形成实测证据前，引擎与 Mod
 示例仍属于 `advisory`。
 
-## 当前 CI 已证明的范围
+## 当前自动化与本地实测证据
 
-| 接入 | 自动化证据 | 尚未证明 |
+| 接入 | 已有证据 | 尚未证明 |
 | --- | --- | --- |
 | Fabric | 真实 Mod JAR/NBT 往返、官方 Dedicated Server GameTest 与 Authority Matrix | 实时 Sidecar 恢复、多人、强制停止和打包客户端 Integrated Server Smoke |
 | BepInEx Mono/IL2CPP | 真实 BepInEx Package 编译与 Core 重启测试 | 代表性游戏中的 Plugin 加载、游戏 Hook、存档身份和关机流程 |
-| Luanti | Lua 5.1/5.4 测试，以及 macOS/Windows 上官方 5.16.1 LuaJIT Dedicated Server 与真实 ModStorage 重启测试 | 实时 Sidecar、并发玩家、强制终止、地图保存时序与 Soak |
+| Luanti | Windows CI 使用官方 5.16.1 LuaJIT Dedicated Server 验证源码 Mod、生成脚手架与真实 ModStorage 重启；同一校验器已在本地 macOS 通过 | 实时 Sidecar、并发玩家、强制终止、地图保存时序与 Soak |
 | Godot | Linux/Windows 官方 4.6.3 Headless Authority Generation、精确 Offer Binding、Active Run 恢复、重启与文件失败测试 | Editor Session 与 Export Build 中的实时 Sidecar 流量 |
 | Unity | 严格 API Stub：Scene/Domain Generation、NavMesh 编译、取消、迟到 Callback、Active Run/不透明参数恢复与 Windows-safe Replace | Unity Editor Package 导入和 Mono/IL2CPP Player 构建 |
 | Unreal | Runtime Plugin 结构、不安全入口与 Windows 路径测试 | Unreal Header Tool/编译器、Editor 加载、打包、SaveGame 与导航 Runtime |
-| Ren'Py | Python Adapter/Epoch 测试；本机 Ren'Py 8.5.3 Lint 与 Rollback Harness | 可见引擎 Save/Load、Interaction Restart 与打包 Build |
+| Ren'Py | Linux CI 运行 Python Adapter/Epoch 测试；本地 macOS 运行 Ren'Py 8.5.3 Lint 与 Rollback Harness | Windows Adapter 执行、可见引擎 Save/Load、Interaction Restart 与打包 Build |
 | OpenSpiel | macOS/Linux/Windows 上真实 2.0.1 顺序/同时/Chance/隐藏信息游戏 | 仅作语义 Oracle；不含引擎线程、存档、Sidecar 或长世界动作生命周期 |
-| Terminal Story | Windows、macOS、Linux 上真实 Sidecar 20 回合 CI | 它是参考游戏，不能证明另一款游戏的 Mod 生命周期 |
+| Terminal Story | Windows、macOS、Linux 上真实 Sidecar 100 回合 CI | 它是参考游戏，不能证明另一款游戏的 Mod 生命周期 |
 
 ## 通用崩溃与恢复矩阵
 

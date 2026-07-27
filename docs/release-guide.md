@@ -44,7 +44,7 @@ The last command must print `0.7.0`. Also verify:
 - the migration checklist covers safe integers, required `accepted`, UTF-8,
   error layers, Proposal Attempt/Outbox recovery, and Restore Binding;
 - no tracked file claims that SDKs are published to a language registry;
-- the `terminal-story` install/test and real-Sidecar 20-turn gate pass on
+- the `terminal-story` install/test and real-Sidecar 100-turn gate pass on
   Windows, macOS, and Linux CI, and public value claims remain inside the
   [measured scope](player-value.md);
 - the incomplete rows in the [real-host Mod validation

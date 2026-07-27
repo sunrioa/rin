@@ -337,7 +337,8 @@ Generation，不覆盖多人、实时 Sidecar、强制终止或长时间 Soak。
   保留 Incomplete Marker 供人工审查，并且不删除并发替换的目录或文件。
 - [x] 在 Linux 与 Windows 构建生成的 Fabric 和两个 BepInEx 项目；构建并打包
   每个 BepInEx Backend，独立复验两个安装 ZIP；使用 Lua 5.1 与 5.4
-  解析并运行 Luanti 生成结果，并在官方 5.16.1 Windows Dedicated Server 加载。
+  解析并运行 Luanti 生成结果，并在官方 5.16.1 Windows Dedicated Server
+  分别加载源码 Mod 与生成脚手架；本地 macOS 使用同一校验器验证两者。
 - [x] 生成 README 必须明确固定依赖、未完成的游戏所有 TODO、Preview 状态与
   `advisory` 能力边界。
 

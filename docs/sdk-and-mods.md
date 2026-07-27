@@ -27,7 +27,7 @@ This document describes Rin `0.7.0` Preview. The authoritative wire schema is
 | Java | 17 | `CompletableFuture` | injected `JsonCodec` | Fabric, JVM servers |
 | Lua | 5.1 | callback | injected codec and transport | Luanti, embedded Lua engines |
 
-Every implementation exposes the 20-route inventory generated into
+Every implementation exposes the 28-route inventory generated into
 [`sdk/conformance/routes.json`](../sdk/conformance/routes.json) from OpenAPI.
 That inventory checks coverage; it is not a second wire contract or behavior
 proof. Python and
@@ -242,9 +242,10 @@ Store/Sidecar lifecycle tests on Linux, macOS, and Windows. The platform tests
 cover persistence, restart, and rejection of a second writer. CI runs the
 Python SDK and Ren'Py adapter on Python 3.9 and the current Python 3 release,
 the Lua SDK and Luanti restart/write-failure state harness on Lua 5.1 and 5.4,
-and the same suites inside official Luanti 5.16.1 LuaJIT. A real Dedicated
-Server reopens the source Mod and a generated scaffold on macOS, while Windows
-CI repeats both lifecycles from a SHA-256-pinned official release ZIP.
+and the same suites inside official Luanti 5.16.1 LuaJIT. Local macOS
+verification uses a real Dedicated Server to reopen the source Mod and a
+generated scaffold, while Windows CI repeats both lifecycles from a
+SHA-256-pinned official release ZIP.
 CI also runs JavaScript on Node 18 and 24, Java on 17 and 25, C# against .NET
 6 and 10, and the pinned Fabric project and its Saved Data restart test. Both BepInEx
 backends, restart tests, and install packages build on Linux and Windows. The

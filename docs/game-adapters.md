@@ -77,10 +77,10 @@ HTTP response, or token in rollback/save data.
 
 The Python suite covers process restart, old-save load, repeated rollback,
 persistent-ledger merge, bounds, malformed state, worker invalidation, and late
-completion. These logic tests run on macOS, Linux, and Windows. Ren'Py 8.5.3
-lint plus an engine-run rollback harness pass locally. A real project must
-still verify visible save/load, screen updates, shutdown, and Sidecar restart
-in its exact Ren'Py build.
+completion. The suite runs in Linux CI. Ren'Py 8.5.3 lint plus an engine-run
+rollback harness pass locally on macOS; Windows execution is not yet
+automated. A real project must still verify visible save/load, screen updates,
+shutdown, and Sidecar restart in its exact Ren'Py build.
 
 ## Godot 4
 

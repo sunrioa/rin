@@ -7,19 +7,19 @@ restart-focused unit tests are useful gates, but they do not prove that a Mod
 is stable inside a real game. Until the relevant rows below have recorded
 evidence, the engine and Mod examples remain `advisory`.
 
-## What CI currently proves
+## Current automated and local evidence
 
-| Integration | Automated evidence | Not yet proved |
+| Integration | Existing evidence | Not yet proved |
 | --- | --- | --- |
 | Fabric | Real Mod JAR/NBT round trip, official dedicated-server GameTest, and authority matrix | Live Sidecar recovery, multiplayer, forced-stop, and packaged-client integrated-server smoke |
 | BepInEx Mono/IL2CPP | Real BepInEx package compilation and Core restart tests | Plugin load, game hooks, save identity, and shutdown in representative games |
-| Luanti | Lua 5.1/5.4 tests plus official 5.16.1 LuaJIT Dedicated Server restart tests with real ModStorage on macOS/Windows | Live Sidecar traffic, concurrent players, forced termination, map-save timing, and soak |
+| Luanti | Windows CI uses the official 5.16.1 LuaJIT Dedicated Server to verify the source Mod, generated scaffold, and real ModStorage restart; the same verifier passes locally on macOS | Live Sidecar traffic, concurrent players, forced termination, map-save timing, and soak |
 | Godot | Official 4.6.3 headless authority generations, exact Offer binding, Active Run recovery, restart, and file-failure tests on Linux/Windows | Live Sidecar traffic in an editor session and exported build |
 | Unity | Strict API stubs: Scene/Domain generations, NavMesh compile, cancellation, late callbacks, Active Run/opaque-argument recovery, and Windows-safe replacement | Unity Editor package import and Mono/IL2CPP Player builds |
 | Unreal | Runtime Plugin structure, forbidden-surface, and Windows path tests | Unreal Header Tool/compiler, Editor load, packaged builds, SaveGame and navigation runtime |
-| Ren'Py | Python adapter/Epoch tests; local Ren'Py 8.5.3 lint and rollback harness | Visible engine save/load, interaction restart, and packaged builds |
+| Ren'Py | Linux CI runs the Python adapter/Epoch tests; local macOS runs Ren'Py 8.5.3 lint and the rollback harness | Windows adapter execution, visible engine save/load, interaction restart, and packaged builds |
 | OpenSpiel | Real 2.0.1 sequential/simultaneous/chance/hidden-information games on macOS/Linux/Windows | Semantic oracle only; no engine thread, save, Sidecar, or long-world-action lifecycle |
-| Terminal Story | Real Sidecar 20-turn CI on Windows, macOS, and Linux | It is a reference game, not evidence for another game's Mod lifecycle |
+| Terminal Story | Real Sidecar 100-turn CI on Windows, macOS, and Linux | It is a reference game, not evidence for another game's Mod lifecycle |
 
 ## Shared crash and recovery matrix
 
