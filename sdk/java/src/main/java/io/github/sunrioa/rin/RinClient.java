@@ -537,18 +537,8 @@ public final class RinClient {
         CompletableFuture<HttpResponse<byte[]>> network = http.sendAsync(
                 builder.build(),
                 ignored -> new BoundedBodySubscriber(maxResponseBytes));
-        CompletableFuture<HttpResponse<byte[]>> wire = new CompletableFuture<>();
-        network.whenComplete((response, failure) -> {
-            if (failure == null) wire.complete(response);
-            else wire.completeExceptionally(unwrap(failure));
-        });
-        CompletableFuture.delayedExecutor(timeout.toMillis(), TimeUnit.MILLISECONDS).execute(() -> {
-            if (wire.completeExceptionally(new HttpTimeoutException("Rin request timed out"))) {
-                network.cancel(true);
-            }
-        });
         CompletableFuture<Map<String, Object>> result = new CompletableFuture<>();
-        wire.whenComplete((response, failure) -> {
+        network.whenComplete((response, failure) -> {
             if (failure != null) {
                 Throwable cause = unwrap(failure);
                 if (cause instanceof RinException) {
@@ -570,7 +560,6 @@ public final class RinClient {
         });
         result.whenComplete((ignored, failure) -> {
             if (result.isCancelled()) {
-                wire.cancel(true);
                 network.cancel(true);
             }
         });

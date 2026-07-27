@@ -13,13 +13,14 @@ SDK Workflow Helper 会校验接入声明的
 [宿主持久 Profile](../docs/host-durability.zh-CN.md)。客户端库不能凭空
 创造游戏没有提供的持久性或世界事务。
 
-| 语言 | 运行时 | JSON | 异步建议 |
+| 语言/Target | Runtime | SDK Profile | 异步建议 |
 | --- | --- | --- | --- |
-| Python | 3.9+ | 标准库 | 实时游戏从 Worker 调用 |
-| JavaScript | Node 18+ / 现代浏览器宿主 | 内置 | 基于 Promise |
-| C# | .NET 6+ | `System.Text.Json` | 基于 `Task` |
-| Java | 17+ | 宿主提供 JSON 文本 | 基于 `CompletableFuture` |
-| Lua | 5.1+ 宿主 | 注入 Codec 与 Transport | 基于 Callback |
+| Python | 3.9+ | `transport` | 实时游戏从 Worker 调用 |
+| JavaScript | Node 18+ / 现代 Fetch 宿主 | `transport`、`streaming` | 基于 Promise |
+| C# | .NET 6+ | `transport`、`streaming` | 基于 `Task` |
+| C# 兼容构建 | .NET Standard 2.0 | `transport` | 基于 `Task` |
+| Java | 17+ | `transport` | 基于 `CompletableFuture` |
+| Lua | 5.1+ 宿主 | `transport` | 基于 Callback |
 
 所有客户端遵循以下规则：
 
@@ -71,9 +72,9 @@ Restore 必须提供来自运行中游戏可信内容 manifest 的 `expected_bin
 `413 snapshot_too_large`，绝不截断内容。所有 SDK 默认响应上限为 32 MiB，
 与服务端默认 32 MiB 请求正文上限匹配，并为 envelope、Restore 元数据和持久
 EventRecord framing 预留空间。Session Transfer 是大 lineage 的受支持路径。
-JavaScript 与 C# priority SDK 已提供 streaming source/sink helper；Python、
-Java 与 Lua package 仍属于 JSON transport client，不宣称支持大 lineage
-transfer。
+JavaScript 与 .NET 6+ C# Target 已提供 streaming source/sink helper；Python、
+Java、Lua 与 C# `.NET Standard 2.0` 兼容 Target 只实现 `transport` Profile，
+不宣称支持大 lineage Transfer。
 
 Live Session State 默认使用 16 MiB compact JSON 预算；造成超限的 Mutation 会在
 持久化前返回 `413 state_too_large`。运维配置最高只能提高到 24 MiB，以保证响应

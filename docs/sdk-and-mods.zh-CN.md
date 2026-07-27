@@ -17,13 +17,14 @@ Identity 与有界恢复状态，但其存储无法与任意游戏世界效果�
 
 ## 支持矩阵
 
-| 语言 | 最低运行时 | 调用模型 | JSON 边界 | 典型宿主 |
+| 语言/Target | 最低 Runtime | SDK Profile | 调用模型 | 典型宿主 |
 | --- | --- | --- | --- | --- |
-| Python | 3.9 | 同步 | 标准库 | Ren'Py、工具、服务器 |
-| JavaScript | Node 18 / Fetch 宿主 | Promise | 内置 | Electron、Web Bridge、Node |
-| C# | .NET Standard 2.0 / .NET 6 | Task | `System.Text.Json` | BepInEx 6 Mono / IL2CPP、现代 .NET 游戏 |
-| Java | 17 | `CompletableFuture` | 注入 `JsonCodec` | Fabric、JVM 服务器 |
-| Lua | 5.1 | Callback | 注入 Codec 和 Transport | Luanti、嵌入式 Lua 引擎 |
+| Python | 3.9 | `transport` | 同步 | Ren'Py、工具、服务器 |
+| JavaScript | Node 18 / Fetch 宿主 | `transport`、`streaming` | Promise | Electron、Web Bridge、Node |
+| C# | .NET 6 | `transport`、`streaming` | Task | BepInEx IL2CPP、现代 .NET 游戏 |
+| C# 兼容构建 | .NET Standard 2.0 | `transport` | Task | BepInEx Mono、旧 Unity |
+| Java | 17 | `transport` | `CompletableFuture` | Fabric、JVM 服务器 |
+| Lua | 5.1 | `transport` | Callback | Luanti、嵌入式 Lua 引擎 |
 
 每套实现暴露由 OpenAPI 生成到
 [`sdk/conformance/routes.json`](../sdk/conformance/routes.json) 的 28 Route
@@ -121,9 +122,10 @@ Request Schema 的权威，会拒绝封闭 Request Object 中的未知 Member；
 - SDK 拒绝重定向、限制响应大小，并只向用户显示有界 Rin 错误码，不暴露
   供应商正文。
 - 随附客户端默认响应上限为 32 MiB。完整 inline Snapshot compact JSON 上限
-  为 16 MiB，超限返回 `413 snapshot_too_large` 且绝不截断。JavaScript 与 C#
-  提供完整大 lineage 迁移的有界 Session Transfer stream；其他 package 仍是
-  JSON transport client。Transfer 默认使用独立的 2 分钟客户端超时
+  为 16 MiB，超限返回 `413 snapshot_too_large` 且绝不截断。JavaScript 与
+  .NET 6+ C# 提供完整大 lineage 迁移的有界 Session Transfer stream；Python、
+  Java、Lua 与 C# `.NET Standard 2.0` 兼容 Target 仍是 JSON transport client。
+  Transfer 默认使用独立的 2 分钟客户端超时
   （`transferTimeoutMs` 或 `RinClientOptions.TransferTimeout`），不会沿用普通
   请求的 5 秒超时。
 - Restore 调用方必须从运行中的可信内容 manifest 取得必填

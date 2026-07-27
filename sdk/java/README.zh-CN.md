@@ -22,7 +22,10 @@ rin.health().thenAccept(data -> System.out.println(data.get("status")));
 
 `JsonCodec.decodeObject` 必须拒绝非 Object 根节点。调用返回
 `CompletableFuture`；Minecraft 或其他引擎状态修改必须重新安排到引擎
-拥有的游戏线程。
+拥有的游戏线程。配置的 Deadline 直接使用 JDK `HttpRequest.timeout`；取消返回的
+Future 会取消同一个 Network Future，不会另留第二个 Delayed Timeout Task。
+本 Package 只实现 `transport` Profile；大 lineage Session Transfer 需要
+`streaming` SDK Target。
 
 `WorkflowCoordinator` 负责可复用的 Pending Turn、Job 恢复、结算与 Outcome
 Outbox 状态机。接入方提供持久 `WorkflowStore` 和已校验的

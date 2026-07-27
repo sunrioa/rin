@@ -22,7 +22,11 @@ rin.health().thenAccept(data -> System.out.println(data.get("status")));
 
 `JsonCodec.decodeObject` must reject a non-object root. Calls return
 `CompletableFuture`; schedule any Minecraft or other engine mutation back on
-the owning game thread.
+the owning game thread. The configured deadline is the JDK
+`HttpRequest.timeout`; canceling the returned future cancels that same network
+future, with no second delayed timeout task. This package implements the
+`transport` profile only; large-lineage Session Transfer requires a
+`streaming` SDK target.
 
 `WorkflowCoordinator` owns the reusable Pending Turn, Job recovery, settlement,
 and Outcome Outbox state machine. Supply a persistent `WorkflowStore` and a

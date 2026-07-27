@@ -16,13 +16,14 @@ SDK workflow helpers validate the integration's declared
 cannot manufacture durability or a world transaction that the game does not
 provide.
 
-| Language | Runtime | JSON | Async guidance |
+| Language/target | Runtime | SDK profiles | Async guidance |
 | --- | --- | --- | --- |
-| Python | 3.9+ | standard library | call from a worker in real-time games |
-| JavaScript | Node 18+ / modern browser host | built in | Promise-based |
-| C# | .NET 6+ | `System.Text.Json` | `Task`-based |
-| Java | 17+ | host-provided JSON text | `CompletableFuture`-based |
-| Lua | 5.1+ host | injected codec and transport | callback-based |
+| Python | 3.9+ | `transport` | call from a worker in real-time games |
+| JavaScript | Node 18+ / modern Fetch host | `transport`, `streaming` | Promise-based |
+| C# | .NET 6+ | `transport`, `streaming` | `Task`-based |
+| C# compatibility | .NET Standard 2.0 | `transport` | `Task`-based |
+| Java | 17+ | `transport` | `CompletableFuture`-based |
+| Lua | 5.1+ host | `transport` | callback-based |
 
 All clients follow these rules:
 
@@ -86,9 +87,9 @@ Complete inline Snapshot compact JSON is capped at 16 MiB. Rin returns
 32 MiB response limit, matching the server's default 32 MiB request-body limit
 and leaving headroom for envelopes, Restore metadata, and durable EventRecord
 framing. Session Transfer is the supported large-lineage path. The JavaScript
-and C# priority SDKs expose streaming source/sink helpers. The Python, Java,
-and Lua packages remain JSON transport clients and do not claim large-lineage
-transfer support.
+and .NET 6+ C# targets expose streaming source/sink helpers. Python, Java, Lua,
+and the C# .NET Standard 2.0 compatibility target implement only the
+`transport` profile and do not claim large-lineage Transfer support.
 
 Live Session State defaults to a 16 MiB compact-JSON budget. Rin rejects an
 offending mutation before persistence with `413 state_too_large`; operators

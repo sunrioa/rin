@@ -19,13 +19,14 @@ This document describes Rin `0.7.0` Preview. The authoritative wire schema is
 
 ## Support matrix
 
-| Language | Minimum runtime | Delivery model | JSON boundary | Typical host |
+| Language/target | Minimum runtime | SDK profiles | Delivery model | Typical host |
 | --- | --- | --- | --- | --- |
-| Python | 3.9 | synchronous | standard library | Ren'Py, tools, servers |
-| JavaScript | Node 18 / Fetch host | Promise | built in | Electron, web bridges, Node |
-| C# | .NET Standard 2.0 / .NET 6 | Task | `System.Text.Json` | BepInEx 6 Mono / IL2CPP, modern .NET games |
-| Java | 17 | `CompletableFuture` | injected `JsonCodec` | Fabric, JVM servers |
-| Lua | 5.1 | callback | injected codec and transport | Luanti, embedded Lua engines |
+| Python | 3.9 | `transport` | synchronous | Ren'Py, tools, servers |
+| JavaScript | Node 18 / Fetch host | `transport`, `streaming` | Promise | Electron, web bridges, Node |
+| C# | .NET 6 | `transport`, `streaming` | Task | BepInEx IL2CPP, modern .NET games |
+| C# compatibility | .NET Standard 2.0 | `transport` | Task | BepInEx Mono, legacy Unity |
+| Java | 17 | `transport` | `CompletableFuture` | Fabric, JVM servers |
+| Lua | 5.1 | `transport` | callback | Luanti, embedded Lua engines |
 
 Every implementation exposes the 28-route inventory generated into
 [`sdk/conformance/routes.json`](../sdk/conformance/routes.json) from OpenAPI.
@@ -140,9 +141,10 @@ error envelope from an HTTP-200 terminal Job carrying `data.error`.
   contain bounded Rin codes rather than provider bodies.
 - Bundled clients default to a 32 MiB response limit. Complete inline Snapshot
   compact JSON is capped at 16 MiB and is rejected with
-  `413 snapshot_too_large`, never truncated. JavaScript and C# provide
+  `413 snapshot_too_large`, never truncated. JavaScript and .NET 6+ C# provide
   bounded Session Transfer streams for complete large-lineage migration;
-  the other packages remain JSON transport clients. Transfer uses a separate
+  Python, Java, Lua, and the C# .NET Standard 2.0 compatibility target remain
+  JSON transport clients. Transfer uses a separate
   two-minute client timeout by default (`transferTimeoutMs` or
   `RinClientOptions.TransferTimeout`) instead of the ordinary five-second
   request timeout.
