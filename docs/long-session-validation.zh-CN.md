@@ -18,7 +18,11 @@ Snapshot/Checkpoint 操作才临时物化完整 Payload。Hot Map 淘汰后，Ex
 与废弃分支 ID 永不复用仍保持权威并有测试覆盖。
 
 随附 File Store 会 gzip 压缩可重建 Checkpoint，同时让权威 Hash-chained
-Event Log 保持普通 JSONL。
+Event Log 保持普通 JSONL。Checkpoint 先按早期二次幂间隔生成，之后固定每
+16,384 个事件生成，因此正常恢复的最坏 Tail 有明确上界，又不会每几百个事件
+反复重建不断增长的永久 Identity History。Sidecar 还会通过可恢复、有 Event
+Budget 的 Scrub Pass 做 checkpoint-independent 校验；显式一次性全量审计仍
+使用 `Engine.VerifyAll()`。
 
 Archive Session 会冻结 Event Chain Anchor 并把 Session 设为只读，但不会重写、
 截断或静默删除权威 Event。容量监控使用经鉴权的 Session Stats，备份/迁移使用
@@ -59,4 +63,5 @@ Provider 可用性承诺，也不能证明某个具体 Mod Loader。真实 Host 
 3. 使用分页 Timeline/Replay，不要一次加载完整 Lineage；
 4. 不把 Provider Prompt、原始音频或完整玩家文本写入运维日志；
 5. 定义 Backup、Archive、Delete 与外部日志轮转策略；
-6. 每条卸载路径都必须在关闭 Store 前调用 `Engine.Close(ctx)`。
+6. 监控 Scrub 完成与失败 Cycle，并按需要安排显式 `Engine.VerifyAll()` 运维审计；
+7. 每条卸载路径都必须在关闭 Store 前调用 `Engine.Close(ctx)`。

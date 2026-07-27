@@ -208,10 +208,12 @@ go run ./cmd/rin inspect -data ./rin-data -session playthrough-1 -revision 42
 调用方必须调用 `(*store.File).Close()` 释放该锁。Engine 启动时只 lazy 枚举
 Session；第一次访问会从最新可用且已校验的内部 checkpoint 加载，若无可用
 checkpoint 则从 genesis 开始，再重放 event tail。lazy recovery 没有使用
-checkpoint，或 `head revision / 所选 checkpoint revision >= 2` 时，Runtime
-会 best-effort 异步排队一个恢复出的 head checkpoint；read 返回时它可能尚未
-持久化，缓存写入失败也不会让 read 失败。运维需要不依赖 checkpoint、从
-genesis 到 head 审计所有 Session 时，调用 `Engine.VerifyAll()`。
+checkpoint，或所选 checkpoint tail 达到 16,384 个事件时，Runtime 会
+best-effort 异步排队一个恢复出的 head checkpoint；read 返回时它可能尚未
+持久化，缓存写入失败也不会让 read 失败。小于 revision 256 的 Session 在
+checkpoint 回退后也会修复 exact head。一次性、checkpoint-independent 全量
+审计使用 `Engine.VerifyAll()`；希望把相同的 genesis-to-head 校验拆成有界 Pass
+时使用 `Engine.Scrub(ctx, maxEvents)`。随附 Sidecar 会自动运行有界 Scrub。
 
 随附数据目录独占锁支持 `darwin`、`linux` 与 `windows`：Unix 使用 non-blocking
 `flock`，`windows` 使用无共享模式的独占文件 handle。其他所有 GOOS 上，

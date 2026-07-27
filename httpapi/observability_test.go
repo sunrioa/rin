@@ -50,7 +50,11 @@ func TestOperationalEndpointsAndRequestCorrelation(t *testing.T) {
 	if metrics.Code != http.StatusOK ||
 		metrics.Header().Get("Rin-Request-ID") != "game.request-42" ||
 		!strings.Contains(metrics.Body.String(), "rin_http_requests_total") ||
-		!strings.Contains(metrics.Body.String(), "rin_uncertainty_barriers") {
+		!strings.Contains(metrics.Body.String(), "rin_uncertainty_barriers") ||
+		!strings.Contains(
+			metrics.Body.String(),
+			"rin_scrub_completed_cycles_total",
+		) {
 		t.Fatalf("unexpected metrics response: %d %q", metrics.Code, metrics.Body.String())
 	}
 

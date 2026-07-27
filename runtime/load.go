@@ -7,8 +7,9 @@ import (
 )
 
 const (
-	replayPageSize       = 256
-	checkpointMinimumRev = uint64(256)
+	replayPageSize              = 256
+	checkpointMinimumRevision   = uint64(256)
+	checkpointMaximumReplayTail = uint64(16384)
 )
 
 func (e *Engine) ensureLoaded(session *managedSession) error {
@@ -495,18 +496,30 @@ type checkpointCapture struct {
 }
 
 func shouldSaveAutomaticCheckpoint(revision uint64) bool {
-	return revision >= checkpointMinimumRev &&
-		revision&(revision-1) == 0
+	if revision < checkpointMinimumRevision {
+		return false
+	}
+	if revision < checkpointMaximumReplayTail {
+		return revision&(revision-1) == 0
+	}
+	return revision%checkpointMaximumReplayTail == 0
 }
 
 func shouldRepairHeadCheckpoint(headRevision, checkpointRevision uint64) bool {
-	if headRevision == 0 || checkpointRevision == headRevision {
+	if headRevision == 0 || checkpointRevision >= headRevision {
 		return false
 	}
 	if checkpointRevision == 0 {
 		return true
 	}
-	return headRevision/checkpointRevision >= 2
+	if headRevision < checkpointMinimumRevision {
+		// Small Sessions are cheap to rebuild and commonly have only the
+		// creation checkpoint available after a newer derived artifact is
+		// rejected. Repair exact head so a corrupt same-name artifact is
+		// replaced instead of being ignored forever.
+		return true
+	}
+	return headRevision-checkpointRevision >= checkpointMaximumReplayTail
 }
 
 // queueCheckpointLocked captures a stable revision while session.mu is held,

@@ -208,12 +208,15 @@ revision 可以大于重放 State revision。
 Engine Open 有意采用 lazy load：它只枚举 Session ID，不读取每个 Session 的
 全部历史。对某 Session 的第一次操作才通过 checkpoint + tail 恢复路径校验并
 加载该 Session。恢复成功后，如果没有选中可用 checkpoint，或
-`head revision / 所选 checkpoint revision >= 2`，Runtime 会 best-effort
-异步排队一个恢复出的 head checkpoint；read 返回时它可能尚未持久化。这个
-派生缓存写入不属于 read 成功边界，失败会被忽略；有界 worker 与并发契约见
+所选 checkpoint 的 tail 已达到 16,384 个事件，Runtime 会 best-effort 异步
+排队一个恢复出的 head checkpoint；read 返回时它可能尚未持久化。这个派生缓存
+写入不属于 read 成功边界，失败会被忽略；有界 worker 与并发契约见
 [存储](#存储)。`Engine.VerifyAll()` 是显式运维操作，会忽略 checkpoint，从
-genesis 到 head 重放并审计每个 Session 的完整 hash chain。普通 `rin inspect`
-只读取指定 Session，不会隐式执行整个数据目录的全量审计。
+genesis 到 head 重放并审计每个 Session 的完整 hash chain。
+`Engine.Scrub(ctx, maxEvents)` 提供相同的 checkpoint-independent Reducer 与
+Identifier 校验，但会保存内存游标，且单次调用绝不超过给定 Event Budget。随附
+Sidecar 会在后台运行 Scrub，并同时用事件数和 Timeout 限制每次 Pass。普通
+`rin inspect` 只读取指定 Session，不会隐式执行整个数据目录的全量审计。
 
 ### Mutation 与状态闭包
 
@@ -317,14 +320,17 @@ Identifier History，核对 manifest boundary 和 lineage generation，只发布
 `Create`/`Append`。
 
 Runtime 会在 Session 创建后（包括 Restore 新建 Session）排队 revision 1
-checkpoint，之后只在大于等于 256 的二次幂 revision 自动排队。它不会在每个
-256 倍数或每次后续 Restore 都写 checkpoint。成功 lazy recovery 时，仅在没有
-可用 checkpoint，或 `head revision / 所选 checkpoint revision >= 2` 时排队
-修复；较短的有效 tail 不会导致每次重启都重写 exact-head checkpoint。
+checkpoint，之后采用分层调度：从 256 到 8,192 使用二次幂 revision，再按每
+16,384 个 revision 自动排队。这样既把最坏 event tail 限制在 16,384 以内，也
+不会每 256 个事件反复序列化越来越大的永久 Identifier History。成功 lazy
+recovery 时，仅在没有可用 checkpoint，或所选 checkpoint tail 已达到 16,384
+个事件时排队修复；更短的有效 tail 不会导致每次重启都重写 exact-head
+checkpoint。小于 revision 256 的 Session 是有意保留的例外：回退到更旧
+checkpoint 后会廉价地修复 exact head，从而替换被拒绝的同名派生 Artifact。
 
 checkpoint 构建与持久化是 best-effort 异步工作。持有 Session mutation lock
-期间，Runtime 只捕获已发布且不可变的 State 引用，并浅拷贝 Identifier History
-的两个 map；ledger entry 插入后不可变。完整 clone、校验、hash 与
+期间，Runtime 只捕获已发布且不可变的 State 引用、不可变 Identifier Ledger
+Segment 引用，并复制有界的 Hot Identifier Map。完整物化、校验、hash 与
 `SaveCheckpoint` I/O 都在该锁之外执行。在一个 Engine 内，每个 managed
 Session 最多只有一个 worker 和一个 latest pending capture，因此 active save
 期间跨过多个阈值时，只保留最新 pending revision。多个 Engine 共享 Store 时，
@@ -392,7 +398,8 @@ Session 目录枚举相关，而不再读取每个日志正文。某 Session 第
 checkpoint body 及其 event tail 相关。稳态 Timeline 分页与请求的 range
 相关；Replay 与目标 checkpoint tail 以及结果携带的完整 Identifier History
 相关。`Engine.VerifyAll()` 为独立全量审计而有意保持
-`O(total event-log bytes)`。
+`O(total event-log bytes)`。`Engine.Scrub` 会把相同工作拆成有界 Pass；Active
+Cursor 只保留一个 Session Projection，并在抵达捕获的 Head 后释放。
 
 旧 entry 若无法恢复完整 request digest，或者其 ID 在历史上曾被重复使用，
 就会成为 ambiguous tombstone：旧日志仍可读取，但后来请求不能安全复用该

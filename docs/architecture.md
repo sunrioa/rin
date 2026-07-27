@@ -294,14 +294,19 @@ not read every Session history. The first operation on a Session verifies and
 loads that Session through the checkpoint-and-tail recovery path.
 After successful recovery, Runtime best-effort asynchronously queues a
 checkpoint at the recovered head when no usable checkpoint was selected, or
-when `head revision / selected checkpoint revision >= 2`. The checkpoint may
-not be durable when the read returns. This derived cache write is not part of
-read success and its failure is ignored; the [Store](#store) section describes
-the bounded worker and concurrency contract.
+when the selected checkpoint tail has reached 16,384 events. The checkpoint
+may not be durable when the read returns. This derived cache write is not part
+of read success and its failure is ignored; the [Store](#store) section
+describes the bounded worker and concurrency contract.
 `Engine.VerifyAll()` is the explicit maintenance operation for a
 checkpoint-independent, genesis-to-head replay and hash-chain audit of every
-Session. Ordinary `rin inspect` reads only its requested Session and does not
-implicitly perform that data-directory-wide audit.
+Session. `Engine.Scrub(ctx, maxEvents)` provides the same
+checkpoint-independent reducer and identifier validation incrementally: it
+captures a Session head, preserves an in-memory cursor across calls, and never
+processes more than the supplied event budget. The bundled Sidecar starts this
+scrub in the background and bounds each pass by both an event budget and a
+timeout. Ordinary `rin inspect` reads only its requested Session and does not
+implicitly perform a data-directory-wide audit.
 
 ### Mutation and state closure
 
@@ -427,24 +432,28 @@ as live. Runtime never falls back to aggregate `Store.Load` for export or to
 public `Create`/`Append` for import.
 
 Runtime queues a revision-1 checkpoint after Session creation (including a
-fresh Session created by Restore), then automatically queues checkpoints only
-at power-of-two revisions at or above 256. It does not checkpoint every
-multiple of 256 or every later Restore. Successful lazy recovery queues a
-repair when no usable checkpoint exists, or when
-`head revision / selected checkpoint revision >= 2`; a small valid tail does
-not cause an exact-head rewrite on every restart.
+fresh Session created by Restore). It then uses a hierarchical schedule:
+power-of-two revisions from 256 through 8,192, followed by every 16,384
+revisions. This keeps the replay tail below 16,384 events without repeatedly
+serializing a large permanent Identifier History every 256 events. Successful
+lazy recovery queues a repair when no usable checkpoint exists, or when the
+selected checkpoint tail has reached 16,384 events; a smaller valid tail does
+not cause an exact-head rewrite on every restart. Sessions below revision 256
+are the deliberate exception: after falling back to an older checkpoint they
+repair exact head, which cheaply replaces a rejected same-name derived
+artifact.
 
 Checkpoint construction and persistence are best-effort asynchronous work.
 While holding the Session mutation lock, Runtime captures the immutable
-published State reference and shallow-copies the two Identifier History maps;
-ledger entries are immutable after insertion. Full cloning, validation,
-hashing, and `SaveCheckpoint` I/O run outside that lock. Within one Engine,
-each managed Session has at most one worker and one latest pending capture, so
-crossing several thresholds while a save is active coalesces to the newest
-pending revision. Multiple Engines sharing a Store can each have such a
-worker. A mutation or successful lazy read does not wait for the derived
-checkpoint to finish, and the checkpoint might therefore not be visible
-immediately when the call returns.
+published State reference plus immutable Identifier Ledger segment references
+and copies only the bounded hot identifier maps. Full materialization,
+validation, hashing, and `SaveCheckpoint` I/O run outside that lock. Within one
+Engine, each managed Session has at most one worker and one latest pending
+capture, so crossing several thresholds while a save is active coalesces to
+the newest pending revision. Multiple Engines sharing a Store can each have
+such a worker. A mutation or successful lazy read does not wait for the
+derived checkpoint to finish, and the checkpoint might therefore not be
+visible immediately when the call returns.
 
 `SaveCheckpoint` may run concurrently with `Append`, `Load`, `Head`, or
 `LoadRange` for the same Session. File Store checkpoints use gzip because they
@@ -524,7 +533,9 @@ then scales with the checkpoint body plus its event tail. Steady-state
 Timeline pagination scales with the requested range, while Replay scales with
 the selected checkpoint tail and with the complete Identifier History carried
 in its result. `Engine.VerifyAll()` intentionally remains
-`O(total event-log bytes)` for an independent full audit.
+`O(total event-log bytes)` for an independent full audit. `Engine.Scrub`
+spreads that same work over bounded passes; its active cursor retains one
+Session projection and is discarded at the captured head.
 
 Legacy entries whose full request digest cannot be recovered, or whose ID was
 historically reused, become ambiguous tombstones: the old log remains

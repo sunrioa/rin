@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/sunrioa/rin/protocol"
+	rinruntime "github.com/sunrioa/rin/runtime"
 )
 
 func TestSidecarProcessPersistsAndReleasesDataDirectoryLock(t *testing.T) {
@@ -281,6 +283,9 @@ func TestValidateServeConfigurationRejectsExplicitFallbackValues(
 		requestTimeout:            time.Millisecond,
 		transferTimeout:           time.Millisecond,
 		transferInactivityTimeout: time.Millisecond,
+		scrubInterval:             time.Millisecond,
+		scrubTimeout:              time.Millisecond,
+		scrubMaxEvents:            1,
 	}
 	tests := []struct {
 		name   string
@@ -317,6 +322,12 @@ func TestValidateServeConfigurationRejectsExplicitFallbackValues(
 				config.sessionHardLimitBytes = 1
 			},
 		},
+		{
+			name: "scrub budget",
+			mutate: func(config *serveConfiguration) {
+				config.scrubMaxEvents = rinruntime.MaxScrubEventBudget + 1
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -330,6 +341,51 @@ func TestValidateServeConfigurationRejectsExplicitFallbackValues(
 	if err := validateServeConfiguration(valid); err != nil {
 		t.Fatalf("valid configuration rejected: %v", err)
 	}
+}
+
+func TestRunScrubLoopStartsImmediatelyAndStopsWithContext(t *testing.T) {
+	scrubber := &blockingScrubber{calls: make(chan int, 1)}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		runScrubLoop(
+			ctx,
+			scrubber,
+			logger,
+			time.Hour,
+			time.Hour,
+			17,
+		)
+	}()
+	select {
+	case budget := <-scrubber.calls:
+		if budget != 17 {
+			t.Fatalf("scrub budget = %d", budget)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("background scrub did not start")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("background scrub did not stop")
+	}
+}
+
+type blockingScrubber struct {
+	calls chan int
+}
+
+func (s *blockingScrubber) Scrub(
+	ctx context.Context,
+	maxEvents int,
+) (rinruntime.ScrubReport, error) {
+	s.calls <- maxEvents
+	<-ctx.Done()
+	return rinruntime.ScrubReport{}, ctx.Err()
 }
 
 func TestServeFailsBeforeStartupForInvalidConfiguredLimits(t *testing.T) {

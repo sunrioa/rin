@@ -19,7 +19,12 @@ explicit operations. Exact retries and abandoned-branch non-reuse remain
 authoritative and are covered after hot-map eviction.
 
 The bundled File Store gzip-compresses rebuildable checkpoints while keeping
-the authoritative hash-chained event log as plain JSONL.
+the authoritative hash-chained event log as plain JSONL. Checkpoints use early
+power-of-two spacing and a fixed 16,384-event interval thereafter, so the
+worst normal recovery tail is bounded without rebuilding a growing permanent
+identity history every few hundred events. The Sidecar also performs
+checkpoint-independent validation through resumable, event-budgeted Scrub
+passes; `Engine.VerifyAll()` remains the explicit one-shot full audit.
 
 Archiving a Session freezes its event-chain anchor and makes the Session
 read-only. It does not rewrite, truncate, or silently delete authoritative
@@ -68,4 +73,6 @@ not. Before shipping a persistent NPC:
 4. keep provider prompts, raw audio, and full player text out of operational
    logs;
 5. define backup, archive, deletion, and external log-rotation policies;
-6. call `Engine.Close(ctx)` before closing the Store on every unload path.
+6. monitor completed and failed Scrub cycles, and schedule an explicit
+   `Engine.VerifyAll()` maintenance audit where required;
+7. call `Engine.Close(ctx)` before closing the Store on every unload path.

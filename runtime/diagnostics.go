@@ -12,6 +12,11 @@ type Diagnostics struct {
 	CheckpointPending          int            `json:"checkpoint_pending"`
 	CheckpointFailures         uint64         `json:"checkpoint_failures"`
 	CheckpointQuotaSkips       uint64         `json:"checkpoint_quota_skips"`
+	ScrubCompletedCycles       uint64         `json:"scrub_completed_cycles"`
+	ScrubFailures              uint64         `json:"scrub_failures"`
+	ScrubActive                bool           `json:"scrub_active"`
+	ScrubRevision              uint64         `json:"scrub_revision,omitempty"`
+	ScrubTargetRevision        uint64         `json:"scrub_target_revision,omitempty"`
 	SessionSoftLimitBytes      uint64         `json:"session_soft_limit_bytes"`
 	SessionHardLimitBytes      uint64         `json:"session_hard_limit_bytes"`
 	Closed                     bool           `json:"closed"`
@@ -31,6 +36,15 @@ func (e *Engine) Diagnostics() Diagnostics {
 	}
 	pendingCreates := len(e.pendingCreates)
 	e.mu.RUnlock()
+	e.scrubMu.Lock()
+	scrubCompletedCycles := e.scrub.completedCycles
+	var scrubRevision, scrubTargetRevision uint64
+	scrubActive := e.scrub.active != nil
+	if e.scrub.active != nil {
+		scrubRevision = e.scrub.active.state.Revision
+		scrubTargetRevision = e.scrub.active.target.Revision
+	}
+	e.scrubMu.Unlock()
 
 	result := Diagnostics{
 		KnownSessions:              len(sessions),
@@ -38,11 +52,16 @@ func (e *Engine) Diagnostics() Diagnostics {
 		PendingUncertaintyBarriers: pendingCreates,
 		CheckpointFailures:         e.checkpointFailures.Load(),
 		CheckpointQuotaSkips:       e.checkpointQuotaSkips.Load(),
+		ScrubCompletedCycles:       scrubCompletedCycles,
+		ScrubFailures:              e.scrubFailures.Load(),
 		SessionSoftLimitBytes:      e.sessionSoftLimitBytes,
 		SessionHardLimitBytes:      e.sessionHardLimitBytes,
 		Closed:                     closed,
 		ActiveOperations:           activeOperations,
 		CheckpointWorkers:          checkpointWorkers,
+		ScrubActive:                scrubActive,
+		ScrubRevision:              scrubRevision,
+		ScrubTargetRevision:        scrubTargetRevision,
 	}
 	for _, session := range sessions {
 		session.mu.Lock()

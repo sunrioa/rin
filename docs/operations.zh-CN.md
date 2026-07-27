@@ -63,6 +63,13 @@ Diagnostics 与 Metrics 应按其他鉴权 API 数据保护。Sidecar 默认只�
 容量、并发、Timeout 与 Boolean 环境变量一旦显式设置为非法值，Rin 会立即失败，
 不会把拼写错误静默替换成默认值；命令行显式设置的非正数 Limit 也遵循同一规则。
 
+随附 Sidecar 会在启动后立即运行一次 checkpoint-independent Event Log Scrub，
+之后默认每 15 分钟运行一次。每个 Pass 最多校验 4,096 个事件，Deadline 为
+30 秒。可通过 `RIN_SCRUB_INTERVAL`、`RIN_SCRUB_MAX_EVENTS`、
+`RIN_SCRUB_TIMEOUT` 或对应 `-scrub-*` Flag 配置。Timeout 会保留已经验证的
+Cursor，下个 Pass 从该位置继续；显式一次性全量审计仍使用
+`Engine.VerifyAll()`。
+
 ## 监控内容
 
 JSON Diagnostics Snapshot 包含：
@@ -70,6 +77,8 @@ JSON Diagnostics Snapshot 包含：
 - 已知、已加载和当前不可读 Session 数，以及有界错误码分组；
 - 尚未解决的持久 Mutation Barrier；
 - Active/Pending Checkpoint、Checkpoint Failure 与 Quota Skip；
+- Incremental Scrub 是否 Active、Cursor Revision/Target、Failure 与完成
+  Cycle 数；
 - Runtime Closed 状态与 Active Engine Operation 数；
 - Proposal/Generation Queue Depth/Capacity、Retained/Max-retained Job 和状态计数；
 - Generation Cache 大小、Retained Payload 当前字节数与配置上限，以及 Provider
@@ -78,13 +87,15 @@ JSON Diagnostics Snapshot 包含：
 
 Prometheus 输出使用固定名称，包括 `rin_http_requests_total`、
 `rin_sessions_unreadable_known`、`rin_uncertainty_barriers`、
-`rin_checkpoint_failures_total`、`rin_proposal_queue_depth`，以及配置
-Generation 后的 `rin_provider_circuit_not_closed`。
+`rin_checkpoint_failures_total`、`rin_scrub_completed_cycles_total`、
+`rin_scrub_failures_total`、`rin_scrub_active`、`rin_proposal_queue_depth`，
+以及配置 Generation 后的 `rin_provider_circuit_not_closed`。
 
 建议告警：
 
 - Readiness 连续超过一个 Probe Window 失败；
-- Known Unreadable Session、Uncertainty Barrier 或 Checkpoint Failure 增长；
+- Known Unreadable Session、Uncertainty Barrier、Checkpoint Failure 或
+  Scrub Failure 增长；
 - Queue 长时间接近 Capacity，或 Retained Job 接近上限；
 - Provider Circuit Breaker 长时间未关闭；
 - 5xx Response 增长。
@@ -102,7 +113,8 @@ Query、Header 或 Body。
 停机时，应在 `/ready` 失败后停止路由新流量，让 HTTP Server Drain，关闭
 Job Manager，调用 `Engine.Close(ctx)`，最后才能关闭由调用方拥有的 Store。
 `Engine.Close` 会拒绝新操作，并等待在途 Request、Transfer Writer 与
-Checkpoint Worker。随附 CLI 在 SIGINT/SIGTERM（或对应 Windows
-Console/Service Signal）后按此顺序执行有界 Graceful Shutdown。不得绕过
+Checkpoint Worker。随附 CLI 会先取消并 Join 后台 Scrub，再在 SIGINT/SIGTERM
+（或对应 Windows Console/Service Signal）后按此顺序执行有界 Graceful
+Shutdown。不得绕过
 [Session 生命周期](session-lifecycle.zh-CN.md)的备份规则复制或修改在线
 Data Directory。

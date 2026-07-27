@@ -128,6 +128,21 @@ Serve options:
 		),
 		"rolling read/write inactivity timeout for Session Transfers",
 	)
+	scrubInterval := flags.Duration(
+		"scrub-interval",
+		envDuration("RIN_SCRUB_INTERVAL", 15*time.Minute),
+		"interval between bounded event-log scrub passes",
+	)
+	scrubTimeout := flags.Duration(
+		"scrub-timeout",
+		envDuration("RIN_SCRUB_TIMEOUT", 30*time.Second),
+		"timeout for one bounded event-log scrub pass",
+	)
+	scrubMaxEvents := flags.Int(
+		"scrub-max-events",
+		envInt("RIN_SCRUB_MAX_EVENTS", rinruntime.DefaultScrubEventBudget),
+		"maximum events verified by one scrub pass",
+	)
 	if err := flags.Parse(arguments); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -151,6 +166,9 @@ Serve options:
 		requestTimeout:            *requestTimeout,
 		transferTimeout:           *transferTimeout,
 		transferInactivityTimeout: *transferInactivityTimeout,
+		scrubInterval:             *scrubInterval,
+		scrubTimeout:              *scrubTimeout,
+		scrubMaxEvents:            *scrubMaxEvents,
 	}); err != nil {
 		return err
 	}
@@ -252,12 +270,28 @@ Serve options:
 		"request_timeout", *requestTimeout,
 		"transfer_timeout", *transferTimeout,
 		"transfer_inactivity_timeout", *transferInactivityTimeout,
+		"scrub_interval", *scrubInterval,
+		"scrub_timeout", *scrubTimeout,
+		"scrub_max_events", *scrubMaxEvents,
 	}
 	if modelRuntime.Mode == "model-with-fallback" {
 		logFields = append(logFields, "model_config", describeModelConfig())
 	}
 	logger.Info("rin sidecar listening", logFields...)
 	errChannel := make(chan error, 1)
+	scrubContext, cancelScrub := context.WithCancel(context.Background())
+	scrubDone := make(chan struct{})
+	go func() {
+		defer close(scrubDone)
+		runScrubLoop(
+			scrubContext,
+			engine,
+			logger,
+			*scrubInterval,
+			*scrubTimeout,
+			*scrubMaxEvents,
+		)
+	}()
 	go func() {
 		errChannel <- server.Serve(listener)
 	}()
@@ -279,6 +313,13 @@ Serve options:
 	if shutdownRequested {
 		shutdownError = server.Shutdown(shutdownContext)
 	}
+	cancelScrub()
+	var scrubError error
+	select {
+	case <-scrubDone:
+	case <-shutdownContext.Done():
+		scrubError = shutdownContext.Err()
+	}
 	jobsError := jobManager.Close(shutdownContext)
 	var generationError error
 	if generationManager != nil {
@@ -290,8 +331,55 @@ Serve options:
 		shutdownError,
 		jobsError,
 		generationError,
+		scrubError,
 		runtimeError,
 	)
+}
+
+type runtimeScrubber interface {
+	Scrub(context.Context, int) (rinruntime.ScrubReport, error)
+}
+
+func runScrubLoop(
+	ctx context.Context,
+	scrubber runtimeScrubber,
+	logger *slog.Logger,
+	interval time.Duration,
+	timeout time.Duration,
+	maxEvents int,
+) {
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+		passContext, cancel := context.WithTimeout(ctx, timeout)
+		report, err := scrubber.Scrub(passContext, maxEvents)
+		cancel()
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			logger.Warn(
+				"incremental event-log scrub did not complete",
+				"error", err,
+				"code", rinruntime.ErrorCode(err),
+				"revision", report.Revision,
+				"target_revision", report.TargetRevision,
+			)
+		} else if report.CycleComplete {
+			logger.Info(
+				"incremental event-log scrub cycle completed",
+				"completed_cycles", report.CompletedCycles,
+				"checked_events", report.CheckedEvents,
+				"completed_sessions", report.CompletedSessions,
+			)
+		}
+		timer.Reset(interval)
+	}
 }
 
 func validateListenAddress(address string, allowRemote bool, token string) error {

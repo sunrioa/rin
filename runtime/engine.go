@@ -123,6 +123,10 @@ type Engine struct {
 	allowLegacyCreation    bool
 	checkpointFailures     atomic.Uint64
 	checkpointQuotaSkips   atomic.Uint64
+	scrubFailures          atomic.Uint64
+	scrubMu                sync.Mutex
+	scrub                  scrubProgress
+	scrubGate              chan struct{}
 	shutdownMu             sync.Mutex
 	shutdownDone           chan struct{}
 	shutdownSignaled       bool
@@ -208,6 +212,7 @@ func OpenWithOptions(
 		activeTransferSessions: make(map[string]struct{}),
 		allowLegacyCreation:    options.AllowLegacySessionCreation,
 		shutdownDone:           make(chan struct{}),
+		scrubGate:              make(chan struct{}, 1),
 	}
 	ids, err := store.ListSessions()
 	if err != nil {

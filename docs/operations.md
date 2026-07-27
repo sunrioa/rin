@@ -68,6 +68,14 @@ Capacity, concurrency, timeout, and boolean environment variables fail fast
 when explicitly set to an invalid value; Rin does not silently replace a typo
 with a default. The same rule applies to explicit non-positive CLI limits.
 
+The bundled Sidecar starts a checkpoint-independent event-log scrub
+immediately, then every 15 minutes. Each pass verifies at most 4,096 events and
+has a 30-second deadline. Configure these bounds with
+`RIN_SCRUB_INTERVAL`, `RIN_SCRUB_MAX_EVENTS`, and `RIN_SCRUB_TIMEOUT`, or the
+matching `-scrub-*` flags. A timeout preserves the verified cursor and the next
+pass resumes from it. `Engine.VerifyAll()` remains available for an explicit
+one-shot full audit.
+
 ## What to monitor
 
 The JSON diagnostics snapshot reports:
@@ -76,6 +84,8 @@ The JSON diagnostics snapshot reports:
   code;
 - unresolved durable-mutation barriers;
 - active/pending checkpoint work, checkpoint failures, and quota skips;
+- incremental scrub activity, cursor revision/target, failures, and completed
+  cycles;
 - Runtime closed state and active Engine operation count;
 - Proposal and Generation queue depth/capacity, retained/max-retained Jobs, and
   status counts;
@@ -86,14 +96,16 @@ The JSON diagnostics snapshot reports:
 Prometheus exposition uses fixed names including
 `rin_http_requests_total`, `rin_sessions_unreadable_known`,
 `rin_uncertainty_barriers`, `rin_checkpoint_failures_total`,
+`rin_scrub_completed_cycles_total`, `rin_scrub_failures_total`,
+`rin_scrub_active`,
 `rin_proposal_queue_depth`, and (when Generation is configured)
 `rin_provider_circuit_not_closed`.
 
 Suggested alerts:
 
 - readiness remains failed for more than one probe window;
-- known unreadable Sessions, uncertainty barriers, or checkpoint failures
-  increase;
+- known unreadable Sessions, uncertainty barriers, checkpoint failures, or
+  scrub failures increase;
 - a queue remains near capacity or retained Jobs remain near their cap;
 - the Provider Circuit Breaker remains non-closed;
 - 5xx responses increase.
@@ -113,7 +125,8 @@ On shutdown, stop routing new traffic after `/ready` fails, allow the HTTP
 server to drain, close Job Managers, call `Engine.Close(ctx)`, and only then
 close the caller-owned Store. `Engine.Close` rejects new operations and waits
 for in-flight requests, transfer writers, and checkpoint workers. The bundled
-CLI performs this bounded ordering after SIGINT/SIGTERM (or the corresponding
-Windows console/service signal). Never copy or modify the live data directory
-without following the backup rules in
+CLI first cancels and joins the background scrub, then performs this bounded
+ordering after SIGINT/SIGTERM (or the corresponding Windows console/service
+signal). Never copy or modify the live data directory without following the
+backup rules in
 [Session lifecycle](session-lifecycle.md).

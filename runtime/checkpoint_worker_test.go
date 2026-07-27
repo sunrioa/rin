@@ -11,13 +11,29 @@ import (
 	"github.com/sunrioa/rin/protocol"
 )
 
-func TestAutomaticCheckpointScheduleUsesPowersOfTwo(t *testing.T) {
-	for _, revision := range []uint64{256, 512, 1024, 1 << 63} {
+func TestAutomaticCheckpointScheduleBoundsReplayTail(t *testing.T) {
+	for _, revision := range []uint64{
+		256,
+		512,
+		1024,
+		16384,
+		32768,
+		1 << 63,
+	} {
 		if !shouldSaveAutomaticCheckpoint(revision) {
 			t.Fatalf("revision %d did not trigger an automatic checkpoint", revision)
 		}
 	}
-	for _, revision := range []uint64{0, 1, 255, 257, 768, 1023, ^uint64(0)} {
+	for _, revision := range []uint64{
+		0,
+		1,
+		255,
+		257,
+		768,
+		1023,
+		16385,
+		^uint64(0),
+	} {
 		if shouldSaveAutomaticCheckpoint(revision) {
 			t.Fatalf("revision %d unexpectedly triggered an automatic checkpoint", revision)
 		}
@@ -29,11 +45,31 @@ func TestAutomaticCheckpointScheduleUsesPowersOfTwo(t *testing.T) {
 	if shouldRepairHeadCheckpoint(300, 256) {
 		t.Fatal("small checkpoint tail requested an exact-head rewrite")
 	}
-	if !shouldRepairHeadCheckpoint(512, 256) {
-		t.Fatal("doubled checkpoint tail did not request self-healing")
+	if !shouldRepairHeadCheckpoint(3, 1) {
+		t.Fatal("small Session fallback did not request artifact repair")
+	}
+	if shouldRepairHeadCheckpoint(512, 256) {
+		t.Fatal("bounded checkpoint tail requested unnecessary self-healing")
+	}
+	if !shouldRepairHeadCheckpoint(16640, 256) {
+		t.Fatal("maximum checkpoint tail did not request self-healing")
 	}
 	if shouldRepairHeadCheckpoint(512, 512) {
 		t.Fatal("exact-head checkpoint requested a rewrite")
+	}
+
+	lastCheckpoint := uint64(1)
+	for revision := uint64(2); revision <= 100000; revision++ {
+		if shouldSaveAutomaticCheckpoint(revision) {
+			lastCheckpoint = revision
+		}
+		if revision-lastCheckpoint >= checkpointMaximumReplayTail {
+			t.Fatalf(
+				"revision %d exceeded the replay-tail bound after %d",
+				revision,
+				lastCheckpoint,
+			)
+		}
 	}
 }
 

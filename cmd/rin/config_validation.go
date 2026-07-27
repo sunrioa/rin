@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	rinruntime "github.com/sunrioa/rin/runtime"
 )
 
 var positiveIntEnvironment = []string{
@@ -22,6 +24,7 @@ var positiveIntEnvironment = []string{
 	"RIN_MODEL_MAX_ATTEMPTS",
 	"RIN_MODEL_BREAKER_FAILURES",
 	"RIN_MODEL_CACHE_ENTRIES",
+	"RIN_SCRUB_MAX_EVENTS",
 }
 
 var positiveUintEnvironment = []string{
@@ -50,6 +53,8 @@ var positiveDurationEnvironment = []string{
 	"RIN_MODEL_MAX_BACKOFF",
 	"RIN_MODEL_BREAKER_OPEN",
 	"RIN_MODEL_CACHE_TTL",
+	"RIN_SCRUB_INTERVAL",
+	"RIN_SCRUB_TIMEOUT",
 }
 
 func validateServeEnvironment() error {
@@ -146,6 +151,9 @@ type serveConfiguration struct {
 	requestTimeout            time.Duration
 	transferTimeout           time.Duration
 	transferInactivityTimeout time.Duration
+	scrubInterval             time.Duration
+	scrubTimeout              time.Duration
+	scrubMaxEvents            int
 }
 
 func validateServeConfiguration(config serveConfiguration) error {
@@ -171,6 +179,16 @@ func validateServeConfiguration(config serveConfiguration) error {
 		return errors.New("transfer-timeout must be positive")
 	case config.transferInactivityTimeout <= 0:
 		return errors.New("transfer-inactivity-timeout must be positive")
+	case config.scrubInterval <= 0:
+		return errors.New("scrub-interval must be positive")
+	case config.scrubTimeout <= 0:
+		return errors.New("scrub-timeout must be positive")
+	case config.scrubMaxEvents < 1 ||
+		config.scrubMaxEvents > rinruntime.MaxScrubEventBudget:
+		return fmt.Errorf(
+			"scrub-max-events must be between 1 and %d",
+			rinruntime.MaxScrubEventBudget,
+		)
 	default:
 		return nil
 	}

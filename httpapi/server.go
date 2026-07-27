@@ -352,6 +352,16 @@ func (s *Server) metrics(response http.ResponseWriter, _ *http.Request) {
 			"rin_checkpoint_failures_total %d\n"+
 			"# TYPE rin_checkpoint_quota_skips_total counter\n"+
 			"rin_checkpoint_quota_skips_total %d\n"+
+			"# TYPE rin_scrub_completed_cycles_total counter\n"+
+			"rin_scrub_completed_cycles_total %d\n"+
+			"# TYPE rin_scrub_failures_total counter\n"+
+			"rin_scrub_failures_total %d\n"+
+			"# TYPE rin_scrub_active gauge\n"+
+			"rin_scrub_active %d\n"+
+			"# TYPE rin_scrub_revision gauge\n"+
+			"rin_scrub_revision %d\n"+
+			"# TYPE rin_scrub_target_revision gauge\n"+
+			"rin_scrub_target_revision %d\n"+
 			"# TYPE rin_proposal_queue_depth gauge\n"+
 			"rin_proposal_queue_depth %d\n"+
 			"# TYPE rin_proposal_queue_capacity gauge\n"+
@@ -368,6 +378,11 @@ func (s *Server) metrics(response http.ResponseWriter, _ *http.Request) {
 		runtimeDiagnostics.PendingUncertaintyBarriers,
 		runtimeDiagnostics.CheckpointFailures,
 		runtimeDiagnostics.CheckpointQuotaSkips,
+		runtimeDiagnostics.ScrubCompletedCycles,
+		runtimeDiagnostics.ScrubFailures,
+		boolMetric(runtimeDiagnostics.ScrubActive),
+		runtimeDiagnostics.ScrubRevision,
+		runtimeDiagnostics.ScrubTargetRevision,
 		jobDiagnostics.QueueDepth,
 		jobDiagnostics.QueueCapacity,
 		jobDiagnostics.Retained,
@@ -400,6 +415,13 @@ func (s *Server) metrics(response http.ResponseWriter, _ *http.Request) {
 			providerOpen,
 		)
 	}
+}
+
+func boolMetric(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func (s *Server) readinessError() error {

@@ -243,11 +243,15 @@ uncoordinated filesystem backup. Embedded Go callers must call
 Sessions lazily; the first access loads one Session from its newest usable
 validated internal checkpoint, or from genesis when none is usable, then
 replays its event tail. When lazy recovery used no checkpoint, or when
-`head revision / selected checkpoint revision >= 2`, Runtime best-effort
-queues an asynchronous checkpoint at the recovered head. It may not be
-durable when the read returns, and a cache-write failure does not fail that
-read. Call `Engine.VerifyAll()` when maintenance requires a
-checkpoint-independent, genesis-to-head audit of every Session.
+the selected checkpoint tail reaches 16,384 events, Runtime best-effort queues
+an asynchronous checkpoint at the recovered head. It may not be durable when
+the read returns, and a cache-write failure does not fail that read. Small
+Sessions below revision 256 also repair exact head after checkpoint fallback.
+Call
+`Engine.VerifyAll()` for a one-shot checkpoint-independent audit, or
+`Engine.Scrub(ctx, maxEvents)` to spread the same genesis-to-head validation
+over bounded passes. The bundled Sidecar runs bounded Scrub passes
+automatically.
 
 The bundled exclusive data-directory lock supports `darwin`, `linux`, and
 `windows`: Unix uses non-blocking `flock`, while Windows uses an exclusive file
