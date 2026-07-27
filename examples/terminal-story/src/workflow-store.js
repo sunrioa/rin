@@ -137,18 +137,31 @@ export class StoryWorkflowStore {
     return created;
   }
 
-  async saveProposalAttempt(attempt) {
+  async saveProposalAttempt(expected, replacement) {
+    let saved = false;
     await this.commit((next) => {
-      next.attempt = clone(attempt);
+      if (!isDeepStrictEqual(next.attempt, expected)) return NO_CHANGE;
+      next.attempt = clone(replacement);
+      saved = true;
     });
+    return saved;
   }
 
   async settleProposalAttempt({ attempt, report, apply }) {
     // apply mutates only the draft through recordRinAction. The game effect,
     // Outbox entry, and cleared Attempt are then published by one replacement.
     await this.commit(async (next) => {
-      if (next.attempt?.operation_id !== attempt.operation_id) {
-        throw new Error("Proposal Attempt identity changed before settlement");
+      if (!isDeepStrictEqual(next.attempt, attempt)) {
+        throw new Error("Proposal Attempt changed before settlement");
+      }
+      const turn = next.game.pending_turn;
+      const prefix = `${next.game.session_id}.${turn?.sequence}`;
+      if (!turn ||
+          attempt.request.session_id !== next.game.session_id ||
+          attempt.operation_id !== `${prefix}.operation` ||
+          attempt.request.request_id !== `${prefix}.propose` ||
+          attempt.request.tick !== turn.sequence * 2) {
+        throw new Error("Proposal Attempt does not match the pending story turn");
       }
       this.settlementDraft = next;
       try {

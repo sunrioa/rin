@@ -41,8 +41,12 @@ test("Proposal settlement publishes game effect and Outcome Outbox together", as
   await store.beginRinTurn("tea", 1);
   const attempt = {
     version: 1,
-    operation_id: "operation.fixture",
-    request: { request_id: "request.fixture", session_id: "session.fixture" },
+    operation_id: "session.fixture.1.operation",
+    request: {
+      request_id: "session.fixture.1.propose",
+      session_id: "session.fixture",
+      tick: 2,
+    },
     job_id: "job.fixture",
   };
   assert.equal(await store.createProposalAttempt(attempt), true);
@@ -59,14 +63,112 @@ test("Proposal settlement publishes game effect and Outcome Outbox together", as
   assert.equal(persisted.outbox[0].key, "report.fixture");
 });
 
+test("a delayed Proposal response cannot revive a settled Attempt", async () => {
+  const writer = await temporaryStore();
+  await writer.ensureSessionId("session.fixture");
+  await writer.beginRinTurn("tea", 1);
+  const original = {
+    version: 1,
+    operation_id: "session.fixture.1.operation",
+    request: {
+      request_id: "session.fixture.1.propose",
+      session_id: "session.fixture",
+      tick: 2,
+    },
+    job_id: "",
+  };
+  await writer.createProposalAttempt(original);
+  const delayed = await new StoryWorkflowStore(writer.path).load();
+  const active = { ...original, job_id: "job.fixture" };
+  assert.equal(await writer.saveProposalAttempt(original, active), true);
+  await writer.settleProposalAttempt({
+    attempt: active,
+    report: { request_id: "report.fixture" },
+    apply: async () => writer.recordRinAction({ id: "offer.tea" }),
+  });
+
+  assert.equal(
+    await delayed.saveProposalAttempt(original, {
+      ...original,
+      job_id: "job.delayed",
+    }),
+    false,
+  );
+  const persisted = await new StoryWorkflowStore(writer.path).load();
+  assert.equal(persisted.document.attempt, null);
+  assert.equal(persisted.game.pending_turn, null);
+  assert.deepEqual(persisted.game.applied_action_ids, ["offer.tea"]);
+  assert.equal(persisted.document.outbox.length, 1);
+});
+
+test("Proposal settlement rejects changed Attempt and story turn identities", async (t) => {
+  const cases = [
+    {
+      name: "job identity",
+      changeAttempt: (attempt) => ({ ...attempt, job_id: "job.other" }),
+    },
+    {
+      name: "Session identity",
+      changeAttempt: (attempt) => ({
+        ...attempt,
+        request: { ...attempt.request, session_id: "session.other" },
+      }),
+    },
+    {
+      name: "Pending Turn generation",
+      changeStore: async (store) => store.commit((next) => {
+        next.game.pending_turn = { sequence: 2, preference: "tea" };
+      }),
+    },
+  ];
+
+  for (const testCase of cases) {
+    await t.test(testCase.name, async () => {
+      const store = await temporaryStore();
+      await store.ensureSessionId("session.fixture");
+      await store.beginRinTurn("tea", 1);
+      const attempt = {
+        version: 1,
+        operation_id: "session.fixture.1.operation",
+        request: {
+          request_id: "session.fixture.1.propose",
+          session_id: "session.fixture",
+          tick: 2,
+        },
+        job_id: "job.fixture",
+      };
+      await store.createProposalAttempt(attempt);
+      if (testCase.changeStore) await testCase.changeStore(store);
+      const stale = testCase.changeAttempt
+        ? testCase.changeAttempt(attempt)
+        : attempt;
+      let applied = false;
+
+      await assert.rejects(
+        store.settleProposalAttempt({
+          attempt: stale,
+          report: { request_id: "report.fixture" },
+          apply: async () => { applied = true; },
+        }),
+        /changed before settlement|does not match/,
+      );
+      assert.equal(applied, false);
+    });
+  }
+});
+
 test("failed settlement publish leaves memory and disk at the retryable Attempt", async () => {
   const store = await temporaryStore();
   await store.ensureSessionId("session.fixture");
   await store.beginRinTurn("tea", 1);
   const attempt = {
     version: 1,
-    operation_id: "operation.fixture",
-    request: { request_id: "request.fixture", session_id: "session.fixture" },
+    operation_id: "session.fixture.1.operation",
+    request: {
+      request_id: "session.fixture.1.propose",
+      session_id: "session.fixture",
+      tick: 2,
+    },
     job_id: "job.fixture",
   };
   await store.createProposalAttempt(attempt);
@@ -109,8 +211,12 @@ test("post-rename fence failure adopts disk state and blocks stale writes", asyn
   await store.beginRinTurn("tea", 1);
   const attempt = {
     version: 1,
-    operation_id: "operation.fixture",
-    request: { request_id: "request.fixture", session_id: "session.fixture" },
+    operation_id: "session.fixture.1.operation",
+    request: {
+      request_id: "session.fixture.1.propose",
+      session_id: "session.fixture",
+      tick: 2,
+    },
     job_id: "job.fixture",
   };
   await store.createProposalAttempt(attempt);
@@ -158,8 +264,12 @@ test("stale acknowledgement cannot delete a replaced Outbox report", async () =>
   await writer.beginRinTurn("tea", 1);
   const attempt = {
     version: 1,
-    operation_id: "operation.fixture",
-    request: { request_id: "request.fixture", session_id: "session.fixture" },
+    operation_id: "session.fixture.1.operation",
+    request: {
+      request_id: "session.fixture.1.propose",
+      session_id: "session.fixture",
+      tick: 2,
+    },
     job_id: "job.fixture",
   };
   await writer.createProposalAttempt(attempt);
