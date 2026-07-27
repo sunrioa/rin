@@ -59,10 +59,49 @@ The launcher uses literal paths, creates only the requested data directory,
 binds loopback by default, and propagates the Sidecar exit code. Check
 `/ready` before starting the game.
 
-Treat diagnostics and metrics like other authenticated API data. Bind the
-Sidecar to loopback by default; if a reverse proxy exposes it remotely, require
-`-allow-remote`, a non-empty `RIN_TOKEN`, and TLS at the proxy, and keep
-`/metrics` and `/v2/diagnostics` off public routes.
+## Remote deployment
+
+The supported remote path terminates TLS at a trusted reverse proxy and always
+configures a non-empty `RIN_TOKEN`. Prefer running the proxy on the same host:
+Rin then remains on its default loopback listener and no remote-listen override
+is needed.
+
+```bash
+export RIN_TOKEN="$(openssl rand -hex 32)"
+rin serve -addr 127.0.0.1:7374
+```
+
+A minimal Caddyfile for a DNS name with Caddy-managed HTTPS is:
+
+```caddyfile
+rin.example.com {
+    @private path /metrics /v2/diagnostics
+    respond @private 404
+    reverse_proxy 127.0.0.1:7374
+}
+```
+
+Clients send `Authorization: Bearer <token>` through HTTPS. Keep the token out
+of proxy logs and do not publish `/metrics` or `/v2/diagnostics`; scrape those
+locally instead. See the official
+[Caddy reverse proxy documentation](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy)
+for production proxy controls.
+
+If the proxy and Rin must run on separate machines, restrict the plaintext
+listener to a private network and firewall it so only the proxy can connect.
+Rin then requires all three declarations:
+
+```bash
+export RIN_TOKEN="$(openssl rand -hex 32)"
+export RIN_TLS_PROXY=true
+rin serve -addr 10.0.0.12:7374 -allow-remote
+```
+
+`-tls-proxy` is the CLI equivalent of `RIN_TLS_PROXY=true`. It is only an
+operator assertion that a trusted proxy terminates TLS; it does not enable TLS
+or make a public plaintext listener safe. A non-loopback listener fails before
+opening the data directory unless `-allow-remote`, a token, and this assertion
+are all present.
 
 Capacity, concurrency, timeout, and boolean environment variables fail fast
 when explicitly set to an invalid value; Rin does not silently replace a typo

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -190,23 +191,36 @@ func TestRootHelpReturnsSuccess(t *testing.T) {
 
 func TestValidateListenAddress(t *testing.T) {
 	tests := []struct {
-		name        string
-		address     string
-		allowRemote bool
-		token       string
-		wantError   bool
+		name      string
+		address   string
+		security  listenSecurity
+		wantError bool
 	}{
 		{name: "IPv4 loopback", address: "127.0.0.1:7374"},
 		{name: "IPv6 loopback", address: "[::1]:7374"},
 		{name: "localhost", address: "localhost:7374"},
 		{name: "remote denied", address: "0.0.0.0:7374", wantError: true},
-		{name: "remote needs token", address: "0.0.0.0:7374", allowRemote: true, wantError: true},
-		{name: "remote explicit", address: "0.0.0.0:7374", allowRemote: true, token: "token"},
+		{
+			name: "remote needs token", address: "0.0.0.0:7374",
+			security:  listenSecurity{allowRemote: true, tlsProxy: true},
+			wantError: true,
+		},
+		{
+			name: "remote needs TLS proxy declaration", address: "0.0.0.0:7374",
+			security:  listenSecurity{allowRemote: true, token: "token"},
+			wantError: true,
+		},
+		{
+			name: "remote explicit", address: "0.0.0.0:7374",
+			security: listenSecurity{
+				allowRemote: true, tlsProxy: true, token: "token",
+			},
+		},
 		{name: "invalid", address: "7374", wantError: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := validateListenAddress(test.address, test.allowRemote, test.token)
+			err := validateListenAddress(test.address, test.security)
 			if (err != nil) != test.wantError {
 				t.Fatalf("error=%v wantError=%v", err, test.wantError)
 			}
@@ -246,6 +260,11 @@ func TestValidateServeEnvironmentRejectsInvalidConfiguredValues(t *testing.T) {
 			value: "sometimes",
 		},
 		{
+			name:  "TLS proxy boolean",
+			key:   "RIN_TLS_PROXY",
+			value: "sometimes",
+		},
+		{
 			name:  "bearer whitespace",
 			key:   "RIN_TOKEN",
 			value: "not a bearer token",
@@ -266,6 +285,7 @@ func TestValidateServeEnvironmentRejectsInvalidConfiguredValues(t *testing.T) {
 	t.Setenv("RIN_SESSION_SOFT_LIMIT_BYTES", "0")
 	t.Setenv("RIN_REQUEST_TIMEOUT", "250ms")
 	t.Setenv("RIN_MODEL_ALLOW_INSECURE", "false")
+	t.Setenv("RIN_TLS_PROXY", "true")
 	if err := validateServeEnvironment(); err != nil {
 		t.Fatalf("valid environment rejected: %v", err)
 	}
@@ -406,19 +426,68 @@ func TestServeFailsBeforeStartupForInvalidConfiguredLimits(t *testing.T) {
 			t.Fatalf("run error = %v", err)
 		}
 	})
+	t.Run("remote listener without TLS proxy declaration", func(t *testing.T) {
+		clearServeEnvironment(t)
+		t.Setenv("RIN_TOKEN", "test-token")
+		dataDirectory := filepath.Join(t.TempDir(), "must-not-exist")
+		err := run([]string{
+			"serve",
+			"-addr", "0.0.0.0:7374",
+			"-allow-remote",
+			"-data", dataDirectory,
+		})
+		if err == nil || !strings.Contains(err.Error(), "tls-proxy") {
+			t.Fatalf("run error = %v", err)
+		}
+		if _, statErr := os.Stat(dataDirectory); !errors.Is(
+			statErr,
+			os.ErrNotExist,
+		) {
+			t.Fatalf("failed remote preflight changed data directory: %v", statErr)
+		}
+	})
+	for _, test := range []struct {
+		name        string
+		environment bool
+	}{
+		{name: "remote TLS proxy flag"},
+		{name: "remote TLS proxy environment", environment: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			clearServeEnvironment(t)
+			t.Setenv("RIN_TOKEN", "test-token")
+			if test.environment {
+				t.Setenv("RIN_TLS_PROXY", "true")
+			}
+			notDirectory := filepath.Join(t.TempDir(), "not-a-directory")
+			if err := os.WriteFile(notDirectory, []byte("x"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			arguments := []string{
+				"serve",
+				"-addr", "0.0.0.0:7374",
+				"-allow-remote",
+				"-data", notDirectory,
+			}
+			if !test.environment {
+				arguments = append(arguments, "-tls-proxy")
+			}
+			err := run(arguments)
+			if err == nil || strings.Contains(err.Error(), "tls-proxy") {
+				t.Fatalf("TLS proxy declaration was not accepted: %v", err)
+			}
+		})
+	}
 }
 
 func clearServeEnvironment(t *testing.T) {
 	t.Helper()
-	keys := []string{
-		"RIN_MAX_BODY_BYTES",
-		"RIN_MODEL_ALLOW_INSECURE",
-		"RIN_TOKEN",
-	}
+	keys := []string{"RIN_MAX_BODY_BYTES", "RIN_TOKEN"}
 	keys = append(keys, positiveIntEnvironment...)
 	keys = append(keys, positiveUintEnvironment...)
 	keys = append(keys, nonNegativeUintEnvironment...)
 	keys = append(keys, positiveDurationEnvironment...)
+	keys = append(keys, booleanEnvironment...)
 	for _, key := range keys {
 		t.Setenv(key, "")
 	}

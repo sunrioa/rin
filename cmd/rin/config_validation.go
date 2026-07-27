@@ -57,6 +57,11 @@ var positiveDurationEnvironment = []string{
 	"RIN_SCRUB_TIMEOUT",
 }
 
+var booleanEnvironment = []string{
+	"RIN_MODEL_ALLOW_INSECURE",
+	"RIN_TLS_PROXY",
+}
+
 func validateServeEnvironment() error {
 	if value := os.Getenv("RIN_MAX_BODY_BYTES"); value != "" {
 		parsed, err := strconv.ParseInt(value, 10, 64)
@@ -103,10 +108,14 @@ func validateServeEnvironment() error {
 			)
 		}
 	}
-	if value := os.Getenv("RIN_MODEL_ALLOW_INSECURE"); value != "" {
+	for _, key := range booleanEnvironment {
+		value := os.Getenv(key)
+		if value == "" {
+			continue
+		}
 		if _, err := strconv.ParseBool(value); err != nil {
 			return invalidEnvironment(
-				"RIN_MODEL_ALLOW_INSECURE",
+				key,
 				"must be a boolean",
 			)
 		}

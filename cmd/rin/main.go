@@ -73,6 +73,11 @@ Serve options:
 	address := flags.String("addr", envOr("RIN_ADDR", "127.0.0.1:7374"), "listen address")
 	dataDirectory := flags.String("data", envOr("RIN_DATA_DIR", "./rin-data"), "event and snapshot directory")
 	allowRemote := flags.Bool("allow-remote", false, "allow a non-loopback listen address")
+	tlsProxy := flags.Bool(
+		"tls-proxy",
+		envBool("RIN_TLS_PROXY", false),
+		"declare that a trusted reverse proxy terminates TLS for this listener",
+	)
 	maxBody := flags.Int64("max-body-bytes", envInt64("RIN_MAX_BODY_BYTES", httpapi.DefaultMaxBodyBytes), "maximum JSON request size")
 	sessionSoftLimit := flags.Uint64(
 		"session-soft-limit-bytes",
@@ -173,7 +178,11 @@ Serve options:
 		return err
 	}
 	token := os.Getenv("RIN_TOKEN")
-	if err := validateListenAddress(*address, *allowRemote, token); err != nil {
+	if err := validateListenAddress(*address, listenSecurity{
+		allowRemote: *allowRemote,
+		tlsProxy:    *tlsProxy,
+		token:       token,
+	}); err != nil {
 		return err
 	}
 	fileStore, err := store.OpenFile(*dataDirectory)
@@ -259,6 +268,7 @@ Serve options:
 		"address", listener.Addr().String(),
 		"protocol", protocol.Version,
 		"auth", token != "",
+		"tls_proxy_declared", *tlsProxy,
 		"policy", modelRuntime.Mode,
 		"structured_generation", generationManager != nil,
 		"session_soft_limit_bytes", *sessionSoftLimit,
@@ -382,7 +392,13 @@ func runScrubLoop(
 	}
 }
 
-func validateListenAddress(address string, allowRemote bool, token string) error {
+type listenSecurity struct {
+	allowRemote bool
+	tlsProxy    bool
+	token       string
+}
+
+func validateListenAddress(address string, security listenSecurity) error {
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
 		return fmt.Errorf("invalid listen address: %w", err)
@@ -391,11 +407,16 @@ func validateListenAddress(address string, allowRemote bool, token string) error
 	if ip := net.ParseIP(host); ip != nil {
 		loopback = ip.IsLoopback()
 	}
-	if !loopback && !allowRemote {
+	if !loopback && !security.allowRemote {
 		return errors.New("non-loopback address requires -allow-remote")
 	}
-	if !loopback && token == "" {
+	if !loopback && security.token == "" {
 		return errors.New("non-loopback address requires RIN_TOKEN")
+	}
+	if !loopback && !security.tlsProxy {
+		return errors.New(
+			"non-loopback address requires -tls-proxy or RIN_TLS_PROXY=true",
+		)
 	}
 	return nil
 }

@@ -55,10 +55,44 @@ powershell -ExecutionPolicy Bypass -File tools/start-rin.ps1 `
 启动器使用 Literal Path，只创建指定数据目录，默认仅绑定 Loopback，并透传
 Sidecar Exit Code。启动游戏前请检查 `/ready`。
 
-Diagnostics 与 Metrics 应按其他鉴权 API 数据保护。Sidecar 默认只绑定 Loopback；
-若 Reverse Proxy 对外暴露，必须同时设置 `-allow-remote`、非空
-`RIN_TOKEN`，并由 Proxy 提供 TLS；不得把 `/metrics` 与
-`/v2/diagnostics` 放到公网 Route。
+## 远程部署
+
+受支持的远程路径必须由可信 Reverse Proxy 终止 TLS，并始终配置非空
+`RIN_TOKEN`。优先让 Proxy 与 Rin 运行在同一台主机：Rin 继续使用默认 Loopback
+监听，不需要开启远程监听。
+
+```bash
+export RIN_TOKEN="$(openssl rand -hex 32)"
+rin serve -addr 127.0.0.1:7374
+```
+
+使用 DNS 域名并由 Caddy 管理 HTTPS 的最小 Caddyfile：
+
+```caddyfile
+rin.example.com {
+    @private path /metrics /v2/diagnostics
+    respond @private 404
+    reverse_proxy 127.0.0.1:7374
+}
+```
+
+客户端通过 HTTPS 发送 `Authorization: Bearer <token>`。不得把 Token 写入 Proxy
+日志，也不得公开 `/metrics` 或 `/v2/diagnostics`；应在本机采集它们。生产 Proxy
+控制项见 Caddy 官方
+[Reverse Proxy 文档](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy)。
+
+若 Proxy 与 Rin 必须分处不同主机，只能在私网监听明文端口，并用防火墙限制为
+仅 Proxy 可访问。此时 Rin 要求同时作出三项声明：
+
+```bash
+export RIN_TOKEN="$(openssl rand -hex 32)"
+export RIN_TLS_PROXY=true
+rin serve -addr 10.0.0.12:7374 -allow-remote
+```
+
+`-tls-proxy` 等价于 `RIN_TLS_PROXY=true`。它只声明已有可信 Proxy 负责 TLS，
+不会为 Rin 启用 TLS，也不能让公网明文监听变安全。非 Loopback 监听若缺少
+`-allow-remote`、Token 或该声明，会在打开数据目录前直接失败。
 
 容量、并发、Timeout 与 Boolean 环境变量一旦显式设置为非法值，Rin 会立即失败，
 不会把拼写错误静默替换成默认值；命令行显式设置的非正数 Limit 也遵循同一规则。
