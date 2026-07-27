@@ -294,6 +294,12 @@ export class OutcomeOutbox {
         requireIdentifier("request_id", report.request_id);
         requireIdentifier("event_id", report.report?.event_id);
         const result = await this.client.reportAction(report);
+        if (!isObject(result) || result.session_id !== report.session_id) {
+          throw new RinConfigurationError(
+            "invalid_outbox_ack",
+            "Rin acknowledged the Outcome for another or missing Session",
+          );
+        }
         await this.store.acknowledgeOutcome(entry, result);
         acknowledged++;
       }

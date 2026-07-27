@@ -254,6 +254,7 @@ test("Outcome Outbox acknowledges only confirmed exact Action Report success", a
     report: rejectedReport("report.fixture", "event.fixture"),
   }];
   let fail = true;
+  let wrongSession = false;
   const client = new RinClient(undefined, {
     fetch: async () => fail
       ? response(500, {
@@ -263,7 +264,7 @@ test("Outcome Outbox acknowledges only confirmed exact Action Report success", a
       : response(200, {
         ok: true,
         data: {
-          session_id: "session.fixture",
+          session_id: wrongSession ? "session.other" : "session.fixture",
           revision: 3,
           head_hash: "a".repeat(64),
           duplicate: true,
@@ -284,6 +285,14 @@ test("Outcome Outbox acknowledges only confirmed exact Action Report success", a
   );
   assert.equal(entries.length, 1);
   fail = false;
+  wrongSession = true;
+  await assert.rejects(
+    outbox.drain(),
+    (error) => error instanceof RinConfigurationError &&
+      error.code === "invalid_outbox_ack",
+  );
+  assert.equal(entries.length, 1);
+  wrongSession = false;
   assert.equal(await outbox.drain(), 1);
   assert.equal(entries.length, 0);
 });

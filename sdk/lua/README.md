@@ -37,11 +37,13 @@ only apply allowlisted actions from the engine's owning thread.
 
 `rin.new_workflow(client, store)` adds the protocol-generic Pending Turn
 coordinator. The Store supplies `load_attempt`, `create_attempt`,
-`save_attempt`, `complete_attempt`, `list_outcomes`, and
+`save_attempt`, `begin_action`, `complete_action`, `settle_without_action`,
+`list_outcomes`, and
 `acknowledge_outcome`. The coordinator persists before network submission,
 resumes or safely resubmits a missing Job, verifies Job/Proposal identity,
 serializes settle/drain operations per key, and retries the exact Action Report
-until acknowledgement. Use
+until a same-Session acknowledgement. A missing or crossed Session ACK fails
+closed before the Store callback. Use
 `rin.proposal_freshness(state, proposal)` immediately before game apply.
 
 The SDK defines ordering and validation, not host durability. Lua hosts differ

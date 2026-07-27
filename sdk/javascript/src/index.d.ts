@@ -477,7 +477,7 @@ export interface OutcomeOutboxEntry {
 
 export interface OutcomeOutboxStore {
   listOutcomeReports(): Promise<OutcomeOutboxEntry[]>;
-  /** Must durably remove only the exact entry that Rin acknowledged. */
+  /** Called only after the central Outbox verifies the ACK Session. */
   acknowledgeOutcome(entry: OutcomeOutboxEntry, result: MutationResult): Promise<void>;
 }
 

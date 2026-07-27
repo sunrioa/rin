@@ -39,7 +39,8 @@ additive response fields through `AdditiveFields`.
 the stable operation ID; only `transactional-action` calls
 `IProposalAttemptStore.SettleAsync` as one game transaction. Entries are
 acknowledged only after normal or explicit duplicate report success. Errors
-retain the exact report; it is never converted into an Observation. The SDK
+retain the exact report; a missing or crossed Session ACK fails closed before
+the Store callback. Reports are never converted into Observations. The SDK
 does not ship an in-memory production default. See
 [Host durability profiles](../../docs/host-durability.md).
 

@@ -163,7 +163,18 @@ public final class WorkflowCoordinator {
         requireIdentifier("request_id", request.get("request_id"));
         requireIdentifier("event_id", actionReport(request).get("event_id"));
         return client.reportAction(request)
-                .thenCompose(result -> store.acknowledgeOutcome(entry, result))
+                .thenCompose(result -> {
+                    if (result == null ||
+                            !Objects.equals(
+                                    result.get("session_id"),
+                                    request.get("session_id"))) {
+                        return CompletableFuture.failedFuture(
+                                new RinConfigurationException(
+                                        "invalid_outbox_ack",
+                                        "Rin acknowledged the Outcome for another or missing Session"));
+                    }
+                    return store.acknowledgeOutcome(entry, result);
+                })
                 .thenCompose(ignored -> drainEntries(entries, index + 1));
     }
 

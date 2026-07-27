@@ -325,7 +325,7 @@ public interface IOutcomeOutboxStore
     ValueTask<IReadOnlyList<OutcomeOutboxEntry>> ListAsync(
         CancellationToken cancellationToken = default);
 
-    /// <summary>Durably removes only the exact entry acknowledged by Rin.</summary>
+    /// <summary>Called only after the central Outbox verifies the ACK Session.</summary>
     ValueTask AcknowledgeAsync(
         OutcomeOutboxEntry entry,
         MutationResult result,
@@ -372,6 +372,16 @@ public sealed class OutcomeOutbox
                 }
                 var result = await client.ReportActionAsync(report, cancellationToken)
                     .ConfigureAwait(false);
+                if (result is null ||
+                    !string.Equals(
+                        result.SessionId,
+                        report.SessionId,
+                        StringComparison.Ordinal))
+                {
+                    throw new RinConfigurationException(
+                        "invalid_outbox_ack",
+                        "Rin acknowledged the Outcome for another or missing Session");
+                }
                 await store.AcknowledgeAsync(entry, result, cancellationToken)
                     .ConfigureAwait(false);
                 acknowledged++;

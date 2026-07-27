@@ -37,7 +37,8 @@ retry 中复用。
 `IWorkflowStore` 与已校验的 `HostDurability`。幂等 Apply 会收到稳定
 Operation ID；只有 `transactional-action` 才把
 `IProposalAttemptStore.SettleAsync` 当作一个游戏事务调用。只有普通成功或
-明确 duplicate Report 成功后才能确认 Outbox 项。错误会保留精确 Report，
+同一 Session 的明确 duplicate Report 成功后才能确认 Outbox 项；缺失或串线的
+Session ACK 会在调用 Store 前 fail closed。错误会保留精确 Report，
 绝不把它转换为 Observation。SDK 不提供会误用于生产的内存默认实现。参见
 [宿主持久保证分级](../../docs/host-durability.zh-CN.md)。
 

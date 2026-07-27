@@ -31,7 +31,8 @@ Future 会取消同一个 Network Future，不会另留第二个 Delayed Timeout
 Outbox 状态机。接入方提供持久 `WorkflowStore` 和已校验的
 `HostDurability`。`idempotent-action` Apply Callback 会收到稳定 Operation
 ID；`transactional-action` 会把 Apply 与入队交给同一个宿主事务。所有错误都
-保留精确 Action Report，绝不把它转换为 Observation。
+保留精确 Action Report，绝不把它转换为 Observation。确认缺失或确认中的
+Session 不一致时，会在调用 Store 回调前失败并保留待发送项。
 `ProposalFreshness.evaluate` 负责统一的最终
 Pending/Revision 校验。`advisory` 宿主不能提供要求更强 Profile 的动作。参见
 [宿主持久保证分级](../../docs/host-durability.zh-CN.md)。

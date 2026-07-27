@@ -242,13 +242,18 @@ final class WorkflowCoordinatorTest {
     }
 
     private static void verifyReportRetry() throws Exception {
+        AtomicReference<String> reportBody =
+                new AtomicReference<>("temporary-report-error");
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", exchange -> {
             String path = exchange.getRequestURI().getPath();
             boolean report = path.equals("/v2/action/report");
-            byte[] bytes = (report ? "temporary-report-error" : "unexpected")
+            String body = report ? reportBody.get() : "unexpected";
+            byte[] bytes = body
                     .getBytes(StandardCharsets.UTF_8);
-            exchange.sendResponseHeaders(report ? 503 : 404, bytes.length);
+            int status = !report ? 404 :
+                    body.equals("temporary-report-error") ? 503 : 200;
+            exchange.sendResponseHeaders(status, bytes.length);
             exchange.getResponseBody().write(bytes);
             exchange.close();
         });
@@ -267,7 +272,14 @@ final class WorkflowCoordinatorTest {
                                         "code", "temporarily_unavailable",
                                         "message", "retry later"));
                     }
-                    return Map.of("ok", true, "data", Map.of("duplicate", false));
+                    return Map.of(
+                            "ok", true,
+                            "data", Map.of(
+                                    "session_id",
+                                    json.equals("wrong-session")
+                                            ? "session.other"
+                                            : "session.workflow",
+                                    "duplicate", false));
                 }
             };
             RinClient client = new RinClient(
@@ -292,6 +304,25 @@ final class WorkflowCoordinatorTest {
                         "report failure changed error type");
             }
             require(store.outcomes.size() == 1, "failed report was removed from the Outbox");
+            reportBody.set("wrong-session");
+            try {
+                new WorkflowCoordinator(client, store).drainOutbox().join();
+                throw new AssertionError("wrong-Session ACK was accepted");
+            } catch (java.util.concurrent.CompletionException expected) {
+                require(
+                        expected.getCause() instanceof RinConfigurationException &&
+                                ((RinConfigurationException) expected.getCause())
+                                        .code().equals("invalid_outbox_ack"),
+                        "wrong-Session ACK returned the wrong error");
+            }
+            require(
+                    store.outcomes.size() == 1,
+                    "wrong-Session ACK removed the durable Outcome");
+            reportBody.set("success");
+            require(
+                    new WorkflowCoordinator(client, store).drainOutbox().join() == 1,
+                    "valid ACK did not drain the Outcome");
+            require(store.outcomes.isEmpty(), "valid ACK retained the Outcome");
         } finally {
             server.stop(0);
         }

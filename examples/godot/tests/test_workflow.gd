@@ -14,6 +14,7 @@ class FakeClient:
 	var reports := 0
 	var observes := 0
 	var mutate_descriptor := false
+	var report_session := "session.fixture"
 	var report_requests: Array[Dictionary] = []
 
 	func observe(_request: Dictionary) -> Dictionary:
@@ -56,7 +57,7 @@ class FakeClient:
 	func report_action(request: Dictionary) -> Dictionary:
 		reports += 1
 		report_requests.append(request.duplicate(true))
-		return {"ok": true, "data": {}}
+		return {"ok": true, "data": {"session_id": report_session}}
 
 
 func _initialize() -> void:
@@ -231,13 +232,16 @@ func _initialize() -> void:
 	restarted.shutdown()
 	var with_outbox := WorkflowScript.new()
 	_check(with_outbox.open(client, SLOT, _create_request, WORLD_ID), "outbox restart did not open")
+	client.report_session = "session.other"
+	_check(not await with_outbox.drain_outbox(), "wrong-Session ACK drained the Outbox")
+	client.report_session = with_outbox.session_id()
 	_check(await with_outbox.drain_outbox(), "report Outbox did not drain")
-	_check(client.reports == 1 and client.observes >= 2, "report path was incomplete")
+	_check(client.reports == 2 and client.observes >= 2, "report path was incomplete")
 	with_outbox.shutdown()
 	var after_ack := WorkflowScript.new()
 	_check(after_ack.open(client, SLOT, _create_request, WORLD_ID), "ack restart did not open")
 	_check(await after_ack.drain_outbox(), "acknowledged Outbox reappeared")
-	_check(client.reports == 1, "acknowledged report was retried")
+	_check(client.reports == 2, "acknowledged report was retried")
 
 	var active_operation := after_ack.next_operation_id()
 	var active_tick := after_ack.next_tick()
@@ -321,7 +325,7 @@ func _initialize() -> void:
 		await recovered_active.drain_outbox(),
 		"outcome-unknown recovery report did not drain",
 	)
-	_check(client.reports == 2, "Active Run recovery did not report exactly once")
+	_check(client.reports == 3, "Active Run recovery did not report exactly once")
 	# Host scenario: long_action_epoch_cancel.
 	var recovered_report: Dictionary = client.report_requests[-1]["report"]
 	_check(

@@ -37,10 +37,12 @@ Callback 约定为 `(data, error)`。网络工作保持异步；只能从引擎�
 
 `rin.new_workflow(client, store)` 提供协议通用的 Pending Turn Coordinator。
 Store 需要实现 `load_attempt`、`create_attempt`、`save_attempt`、
-`complete_attempt`、`list_outcomes` 与
+`begin_action`、`complete_action`、`settle_without_action`、
+`list_outcomes` 与
 `acknowledge_outcome`。Coordinator 会在网络提交前持久化、恢复或安全重提
 缺失 Job、验证 Job/Proposal Identity、按 Key 串行化 Settle/Drain，并在 ACK
-前持续重试同一份 Action Report。游戏 Apply 前应立即调用
+前持续重试同一份 Action Report。缺失或串线的 Session ACK 会在调用 Store 前
+fail closed。游戏 Apply 前应立即调用
 `rin.proposal_freshness(state, proposal)`。
 
 SDK 定义顺序和校验，不定义宿主持久性。不同 Lua 宿主的调度、存储刷盘与事务

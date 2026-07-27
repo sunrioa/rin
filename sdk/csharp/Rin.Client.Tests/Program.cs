@@ -221,6 +221,7 @@ using (var typedProposalClient = new RinClient(
         "fresh world Proposal was rejected");
 }
 
+var wrongWorkflowAckSession = false;
 var workflowHandler = new RecordingHandler
 {
     ResponseBodyFactory = request =>
@@ -254,7 +255,11 @@ var workflowHandler = new RecordingHandler
                 },
             });
         }
-        return "{\"ok\":true,\"data\":{\"session_id\":\"session.workflow\"," +
+        var acknowledgmentSession = wrongWorkflowAckSession
+            ? "session.other"
+            : "session.workflow";
+        return "{\"ok\":true,\"data\":{\"session_id\":\"" +
+            acknowledgmentSession + "\"," +
             "\"revision\":3,\"head_hash\":\"" + new string('a', 64) +
             "\",\"duplicate\":true}}";
     },
@@ -352,6 +357,22 @@ using (var workflowClient = new RinClient(new RinClientOptions(), workflowHandle
     Require(workflowStore.Outcomes.Count == 1, "settlement did not create Outbox entry");
 
     var outbox = new OutcomeOutbox(workflowClient, workflowStore);
+    wrongWorkflowAckSession = true;
+    try
+    {
+        await outbox.DrainAsync();
+        throw new InvalidOperationException("wrong-Session ACK removed an Outcome");
+    }
+    catch (RinConfigurationException exception)
+    {
+        Require(
+            exception.Code == "invalid_outbox_ack",
+            "wrong-Session ACK returned the wrong error");
+    }
+    Require(
+        workflowStore.Outcomes.Count == 1,
+        "wrong-Session ACK removed the durable Outcome");
+    wrongWorkflowAckSession = false;
     Require(await outbox.DrainAsync() == 1, "Outcome Outbox did not drain");
     Require(workflowStore.Outcomes.Count == 0, "acknowledged Outcome was retained");
 

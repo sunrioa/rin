@@ -35,7 +35,7 @@ public interface WorkflowStore {
 
     CompletionStage<List<OutcomeOutboxEntry>> listOutcomeReports();
 
-    /** Durably removes only the exact entry acknowledged by Rin. */
+    /** Called only after the central Outbox verifies the ACK Session. */
     CompletionStage<Void> acknowledgeOutcome(
             OutcomeOutboxEntry entry,
             Map<String, Object> result);

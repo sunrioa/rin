@@ -309,6 +309,14 @@ func drain_outbox() -> bool:
 		if not response.get("ok", false):
 			_busy = false
 			return _fail(str(response.get("error_code", "report_failed")))
+		var result = response.get("data")
+		if (
+			not result is Dictionary
+			or str(result.get("session_id", ""))
+				!= str(entry["request"].get("session_id", ""))
+		):
+			_busy = false
+			return _fail("invalid_outbox_ack")
 		var acknowledged := _state.duplicate(true)
 		acknowledged["outcomes"].remove_at(0)
 		if not _persist(acknowledged):

@@ -320,6 +320,7 @@ local workflow_offer = rin.action_offer({
 
 local workflow_requests = 0
 local workflow_reports = 0
+local workflow_ack_session = "session.workflow"
 local workflow_client = assert(rin.new({
     http_fetch = function(request, callback)
         workflow_requests = workflow_requests + 1
@@ -363,7 +364,7 @@ local workflow_client = assert(rin.new({
         return {
             ok = true,
             data = {
-                session_id = "session.workflow",
+                session_id = workflow_ack_session,
                 revision = 3,
                 head_hash = string.rep("a", 64),
                 duplicate = false,
@@ -418,10 +419,16 @@ workflow:apply_and_enqueue(
     function(ok, err) assert(ok and not err) end
 )
 assert(applied_operation == nil, "Rejected action reached the game Apply callback")
+workflow_ack_session = "session.other"
+workflow:drain_outbox("player.fixture", function(count, err)
+    assert(not count and err and err.code == "invalid_outbox_ack")
+end)
+assert(#workflow_store.outcomes == 1, "wrong-Session ACK removed the Outcome")
+workflow_ack_session = "session.workflow"
 workflow:drain_outbox("player.fixture", function(count, err)
     assert(count == 1 and not err)
 end)
-assert(#workflow_store.outcomes == 0 and workflow_reports == 1)
+assert(#workflow_store.outcomes == 0 and workflow_reports == 2)
 
 workflow_store.attempt = workflow_resolution.attempt
 local accepted_request = rin.immediate_action_report({
@@ -458,7 +465,7 @@ assert(workflow_store.active == nil and #workflow_store.outcomes == 1)
 workflow:drain_outbox("player.fixture", function(count, err)
     assert(count == 1 and not err)
 end)
-assert(#workflow_store.outcomes == 0 and workflow_reports == 2)
+assert(#workflow_store.outcomes == 0 and workflow_reports == 3)
 
 assert(
     rin.proposal_freshness(

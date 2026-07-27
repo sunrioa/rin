@@ -30,6 +30,8 @@ Restarting an Active Run emits one `outcome-unknown` report rather than blindly
 repeating the effect. Returned Proposals must exactly match the durable actor,
 tick, Decision Window, and complete authored Offer. Reports remain exact while
 retrying, and an ACK is persisted before eviction.
+The Outbox verifies that the ACK Session matches the durable report before
+removing anything.
 
 **Host durability profile: `advisory`.** After `FileAccess.flush()`, a
 same-directory target/backup rename protocol makes interrupted replacement

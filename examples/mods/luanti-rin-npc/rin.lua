@@ -888,9 +888,16 @@ function Workflow:drain_outbox(key, callback)
             finish(nil, workflow_error("invalid_outbox", "Outcome Outbox entry is malformed"))
             return
         end
-        local function acknowledge(_, report_error)
+        local function acknowledge(result, report_error)
             if report_error then
                 next_entry(report_error)
+                return
+            end
+            if type(result) ~= "table" or
+                result.session_id ~= entry.request.session_id then
+                next_entry(workflow_error(
+                    "invalid_outbox_ack",
+                    "Rin acknowledged the Outcome for another or missing Session"))
                 return
             end
             local removed, remove_error = self.store:acknowledge_outcome(key, entry)

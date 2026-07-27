@@ -29,7 +29,8 @@ Response types deliberately tolerate additive fields.
 validated `HostDurability`. An idempotent apply receives the stable operation
 ID; only `transactional-action` invokes `settleProposalAttempt` as an atomic
 game transaction. Outbox draining deletes nothing until Rin returns normal or
-explicit duplicate success. The SDK intentionally supplies no unsafe
+explicit duplicate success for the same Session; a missing or crossed Session
+ACK fails closed before the Store callback. The SDK intentionally supplies no unsafe
 in-memory production default. See
 [Host durability profiles](../../docs/host-durability.md).
 

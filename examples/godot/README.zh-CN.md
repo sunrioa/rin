@@ -25,6 +25,7 @@ Host/Timeline；权威世界替换或回滚后调用 `advance_epoch()`。Coordin
 Active Run 只产生一条 `outcome-unknown`，不会盲目重复效果。返回 Proposal 必须
 精确匹配持久 Actor、Tick、Decision Window 与完整宿主 Offer。Report 重试期间
 保持原样，ACK 也必须先持久化才能 Evict。
+Outbox 会先确认 ACK Session 与持久 Report 一致，再删除任何内容。
 
 **Host durability profile：`advisory`。** `FileAccess.flush()` 后使用同目录
 Target/Backup 双重 Rename，使中断替换可恢复并兼容 Windows 路径；但两次
