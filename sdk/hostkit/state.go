@@ -5,15 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/internal/jsonwire"
 	"github.com/sunrioa/rin/protocol"
 )
 
 const (
 	// StateVersion is the only persisted HostKit workflow shape supported by
 	// this pre-1.0 release.
-	StateVersion     = 1
+	StateVersion     = 2
 	maxActions       = 1024
 	maxOutboxEntries = 1024
 )
@@ -27,6 +29,14 @@ var (
 	ErrPendingExists = errors.New("a pending decision already exists")
 	// ErrOutboxPending requires exact reports to drain before new work starts.
 	ErrOutboxPending = errors.New("Outcome Outbox must drain before a new decision")
+	// ErrActionCapacity reports that retained active or unacknowledged work
+	// reached the bounded workflow limit.
+	ErrActionCapacity = errors.New("HostKit action capacity is exhausted")
+	// ErrOutboxCapacity reports that another exact report cannot be retained.
+	ErrOutboxCapacity = errors.New("HostKit Outbox capacity is exhausted")
+	// ErrExecutionOutcomeUnknown reports that execution may have applied a
+	// world effect but did not return a trustworthy lifecycle result.
+	ErrExecutionOutcomeUnknown = errors.New("action execution outcome is unknown")
 	// ErrStaleEpoch reports work bound to a replaced Host, World, or Timeline.
 	ErrStaleEpoch = errors.New("workflow belongs to a stale Host epoch")
 )
@@ -43,8 +53,10 @@ type ActionRecord struct {
 	ProposalID        string                `json:"proposal_id"`
 	ProposalRequestID string                `json:"proposal_request_id"`
 	Invocation        host.ActionInvocation `json:"invocation"`
+	Principal         host.Principal        `json:"principal"`
 	Run               host.ActionRun        `json:"run"`
 	Outcome           *host.ActionOutcome   `json:"outcome,omitempty"`
+	Output            json.RawMessage       `json:"output,omitempty"`
 }
 
 // OutboxEntry retains one exact Action Report until Rin acknowledges it.
@@ -110,7 +122,7 @@ func (state WorkflowState) Validate() error {
 			return fmt.Errorf("validate pending decision: %w", err)
 		}
 	}
-	operations := make(map[string]struct{}, len(state.Actions))
+	operations := make(map[string]int, len(state.Actions))
 	for index, action := range state.Actions {
 		if err := protocol.ValidateIdentifier(
 			fmt.Sprintf("actions[%d].proposal_id", index), action.ProposalID,
@@ -125,6 +137,9 @@ func (state WorkflowState) Validate() error {
 		}
 		if err := host.ValidateActionInvocation(action.Invocation); err != nil {
 			return fmt.Errorf("validate actions[%d].invocation: %w", index, err)
+		}
+		if err := host.ValidatePrincipal(action.Principal); err != nil {
+			return fmt.Errorf("validate actions[%d].principal: %w", index, err)
 		}
 		if err := host.ValidateActionRun(action.Run); err != nil {
 			return fmt.Errorf("validate actions[%d].run: %w", index, err)
@@ -144,12 +159,36 @@ func (state WorkflowState) Validate() error {
 			return fmt.Errorf(
 				"actions[%d] terminal Run and Outcome presence do not match", index)
 		}
+		if action.Run.Status == host.ActionSucceeded &&
+			len(action.Output) == 0 {
+			return fmt.Errorf("actions[%d] succeeded without structured Output", index)
+		}
+		if !terminal(action.Run.Status) && len(action.Output) != 0 {
+			return fmt.Errorf("actions[%d] non-terminal record contains Output", index)
+		}
+		if len(action.Output) > 1<<20 {
+			return fmt.Errorf("actions[%d] Output exceeds 1048576 bytes", index)
+		}
+		if len(action.Output) != 0 {
+			if err := jsonwire.Validate(action.Output); err != nil {
+				return fmt.Errorf("validate actions[%d].output: %w", index, err)
+			}
+		}
 		if _, exists := operations[action.Invocation.OperationID]; exists {
 			return fmt.Errorf("operation %q is duplicated", action.Invocation.OperationID)
 		}
-		operations[action.Invocation.OperationID] = struct{}{}
+		operations[action.Invocation.OperationID] = index
+	}
+	if state.Pending != nil {
+		if _, exists := operations[state.Pending.OperationID]; exists {
+			return fmt.Errorf(
+				"pending operation %q is already active",
+				state.Pending.OperationID,
+			)
+		}
 	}
 	outboxIDs := make(map[string]struct{}, len(state.Outbox))
+	terminalOutboxOperations := make(map[string]int, len(state.Outbox))
 	for index, entry := range state.Outbox {
 		if err := protocol.ValidateIdentifier(
 			fmt.Sprintf("outbox[%d].id", index), entry.ID,
@@ -162,6 +201,48 @@ func (state WorkflowState) Validate() error {
 		outboxIDs[entry.ID] = struct{}{}
 		if err := protocol.ValidateReportAction(entry.Request); err != nil {
 			return fmt.Errorf("validate outbox[%d]: %w", index, err)
+		}
+		if entry.Request.Report.Decision != protocol.ActionAccepted ||
+			entry.Request.Report.Invocation == nil {
+			return fmt.Errorf("outbox[%d] must retain an accepted Action report", index)
+		}
+		operationID := entry.Request.Report.Invocation.OperationID
+		actionIndex, exists := operations[operationID]
+		if !exists {
+			return fmt.Errorf(
+				"outbox[%d] refers to unretained operation %q",
+				index,
+				operationID,
+			)
+		}
+		if state.Actions[actionIndex].ProposalID != entry.Request.Report.ProposalID {
+			return fmt.Errorf(
+				"outbox[%d] proposal does not match operation %q",
+				index,
+				operationID,
+			)
+		}
+		action := state.Actions[actionIndex]
+		if !reflect.DeepEqual(*entry.Request.Report.Invocation, action.Invocation) {
+			return fmt.Errorf(
+				"outbox[%d] Invocation does not match operation %q",
+				index,
+				operationID,
+			)
+		}
+		if entry.Request.Report.Run != nil &&
+			reflect.DeepEqual(*entry.Request.Report.Run, action.Run) &&
+			reflect.DeepEqual(entry.Request.Report.Outcome, action.Outcome) {
+			terminalOutboxOperations[operationID]++
+		}
+	}
+	for index, action := range state.Actions {
+		if terminal(action.Run.Status) &&
+			terminalOutboxOperations[action.Invocation.OperationID] == 0 {
+			return fmt.Errorf(
+				"actions[%d] terminal record has no matching unacknowledged Outbox report",
+				index,
+			)
 		}
 	}
 	return nil

@@ -79,6 +79,10 @@ across every future minor release.
 - Exact retries of uncertain event appends reuse their original storage
   reservation instead of being blocked by charging a possibly present event
   twice.
+- HostKit workflow state v2 preflights Action/Outbox capacity before effects,
+  authorizes trusted Principal scopes on the authority thread, validates local
+  structured Output, retains execution uncertainty, and compacts acknowledged
+  terminal actions.
 - Correct current documentation evidence for the 28-route SDK inventory,
   100-turn Terminal Story gate, Windows/macOS Luanti verification, and
   Linux/macOS Ren'Py coverage; remove the deleted recovery-example command.

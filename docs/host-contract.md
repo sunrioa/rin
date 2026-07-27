@@ -50,7 +50,14 @@ The host then validates:
 3. arguments match the root-closed JSON Schema;
 4. the offer has not expired and its Epoch still matches;
 5. the capability has not been dynamically revoked;
-6. the same checks still hold immediately before authority-thread execution.
+6. the trusted current `Principal` grants every `required_scope`;
+7. the same checks still hold immediately before authority-thread execution
+   and cancellation.
+
+Scopes come only from game-owned identity state. They are not accepted from a
+model response, offer, HTTP request body, or generated arguments. HostKit also
+feeds the executor's structured local Output through the descriptor's exact
+Output Schema before retaining it in restartable workflow state.
 
 The registry can therefore be shared by Ren'Py labels, Unity components,
 Unreal abilities, Godot nodes, server Mods, Web games, and custom engines

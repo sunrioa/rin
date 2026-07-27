@@ -235,6 +235,7 @@ func (registry *Registry) AuthorizeInvocation(
 	invocation ActionInvocation,
 	now Timepoint,
 	currentEpoch Epoch,
+	principal Principal,
 ) error {
 	if err := ValidateActionInvocation(invocation); err != nil {
 		return err
@@ -267,6 +268,52 @@ func (registry *Registry) AuthorizeInvocation(
 	}
 	if err := registered.input.Validate(instance); err != nil {
 		return invalid("arguments", err.Error())
+	}
+	return authorizePrincipal(registered.descriptor, principal)
+}
+
+// AuthorizeCancellation verifies that a trusted principal may stop an existing
+// invocation. It intentionally does not re-check the original deadline or
+// epoch because cancellation is used while retiring stale work.
+func (registry *Registry) AuthorizeCancellation(
+	invocation ActionInvocation,
+	principal Principal,
+) error {
+	if err := ValidateActionInvocation(invocation); err != nil {
+		return err
+	}
+	registered, err := registry.lookupForExecution(
+		invocation.Capability,
+		invocation.DescriptorDigest,
+	)
+	if err != nil {
+		return err
+	}
+	return authorizePrincipal(registered.descriptor, principal)
+}
+
+func authorizePrincipal(
+	descriptor CapabilityDescriptor,
+	principal Principal,
+) error {
+	if err := ValidatePrincipal(principal); err != nil {
+		return err
+	}
+	granted := make(map[string]struct{}, len(principal.GrantedScopes))
+	for _, scope := range principal.GrantedScopes {
+		granted[scope] = struct{}{}
+	}
+	for _, required := range descriptor.RequiredScopes {
+		if _, exists := granted[required]; !exists {
+			return invalid(
+				"principal.granted_scopes",
+				fmt.Sprintf(
+					"principal %q is missing required scope %q",
+					principal.ID,
+					required,
+				),
+			)
+		}
 	}
 	return nil
 }

@@ -62,8 +62,25 @@ func TestRegistrySealsOffersAndRejectsTOCTOU(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.AuthorizeInvocation(invocation, Timepoint{Clock: ClockRealtime, Value: 12_000}, epoch); err != nil {
+	principal := Principal{
+		ID:            "principal.guide",
+		GrantedScopes: []string{"rin.npc.move"},
+	}
+	if err := registry.AuthorizeInvocation(
+		invocation,
+		Timepoint{Clock: ClockRealtime, Value: 12_000},
+		epoch,
+		principal,
+	); err != nil {
 		t.Fatalf("valid invocation rejected: %v", err)
+	}
+	if err := registry.AuthorizeInvocation(
+		invocation,
+		Timepoint{Clock: ClockRealtime, Value: 12_000},
+		epoch,
+		Principal{ID: "principal.viewer"},
+	); err == nil {
+		t.Fatal("invocation without its required scope was authorized")
 	}
 	if err := registry.ValidateOutput(
 		sealed.Capability,
@@ -95,7 +112,12 @@ func TestRegistrySealsOffersAndRejectsTOCTOU(t *testing.T) {
 	if !registry.Unregister(sealed.Capability) {
 		t.Fatal("registered capability was not removed")
 	}
-	if err := registry.AuthorizeInvocation(invocation, Timepoint{Clock: ClockRealtime, Value: 12_000}, epoch); err == nil {
+	if err := registry.AuthorizeInvocation(
+		invocation,
+		Timepoint{Clock: ClockRealtime, Value: 12_000},
+		epoch,
+		principal,
+	); err == nil {
 		t.Fatal("invocation remained authorized after capability revocation")
 	}
 }

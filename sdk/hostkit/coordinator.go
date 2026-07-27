@@ -3,6 +3,7 @@ package hostkit
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -45,21 +46,11 @@ func NewCoordinator(
 // BeginDecision durably retains a validated request before any network call.
 func (coordinator *Coordinator) BeginDecision(
 	ctx context.Context,
-	operationID string,
 	request protocol.ProposeRequest,
 ) (PendingDecision, error) {
 	coordinator.mu.Lock()
 	defer coordinator.mu.Unlock()
 	if err := protocol.ValidatePropose(request); err != nil {
-		return PendingDecision{}, err
-	}
-	if operationID == "" {
-		var err error
-		operationID, err = coordinator.newID(ctx, IDOperation)
-		if err != nil {
-			return PendingDecision{}, err
-		}
-	} else if err := protocol.ValidateIdentifier("operation_id", operationID); err != nil {
 		return PendingDecision{}, err
 	}
 	identity, err := coordinator.current(ctx)
@@ -79,6 +70,13 @@ func (coordinator *Coordinator) BeginDecision(
 	}
 	if len(state.Outbox) != 0 {
 		return PendingDecision{}, ErrOutboxPending
+	}
+	if err := ensureWorkflowCapacity(state, 1, 1); err != nil {
+		return PendingDecision{}, err
+	}
+	operationID, err := coordinator.newID(ctx, IDOperation)
+	if err != nil {
+		return PendingDecision{}, err
 	}
 	next, err := state.Clone()
 	if err != nil {
@@ -220,6 +218,9 @@ func (coordinator *Coordinator) DispatchAndEnqueue(
 	if pending.JobID == "" {
 		return ActionRecord{}, errors.New("Pending Decision has no accepted Proposal Job")
 	}
+	if err := ensureWorkflowCapacity(state, 1, 1); err != nil {
+		return ActionRecord{}, err
+	}
 	if err := validateProposalForPending(pending, request.Proposal); err != nil {
 		return ActionRecord{}, err
 	}
@@ -237,6 +238,14 @@ func (coordinator *Coordinator) DispatchAndEnqueue(
 	if err != nil {
 		return ActionRecord{}, err
 	}
+	if err := preflightDispatchReport(
+		pending,
+		request,
+		invocation,
+		identity,
+	); err != nil {
+		return ActionRecord{}, err
+	}
 	reportRequestID, err := coordinator.newID(ctx, IDRequest)
 	if err != nil {
 		return ActionRecord{}, err
@@ -250,6 +259,7 @@ func (coordinator *Coordinator) DispatchAndEnqueue(
 		return ActionRecord{}, err
 	}
 	var persisted ActionRecord
+	var executionErr error
 	commitErr := coordinator.store.CommitEffect(
 		ctx,
 		state.Revision,
@@ -263,6 +273,9 @@ func (coordinator *Coordinator) DispatchAndEnqueue(
 			}
 			var run host.ActionRun
 			var outcome *host.ActionOutcome
+			var output json.RawMessage
+			reportIdentity := current
+			executionStarted := false
 			dispatchErr := coordinator.dispatcher.Dispatch(
 				effectContext,
 				func(authorityContext context.Context) error {
@@ -270,22 +283,83 @@ func (coordinator *Coordinator) DispatchAndEnqueue(
 					if identityErr != nil {
 						return identityErr
 					}
+					reportIdentity = authorityIdentity
 					if err := coordinator.registry.AuthorizeInvocation(
-						invocation, authorityIdentity.Now, authorityIdentity.Epoch,
+						invocation,
+						authorityIdentity.Now,
+						authorityIdentity.Epoch,
+						authorityIdentity.Principal,
 					); err != nil {
 						return err
 					}
-					run, outcome, identityErr = coordinator.executor.Execute(
-						authorityContext, invocation)
-					return identityErr
+					executionStarted = true
+					execution, executeErr := coordinator.executor.Execute(
+						authorityContext,
+						invocation,
+					)
+					run = execution.Run
+					outcome = execution.Outcome
+					output = append(json.RawMessage(nil), execution.Output...)
+					identityErr = executeErr
+					if identityErr != nil {
+						executionErr = identityErr
+						run, outcome = unknownExecutionResult(
+							invocation,
+							authorityIdentity.Now,
+							1,
+							0,
+							"Executor returned an error after execution started.",
+						)
+						output = nil
+						return nil
+					}
+					if err := coordinator.validateExecutorResult(
+						invocation,
+						run,
+						outcome,
+						output,
+					); err != nil {
+						executionErr = err
+						run, outcome = unknownExecutionResult(
+							invocation,
+							authorityIdentity.Now,
+							1,
+							0,
+							"Executor returned an invalid lifecycle result.",
+						)
+						output = nil
+					}
+					return nil
 				},
 			)
 			if dispatchErr != nil {
-				return WorkflowState{}, dispatchErr
+				if !executionStarted {
+					return WorkflowState{}, dispatchErr
+				}
+				executionErr = errors.Join(executionErr, dispatchErr)
+				run, outcome = unknownExecutionResult(
+					invocation,
+					reportIdentity.Now,
+					1,
+					0,
+					"Authority dispatch failed after execution started.",
+				)
+				output = nil
+			}
+			reportRequest := request
+			if executionErr != nil {
+				reportRequest = uncertainDispatchRequest(request)
 			}
 			record, report, buildErr := buildActionReport(
-				pending, request, invocation, run, outcome,
-				current, reportRequestID, eventID,
+				pending,
+				reportRequest,
+				invocation,
+				run,
+				outcome,
+				output,
+				reportIdentity,
+				reportRequestID,
+				eventID,
 			)
 			if buildErr != nil {
 				return WorkflowState{}, buildErr
@@ -308,6 +382,9 @@ func (coordinator *Coordinator) DispatchAndEnqueue(
 	if commitErr != nil {
 		return ActionRecord{}, commitErr
 	}
+	if executionErr != nil {
+		return persisted, errors.Join(ErrExecutionOutcomeUnknown, executionErr)
+	}
 	return persisted, nil
 }
 
@@ -316,6 +393,7 @@ type TransitionRequest struct {
 	OperationID string
 	Run         host.ActionRun
 	Outcome     *host.ActionOutcome
+	Output      json.RawMessage
 	Summary     string
 	Tags        []string
 	Facts       []protocol.Fact
@@ -337,6 +415,9 @@ func (coordinator *Coordinator) RecordTransitionAndEnqueue(
 	index := actionIndex(state.Actions, request.OperationID)
 	if index < 0 {
 		return ActionRecord{}, fmt.Errorf("operation %q is not retained", request.OperationID)
+	}
+	if err := ensureWorkflowCapacity(state, 0, 1); err != nil {
+		return ActionRecord{}, err
 	}
 	previous := state.Actions[index]
 	if !host.CanTransitionActionRun(previous.Run.Status, request.Run.Status) {
@@ -372,6 +453,15 @@ func (coordinator *Coordinator) RecordTransitionAndEnqueue(
 	updated := previous
 	updated.Run = request.Run
 	updated.Outcome = request.Outcome
+	updated.Output = append(json.RawMessage(nil), request.Output...)
+	if err := coordinator.validateExecutorResult(
+		updated.Invocation,
+		updated.Run,
+		updated.Outcome,
+		updated.Output,
+	); err != nil {
+		return ActionRecord{}, err
+	}
 	report := protocol.ReportActionRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       previous.Invocation.ExpectedEpoch.SessionID,
@@ -434,6 +524,7 @@ func (coordinator *Coordinator) drainOutbox(ctx context.Context) (int, error) {
 			return acknowledged, err
 		}
 		next.Outbox = append([]OutboxEntry(nil), next.Outbox[1:]...)
+		pruneAcknowledgedTerminalActions(&next)
 		next.Revision++
 		if err := next.Validate(); err != nil {
 			return acknowledged, err
@@ -478,6 +569,12 @@ func (coordinator *Coordinator) ReconcileEpoch(
 			action.Invocation.ExpectedEpoch == identity.Epoch {
 			continue
 		}
+		ids[action.Invocation.OperationID] = cancellationIDs{}
+	}
+	if err := ensureWorkflowCapacity(state, 0, len(ids)); err != nil {
+		return 0, err
+	}
+	for operationID := range ids {
 		requestID, idErr := coordinator.newID(ctx, IDRequest)
 		if idErr != nil {
 			return 0, idErr
@@ -490,7 +587,7 @@ func (coordinator *Coordinator) ReconcileEpoch(
 		if idErr != nil {
 			return 0, idErr
 		}
-		ids[action.Invocation.OperationID] = cancellationIDs{
+		ids[operationID] = cancellationIDs{
 			request: requestID, event: eventID, outbox: outboxID,
 		}
 	}
@@ -505,6 +602,7 @@ func (coordinator *Coordinator) ReconcileEpoch(
 		return 0, coordinator.store.CompareAndSwap(ctx, state.Revision, next)
 	}
 	cancelled := 0
+	var reconciliationErr error
 	err = coordinator.store.CommitEffect(
 		ctx, state.Revision,
 		func(effectContext context.Context) (WorkflowState, error) {
@@ -518,7 +616,9 @@ func (coordinator *Coordinator) ReconcileEpoch(
 					action.Invocation.Capability)
 				var run host.ActionRun
 				var outcome *host.ActionOutcome
+				var output json.RawMessage
 				if !registered ||
+					descriptor.Digest != action.Invocation.DescriptorDigest ||
 					descriptor.Cancellation == host.CancellationUnsupported {
 					run = host.ActionRun{
 						OperationID: action.Invocation.OperationID,
@@ -529,23 +629,90 @@ func (coordinator *Coordinator) ReconcileEpoch(
 						Message:     "Host epoch changed and cancellation is unsupported.",
 					}
 				} else {
-					var cancelledOutcome host.ActionOutcome
+					authorityIdentity := identity
+					cancellationStarted := false
 					dispatchErr := coordinator.dispatcher.Dispatch(
 						effectContext,
 						func(authorityContext context.Context) error {
-							var cancelErr error
-							run, cancelledOutcome, cancelErr = coordinator.executor.Cancel(
-								authorityContext, action.Invocation, identity)
-							return cancelErr
+							current, currentErr := coordinator.current(authorityContext)
+							if currentErr != nil {
+								return currentErr
+							}
+							authorityIdentity = current
+							if err := coordinator.registry.AuthorizeCancellation(
+								action.Invocation,
+								current.Principal,
+							); err != nil {
+								return err
+							}
+							cancellationStarted = true
+							execution, cancelErr := coordinator.executor.Cancel(
+								authorityContext,
+								action.Invocation,
+								current,
+							)
+							run = execution.Run
+							outcome = execution.Outcome
+							output = append(json.RawMessage(nil), execution.Output...)
+							if cancelErr != nil {
+								reconciliationErr = errors.Join(
+									reconciliationErr,
+									cancelErr,
+								)
+								run, outcome = unknownExecutionResult(
+									action.Invocation,
+									current.Now,
+									action.Run.ProgressSeq+1,
+									action.Run.Progress,
+									"Executor returned an error after cancellation started.",
+								)
+								output = nil
+								return nil
+							}
+							if err := coordinator.validateExecutorResult(
+								action.Invocation,
+								run,
+								outcome,
+								output,
+							); err != nil {
+								reconciliationErr = errors.Join(
+									reconciliationErr,
+									err,
+								)
+								run, outcome = unknownExecutionResult(
+									action.Invocation,
+									current.Now,
+									action.Run.ProgressSeq+1,
+									action.Run.Progress,
+									"Executor returned an invalid cancellation result.",
+								)
+								output = nil
+							}
+							return nil
 						},
 					)
 					if dispatchErr != nil {
-						return WorkflowState{}, dispatchErr
+						reconciliationErr = errors.Join(
+							reconciliationErr,
+							dispatchErr,
+						)
+						message := "Cancellation was not authorized."
+						if cancellationStarted {
+							message = "Authority dispatch failed after cancellation started."
+						}
+						run, outcome = unknownExecutionResult(
+							action.Invocation,
+							authorityIdentity.Now,
+							action.Run.ProgressSeq+1,
+							action.Run.Progress,
+							message,
+						)
+						output = nil
 					}
-					outcome = &cancelledOutcome
 				}
 				previousStatus := action.Run.Status
 				action.Run, action.Outcome = run, outcome
+				action.Output = append(json.RawMessage(nil), output...)
 				summary := run.Message
 				if outcome != nil {
 					summary = outcome.Summary
@@ -580,6 +747,12 @@ func (coordinator *Coordinator) ReconcileEpoch(
 	if err != nil {
 		return 0, err
 	}
+	if reconciliationErr != nil {
+		return cancelled, errors.Join(
+			ErrExecutionOutcomeUnknown,
+			reconciliationErr,
+		)
+	}
 	return cancelled, nil
 }
 
@@ -608,8 +781,20 @@ func (coordinator *Coordinator) current(ctx context.Context) (HostIdentity, erro
 	if err := identity.Now.Validate("identity.now"); err != nil {
 		return HostIdentity{}, err
 	}
-	if identity.ObservationSeq == 0 {
-		return HostIdentity{}, errors.New("Host identity observation sequence must be positive")
+	if err := host.ValidatePrincipal(identity.Principal); err != nil {
+		return HostIdentity{}, err
+	}
+	if identity.Tick < 0 ||
+		uint64(identity.Tick) > protocol.MaxJSONSafeInteger {
+		return HostIdentity{}, errors.New(
+			"Host identity tick must be a non-negative JSON-safe integer",
+		)
+	}
+	if identity.ObservationSeq == 0 ||
+		identity.ObservationSeq > protocol.MaxJSONSafeInteger {
+		return HostIdentity{}, errors.New(
+			"Host identity observation sequence must be a positive JSON-safe integer",
+		)
 	}
 	return identity, nil
 }
@@ -692,13 +877,23 @@ func buildActionReport(
 	invocation host.ActionInvocation,
 	run host.ActionRun,
 	outcome *host.ActionOutcome,
+	output json.RawMessage,
 	identity HostIdentity,
 	reportRequestID string,
 	eventID string,
 ) (ActionRecord, protocol.ReportActionRequest, error) {
 	record := ActionRecord{
 		ProposalID: request.Proposal.ID, ProposalRequestID: pending.Request.RequestID,
-		Invocation: invocation, Run: run, Outcome: outcome,
+		Invocation: invocation,
+		Principal: host.Principal{
+			ID: identity.Principal.ID,
+			GrantedScopes: append(
+				[]string(nil),
+				identity.Principal.GrantedScopes...,
+			),
+		},
+		Run: run, Outcome: outcome,
+		Output: append(json.RawMessage(nil), output...),
 	}
 	report := protocol.ReportActionRequest{
 		ProtocolVersion: protocol.Version,
@@ -753,6 +948,140 @@ func validJobStatus(status string) bool {
 	default:
 		return false
 	}
+}
+
+func ensureWorkflowCapacity(
+	state WorkflowState,
+	additionalActions int,
+	additionalOutbox int,
+) error {
+	if additionalActions < 0 ||
+		additionalActions > maxActions-len(state.Actions) {
+		return ErrActionCapacity
+	}
+	if additionalOutbox < 0 ||
+		additionalOutbox > maxOutboxEntries-len(state.Outbox) {
+		return ErrOutboxCapacity
+	}
+	return nil
+}
+
+func preflightDispatchReport(
+	pending PendingDecision,
+	request DispatchRequest,
+	invocation host.ActionInvocation,
+	identity HostIdentity,
+) error {
+	run := host.ActionRun{
+		OperationID: invocation.OperationID,
+		Status:      host.ActionQueued,
+		ProgressSeq: 1,
+		UpdatedAt:   identity.Now,
+	}
+	_, _, err := buildActionReport(
+		pending,
+		request,
+		invocation,
+		run,
+		nil,
+		nil,
+		identity,
+		"request.preflight",
+		"event.preflight",
+	)
+	return err
+}
+
+func (coordinator *Coordinator) validateExecutorResult(
+	invocation host.ActionInvocation,
+	run host.ActionRun,
+	outcome *host.ActionOutcome,
+	output json.RawMessage,
+) error {
+	if err := host.ValidateActionRun(run); err != nil {
+		return fmt.Errorf("validate executor Run: %w", err)
+	}
+	if run.OperationID != invocation.OperationID {
+		return errors.New("executor returned a Run for another operation")
+	}
+	if terminal(run.Status) != (outcome != nil) {
+		return errors.New(
+			"terminal executor Runs require an Outcome and non-terminal Runs forbid one",
+		)
+	}
+	if outcome == nil {
+		if len(output) != 0 {
+			return errors.New("non-terminal executor result contains Output")
+		}
+		return nil
+	}
+	if err := host.ValidateActionOutcome(*outcome); err != nil {
+		return fmt.Errorf("validate executor Outcome: %w", err)
+	}
+	if outcome.OperationID != invocation.OperationID ||
+		outcome.Status != run.Status ||
+		outcome.Epoch != invocation.ExpectedEpoch {
+		return errors.New("executor Run and Outcome identities do not match Invocation")
+	}
+	if run.Status == host.ActionSucceeded && len(output) == 0 {
+		return errors.New("successful executor result has no Output")
+	}
+	if len(output) == 0 {
+		return nil
+	}
+	if err := coordinator.registry.ValidateOutput(
+		invocation.Capability,
+		invocation.DescriptorDigest,
+		output,
+	); err != nil {
+		return fmt.Errorf("validate executor Output: %w", err)
+	}
+	return nil
+}
+
+func unknownExecutionResult(
+	invocation host.ActionInvocation,
+	now host.Timepoint,
+	progressSeq uint64,
+	progress uint32,
+	message string,
+) (host.ActionRun, *host.ActionOutcome) {
+	return host.ActionRun{
+		OperationID: invocation.OperationID,
+		Status:      host.ActionOutcomeUnknown,
+		ProgressSeq: progressSeq,
+		Progress:    progress,
+		UpdatedAt:   now,
+		Message:     message,
+	}, nil
+}
+
+func uncertainDispatchRequest(request DispatchRequest) DispatchRequest {
+	request.Summary = "Action execution outcome is unknown."
+	request.Tags = nil
+	request.Facts = nil
+	request.GoalUpdates = nil
+	return request
+}
+
+func pruneAcknowledgedTerminalActions(state *WorkflowState) {
+	retained := make(map[string]struct{}, len(state.Outbox))
+	for _, entry := range state.Outbox {
+		if entry.Request.Report.Invocation != nil {
+			retained[entry.Request.Report.Invocation.OperationID] = struct{}{}
+		}
+	}
+	actions := state.Actions[:0]
+	for _, action := range state.Actions {
+		if !terminal(action.Run.Status) {
+			actions = append(actions, action)
+			continue
+		}
+		if _, exists := retained[action.Invocation.OperationID]; exists {
+			actions = append(actions, action)
+		}
+	}
+	state.Actions = actions
 }
 
 func actionOffersEqual(left, right host.ActionOffer) bool {

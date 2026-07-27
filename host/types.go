@@ -97,6 +97,14 @@ type HostManifest struct {
 	Durability          Durability     `json:"durability"`
 }
 
+// Principal is the game-authored authority identity used for the final local
+// capability check. GrantedScopes must come from trusted host state, never
+// model output or a network request body.
+type Principal struct {
+	ID            string   `json:"id"`
+	GrantedScopes []string `json:"granted_scopes,omitempty"`
+}
+
 // Epoch identifies the authoritative host generation in which an observation
 // or action is valid. Scene loads increment World; rollback or save-line forks
 // increment Timeline. The values never stand for render or physics frames.

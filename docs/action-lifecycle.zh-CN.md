@@ -41,7 +41,8 @@ offered → rejected
 
 第一次 Proposal Request 前应保存：
 
-- 稳定 Operation ID；
+- 由可信 Host Identity State 生成的稳定 Operation ID；不能来自模型输出或调用者
+  提供的 Retry Value；
 - 完整 `ProposeRequest`，包括 Decision Window 与 Offer；
 - 必须先于 Proposal 的 Observation；
 - Submit 后、第一次 Poll 前保存 Job ID。
@@ -79,6 +80,8 @@ Invocation 与 Operation 身份。网络结果不明表示“重试此 Report”
 另一条 Event”。
 
 已经确认的 Report 不得使游戏效果再次运行。Event Replay 只重建 Rin 状态。
+最后一条 Report 确认后，HostKit 可以删除 Terminal Lifecycle Record；相应
+Durability Profile 所需的 Applied Operation Marker 仍由权威游戏 Store 保留。
 
 ## Rejection 与失败
 

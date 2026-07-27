@@ -4,6 +4,7 @@ package hostkit
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/protocol"
@@ -44,13 +45,15 @@ type HostStateStore interface {
 type HostIdentity struct {
 	SessionID      string
 	Epoch          host.Epoch
+	Principal      host.Principal
 	Now            host.Timepoint
 	Tick           int64
 	ObservationSeq uint64
 }
 
 // IdentityProvider reads game-owned identity and creates stable identifiers.
-// NewID must never derive IDs from display names, paths, or model output.
+// NewID must never derive IDs from display names, paths, or model output, and
+// must never reuse a value within the Session even after process restart.
 type IdentityProvider interface {
 	Current(context.Context) (HostIdentity, error)
 	NewID(context.Context, IDKind) (string, error)
@@ -83,14 +86,30 @@ type CapabilityRegistry interface {
 		host.Timepoint,
 		host.Epoch,
 	) (host.ActionInvocation, error)
-	AuthorizeInvocation(host.ActionInvocation, host.Timepoint, host.Epoch) error
+	AuthorizeInvocation(
+		host.ActionInvocation,
+		host.Timepoint,
+		host.Epoch,
+		host.Principal,
+	) error
+	AuthorizeCancellation(host.ActionInvocation, host.Principal) error
+	ValidateOutput(host.CapabilityRef, string, []byte) error
+}
+
+// ActionExecution is the complete local result of one authority-thread call.
+// Output is Host-local structured data validated against the sealed capability
+// descriptor and retained until the terminal Outbox report is acknowledged.
+type ActionExecution struct {
+	Run     host.ActionRun
+	Outcome *host.ActionOutcome
+	Output  json.RawMessage
 }
 
 // ActionExecutor owns game-specific action execution. Execute and Cancel are
 // always called through AuthorityDispatcher.
 type ActionExecutor interface {
-	Execute(context.Context, host.ActionInvocation) (host.ActionRun, *host.ActionOutcome, error)
-	Cancel(context.Context, host.ActionInvocation, HostIdentity) (host.ActionRun, host.ActionOutcome, error)
+	Execute(context.Context, host.ActionInvocation) (ActionExecution, error)
+	Cancel(context.Context, host.ActionInvocation, HostIdentity) (ActionExecution, error)
 }
 
 // ArtifactPresenter resolves an immutable artifact into a game-owned

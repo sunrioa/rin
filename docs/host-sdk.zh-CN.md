@@ -12,7 +12,7 @@ DTO，不实现游戏引擎、导航、物理、存档系统、模型 Provider �
 | `RinTransport` | 提交/轮询 Proposal Job，并回报精确动作生命周期。 |
 | `AuthorityDispatcher` | 把最终授权与执行编组到游戏所属线程。 |
 | `HostStateStore` | 持久化带 Revision 的 Pending Decision、ActionRun 与 Outbox。 |
-| `IdentityProvider` | 读取稳定 Session/Epoch/时间身份，生成不依赖内容的 ID。 |
+| `IdentityProvider` | 读取稳定 Session/Epoch/时间/Principal 身份，生成重启后仍不复用的 ID。 |
 | `ObservationMapper` | 把有界引擎事件转换为不可变 Observation DTO。 |
 | `CapabilityRegistry` | 解析、绑定并重复 TOCTOU 校验精确能力。 |
 | `ActionExecutor` | 在游戏内执行或取消一个已授权 Invocation。 |
@@ -23,21 +23,35 @@ DTO，不实现游戏引擎、导航、物理、存档系统、模型 Provider �
 
 ## Coordinator 生命周期
 
-1. `BeginDecision` 校验由游戏编写的 Request，并在任何网络调用前提交 Pending
-   Decision。已有 Pending Decision 或未清空 Outcome Outbox 时拒绝新请求。
+1. `BeginDecision` 校验由游戏编写的 Request，只从 `IdentityProvider` 取得
+   Operation ID，并在任何网络调用前提交 Pending Decision。已有 Pending
+   Decision、未清空 Outcome Outbox 或 Action/Outbox 容量耗尽时拒绝新请求。
 2. `ResumePendingWork` 先清空精确 Report。没有 Job ID 时才使用保留的 Request
    Identity 提交，随后保存 Job ID，并只做一次有界 Poll，不在内部 Wait Loop。Submit 成功但保存前
    崩溃时，依靠 Rin 幂等 Request Identity 恢复。
 3. `DispatchAndEnqueue` 验证 Proposal 精确选择了 Pending Decision 中的一项
-   Offer，绑定当前 Descriptor Digest 与 Epoch，在所属线程重复授权，通过
-   `ActionExecutor` 执行，并把精确 Accepted Action Report 提交到 Outbox。
+   Offer；在任何游戏效果之前预检 Retained State 容量与 Report Metadata。
+   随后在所属线程绑定当前 Descriptor Digest 与 Epoch，检查可信 Principal 的
+   Granted Scopes，通过 `ActionExecutor` 执行，按 Sealed Capability Output
+   Schema 校验结构化 Output，并把精确 Accepted Action Report 提交到 Outbox。
 4. `RecordTransitionAndEnqueue` 只接受单调的 queued/running/terminal 转换；
    超过 Invocation Deadline 的成功 Outcome 会被拒绝。
 5. `ReconcileEpoch` 删除尚未提交的陈旧 Decision，并取消陈旧的活动动作。如果
    Capability 不支持取消或已被动态移除，结果变为 `outcome-unknown`，框架不会
    虚构已成功回滚。
 6. `DrainOutbox` 只有在 Rin 确认精确 `ReportActionRequest` 后才删除条目。
-   Transport 失败会保留内容等价的 DTO 与稳定 ID 供重试。
+   Transport 失败会保留内容等价的 DTO 与稳定 ID 供重试；Terminal Action 的
+   最后一条 Report 被确认后，HostKit 同时删除其完整 Action Record。
+
+`WorkflowState` v2 只保留 Active Action 与仍有未确认 Report 的 Terminal
+Action；Actions 和 Outbox 上限均为 1024。因而一万个已确认 Immediate Action
+不会形成不断增长的 Ledger。Idempotent/Transactional Host 的 Applied Operation
+Marker 属于权威游戏 Store，HostKit 不再复制一份无界摘要。
+`IdentityProvider.NewID` 在同一 Session 内永不复用，即使进程已经重启。
+
+若执行已经开始，但 Executor 返回错误、非法 Lifecycle Data 或不符合 Schema 的
+Output，HostKit 会先提交可恢复的 `outcome-unknown` Action 与精确 Outbox
+Report，再返回 `ErrExecutionOutcomeUnknown`；它不会重试世界效果。
 
 `HostStateStore.CommitEffect` 是持久保证边界。`transactional-action` Host
 必须原子发布游戏效果与回调返回的 `WorkflowState`；`idempotent-action` Host

@@ -39,7 +39,12 @@ Run 与 Outcome Shape；本地注册和执行权仍属于游戏。
 3. 参数符合根节点封闭的 JSON Schema；
 4. Offer 未过期且 Epoch 仍然匹配；
 5. Capability 尚未被动态撤销；
-6. 即将进入权威线程执行前，上述条件仍然成立。
+6. 可信的当前 `Principal` 已授予所有 `required_scope`；
+7. 即将进入权威线程执行或取消前，上述条件仍然成立。
+
+Scope 只能来自游戏拥有的 Identity State，不能来自模型响应、Offer、HTTP Request
+Body 或生成参数。HostKit 还会先用 Descriptor 的精确 Output Schema 校验 Executor
+返回的本地结构化 Output，再将其放入可重启 Workflow State。
 
 因此同一 Registry 可以服务 Ren'Py Label、Unity Component、Unreal Ability、
 Godot Node、服务端 Mod、Web 游戏和自研引擎，而不偏向其中任意一种宿主。

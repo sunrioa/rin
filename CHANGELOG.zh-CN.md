@@ -67,6 +67,9 @@
   或精确重试完整 Target。
 - 不确定 Event Append 的 Exact Retry 会复用原 Storage Reservation，不再对可能
   已经存在的同一 Event 重复计费。
+- HostKit Workflow State v2 会在效果前预检 Action/Outbox 容量，在权威线程校验
+  可信 Principal Scope，验证本地结构化 Output，保留执行不确定结果，并压缩已确认
+  的 Terminal Action。
 - 修正当前文档中的 28 Route SDK 清单、Terminal Story 100 回合门禁、
   Windows/macOS Luanti 验证及 Linux/macOS Ren'Py 覆盖范围，并删除已移除的
   Recovery 示例命令。

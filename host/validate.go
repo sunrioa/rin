@@ -84,6 +84,28 @@ func ValidateHostManifest(manifest HostManifest) error {
 	return nil
 }
 
+// ValidatePrincipal verifies one trusted host authority identity.
+func ValidatePrincipal(principal Principal) error {
+	if err := validateHostID("principal.id", principal.ID, false); err != nil {
+		return err
+	}
+	if len(principal.GrantedScopes) > 64 {
+		return invalid("principal.granted_scopes", "must contain at most 64 values")
+	}
+	seen := make(map[string]struct{}, len(principal.GrantedScopes))
+	for index, scope := range principal.GrantedScopes {
+		field := fmt.Sprintf("principal.granted_scopes[%d]", index)
+		if err := validateHostID(field, scope, true); err != nil {
+			return err
+		}
+		if _, exists := seen[scope]; exists {
+			return invalid("principal.granted_scopes", "must not contain duplicates")
+		}
+		seen[scope] = struct{}{}
+	}
+	return nil
+}
+
 // ValidateDurability rejects guarantees that exceed the selected profile.
 func ValidateDurability(durability Durability) error {
 	if !validDurabilityProfile(durability.Profile) {

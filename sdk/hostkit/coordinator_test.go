@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 
@@ -26,7 +27,7 @@ func TestCoordinatorPersistsBeforeNetworkAndRetriesExactOutbox(t *testing.T) {
 	t.Log(scenarioExactOutboxRetry)
 	fixture := newFixture(t, host.ActionSucceeded)
 	pending, err := fixture.coordinator.BeginDecision(
-		context.Background(), "", fixture.request)
+		context.Background(), fixture.request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +62,9 @@ func TestCoordinatorPersistsBeforeNetworkAndRetriesExactOutbox(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !fixture.dispatcher.used || record.Run.Status != host.ActionSucceeded {
+	if !fixture.dispatcher.used ||
+		record.Run.Status != host.ActionSucceeded ||
+		string(record.Output) != `{}` {
 		t.Fatalf("action did not execute through authority dispatcher: %+v", record)
 	}
 	state, err := fixture.store.Load(context.Background())
@@ -82,12 +85,30 @@ func TestCoordinatorPersistsBeforeNetworkAndRetriesExactOutbox(t *testing.T) {
 	}
 	firstAttempt := fixture.transport.reports[0]
 	fixture.transport.reportError = nil
-	if count, err := fixture.coordinator.DrainOutbox(context.Background()); err != nil ||
+	restarted, err := NewCoordinator(
+		fixture.transport,
+		fixture.dispatcher,
+		fixture.store,
+		fixture.identity,
+		fixture.registry,
+		fixture.executor,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count, err := restarted.DrainOutbox(context.Background()); err != nil ||
 		count != 1 {
 		t.Fatalf("DrainOutbox = %d, %v", count, err)
 	}
 	if !reflect.DeepEqual(firstAttempt, fixture.transport.reports[1]) {
 		t.Fatal("Outbox retry changed the exact Action Report")
+	}
+	drained, err := fixture.store.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(drained.Actions) != 0 || len(drained.Outbox) != 0 {
+		t.Fatalf("acknowledged terminal action was not compacted: %+v", drained)
 	}
 }
 
@@ -95,7 +116,7 @@ func TestCoordinatorRecoversSubmitBeforeJobIDSave(t *testing.T) {
 	t.Log(scenarioIdempotentOperation)
 	fixture := newFixture(t, host.ActionSucceeded)
 	if _, err := fixture.coordinator.BeginDecision(
-		context.Background(), "", fixture.request,
+		context.Background(), fixture.request,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +171,8 @@ func TestCoordinatorSupportsLongRunTransition(t *testing.T) {
 				Status:      host.ActionSucceeded, ProgressSeq: 2, Progress: 100,
 				UpdatedAt: finishedAt,
 			},
-			Outcome: &outcome, Summary: "target reached",
+			Outcome: &outcome, Output: json.RawMessage(`{}`),
+			Summary: "target reached",
 		},
 	)
 	if err != nil {
@@ -200,7 +222,7 @@ func TestCoordinatorRevocationAndEpochReconciliationFailClosed(t *testing.T) {
 	t.Run("stale pending decision", func(t *testing.T) {
 		fixture := newFixture(t, host.ActionSucceeded)
 		if _, err := fixture.coordinator.BeginDecision(
-			context.Background(), "", fixture.request,
+			context.Background(), fixture.request,
 		); err != nil {
 			t.Fatal(err)
 		}
@@ -283,6 +305,9 @@ func TestCoordinatorRevocationAndEpochReconciliationFailClosed(t *testing.T) {
 			Epoch:    state.Actions[0].Invocation.ExpectedEpoch,
 			WorldSeq: 3, OccurredAt: occurredAt,
 		}
+		if _, err := fixture.registry.Register(fixture.descriptor); err != nil {
+			t.Fatalf("restore exact descriptor for late result validation: %v", err)
+		}
 		if _, err := fixture.coordinator.RecordTransitionAndEnqueue(
 			context.Background(),
 			TransitionRequest{
@@ -291,7 +316,8 @@ func TestCoordinatorRevocationAndEpochReconciliationFailClosed(t *testing.T) {
 					OperationID: outcome.OperationID, Status: host.ActionSucceeded,
 					ProgressSeq: 3, Progress: 100, UpdatedAt: occurredAt,
 				},
-				Outcome: &outcome, Summary: outcome.Summary,
+				Outcome: &outcome, Output: json.RawMessage(`{}`),
+				Summary: outcome.Summary,
 			},
 		); err != nil {
 			t.Fatalf("resolve outcome-unknown: %v", err)
@@ -322,6 +348,272 @@ func TestWorkflowStateRejectsDuplicateOperationsAndOutboxIDs(t *testing.T) {
 	state.Outbox = append(state.Outbox, state.Outbox[0])
 	if err := state.Validate(); err == nil {
 		t.Fatal("duplicate Outbox ID was accepted")
+	}
+
+	state, _ = fixture.store.Load(context.Background())
+	mismatchedInvocation, err := state.Clone()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mismatchedInvocation.Outbox[0].Request.Report.Invocation.OfferID =
+		"offer.other"
+	if err := mismatchedInvocation.Validate(); err == nil {
+		t.Fatal("Outbox Invocation from another action was accepted")
+	}
+
+	staleTerminalReport, err := state.Clone()
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleTerminalReport.Outbox[0].Request.Report.Run.Status =
+		host.ActionRunning
+	staleTerminalReport.Outbox[0].Request.Report.Run.Progress = 99
+	staleTerminalReport.Outbox[0].Request.Report.Outcome = nil
+	if err := staleTerminalReport.Validate(); err == nil {
+		t.Fatal("terminal Action without its matching terminal report was accepted")
+	}
+}
+
+func TestCoordinatorPreflightsAuthorityOutputAndCapacity(t *testing.T) {
+	t.Run("missing scope", func(t *testing.T) {
+		fixture := newFixture(t, host.ActionSucceeded)
+		beginAndResolve(t, fixture)
+		fixture.identity.mu.Lock()
+		fixture.identity.value.Principal.GrantedScopes = nil
+		fixture.identity.mu.Unlock()
+
+		if _, err := fixture.coordinator.DispatchAndEnqueue(
+			context.Background(),
+			dispatchRequest(fixture),
+		); err == nil {
+			t.Fatal("authority accepted a principal without the required scope")
+		}
+		if fixture.executor.executions != 0 {
+			t.Fatal("executor ran before the final scope check")
+		}
+	})
+
+	t.Run("invalid report metadata", func(t *testing.T) {
+		fixture := newFixture(t, host.ActionSucceeded)
+		beginAndResolve(t, fixture)
+		request := dispatchRequest(fixture)
+		request.Summary = strings.Repeat("x", 1001)
+		if _, err := fixture.coordinator.DispatchAndEnqueue(
+			context.Background(),
+			request,
+		); err == nil {
+			t.Fatal("invalid report metadata reached the executor")
+		}
+		if fixture.executor.executions != 0 {
+			t.Fatal("executor ran before report metadata validation")
+		}
+	})
+
+	t.Run("invalid output becomes outcome unknown", func(t *testing.T) {
+		fixture := newFixture(t, host.ActionSucceeded)
+		beginAndResolve(t, fixture)
+		fixture.executor.output = json.RawMessage(`{"unexpected":true}`)
+		record, err := fixture.coordinator.DispatchAndEnqueue(
+			context.Background(),
+			dispatchRequest(fixture),
+		)
+		if !errors.Is(err, ErrExecutionOutcomeUnknown) {
+			t.Fatalf("Dispatch error = %v, want outcome unknown", err)
+		}
+		if fixture.executor.executions != 1 ||
+			record.Run.Status != host.ActionOutcomeUnknown ||
+			record.Outcome != nil {
+			t.Fatalf("invalid executor result was not fenced: %+v", record)
+		}
+		state, loadErr := fixture.store.Load(context.Background())
+		if loadErr != nil {
+			t.Fatal(loadErr)
+		}
+		if state.Pending != nil || len(state.Actions) != 1 ||
+			len(state.Outbox) != 1 ||
+			state.Actions[0].Run.Status != host.ActionOutcomeUnknown {
+			t.Fatalf("uncertain result was not recoverable: %+v", state)
+		}
+	})
+
+	t.Run("executor error becomes outcome unknown", func(t *testing.T) {
+		fixture := newFixture(t, host.ActionSucceeded)
+		beginAndResolve(t, fixture)
+		sentinel := errors.New("executor lost its result")
+		fixture.executor.executeErr = sentinel
+		record, err := fixture.coordinator.DispatchAndEnqueue(
+			context.Background(),
+			dispatchRequest(fixture),
+		)
+		if !errors.Is(err, ErrExecutionOutcomeUnknown) ||
+			!errors.Is(err, sentinel) {
+			t.Fatalf("Dispatch error = %v, want retained executor uncertainty", err)
+		}
+		if record.Run.Status != host.ActionOutcomeUnknown ||
+			record.Outcome != nil ||
+			len(record.Output) != 0 {
+			t.Fatalf("executor error was not retained safely: %+v", record)
+		}
+	})
+
+	for _, testCase := range []struct {
+		name             string
+		retained         int
+		wantErr          error
+		wantExecutions   int
+		wantActionLength int
+	}{
+		{
+			name:             "1024th retained action",
+			retained:         maxActions - 1,
+			wantExecutions:   1,
+			wantActionLength: maxActions,
+		},
+		{
+			name:             "1025th retained action",
+			retained:         maxActions,
+			wantErr:          ErrActionCapacity,
+			wantActionLength: maxActions,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newFixture(t, host.ActionSucceeded)
+			beginAndResolve(t, fixture)
+			fillActiveActions(t, fixture, testCase.retained)
+			_, err := fixture.coordinator.DispatchAndEnqueue(
+				context.Background(),
+				dispatchRequest(fixture),
+			)
+			if !errors.Is(err, testCase.wantErr) {
+				t.Fatalf("Dispatch error = %v, want %v", err, testCase.wantErr)
+			}
+			if fixture.executor.executions != testCase.wantExecutions {
+				t.Fatalf(
+					"executor calls = %d, want %d",
+					fixture.executor.executions,
+					testCase.wantExecutions,
+				)
+			}
+			state, loadErr := fixture.store.Load(context.Background())
+			if loadErr != nil {
+				t.Fatal(loadErr)
+			}
+			if len(state.Actions) != testCase.wantActionLength {
+				t.Fatalf(
+					"retained actions = %d, want %d",
+					len(state.Actions),
+					testCase.wantActionLength,
+				)
+			}
+		})
+	}
+}
+
+func TestCoordinatorPreflightsEpochCancellationOutboxCapacity(t *testing.T) {
+	for _, testCase := range []struct {
+		name              string
+		outboxEntries     int
+		wantErr           error
+		wantCancellations int
+	}{
+		{
+			name:              "1024th Outbox entry",
+			outboxEntries:     maxOutboxEntries - 1,
+			wantCancellations: 1,
+		},
+		{
+			name:          "1025th Outbox entry",
+			outboxEntries: maxOutboxEntries,
+			wantErr:       ErrOutboxCapacity,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newFixture(t, host.ActionRunning)
+			beginAndResolve(t, fixture)
+			if _, err := fixture.coordinator.DispatchAndEnqueue(
+				context.Background(),
+				dispatchRequest(fixture),
+			); err != nil {
+				t.Fatal(err)
+			}
+			fillOutbox(t, fixture, testCase.outboxEntries)
+			fixture.advanceEpoch()
+
+			_, err := fixture.coordinator.ReconcileEpoch(context.Background())
+			if !errors.Is(err, testCase.wantErr) {
+				t.Fatalf("ReconcileEpoch error = %v, want %v", err, testCase.wantErr)
+			}
+			if fixture.executor.cancellations != testCase.wantCancellations {
+				t.Fatalf(
+					"cancellations = %d, want %d",
+					fixture.executor.cancellations,
+					testCase.wantCancellations,
+				)
+			}
+		})
+	}
+}
+
+func TestCoordinatorCancellationRechecksPrincipalScope(t *testing.T) {
+	fixture := newFixture(t, host.ActionRunning)
+	beginAndResolve(t, fixture)
+	if _, err := fixture.coordinator.DispatchAndEnqueue(
+		context.Background(),
+		dispatchRequest(fixture),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.coordinator.DrainOutbox(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	fixture.identity.mu.Lock()
+	fixture.identity.value.Principal.GrantedScopes = nil
+	fixture.identity.mu.Unlock()
+	fixture.advanceEpoch()
+
+	reconciled, err := fixture.coordinator.ReconcileEpoch(context.Background())
+	if reconciled != 1 || !errors.Is(err, ErrExecutionOutcomeUnknown) {
+		t.Fatalf("ReconcileEpoch = %d, %v", reconciled, err)
+	}
+	if fixture.executor.cancellations != 0 {
+		t.Fatal("unauthorized cancellation reached the executor")
+	}
+	state, loadErr := fixture.store.Load(context.Background())
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	if len(state.Actions) != 1 ||
+		state.Actions[0].Run.Status != host.ActionOutcomeUnknown ||
+		len(state.Outbox) != 1 {
+		t.Fatalf("unauthorized cancellation did not remain recoverable: %+v", state)
+	}
+}
+
+func TestCoordinatorCompactsTenThousandTerminalActions(t *testing.T) {
+	fixture := newFixture(t, host.ActionSucceeded)
+	for index := 0; index < 10_000; index++ {
+		beginAndResolve(t, fixture)
+		if _, err := fixture.coordinator.DispatchAndEnqueue(
+			context.Background(),
+			dispatchRequest(fixture),
+		); err != nil {
+			t.Fatalf("dispatch %d: %v", index+1, err)
+		}
+		if count, err := fixture.coordinator.DrainOutbox(
+			context.Background(),
+		); err != nil || count != 1 {
+			t.Fatalf("drain %d = %d, %v", index+1, count, err)
+		}
+	}
+	state, err := fixture.store.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fixture.executor.executions != 10_000 ||
+		len(state.Actions) != 0 ||
+		len(state.Outbox) != 0 ||
+		state.Pending != nil {
+		t.Fatalf("long-running workflow remained unbounded: %+v", state)
 	}
 }
 
@@ -379,6 +671,7 @@ func newFixture(t *testing.T, executionStatus host.ActionRunStatus) *testFixture
 		Description: "Show dialogue.", Input: schema, Output: schema,
 		Effect: host.EffectAdvisory, Execution: executionMode,
 		Risk: host.RiskLow, RequiredDurability: host.DurabilityAdvisory,
+		RequiredScopes:  []string{"rin.dialogue.say"},
 		ExecutionBudget: host.Duration{Clock: host.ClockEvent, Value: 10},
 		MaxInputBytes:   1024, MaxOutputBytes: 1024,
 		Cancellation: cancellationMode, Reversible: true,
@@ -427,6 +720,10 @@ func newFixture(t *testing.T, executionStatus host.ActionRunStatus) *testFixture
 	identity := &fakeIdentity{
 		value: HostIdentity{
 			SessionID: epoch.SessionID, Epoch: epoch, Now: now,
+			Principal: host.Principal{
+				ID:            "principal.test",
+				GrantedScopes: []string{"rin.dialogue.say"},
+			},
 			Tick: 10, ObservationSeq: 1,
 		},
 	}
@@ -449,7 +746,7 @@ func newFixture(t *testing.T, executionStatus host.ActionRunStatus) *testFixture
 func beginAndResolve(t *testing.T, fixture *testFixture) {
 	t.Helper()
 	if _, err := fixture.coordinator.BeginDecision(
-		context.Background(), "", fixture.request,
+		context.Background(), fixture.request,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -460,6 +757,86 @@ func beginAndResolve(t *testing.T, fixture *testFixture) {
 	if !result.Ready {
 		t.Fatal("Proposal did not resolve")
 	}
+}
+
+func dispatchRequest(fixture *testFixture) DispatchRequest {
+	return DispatchRequest{
+		Proposal:           fixture.proposal,
+		InvocationDeadline: host.Timepoint{Clock: host.ClockEvent, Value: 15},
+		Summary:            "dialogue applied",
+	}
+}
+
+func fillActiveActions(
+	t *testing.T,
+	fixture *testFixture,
+	count int,
+) {
+	t.Helper()
+	state, err := fixture.store.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Actions = make([]ActionRecord, 0, count)
+	for index := 0; index < count; index++ {
+		operationID := fmt.Sprintf("operation.capacity.%d", index+1)
+		invocation, invocationErr := fixture.registry.NewInvocation(
+			fixture.proposal.Action,
+			operationID,
+			fixture.identity.value.Now,
+			host.Timepoint{Clock: host.ClockEvent, Value: 15},
+			fixture.identity.value.Epoch,
+		)
+		if invocationErr != nil {
+			t.Fatal(invocationErr)
+		}
+		state.Actions = append(state.Actions, ActionRecord{
+			ProposalID:        fmt.Sprintf("proposal.capacity.%d", index+1),
+			ProposalRequestID: fixture.request.RequestID,
+			Invocation:        invocation,
+			Principal:         fixture.identity.value.Principal,
+			Run: host.ActionRun{
+				OperationID: operationID,
+				Status:      host.ActionRunning,
+				ProgressSeq: 1,
+				Progress:    10,
+				UpdatedAt:   fixture.identity.value.Now,
+			},
+		})
+	}
+	fixture.store.replace(t, state)
+}
+
+func fillOutbox(
+	t *testing.T,
+	fixture *testFixture,
+	count int,
+) {
+	t.Helper()
+	state, err := fixture.store.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Outbox) != 1 {
+		t.Fatalf("fixture Outbox length = %d, want 1", len(state.Outbox))
+	}
+	base := state.Outbox[0]
+	for index := len(state.Outbox); index < count; index++ {
+		request := base.Request
+		report := request.Report
+		invocation := *report.Invocation
+		run := *report.Run
+		report.Invocation = &invocation
+		report.Run = &run
+		request.RequestID = fmt.Sprintf("request.capacity.%d", index+1)
+		report.EventID = fmt.Sprintf("event.capacity.%d", index+1)
+		request.Report = report
+		state.Outbox = append(state.Outbox, OutboxEntry{
+			ID:      fmt.Sprintf("outbox.capacity.%d", index+1),
+			Request: request,
+		})
+	}
+	fixture.store.replace(t, state)
 }
 
 func (fixture *testFixture) advanceEpoch() {
@@ -474,6 +851,16 @@ type memoryStore struct {
 	mu          sync.Mutex
 	state       WorkflowState
 	failNextCAS bool
+}
+
+func (store *memoryStore) replace(t *testing.T, state WorkflowState) {
+	t.Helper()
+	if err := state.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.state = state
+	store.mu.Unlock()
 }
 
 func (store *memoryStore) Load(context.Context) (WorkflowState, error) {
@@ -612,6 +999,8 @@ func (identity *fakeIdentity) NewID(
 type fakeExecutor struct {
 	status        host.ActionRunStatus
 	dispatcher    *fakeDispatcher
+	output        json.RawMessage
+	executeErr    error
 	executions    int
 	cancellations int
 }
@@ -619,11 +1008,14 @@ type fakeExecutor struct {
 func (executor *fakeExecutor) Execute(
 	_ context.Context,
 	invocation host.ActionInvocation,
-) (host.ActionRun, *host.ActionOutcome, error) {
+) (ActionExecution, error) {
 	if !executor.dispatcher.inside {
-		return host.ActionRun{}, nil, errors.New("executor was called outside authority")
+		return ActionExecution{}, errors.New("executor was called outside authority")
 	}
 	executor.executions++
+	if executor.executeErr != nil {
+		return ActionExecution{}, executor.executeErr
+	}
 	progress := uint32(20)
 	if executor.status == host.ActionSucceeded {
 		progress = 100
@@ -634,24 +1026,29 @@ func (executor *fakeExecutor) Execute(
 		ProgressSeq: 1, Progress: progress, UpdatedAt: now,
 	}
 	if !terminal(executor.status) {
-		return run, nil, nil
+		return ActionExecution{Run: run}, nil
+	}
+	output := executor.output
+	if len(output) == 0 {
+		output = json.RawMessage(`{}`)
 	}
 	outcome := host.ActionOutcome{
 		OperationID: invocation.OperationID, Status: executor.status,
 		Summary: "dialogue applied", Epoch: invocation.ExpectedEpoch,
 		WorldSeq: 1, OccurredAt: now,
 	}
-	return run, &outcome, nil
+	return ActionExecution{
+		Run: run, Outcome: &outcome, Output: output,
+	}, nil
 }
 
 func (executor *fakeExecutor) Cancel(
 	_ context.Context,
 	invocation host.ActionInvocation,
 	identity HostIdentity,
-) (host.ActionRun, host.ActionOutcome, error) {
+) (ActionExecution, error) {
 	if !executor.dispatcher.inside {
-		return host.ActionRun{}, host.ActionOutcome{},
-			errors.New("cancel was called outside authority")
+		return ActionExecution{}, errors.New("cancel was called outside authority")
 	}
 	executor.cancellations++
 	run := host.ActionRun{
@@ -663,5 +1060,7 @@ func (executor *fakeExecutor) Cancel(
 		Code: "epoch.changed", Summary: "Host epoch changed.",
 		Epoch: invocation.ExpectedEpoch, WorldSeq: 2, OccurredAt: identity.Now,
 	}
-	return run, outcome, nil
+	return ActionExecution{
+		Run: run, Outcome: &outcome, Output: json.RawMessage(`{}`),
+	}, nil
 }
