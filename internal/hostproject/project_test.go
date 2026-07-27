@@ -69,17 +69,20 @@ func TestInspectReportsGeneratedFileMutation(t *testing.T) {
 }
 
 func TestInspectRejectsWindowsNonPortableManifestPaths(t *testing.T) {
-	for _, candidate := range []string{
-		"CON",
-		"NUL.txt",
-		"src/a:b",
-		"src/trailing.",
-		"src/trailing ",
-		"src/control\x01.txt",
-		strings.Repeat("a", 256),
-		strings.Repeat("p", 220) + "/file.txt",
+	for _, test := range []struct {
+		name string
+		path string
+	}{
+		{name: "reserved_name", path: "CON"},
+		{name: "reserved_name_with_extension", path: "NUL.txt"},
+		{name: "colon", path: "src/a:b"},
+		{name: "trailing_period", path: "src/trailing."},
+		{name: "trailing_space", path: "src/trailing "},
+		{name: "control_character", path: "src/control\x01.txt"},
+		{name: "long_component", path: strings.Repeat("a", 256)},
+		{name: "long_path", path: strings.Repeat("p", 220) + "/file.txt"},
 	} {
-		t.Run(fmt.Sprintf("%q", candidate), func(t *testing.T) {
+		t.Run(test.name, func(t *testing.T) {
 			root := generateCustomHost(t)
 			manifestPath := filepath.Join(root, "rin-scaffold.json")
 			data, err := os.ReadFile(manifestPath)
@@ -95,7 +98,7 @@ func TestInspectRejectsWindowsNonPortableManifestPaths(t *testing.T) {
 				Role   string `json:"role"`
 				SHA256 string `json:"sha256"`
 			}{
-				Path: candidate, Role: "test", SHA256: strings.Repeat("a", 64),
+				Path: test.path, Role: "test", SHA256: strings.Repeat("a", 64),
 			})
 			data, err = json.MarshalIndent(manifest, "", "  ")
 			if err != nil {
@@ -107,7 +110,7 @@ func TestInspectRejectsWindowsNonPortableManifestPaths(t *testing.T) {
 			}
 			if _, err := Inspect(root); err == nil ||
 				!strings.Contains(err.Error(), "non-portable path") {
-				t.Fatalf("Inspect accepted %q: %v", candidate, err)
+				t.Fatalf("Inspect accepted %q: %v", test.path, err)
 			}
 		})
 	}
