@@ -100,6 +100,12 @@ Realtime 值是 Unix 毫秒；Event 与 Step 值是 Host 单调计数器。渲�
 `epoch` 和正数、单调递增的 `observation_seq`。大型图片、音频、遥测与 Replay
 片段应存到外部，以不可变 Artifact 引用，不应直接塞进事件日志。
 
+可选 `payload` 是 `HostValidatedPayload`，不是未受信模型输出。Schema 引用是
+已认证 Host 作出的断言：Adapter 必须在发送请求前，按该精确 Schema 与 Digest
+校验 `data`。Rin 只校验引用、字节上限和严格 JSON envelope，不会解析游戏自有
+Schema。Go Adapter 应使用 `protocol.NewHostValidatedPayload` 构造；其他语言
+Adapter 必须执行等价的本地校验。
+
 ## Decision Window 与 Offer
 
 Proposal Request 把一个 Actor 绑定到一次 Host 创建的决策机会：

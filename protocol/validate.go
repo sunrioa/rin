@@ -355,7 +355,7 @@ func ValidateObserve(request ObserveRequest) error {
 		return &ValidationError{Field: "observation_seq", Message: "must be a positive JSON-safe integer"}
 	}
 	if request.Payload != nil {
-		if err := validateStructuredPayload("payload", *request.Payload); err != nil {
+		if err := validateHostValidatedPayload("payload", *request.Payload); err != nil {
 			return err
 		}
 	}
@@ -632,7 +632,7 @@ func validateProtocolOffer(field string, offer ActionOffer) error {
 	return nil
 }
 
-func validateStructuredPayload(field string, payload StructuredPayload) error {
+func validateHostValidatedPayload(field string, payload HostValidatedPayload) error {
 	if err := (host.CapabilityRef{
 		ID: payload.Schema.ID, Version: payload.Schema.Version,
 	}).Validate(field + ".schema"); err != nil {

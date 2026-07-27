@@ -37,7 +37,13 @@ Wire Shape，也不声称既有语言 Adapter 已经实现新 Registry。
 
 ### 协议
 
-`protocol` 是唯一需要被其他语言复刻的层。所有请求显式携带 `rin.protocol/v2`，未知 JSON 字段会被 HTTP 层拒绝，标识符禁止路径分隔符。
+`protocol` 是唯一需要被其他语言复刻的层。所有请求显式携带
+`rin.protocol/v2`，未知 JSON 字段会被 HTTP 层拒绝，标识符禁止路径分隔符。
+
+Observation 的 `HostValidatedPayload` 位于已认证 Host 的信任边界内。Host 必须在
+发送前按精确引用的游戏 Schema 校验 Data；Rin 只校验有界严格 JSON envelope
+并保留 Schema 身份。Digest 不是校验证明，模型或远端 Provider 输出未经 Host
+校验不得直接复制到该字段。
 
 ### 运行时
 

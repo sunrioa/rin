@@ -262,7 +262,7 @@ func TestEpochsMustBelongToRequestSession(t *testing.T) {
 	})
 }
 
-func TestStructuredPayloadRejectsDuplicateNames(t *testing.T) {
+func TestHostValidatedPayloadRejectsDuplicateNames(t *testing.T) {
 	request := protocol.ObserveRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       "session.test",
@@ -275,8 +275,8 @@ func TestStructuredPayloadRejectsDuplicateNames(t *testing.T) {
 		Importance:      1,
 		Epoch:           validEpoch(),
 		ObservationSeq:  1,
-		Payload: &protocol.StructuredPayload{
-			Schema: protocol.SchemaRef{
+		Payload: &protocol.HostValidatedPayload{
+			Schema: protocol.HostSchemaRef{
 				ID:      "rin.test.observation",
 				Version: "1.0.0",
 				Digest:  strings.Repeat("a", 64),
@@ -286,6 +286,46 @@ func TestStructuredPayloadRejectsDuplicateNames(t *testing.T) {
 	}
 	if err := protocol.ValidateObserve(request); err == nil {
 		t.Fatal("structured payload with duplicate names was accepted")
+	}
+}
+
+func TestNewHostValidatedPayloadEnforcesSchemaAndCopiesData(t *testing.T) {
+	schema, err := host.NewSchema([]byte(
+		`{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"state":{"type":"string","enum":["open","closed"]}},"required":["state"],"additionalProperties":false}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reference := protocol.HostSchemaRef{
+		ID:      "rin.test.observation",
+		Version: "1.0.0",
+		Digest:  schema.SHA256,
+	}
+	data := []byte(`{"state":"open"}`)
+	payload, err := protocol.NewHostValidatedPayload(reference, schema, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data[10] = 'x'
+	if string(payload.Data) != `{"state":"open"}` {
+		t.Fatalf("payload retained caller storage: %s", payload.Data)
+	}
+
+	if _, err := protocol.NewHostValidatedPayload(
+		reference,
+		schema,
+		[]byte(`{"state":"unknown"}`),
+	); err == nil {
+		t.Fatal("payload that violates its Host schema was accepted")
+	}
+	mismatch := reference
+	mismatch.Digest = strings.Repeat("a", 64)
+	if _, err := protocol.NewHostValidatedPayload(
+		mismatch,
+		schema,
+		[]byte(`{"state":"open"}`),
+	); err == nil {
+		t.Fatal("payload with a mismatched Host schema digest was accepted")
 	}
 }
 

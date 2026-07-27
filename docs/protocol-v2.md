@@ -108,6 +108,14 @@ includes its `epoch` and a positive, monotonic `observation_seq`. Large images,
 audio, telemetry, and replay slices should be stored externally and referenced
 as immutable artifacts rather than embedded in the event log.
 
+An optional `payload` is a `HostValidatedPayload`, not untrusted model output.
+Its schema reference is an assertion by the authenticated Host: the adapter
+must validate `data` against that exact schema and digest before sending the
+request. Rin validates the reference, byte limit, and strict JSON envelope but
+does not resolve game-owned schemas. Go adapters should construct it with
+`protocol.NewHostValidatedPayload`; other adapters must enforce the equivalent
+local check.
+
 ## Decision window and offers
 
 A proposal request binds one actor to one host-owned opportunity:

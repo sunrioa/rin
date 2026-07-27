@@ -1979,7 +1979,7 @@
             ]
           },
           "payload": {
-            "$ref": "#/components/schemas/StructuredPayload"
+            "$ref": "#/components/schemas/HostValidatedPayload"
           },
           "artifacts": {
             "type": "array",
@@ -4327,9 +4327,10 @@
           }
         }
       },
-      "SchemaRef": {
+      "HostSchemaRef": {
         "type": "object",
         "additionalProperties": false,
+        "description": "Exact Host-owned schema identity. Rin preserves this reference but does not resolve it or treat its digest as proof that data was validated.",
         "required": [
           "id",
           "version",
@@ -4349,16 +4350,17 @@
           }
         }
       },
-      "StructuredPayload": {
+      "HostValidatedPayload": {
         "type": "object",
         "additionalProperties": false,
+        "description": "Assertion by the authenticated Host that data was validated against the exact referenced schema before Observe. Rin validates only the bounded strict-JSON envelope.",
         "required": [
           "schema",
           "data"
         ],
         "properties": {
           "schema": {
-            "$ref": "#/components/schemas/SchemaRef"
+            "$ref": "#/components/schemas/HostSchemaRef"
           },
           "data": {}
         }

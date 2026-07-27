@@ -131,18 +131,21 @@ type ActionRun = host.ActionRun
 type ActionRunStatus = host.ActionRunStatus
 type ActionOutcome = host.ActionOutcome
 
-// SchemaRef identifies the exact schema used to validate structured
-// observation data. Schemas are distributed through the Host Contract rather
-// than copied into every observation.
-type SchemaRef struct {
+// HostSchemaRef identifies the exact Host-owned schema used to validate
+// observation data. Rin preserves this identity but does not resolve the
+// schema or treat the digest as proof of validation.
+type HostSchemaRef struct {
 	ID      string `json:"id"`
 	Version string `json:"version"`
 	Digest  string `json:"digest"`
 }
 
-// StructuredPayload carries bounded, schema-identified JSON data.
-type StructuredPayload struct {
-	Schema SchemaRef       `json:"schema"`
+// HostValidatedPayload is an assertion by the authenticated Host that Data was
+// validated against Schema before the Observe request was sent. Rin validates
+// the bounded strict-JSON envelope; use NewHostValidatedPayload in Go adapters
+// to perform the schema validation that establishes this trust boundary.
+type HostValidatedPayload struct {
+	Schema HostSchemaRef   `json:"schema"`
 	Data   json.RawMessage `json:"data"`
 }
 
@@ -241,23 +244,23 @@ type CreateSessionRequest struct {
 }
 
 type ObserveRequest struct {
-	ProtocolVersion string             `json:"protocol_version"`
-	SessionID       string             `json:"session_id"`
-	RequestID       string             `json:"request_id"`
-	EventID         string             `json:"event_id"`
-	Tick            int64              `json:"tick"`
-	ObserverIDs     []string           `json:"observer_ids"`
-	Source          string             `json:"source"`
-	Kind            string             `json:"kind"`
-	Summary         string             `json:"summary"`
-	Quote           string             `json:"quote,omitempty"`
-	Tags            []string           `json:"tags,omitempty"`
-	Importance      int                `json:"importance"`
-	Facts           []Fact             `json:"facts,omitempty"`
-	Epoch           Epoch              `json:"epoch"`
-	ObservationSeq  uint64             `json:"observation_seq"`
-	Payload         *StructuredPayload `json:"payload,omitempty"`
-	Artifacts       []ArtifactRef      `json:"artifacts,omitempty"`
+	ProtocolVersion string                `json:"protocol_version"`
+	SessionID       string                `json:"session_id"`
+	RequestID       string                `json:"request_id"`
+	EventID         string                `json:"event_id"`
+	Tick            int64                 `json:"tick"`
+	ObserverIDs     []string              `json:"observer_ids"`
+	Source          string                `json:"source"`
+	Kind            string                `json:"kind"`
+	Summary         string                `json:"summary"`
+	Quote           string                `json:"quote,omitempty"`
+	Tags            []string              `json:"tags,omitempty"`
+	Importance      int                   `json:"importance"`
+	Facts           []Fact                `json:"facts,omitempty"`
+	Epoch           Epoch                 `json:"epoch"`
+	ObservationSeq  uint64                `json:"observation_seq"`
+	Payload         *HostValidatedPayload `json:"payload,omitempty"`
+	Artifacts       []ArtifactRef         `json:"artifacts,omitempty"`
 }
 
 type ProposeRequest struct {

@@ -51,6 +51,12 @@ adapters already implement the new registry.
 explicitly carries `rin.protocol/v2`. The HTTP layer rejects unknown JSON
 fields, and identifiers cannot contain path separators.
 
+Observation `HostValidatedPayload` is inside the authenticated Host trust
+boundary. The Host validates its data against the exact referenced game schema
+before sending it; Rin only validates the bounded strict-JSON envelope and
+preserves the schema identity. The digest is not a proof, and model or remote
+provider output must never be copied into this field without Host validation.
+
 ### Runtime
 
 `runtime.Engine` is a deterministic state machine. Each Session has its own
