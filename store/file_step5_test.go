@@ -1431,17 +1431,9 @@ func TestFileStoreArtifactIOAllowsAppendAndCloseWaits(t *testing.T) {
 			close(releaseSecondSync)
 		})
 	}
-	artifactMapLocked := false
-	unlockArtifactMap := func() {
-		if artifactMapLocked {
-			artifactMapLocked = false
-			fileStore.artifactsMu.Unlock()
-		}
-	}
 	defer func() {
 		releaseFirst()
 		releaseSecond()
-		unlockArtifactMap()
 		_ = fileStore.Close()
 	}()
 
@@ -1513,16 +1505,27 @@ func TestFileStoreArtifactIOAllowsAppendAndCloseWaits(t *testing.T) {
 		t.Fatal("same-session Append waited for checkpoint artifact I/O")
 	}
 
-	// Hold the lock-map mutex so the second call can deterministically acquire
-	// lifecycle.RLock and then queue inside beginArtifact. Once the first save
-	// finishes, lifecycle.TryLock distinguishes that queued reader from the
-	// first operation without relying on a scheduling sleep.
-	fileStore.artifactsMu.Lock()
-	artifactMapLocked = true
+	// Wait until the second call has acquired lifecycle.RLock and retained the
+	// same keyed lock. This avoids relying on a scheduling sleep and also
+	// verifies that queued users keep the keyed mutex alive.
 	secondSaveDone := make(chan error, 1)
 	go func() {
 		secondSaveDone <- fileStore.SaveCheckpoint(sessionID, checkpoint)
 	}()
+	readerDeadline := time.Now().Add(5 * time.Second)
+	for {
+		fileStore.artifactsMu.Lock()
+		entry := fileStore.artifactLocks[sessionID]
+		queued := entry != nil && entry.references == 2
+		fileStore.artifactsMu.Unlock()
+		if queued {
+			break
+		}
+		if time.Now().After(readerDeadline) {
+			t.Fatal("second checkpoint save did not retain the artifact lock")
+		}
+		runtime.Gosched()
+	}
 	releaseFirst()
 	select {
 	case err := <-firstSaveDone:
@@ -1532,7 +1535,6 @@ func TestFileStoreArtifactIOAllowsAppendAndCloseWaits(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("first checkpoint save did not finish after releasing sync")
 	}
-	readerDeadline := time.Now().Add(5 * time.Second)
 	for fileStore.lifecycle.TryLock() {
 		fileStore.lifecycle.Unlock()
 		if time.Now().After(readerDeadline) {
@@ -1551,7 +1553,6 @@ func TestFileStoreArtifactIOAllowsAppendAndCloseWaits(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 
-	unlockArtifactMap()
 	select {
 	case <-secondSyncStarted:
 	case <-time.After(5 * time.Second):

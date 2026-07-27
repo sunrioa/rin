@@ -29,15 +29,37 @@ func (s *File) beginSession(sessionID string) (string, func(), error) {
 }
 
 func (s *File) lockSession(sessionID string) func() {
-	s.locksMu.Lock()
-	lock := s.sessionLocks[sessionID]
-	if lock == nil {
-		lock = &sync.Mutex{}
-		s.sessionLocks[sessionID] = lock
+	return lockKey(&s.locksMu, s.sessionLocks, sessionID)
+}
+
+func (s *File) lockArtifact(sessionID string) func() {
+	return lockKey(&s.artifactsMu, s.artifactLocks, sessionID)
+}
+
+func lockKey(
+	guard *sync.Mutex,
+	locks map[string]*keyedMutex,
+	key string,
+) func() {
+	guard.Lock()
+	entry := locks[key]
+	if entry == nil {
+		entry = &keyedMutex{}
+		locks[key] = entry
 	}
-	s.locksMu.Unlock()
-	lock.Lock()
-	return lock.Unlock
+	entry.references++
+	guard.Unlock()
+
+	entry.mutex.Lock()
+	return func() {
+		entry.mutex.Unlock()
+		guard.Lock()
+		entry.references--
+		if entry.references == 0 && locks[key] == entry {
+			delete(locks, key)
+		}
+		guard.Unlock()
+	}
 }
 
 func (s *File) beginArtifact(sessionID string) (string, func(), error) {
@@ -54,16 +76,9 @@ func (s *File) beginArtifact(sessionID string) (string, func(), error) {
 		s.lifecycle.RUnlock()
 		return "", nil, ErrFileClosed
 	}
-	s.artifactsMu.Lock()
-	lock := s.artifactLocks[sessionID]
-	if lock == nil {
-		lock = &sync.Mutex{}
-		s.artifactLocks[sessionID] = lock
-	}
-	s.artifactsMu.Unlock()
-	lock.Lock()
+	unlockArtifact := s.lockArtifact(sessionID)
 	return directory, func() {
-		lock.Unlock()
+		unlockArtifact()
 		s.lifecycle.RUnlock()
 	}, nil
 }

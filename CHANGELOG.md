@@ -91,6 +91,9 @@ across every future minor release.
   acknowledgements remain durable for retry.
 - Terminal Story rule-tree fallback rechecks the disk save while holding the
   cross-process lease and cannot apply after another process starts Rin work.
+- File Store removes per-Session and per-artifact mutexes after their final
+  active or queued user exits, so high-cardinality Transfer abort and artifact
+  churn do not leave an unbounded process-lifetime lock map.
 - Epochs are bound to their containing Session, host sequence fields enforce
   positive JSON-safe integers, and wire/persisted JSON rejects duplicate
   object member names consistently.

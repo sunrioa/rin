@@ -42,6 +42,11 @@ type uncertainFileAppend struct {
 	priorOffset int64
 }
 
+type keyedMutex struct {
+	mutex      sync.Mutex
+	references uint64
+}
+
 type File struct {
 	root     string
 	lockFile *os.File
@@ -52,12 +57,12 @@ type File struct {
 	closeErr  error
 
 	locksMu      sync.Mutex
-	sessionLocks map[string]*sync.Mutex
+	sessionLocks map[string]*keyedMutex
 	indexesMu    sync.Mutex
 	indexes      map[string]*eventIndex
 
 	artifactsMu   sync.Mutex
-	artifactLocks map[string]*sync.Mutex
+	artifactLocks map[string]*keyedMutex
 
 	uncertainMu      sync.Mutex
 	uncertainAppends map[string]uncertainFileAppend
@@ -104,9 +109,9 @@ func openFileWithPreflight(
 	}
 	store := &File{
 		root: absolute, lockFile: lockFile,
-		sessionLocks:        make(map[string]*sync.Mutex),
+		sessionLocks:        make(map[string]*keyedMutex),
 		indexes:             make(map[string]*eventIndex),
-		artifactLocks:       make(map[string]*sync.Mutex),
+		artifactLocks:       make(map[string]*keyedMutex),
 		uncertainAppends:    make(map[string]uncertainFileAppend),
 		durabilityConfirmed: make(map[string]struct{}),
 		syncEventFile:       syncExistingFile,

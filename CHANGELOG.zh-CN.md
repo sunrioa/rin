@@ -79,6 +79,9 @@
   持久保留以供重试。
 - Terminal Story Rule-tree Fallback 会在持有跨进程 Lease 时重新读取磁盘；
   另一进程开始 Rin 工作后，旧进程不能再应用本地动作。
+- File Store 会在最后一个活跃或排队的使用者退出后移除按 Session/Artifact
+  建立的 Mutex；高基数 Transfer Abort 与 Artifact Churn 不再留下随进程生命期
+  无限增长的锁表。
 - Epoch 现在与外层 Session 绑定；Host Sequence 字段统一要求正数且 JSON-safe；
   Wire 与持久化 JSON 统一拒绝重复 Object Member Name。
 - Archive/Delete Exact Retry 现在会重新 Fence 已可见 Marker，并完成 Rename

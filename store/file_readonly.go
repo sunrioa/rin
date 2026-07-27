@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
@@ -61,9 +60,9 @@ func OpenFileReadOnly(root string) (*ReadOnlyFile, error) {
 	}
 	file := &File{
 		root: absolute, lockFile: lockFile, readOnly: true,
-		sessionLocks:        make(map[string]*sync.Mutex),
+		sessionLocks:        make(map[string]*keyedMutex),
 		indexes:             make(map[string]*eventIndex),
-		artifactLocks:       make(map[string]*sync.Mutex),
+		artifactLocks:       make(map[string]*keyedMutex),
 		uncertainAppends:    make(map[string]uncertainFileAppend),
 		durabilityConfirmed: make(map[string]struct{}),
 	}

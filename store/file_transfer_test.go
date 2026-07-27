@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,47 @@ import (
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 )
+
+func TestFileKeyedLocksAreReleasedAfterHighCardinalityChurn(t *testing.T) {
+	manifest, _, _ := fileTransferFixture(t, "session.lock-churn", 1)
+	fileStore, err := OpenFile(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fileStore.Close()
+
+	const sessions = 256
+	for index := 0; index < sessions; index++ {
+		sessionID := fmt.Sprintf("session.lock-churn.%d", index)
+		current := manifest
+		current.SessionID = sessionID
+		current.TransferID = "transfer." + sessionID
+		writer, beginErr := fileStore.BeginTransfer(current)
+		if beginErr != nil {
+			t.Fatalf("begin transfer %d: %v", index, beginErr)
+		}
+		if abortErr := writer.Abort(); abortErr != nil {
+			t.Fatalf("abort transfer %d: %v", index, abortErr)
+		}
+
+		unlockArtifact := fileStore.lockArtifact(sessionID)
+		unlockArtifact()
+	}
+
+	fileStore.locksMu.Lock()
+	sessionLockCount := len(fileStore.sessionLocks)
+	fileStore.locksMu.Unlock()
+	fileStore.artifactsMu.Lock()
+	artifactLockCount := len(fileStore.artifactLocks)
+	fileStore.artifactsMu.Unlock()
+	if sessionLockCount != 0 || artifactLockCount != 0 {
+		t.Fatalf(
+			"released keyed locks retained: sessions=%d artifacts=%d",
+			sessionLockCount,
+			artifactLockCount,
+		)
+	}
+}
 
 func TestFileTransferStagesAndPublishesCompleteLineageAtomically(t *testing.T) {
 	manifest, frames, complete := fileTransferFixture(
