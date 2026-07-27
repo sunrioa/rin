@@ -163,6 +163,107 @@ func TestReadOnlyFileUsesExclusiveOfflineLease(t *testing.T) {
 	}
 }
 
+func TestFileStoresRejectSymlinkedStructuralPaths(t *testing.T) {
+	for _, child := range []string{"sessions", "tombstones"} {
+		t.Run(child, func(t *testing.T) {
+			root := t.TempDir()
+			fileStore, err := OpenFile(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := fileStore.Close(); err != nil {
+				t.Fatal(err)
+			}
+			childPath := filepath.Join(root, child)
+			if err := os.Remove(childPath); err != nil {
+				t.Fatal(err)
+			}
+			symlinkOrSkip(t, t.TempDir(), childPath)
+			if opened, err := OpenFile(root); err == nil {
+				_ = opened.Close()
+				t.Fatalf("writer accepted symlinked %s", child)
+			}
+			if opened, err := OpenFileReadOnly(root); err == nil {
+				_ = opened.Close()
+				t.Fatalf("read-only view accepted symlinked %s", child)
+			}
+		})
+	}
+
+	t.Run("lock", func(t *testing.T) {
+		root := t.TempDir()
+		fileStore, err := OpenFile(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := fileStore.Close(); err != nil {
+			t.Fatal(err)
+		}
+		lockPath := filepath.Join(root, ".rin.lock")
+		if err := os.Remove(lockPath); err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(t.TempDir(), "unrelated-lock")
+		if err := os.WriteFile(target, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		symlinkOrSkip(t, target, lockPath)
+		if opened, err := OpenFile(root); err == nil {
+			_ = opened.Close()
+			t.Fatal("writer accepted a symlinked lock file")
+		}
+		if opened, err := OpenFileReadOnly(root); err == nil {
+			_ = opened.Close()
+			t.Fatal("read-only view accepted a symlinked lock file")
+		}
+	})
+}
+
+func TestReadOnlyFileRejectsCrossRootSessionsSymlink(t *testing.T) {
+	sourceRoot := t.TempDir()
+	source, err := OpenFile(sourceRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := source.Close(); err != nil {
+		t.Fatal(err)
+	}
+	aliasRoot := t.TempDir()
+	alias, err := OpenFile(aliasRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := alias.Close(); err != nil {
+		t.Fatal(err)
+	}
+	aliasSessions := filepath.Join(aliasRoot, "sessions")
+	if err := os.Remove(aliasSessions); err != nil {
+		t.Fatal(err)
+	}
+	symlinkOrSkip(
+		t,
+		filepath.Join(sourceRoot, "sessions"),
+		aliasSessions,
+	)
+
+	writer, err := OpenFile(sourceRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	if opened, err := OpenFileReadOnly(aliasRoot); err == nil {
+		_ = opened.Close()
+		t.Fatal("read-only view bypassed the source data-directory lease")
+	}
+}
+
+func symlinkOrSkip(t *testing.T, target string, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symbolic links are unavailable: %v", err)
+	}
+}
+
 func directoryNames(t *testing.T, directory string) []string {
 	t.Helper()
 	entries, err := os.ReadDir(directory)

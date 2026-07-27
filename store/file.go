@@ -90,7 +90,15 @@ func openFileWithPreflight(
 	if err := makeDirectoryTreeSynced(absolute, 0o700); err != nil {
 		return nil, fmt.Errorf("create data directory: %w", err)
 	}
-	lockFile, err := acquireDataDirectoryLock(filepath.Join(absolute, ".rin.lock"))
+	absolute, err = validateRealDataDirectory(absolute)
+	if err != nil {
+		return nil, err
+	}
+	lockPath := filepath.Join(absolute, ".rin.lock")
+	if err := validateRealLockFile(lockPath, false); err != nil {
+		return nil, err
+	}
+	lockFile, err := acquireDataDirectoryLock(lockPath)
 	if err != nil {
 		return nil, err
 	}
@@ -105,26 +113,14 @@ func openFileWithPreflight(
 		syncDir:             syncDirectory,
 	}
 	sessions := filepath.Join(absolute, "sessions")
-	if err := os.Mkdir(sessions, 0o700); err != nil {
-		if !errors.Is(err, os.ErrExist) {
-			_ = store.Close()
-			return nil, fmt.Errorf("create sessions directory: %w", err)
-		}
-		info, statErr := os.Stat(sessions)
-		if statErr != nil {
-			_ = store.Close()
-			return nil, fmt.Errorf("sessions path is not a directory: %w", statErr)
-		}
-		if !info.IsDir() {
-			_ = store.Close()
-			return nil, errors.New("sessions path is not a directory")
-		}
+	if err := ensureRealDirectory(sessions, "sessions"); err != nil {
+		_ = store.Close()
+		return nil, err
 	}
 	tombstones := filepath.Join(absolute, "tombstones")
-	if err := os.Mkdir(tombstones, 0o700); err != nil &&
-		!errors.Is(err, os.ErrExist) {
+	if err := ensureRealDirectory(tombstones, "tombstones"); err != nil {
 		_ = store.Close()
-		return nil, fmt.Errorf("create tombstones directory: %w", err)
+		return nil, err
 	}
 	if err := store.cleanupTemporaryFiles(); err != nil {
 		_ = store.Close()
@@ -147,6 +143,57 @@ func openFileWithPreflight(
 		return nil, fmt.Errorf("sync tombstones directory: %w", err)
 	}
 	return store, nil
+}
+
+func validateRealDataDirectory(path string) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", fmt.Errorf("inspect data directory: %w", err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", errors.New("data directory must be a real directory")
+	}
+	return path, nil
+}
+
+func ensureRealDirectory(path string, label string) error {
+	if err := os.Mkdir(path, 0o700); err != nil &&
+		!errors.Is(err, os.ErrExist) {
+		return fmt.Errorf("create %s directory: %w", label, err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("inspect %s directory: %w", label, err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s path must be a real directory", label)
+	}
+	return nil
+}
+
+func requireRealDirectory(path string, label string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("inspect %s directory: %w", label, err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s path must be a real directory", label)
+	}
+	return nil
+}
+
+func validateRealLockFile(path string, required bool) error {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) && !required {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect data-directory lock: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("data-directory lock must be a real regular file")
+	}
+	return nil
 }
 
 // Close releases the process-wide data-directory lease. It is idempotent and

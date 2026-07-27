@@ -254,8 +254,11 @@ indexes/snapshots/checkpoints, or perform fsync repair, and its JSON reports
 Runtime, it replays the selected Session from genesis. Normal Sidecar startup
 still performs File Store recovery and bounded Scrub. Embedded callers must
 call `(*store.ReadOnlyFile).Close()` or `(*store.File).Close()` to release the
-lock. Use `Engine.VerifyAll()` for a one-shot checkpoint-independent audit or
-`Engine.Scrub(ctx, maxEvents)` for bounded passes.
+lock. Inspection accepts the Runtime's full configurable 24 MiB State ceiling
+and computes its hash without constructing a 16 MiB inline Snapshot; this does
+not make the State portable through Snapshot/Restore. Use `Engine.VerifyAll()`
+for a one-shot checkpoint-independent audit or `Engine.Scrub(ctx, maxEvents)`
+for bounded passes.
 
 The bundled exclusive data-directory lock supports `darwin`, `linux`, and
 `windows`: Unix uses non-blocking `flock`, while Windows uses an exclusive file
@@ -269,6 +272,9 @@ Unix uses file/directory `fsync`; Windows syncs files with
 `MoveFileExW(MOVEFILE_WRITE_THROUGH)`.
 NFS, SMB, FUSE mounts, and cloud-synchronized directories are unsupported;
 remote or shared storage requires an externally coordinated Store.
+The data root, `sessions`, `tombstones`, and `.rin.lock` must be real
+directories/files rather than symbolic links; writer and inspection opens
+fail closed on structural symlinks.
 
 Event logs use `retain_forever` because Replay, durable identifier history,
 and audit depend on them. The file store keeps the two newest valid internal

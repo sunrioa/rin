@@ -32,12 +32,15 @@ type inspectOutput struct {
 
 func runInspect(arguments []string, output io.Writer) (resultErr error) {
 	flags := flag.NewFlagSet("rin inspect", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
+	flags.SetOutput(output)
 	dataDirectory := flags.String("data", envOr("RIN_DATA_DIR", "./rin-data"), "event and snapshot directory")
 	sessionID := flags.String("session", "", "session identifier")
 	revision := flags.Uint64("revision", 0, "event-log revision; zero selects current")
 	timelineLimit := flags.Int("timeline-limit", 50, "number of redacted timeline entries (0-256)")
 	if err := flags.Parse(arguments); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 	if flags.NArg() != 0 {
@@ -56,7 +59,13 @@ func runInspect(arguments []string, output io.Writer) (resultErr error) {
 	defer func() {
 		resultErr = errors.Join(resultErr, fileStore.Close())
 	}()
-	engine, err := rintime.Open(fileStore, policy.Deterministic{})
+	engine, err := rintime.OpenWithOptions(
+		fileStore,
+		policy.Deterministic{},
+		rintime.EngineOptions{
+			MaxSessionStateBytes: rintime.MaxConfigurableSessionStateBytes,
+		},
+	)
 	if err != nil {
 		return err
 	}
@@ -66,39 +75,49 @@ func runInspect(arguments []string, output io.Writer) (resultErr error) {
 			engine.Close(context.Background()),
 		)
 	}()
-	var snapshot protocol.Snapshot
+	var state protocol.SessionState
 	if *revision == 0 {
-		state, stateErr := engine.State(protocol.SessionRequest{ProtocolVersion: protocol.Version, SessionID: *sessionID})
-		if stateErr != nil {
-			return stateErr
-		}
-		snapshot, err = rintime.SnapshotOf(state)
+		state, err = engine.State(protocol.SessionRequest{
+			ProtocolVersion: protocol.Version,
+			SessionID:       *sessionID,
+		})
 	} else {
-		snapshot, err = engine.Replay(protocol.ReplayRequest{
-			ProtocolVersion: protocol.Version, SessionID: *sessionID, Revision: *revision,
+		state, err = engine.ReplayState(protocol.ReplayRequest{
+			ProtocolVersion: protocol.Version,
+			SessionID:       *sessionID,
+			Revision:        *revision,
 		})
 	}
 	if err != nil {
 		return err
 	}
-	timeline, err := inspectTimeline(engine, *sessionID, snapshot.State.Revision, *timelineLimit)
+	stateHash, err := rintime.SessionStateHash(state)
+	if err != nil {
+		return err
+	}
+	timeline, err := inspectTimeline(
+		engine,
+		*sessionID,
+		state.Revision,
+		*timelineLimit,
+	)
 	if err != nil {
 		return err
 	}
 	pending := 0
-	for _, proposal := range snapshot.State.Proposals {
+	for _, proposal := range state.Proposals {
 		if proposal.Status == "pending" {
 			pending++
 		}
 	}
 	result := inspectOutput{
 		ProtocolVersion: protocol.Version, Mode: "read-only",
-		SessionID: snapshot.State.SessionID,
-		Binding:   snapshot.State.Binding, Revision: snapshot.State.Revision,
-		WorldRevision: snapshot.State.WorldRevision, Tick: snapshot.State.Tick,
-		Features:   append([]string(nil), snapshot.State.Features...),
-		ActorCount: len(snapshot.State.Actors), PendingProposals: pending,
-		ArbitrationCount: len(snapshot.State.Arbitrations), StateHash: snapshot.StateHash,
+		SessionID: state.SessionID,
+		Binding:   state.Binding, Revision: state.Revision,
+		WorldRevision: state.WorldRevision, Tick: state.Tick,
+		Features:   append([]string(nil), state.Features...),
+		ActorCount: len(state.Actors), PendingProposals: pending,
+		ArbitrationCount: len(state.Arbitrations), StateHash: stateHash,
 		Timeline: timeline,
 	}
 	encoder := json.NewEncoder(output)

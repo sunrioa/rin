@@ -37,22 +37,25 @@ func OpenFileReadOnly(root string) (*ReadOnlyFile, error) {
 	if err != nil {
 		return nil, err
 	}
-	info, err := os.Lstat(absolute)
+	absolute, err = validateRealDataDirectory(absolute)
 	if err != nil {
-		return nil, fmt.Errorf("inspect data directory: %w", err)
-	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return nil, errors.New("data directory must be a real directory")
+		return nil, err
 	}
 	sessions := filepath.Join(absolute, "sessions")
-	if info, err := os.Stat(sessions); err != nil {
-		return nil, fmt.Errorf("inspect sessions directory: %w", err)
-	} else if !info.IsDir() {
-		return nil, errors.New("sessions path is not a directory")
+	if err := requireRealDirectory(sessions, "sessions"); err != nil {
+		return nil, err
 	}
-	lockFile, err := acquireExistingDataDirectoryLock(
-		filepath.Join(absolute, ".rin.lock"),
-	)
+	if err := requireRealDirectory(
+		filepath.Join(absolute, "tombstones"),
+		"tombstones",
+	); err != nil {
+		return nil, err
+	}
+	lockPath := filepath.Join(absolute, ".rin.lock")
+	if err := validateRealLockFile(lockPath, true); err != nil {
+		return nil, err
+	}
+	lockFile, err := acquireExistingDataDirectoryLock(lockPath)
 	if err != nil {
 		return nil, err
 	}

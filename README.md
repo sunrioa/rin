@@ -217,6 +217,8 @@ go run ./cmd/rin inspect -data ./rin-data -session playthrough-1 -revision 42
 使用 `Engine.VerifyAll()`，有界审计使用 `Engine.Scrub(ctx, maxEvents)`。正常
 Sidecar 启动仍会执行 File Store 恢复，并自动运行有界 Scrub。嵌入式调用方必须
 调用 `(*store.ReadOnlyFile).Close()` 或 `(*store.File).Close()` 释放目录锁。
+检查支持 Runtime 可配置的完整 24 MiB State 上限，并且不构造受 16 MiB 限制的
+Inline Snapshot；这不会让该 State 可通过 Snapshot/Restore 携带。
 
 随附数据目录独占锁支持 `darwin`、`linux` 与 `windows`：Unix 使用 non-blocking
 `flock`，`windows` 使用无共享模式的独占文件 handle。其他所有 GOOS 上，
@@ -227,6 +229,8 @@ primitive 语义可靠的本地文件系统。Unix 使用 file/directory `fsync`
 使用 `FlushFileBuffers` 同步文件，并用带 `MOVEFILE_WRITE_THROUGH` 的
 `MoveFileExW` 发布 rename。不支持 NFS、SMB、FUSE mount 和云同步目录；远程或
 共享存储必须使用外部协调的 Store。
+数据根、`sessions`、`tombstones` 与 `.rin.lock` 必须是真实目录/文件，不能是
+Symbolic Link；Writer 与只读检查遇到结构 Symlink 都会 fail closed。
 
 事件日志采用 `retain_forever`，因为 Replay、持久 Identifier History 与审计
 依赖它。File Store 默认保留每个 Session 最近 2 个有效内部 checkpoint 和最近

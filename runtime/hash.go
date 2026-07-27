@@ -116,6 +116,22 @@ func SnapshotOf(state protocol.SessionState) (protocol.Snapshot, error) {
 	return snapshotWithIdentifiers(state, identifiersFromState(state))
 }
 
+// SessionStateHash returns the canonical hash used by Snapshot.StateHash
+// without building an inline Snapshot or materializing Identifier History.
+// It is intended for local inspection of valid States that may exceed the
+// portable Snapshot transport ceiling.
+func SessionStateHash(state protocol.SessionState) (string, error) {
+	copyState, err := clone(state)
+	if err != nil {
+		return "", err
+	}
+	canonicalizeStateProposalPresentation(&copyState)
+	if err := protocol.ValidateSessionState(copyState); err != nil {
+		return "", fmt.Errorf("validate session state: %w", err)
+	}
+	return hashJSON(copyState)
+}
+
 func snapshotWithIdentifiers(
 	state protocol.SessionState,
 	identifiers protocol.IdentifierHistory,

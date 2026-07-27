@@ -99,3 +99,35 @@ func TestReplayUsesExactRevisionWithoutMutatingCurrentState(t *testing.T) {
 		t.Fatalf("expected revision_not_found, got %v", err)
 	}
 }
+
+func TestReplayStateAndSessionStateHashAvoidInlineSnapshotLimit(t *testing.T) {
+	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	_, _ = engine.CreateSession(createRequest("session.replay-state"))
+	_, _ = engine.Observe(observeRequest(
+		"session.replay-state",
+		"observe.replay-state",
+		"event.replay-state",
+		3,
+	))
+	request := protocol.ReplayRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       "session.replay-state",
+		Revision:        2,
+	}
+	snapshot, err := engine.Replay(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := engine.ReplayState(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateHash, err := rintime.SessionStateHash(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stateHash != snapshot.StateHash {
+		t.Fatalf("State hash = %s, Snapshot hash = %s",
+			stateHash, snapshot.StateHash)
+	}
+}

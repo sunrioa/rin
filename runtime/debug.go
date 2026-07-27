@@ -64,42 +64,16 @@ func (e *Engine) Replay(request protocol.ReplayRequest) (protocol.Snapshot, erro
 	if err := protocol.ValidateReplay(request); err != nil {
 		return protocol.Snapshot{}, validationError(err)
 	}
-	session, err := e.session(request.SessionID)
+	state, identifierCapture, err := e.replayState(request)
 	if err != nil {
 		return protocol.Snapshot{}, err
 	}
-	session.mu.Lock()
-	currentRevision := session.state.Revision
-	currentLineageEpoch := session.lineageEpoch
-	if request.Revision > currentRevision {
-		session.mu.Unlock()
-		return protocol.Snapshot{}, NewFieldError("revision_not_found", "requested revision does not exist", "revision", ErrNotFound)
-	}
-	identifierCapture := session.identifiers.capture()
-	session.mu.Unlock()
 	identifiers, err := identifierCapture.materialize()
 	if err != nil {
 		return protocol.Snapshot{}, NewError(
 			"replay_failed",
 			"could not capture current identifier history",
 			err,
-		)
-	}
-	state, _, targetLineageEpoch, err := e.loadSessionThrough(
-		request.SessionID,
-		request.Revision,
-	)
-	if err != nil {
-		return protocol.Snapshot{}, err
-	}
-	if state.Revision != request.Revision {
-		return protocol.Snapshot{}, NewFieldError("revision_not_found", "requested revision does not exist", "revision", ErrNotFound)
-	}
-	if targetLineageEpoch > currentLineageEpoch {
-		return protocol.Snapshot{}, NewError(
-			"replay_failed",
-			"replayed lineage is newer than the captured session",
-			ErrCorruptLog,
 		)
 	}
 	snapshot, err := snapshotWithIdentifiers(state, identifiers)
@@ -110,6 +84,71 @@ func (e *Engine) Replay(request protocol.ReplayRequest) (protocol.Snapshot, erro
 		return protocol.Snapshot{}, NewError("replay_failed", "could not snapshot replayed state", err)
 	}
 	return snapshot, nil
+}
+
+// ReplayState reconstructs a Session State at an exact event-log revision
+// without applying the public inline Snapshot size ceiling. It is suitable for
+// local inspection; callers that need a portable restore artifact must use
+// Replay or Session Transfer.
+func (e *Engine) ReplayState(
+	request protocol.ReplayRequest,
+) (protocol.SessionState, error) {
+	finish, err := e.beginOperation()
+	if err != nil {
+		return protocol.SessionState{}, err
+	}
+	defer finish()
+	if err := protocol.ValidateReplay(request); err != nil {
+		return protocol.SessionState{}, validationError(err)
+	}
+	state, _, err := e.replayState(request)
+	return state, err
+}
+
+func (e *Engine) replayState(
+	request protocol.ReplayRequest,
+) (protocol.SessionState, identifierLedger, error) {
+	session, err := e.session(request.SessionID)
+	if err != nil {
+		return protocol.SessionState{}, identifierLedger{}, err
+	}
+	session.mu.Lock()
+	currentRevision := session.state.Revision
+	currentLineageEpoch := session.lineageEpoch
+	if request.Revision > currentRevision {
+		session.mu.Unlock()
+		return protocol.SessionState{}, identifierLedger{}, NewFieldError(
+			"revision_not_found",
+			"requested revision does not exist",
+			"revision",
+			ErrNotFound,
+		)
+	}
+	identifierCapture := session.identifiers.capture()
+	session.mu.Unlock()
+	state, _, targetLineageEpoch, err := e.loadSessionThrough(
+		request.SessionID,
+		request.Revision,
+	)
+	if err != nil {
+		return protocol.SessionState{}, identifierLedger{}, err
+	}
+	if state.Revision != request.Revision {
+		return protocol.SessionState{}, identifierLedger{}, NewFieldError(
+			"revision_not_found",
+			"requested revision does not exist",
+			"revision",
+			ErrNotFound,
+		)
+	}
+	if targetLineageEpoch > currentLineageEpoch {
+		return protocol.SessionState{}, identifierLedger{}, NewError(
+			"replay_failed",
+			"replayed lineage is newer than the captured session",
+			ErrCorruptLog,
+		)
+	}
+	return state, identifierCapture, nil
 }
 
 func (e *Engine) loadTimelineEvents(

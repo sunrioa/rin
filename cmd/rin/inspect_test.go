@@ -75,6 +75,138 @@ func TestRunInspectPrintsVerifiedRedactedSummary(t *testing.T) {
 	}
 }
 
+func TestRunInspectHelpIsSuccessfulAndVisible(t *testing.T) {
+	var output bytes.Buffer
+	if err := runInspect([]string{"--help"}, &output); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"Usage of rin inspect:", "-data", "-session"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("help output omitted %q: %s", expected, output.String())
+		}
+	}
+}
+
+func TestRunInspectSupportsStateAboveInlineSnapshotLimit(t *testing.T) {
+	directory := t.TempDir()
+	fileStore, err := store.OpenFile(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := rintime.OpenWithOptions(
+		fileStore,
+		policy.Deterministic{},
+		rintime.EngineOptions{
+			MaxSessionStateBytes: rintime.MaxConfigurableSessionStateBytes,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := largeInspectCreateRequest()
+	if _, err := engine.CreateSession(request); err != nil {
+		t.Fatal(err)
+	}
+	state, err := engine.State(protocol.SessionRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       request.SessionID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(encoded) <= rintime.MaxInlineSnapshotBytes ||
+		uint64(len(encoded)) > rintime.MaxConfigurableSessionStateBytes {
+		t.Fatalf("test State size = %d, want (%d, %d]",
+			len(encoded),
+			rintime.MaxInlineSnapshotBytes,
+			rintime.MaxConfigurableSessionStateBytes)
+	}
+	if err := engine.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := fileStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	var output bytes.Buffer
+	if err := runInspect([]string{
+		"-data", directory,
+		"-session", request.SessionID,
+		"-revision", "1",
+		"-timeline-limit", "0",
+	}, &output); err != nil {
+		t.Fatal(err)
+	}
+	var result inspectOutput
+	if err := json.Unmarshal(output.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.SessionID != request.SessionID || result.Revision != 1 ||
+		result.ActorCount != 128 || result.StateHash == "" {
+		t.Fatalf("large State inspection = %+v", result)
+	}
+}
+
+func largeInspectCreateRequest() protocol.CreateSessionRequest {
+	actors := make([]protocol.ActorSeed, 128)
+	for actorIndex := range actors {
+		actor := protocol.ActorSeed{
+			ID:              fmt.Sprintf("npc.inspect-large.%03d", actorIndex),
+			Kind:            "npc",
+			DisplayName:     strings.Repeat("角", 120),
+			ThinkEveryTicks: 1,
+			Enabled:         true,
+			Metadata:        make(map[string]string, 32),
+			Boundaries:      make([]protocol.Boundary, 24),
+			Goals:           make([]protocol.Goal, 32),
+		}
+		for index := 0; index < 32; index++ {
+			actor.Metadata[fmt.Sprintf("meta.%02d", index)] =
+				strings.Repeat("界", 500)
+			actor.Goals[index] = protocol.Goal{
+				ID:             fmt.Sprintf("goal.%02d", index),
+				Description:    strings.Repeat("愿", 300),
+				Motivation:     strings.Repeat("因", 300),
+				Priority:       1,
+				TargetProgress: 1,
+				Status:         "active",
+			}
+		}
+		for index := range actor.Boundaries {
+			actor.Boundaries[index] = protocol.Boundary{
+				ID:          fmt.Sprintf("boundary.%02d", index),
+				Description: strings.Repeat("界", 300),
+				Response:    "refuse",
+			}
+		}
+		for index := 0; index < 24; index++ {
+			actor.Traits = append(actor.Traits, fmt.Sprintf(
+				"trait.%02d.%s",
+				index,
+				strings.Repeat("t", 80),
+			))
+		}
+		actors[actorIndex] = actor
+	}
+	return protocol.CreateSessionRequest{
+		ProtocolVersion: protocol.Version,
+		RequestID:       "create.inspect-large",
+		SessionID:       "session.inspect-large",
+		Binding: protocol.Binding{
+			GameID:         "game.inspect",
+			ContentID:      "large-state",
+			ContentVersion: "1",
+			ContentHash:    strings.Repeat("a", 64),
+		},
+		Features: protocol.RecommendedFeatures(),
+		Actors:   actors,
+	}
+}
+
 func TestInspectTimelineReadsOnlyRequestedTail(t *testing.T) {
 	counted := &inspectRangeCountingStore{Memory: store.NewMemory()}
 	engine, err := rintime.Open(counted, policy.Deterministic{})
