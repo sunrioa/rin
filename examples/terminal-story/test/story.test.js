@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readdir, readFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -177,6 +184,24 @@ test("stale acknowledgement cannot delete a replaced Outbox report", async () =>
   assert.equal(remaining[0].report.summary, "replacement");
 });
 
+test("Outbox listing refreshes the save while holding the cross-process lock", async () => {
+  const writer = await temporaryStore();
+  const drainer = await new StoryWorkflowStore(writer.path).load();
+  assert.deepEqual(await drainer.listOutcomeReports(), []);
+
+  await writer.commit((next) => {
+    next.outbox.push({
+      key: "report.fixture",
+      report: { request_id: "report.fixture" },
+    });
+  });
+
+  assert.deepEqual(await drainer.listOutcomeReports(), [{
+    key: "report.fixture",
+    report: { request_id: "report.fixture" },
+  }]);
+});
+
 test("a second Store cannot mutate while the save lock is held", async () => {
   const first = await temporaryStore();
   const second = await new StoryWorkflowStore(first.path).load();
@@ -204,6 +229,75 @@ test("a second Store cannot mutate while the save lock is held", async () => {
   await firstCommit;
   await second.rememberPreference("coffee");
   assert.equal(second.game.preference, "coffee");
+});
+
+test("an orphaned lock fails closed until an operator removes it", async () => {
+  const store = await temporaryStore();
+  const lockPath = `${store.path}.lock`;
+  await writeFile(lockPath, `${JSON.stringify({
+    version: 1,
+    host: "fixture.invalid",
+    pid: 2147483647,
+    token: "orphan.fixture",
+  })}\n`);
+
+  await assert.rejects(
+    store.rememberPreference("tea"),
+    (error) => error.code === "story_save_busy",
+  );
+  assert.equal(store.game.preference, "");
+
+  await unlink(lockPath);
+  await store.rememberPreference("tea");
+  assert.equal(store.game.preference, "tea");
+});
+
+test("uncertain lock release preserves a committed result and freezes writes", async () => {
+  const store = await temporaryStore();
+  const acquire = store.acquireSaveLock.bind(store);
+  store.acquireSaveLock = async () => {
+    const release = await acquire();
+    return async () => {
+      await release();
+      throw new Error("injected release failure");
+    };
+  };
+
+  await store.rememberPreference("tea");
+  assert.equal(
+    JSON.parse(await readFile(store.path, "utf8")).game.preference,
+    "tea",
+  );
+  await assert.rejects(
+    store.rememberPreference("coffee"),
+    /lock release is uncertain/,
+  );
+
+  store.acquireSaveLock = acquire;
+  await store.load();
+  await store.rememberPreference("coffee");
+  assert.equal(store.game.preference, "coffee");
+});
+
+test("a lock release failure does not replace the mutation error", async () => {
+  const store = await temporaryStore();
+  const acquire = store.acquireSaveLock.bind(store);
+  store.acquireSaveLock = async () => {
+    const release = await acquire();
+    return async () => {
+      await release();
+      throw new Error("injected release failure");
+    };
+  };
+  const mutationFailure = new Error("injected mutation failure");
+
+  await assert.rejects(
+    store.commit(() => {
+      throw mutationFailure;
+    }),
+    (error) => error === mutationFailure,
+  );
+  assert.equal(store.lockReleaseUncertain, true);
 });
 
 test("failed file replacement keeps memory unchanged and removes its temporary file", async () => {

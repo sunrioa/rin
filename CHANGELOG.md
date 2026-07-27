@@ -126,6 +126,10 @@ across every future minor release.
   remote listening, Bearer authentication, and TLS reverse-proxy termination
   are all declared. Same-host TLS proxy plus loopback Rin is the documented
   production path.
+- Terminal Story save mutations now use a cross-process disk CAS, refresh the
+  Outbox under that lease, preserve a successful durable commit when lock
+  release is uncertain, and fail closed on every pre-existing lock instead of
+  attempting racy PID-based recovery.
 
 ## [0.6.0] - 2026-07-24 - Preview
 

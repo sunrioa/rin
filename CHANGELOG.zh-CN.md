@@ -105,6 +105,9 @@
   并尝试兼容 Windows 的 Python 命令名。
 - 非 Loopback 监听若未同时声明远程监听、Bearer 鉴权与 TLS Reverse Proxy
   终止，会在接触数据目录前失败；正式路径是同机 TLS Proxy 加 Loopback Rin。
+- Terminal Story 存档变更现在使用跨进程磁盘 CAS，在 Lease 内刷新 Outbox；
+  Lock Release 结果不确定时保留已经成功的持久提交，并对所有已存在 Lock
+  Fail Closed，不再尝试存在竞态的 PID 自动恢复。
 
 ## [0.6.0] - 2026-07-24 - Preview
 

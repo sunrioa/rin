@@ -78,9 +78,13 @@ flight.
 
 Every mutation takes a short cross-process hard-link lease and re-reads the
 current file while holding it. This makes the complete-entry comparison a disk
-CAS instead of an in-memory check. A lock left by a dead process on the same
-host is recovered after confirming its PID is gone; an unreadable, foreign-host,
-or live lock fails closed as `story_save_busy`.
+CAS instead of an in-memory check. The Store never steals an existing lock:
+automatic PID-based recovery has PID-reuse and check/use races. Any existing
+lock therefore fails closed as `story_save_busy`. After a crash, remove the
+exact `<save-path>.lock` file only after confirming that no writer still uses
+that save. If lock release itself is uncertain, the committing call keeps its
+successful result and freezes later writes until `load()` reacquires the lease
+and refreshes the save.
 
 For a non-interactive run:
 

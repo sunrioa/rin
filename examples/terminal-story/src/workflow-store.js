@@ -31,6 +31,7 @@ export class StoryWorkflowStore {
     this.path = path;
     this.document = structuredClone(EMPTY_DOCUMENT);
     this.committing = false;
+    this.lockReleaseUncertain = false;
     this.publicationUncertain = false;
     this.settlementDraft = null;
   }
@@ -53,6 +54,10 @@ export class StoryWorkflowStore {
     }
     if (this.publicationUncertain) {
       await this.reconcileUncertainPublication();
+      return this;
+    }
+    if (this.lockReleaseUncertain) {
+      await this.reconcileUncertainLockRelease();
       return this;
     }
     this.document = await readDocument(this.path);
@@ -163,7 +168,30 @@ export class StoryWorkflowStore {
   }
 
   async listOutcomeReports() {
-    return clone(this.document.outbox);
+    if (this.committing) {
+      throw new Error("cannot list Outcome Reports during a story save mutation");
+    }
+    if (this.publicationUncertain || this.lockReleaseUncertain) {
+      throw new Error("reload the story save before draining its Outcome Outbox");
+    }
+    await this.makeDirectoryTreeDurable(dirname(this.path));
+    const release = await this.acquireSaveLock();
+    let reports;
+    let failure;
+    try {
+      this.document = await readDocument(this.path);
+      reports = clone(this.document.outbox);
+    } catch (error) {
+      failure = error;
+    }
+    try {
+      await release();
+    } catch (error) {
+      this.lockReleaseUncertain = true;
+      if (!failure) failure = error;
+    }
+    if (failure) throw failure;
+    return reports;
   }
 
   async acknowledgeOutcome(entry) {
@@ -183,41 +211,82 @@ export class StoryWorkflowStore {
         "story save publication is uncertain; reload before another mutation",
       );
     }
+    if (this.lockReleaseUncertain) {
+      throw new Error(
+        "story save lock release is uncertain; reload before another mutation",
+      );
+    }
     if (this.committing) {
       throw new Error("concurrent story save mutation is not allowed");
     }
     this.committing = true;
     let release;
+    let failure;
     try {
       await this.makeDirectoryTreeDurable(dirname(this.path));
-      release = await acquireStorySaveLock(this.path);
+      release = await this.acquireSaveLock();
       this.document = await readDocument(this.path);
       const next = clone(this.document);
       const disposition = await mutate(next);
       validateDocument(next);
       if (disposition === NO_CHANGE) {
         this.document = next;
-        return;
-      }
-      try {
-        await this.publish(next, true);
-      } catch (error) {
-        if (error instanceof StoryPublicationUncertainError) {
-          // Rename already made this the only defensible in-process view.
-          // Block later writes until load() reconciles it with the filesystem.
-          this.document = next;
-          this.publicationUncertain = true;
+      } else {
+        try {
+          await this.publish(next, true);
+        } catch (error) {
+          if (error instanceof StoryPublicationUncertainError) {
+            // Rename already made this the only defensible in-process view.
+            // Block later writes until load() reconciles it with the filesystem.
+            this.document = next;
+            this.publicationUncertain = true;
+          }
+          throw error;
         }
-        throw error;
+        this.document = next;
       }
-      this.document = next;
-    } finally {
-      try {
-        if (release) await release();
-      } finally {
-        this.committing = false;
-      }
+    } catch (error) {
+      failure = error;
     }
+    try {
+      if (release) await release();
+    } catch (error) {
+      this.lockReleaseUncertain = true;
+    } finally {
+      this.committing = false;
+    }
+    if (failure) {
+      throw failure;
+    }
+  }
+
+  async acquireSaveLock() {
+    return acquireStorySaveLock(this.path);
+  }
+
+  async releaseAfterReconciliation(release, failure) {
+    try {
+      await release();
+    } catch (error) {
+      this.lockReleaseUncertain = true;
+      if (!failure) failure = error;
+    }
+    if (failure) {
+      throw failure;
+    }
+  }
+
+  async reconcileUncertainLockRelease() {
+    await this.makeDirectoryTreeDurable(dirname(this.path));
+    const release = await this.acquireSaveLock();
+    let failure;
+    try {
+      this.document = await readDocument(this.path);
+      this.lockReleaseUncertain = false;
+    } catch (error) {
+      failure = error;
+    }
+    await this.releaseAfterReconciliation(release, failure);
   }
 
   async publish(document, directoryPrepared = false) {
@@ -274,7 +343,8 @@ export class StoryWorkflowStore {
 
   async reconcileUncertainPublication() {
     await this.makeDirectoryTreeDurable(dirname(this.path));
-    const release = await acquireStorySaveLock(this.path);
+    const release = await this.acquireSaveLock();
+    let failure;
     try {
       const document = await readDocument(this.path);
       try {
@@ -284,9 +354,10 @@ export class StoryWorkflowStore {
       }
       this.document = document;
       this.publicationUncertain = false;
-    } finally {
-      await release();
+    } catch (error) {
+      failure = error;
     }
+    await this.releaseAfterReconciliation(release, failure);
   }
 }
 
@@ -365,86 +436,45 @@ async function syncPath(path, flags) {
 
 async function acquireStorySaveLock(path) {
   const lockPath = `${path}.lock`;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const token = randomUUID();
-    const candidate = `${lockPath}.${process.pid}.${token}.candidate`;
-    const owner = {
-      version: 1,
-      host: hostname(),
-      pid: process.pid,
-      token,
-    };
+  const token = randomUUID();
+  const candidate = `${lockPath}.${process.pid}.${token}.candidate`;
+  const owner = {
+    version: 1,
+    host: hostname(),
+    pid: process.pid,
+    token,
+  };
+  try {
+    const handle = await open(candidate, "wx");
     try {
-      const handle = await open(candidate, "wx");
-      try {
-        await handle.writeFile(`${JSON.stringify(owner)}\n`, "utf8");
-        await handle.sync();
-      } finally {
-        await handle.close();
-      }
-    } catch (error) {
-      await unlink(candidate).catch(() => {});
-      throw error;
+      await handle.writeFile(`${JSON.stringify(owner)}\n`, "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
     }
-    try {
-      await link(candidate, lockPath);
-    } catch (error) {
-      await unlink(candidate).catch(() => {});
-      if (error?.code !== "EEXIST" ||
-          attempt > 0 ||
-          !await recoverDeadStorySaveLock(lockPath)) {
-        throw storySaveBusy(error);
-      }
-      continue;
-    }
+  } catch (error) {
     await unlink(candidate).catch(() => {});
-    return async () => {
-      let current;
-      try {
-        current = JSON.parse(await readFile(lockPath, "utf8"));
-      } catch (error) {
-        throw storySaveBusy(error);
-      }
-      if (current?.token !== token) {
-        throw storySaveBusy(new Error("story save lock ownership changed"));
-      }
-      await unlink(lockPath);
-    };
+    throw error;
   }
-  throw storySaveBusy(new Error("story save lock could not be acquired"));
-}
-
-async function recoverDeadStorySaveLock(lockPath) {
-  let owner;
   try {
-    owner = JSON.parse(await readFile(lockPath, "utf8"));
+    await link(candidate, lockPath);
   } catch (error) {
-    if (error?.code === "ENOENT") return true;
-    return false;
+    await unlink(candidate).catch(() => {});
+    throw storySaveBusy(error);
   }
-  if (owner?.host !== hostname() ||
-      !Number.isSafeInteger(owner?.pid) ||
-      owner.pid < 1 ||
-      processExists(owner.pid)) {
-    return false;
-  }
-  const stale = `${lockPath}.${randomUUID()}.stale`;
-  try {
-    await rename(lockPath, stale);
-  } catch (error) {
-    return error?.code === "ENOENT";
-  }
-  await unlink(stale);
-  return true;
-}
-
-function processExists(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error?.code !== "ESRCH";
-  }
+  await unlink(candidate).catch(() => {});
+  return async () => {
+    let current;
+    try {
+      current = JSON.parse(await readFile(lockPath, "utf8"));
+    } catch (error) {
+      throw storySaveBusy(error);
+    }
+    if (current?.token !== token) {
+      throw storySaveBusy(new Error("story save lock ownership changed"));
+    }
+    await unlink(lockPath);
+  };
 }
 
 function storySaveBusy(cause) {

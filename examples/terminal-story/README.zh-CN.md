@@ -64,9 +64,12 @@ Rename 前的旧 Document 写入。Outcome ACK 还会比较完整的持久化条
 ACK 不能删除请求在途期间发生变化的同 Key Report。
 
 每次变更都会取得一个短时、跨进程的 Hard-link Lease，并在持有期间重新读取当前
-文件，使完整条目比较成为磁盘 CAS，而不是内存检查。同一 Host 上进程遗留的 Lock
-只有在确认 PID 已退出后才会恢复；Lock 不可读、来自其他 Host 或仍被存活进程持有
-时会以 `story_save_busy` Fail Closed。
+文件，使完整条目比较成为磁盘 CAS，而不是内存检查。Store 不会抢占已有 Lock：
+按 PID 自动恢复会受到 PID 复用和检查/使用竞态影响，因此任何已有 Lock 都会以
+`story_save_busy` Fail Closed。进程崩溃后，只有在确认没有 Writer 仍使用该存档时，
+才能由运维人员删除准确的 `<存档路径>.lock` 文件。如果 Lock Release 的结果不确定，
+已成功的提交仍按成功返回，但后续写入会被冻结，直到 `load()` 重新取得 Lease 并
+刷新存档。
 
 非交互运行：
 
