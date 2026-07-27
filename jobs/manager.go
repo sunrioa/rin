@@ -219,7 +219,24 @@ func (m *Manager) Get(jobID string) (protocol.ProposalJob, error) {
 	return cloneJob(state.public), nil
 }
 
-func (m *Manager) Cancel(jobID string) (protocol.ProposalJob, error) {
+func (m *Manager) Cancel(
+	ctx context.Context,
+	jobID string,
+) (protocol.ProposalJob, error) {
+	if ctx == nil {
+		return protocol.ProposalJob{}, rinruntime.NewError(
+			"invalid_request",
+			"proposal cancellation context is required",
+			nil,
+		)
+	}
+	if err := ctx.Err(); err != nil {
+		return protocol.ProposalJob{}, rinruntime.NewError(
+			"job_cancel_incomplete",
+			"proposal cancellation did not reach a terminal state",
+			err,
+		)
+	}
 	m.mu.Lock()
 	state, exists := m.jobs[jobID]
 	if !exists {
@@ -251,7 +268,15 @@ func (m *Manager) Cancel(jobID string) (protocol.ProposalJob, error) {
 	// either cancellation prevented the event, or a persisted Proposal won the
 	// race and must be returned instead of hidden behind a transient canceled
 	// response.
-	<-done
+	select {
+	case <-done:
+	case <-ctx.Done():
+		return protocol.ProposalJob{}, rinruntime.NewError(
+			"job_cancel_incomplete",
+			"proposal cancellation did not reach a terminal state",
+			ctx.Err(),
+		)
+	}
 	m.mu.Lock()
 	result := cloneJob(state.public)
 	m.mu.Unlock()

@@ -193,6 +193,12 @@ Session identity ledger returns the original Proposal even though the
 process-local Job record is reconstructed. Job timestamps and intermediate
 status are not durable.
 
+Canceling a running Proposal Job waits only within the caller's request
+context. If the policy or Store has not published the authoritative race result
+before that deadline, DELETE returns `408 job_cancel_incomplete`; callers must
+continue polling or exact-retry and must not assume that no Proposal was
+persisted.
+
 ### Structured generation
 
 `generation.Manager` provides another bounded asynchronous queue for
@@ -201,6 +207,11 @@ read Session State or write to the event log. Same-request deduplication lasts
 only while the process-local Job record is retained; semantic content after
 removing the request ID is cached briefly. After eviction or restart, an exact
 request may invoke the provider again. Cancellation propagates to the provider.
+
+Encoded Generation requests, retained Job results, and semantic-cache results
+share a 64 MiB default payload budget. Active requests are never evicted;
+expired entries are cleaned by a joined periodic worker, and terminal Jobs or
+old cache entries are evicted before a new payload is admitted.
 
 Generation guarantees only transport, size, and a valid top-level JSON
 object. Each game must still validate its own `ScenePacket`, quest, dialogue,

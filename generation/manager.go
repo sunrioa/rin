@@ -23,16 +23,23 @@ var (
 	ErrQueueFull   = errors.New("generation job queue is full")
 	ErrClosed      = errors.New("generation job manager is closed")
 	ErrOutputLimit = errors.New("generation output exceeds the configured limit")
+	ErrMemoryLimit = errors.New("generation retained-memory limit reached")
 )
 
+// The terminal transition can add a timestamp plus a protocol-bounded error.
+// Four KiB covers the worst-case UTF-8 encoding of those fields.
+const generationJobTransitionReserve uint64 = 4 << 10
+
 type Config struct {
-	Workers        int
-	QueueSize      int
-	MaxJobs        int
-	JobTTL         time.Duration
-	CacheEntries   int
-	CacheTTL       time.Duration
-	MaxOutputBytes int
+	Workers          int
+	QueueSize        int
+	MaxJobs          int
+	JobTTL           time.Duration
+	CacheEntries     int
+	CacheTTL         time.Duration
+	MaxOutputBytes   int
+	MaxRetainedBytes uint64
+	CleanupInterval  time.Duration
 }
 
 type Manager struct {
@@ -42,41 +49,48 @@ type Manager struct {
 	cancel   context.CancelFunc
 	queue    chan string
 
-	mu        sync.Mutex
-	jobs      map[string]*jobState
-	byRequest map[string]string
-	cache     map[string]cacheEntry
-	closed    bool
-	now       func() time.Time
-	wait      sync.WaitGroup
-	done      chan struct{}
+	mu            sync.Mutex
+	jobs          map[string]*jobState
+	byRequest     map[string]string
+	cache         map[string]cacheEntry
+	retainedBytes uint64
+	closed        bool
+	now           func() time.Time
+	wait          sync.WaitGroup
+	done          chan struct{}
 }
 
 type jobState struct {
 	public       protocol.GenerationJob
 	request      protocol.GenerationRequest
+	requestID    string
 	requestHash  string
 	semanticHash string
+	requestBytes uint64
+	publicBytes  uint64
 	cancel       context.CancelFunc
 	ctx          context.Context
 	completedAt  time.Time
 }
 
 type cacheEntry struct {
-	result    protocol.GenerationResult
-	createdAt time.Time
+	result        protocol.GenerationResult
+	createdAt     time.Time
+	retainedBytes uint64
 }
 
 type Diagnostics struct {
-	Workers       int                         `json:"workers"`
-	QueueDepth    int                         `json:"queue_depth"`
-	QueueCapacity int                         `json:"queue_capacity"`
-	Retained      int                         `json:"retained"`
-	MaxRetained   int                         `json:"max_retained"`
-	CacheEntries  int                         `json:"cache_entries"`
-	ByStatus      map[string]int              `json:"by_status"`
-	Closed        bool                        `json:"closed"`
-	Provider      provider.CircuitDiagnostics `json:"provider"`
+	Workers          int                         `json:"workers"`
+	QueueDepth       int                         `json:"queue_depth"`
+	QueueCapacity    int                         `json:"queue_capacity"`
+	Retained         int                         `json:"retained"`
+	MaxRetained      int                         `json:"max_retained"`
+	CacheEntries     int                         `json:"cache_entries"`
+	RetainedBytes    uint64                      `json:"retained_bytes"`
+	MaxRetainedBytes uint64                      `json:"max_retained_bytes"`
+	ByStatus         map[string]int              `json:"by_status"`
+	Closed           bool                        `json:"closed"`
+	Provider         provider.CircuitDiagnostics `json:"provider"`
 }
 
 func (m *Manager) Diagnostics() Diagnostics {
@@ -86,15 +100,17 @@ func (m *Manager) Diagnostics() Diagnostics {
 		byStatus[state.public.Status]++
 	}
 	result := Diagnostics{
-		Workers:       m.config.Workers,
-		QueueDepth:    len(m.queue),
-		QueueCapacity: cap(m.queue),
-		Retained:      len(m.jobs),
-		MaxRetained:   m.config.MaxJobs,
-		CacheEntries:  len(m.cache),
-		ByStatus:      byStatus,
-		Closed:        m.closed,
-		Provider:      provider.CircuitDiagnostics{State: "unavailable"},
+		Workers:          m.config.Workers,
+		QueueDepth:       len(m.queue),
+		QueueCapacity:    cap(m.queue),
+		Retained:         len(m.jobs),
+		MaxRetained:      m.config.MaxJobs,
+		CacheEntries:     len(m.cache),
+		RetainedBytes:    m.retainedBytes,
+		MaxRetainedBytes: m.config.MaxRetainedBytes,
+		ByStatus:         byStatus,
+		Closed:           m.closed,
+		Provider:         provider.CircuitDiagnostics{State: "unavailable"},
 	}
 	m.mu.Unlock()
 	if diagnostics, ok := m.provider.(interface {
@@ -150,6 +166,25 @@ func New(
 	if config.MaxOutputBytes < 1024 || config.MaxOutputBytes > 4*1024*1024 {
 		return nil, errors.New("generation output limit must be between 1 KiB and 4 MiB")
 	}
+	if config.MaxRetainedBytes == 0 {
+		config.MaxRetainedBytes = 64 << 20
+	}
+	minimumRetained := uint64(config.MaxOutputBytes)*2 + (64 << 10)
+	if config.MaxRetainedBytes < minimumRetained ||
+		config.MaxRetainedBytes > 1<<30 {
+		return nil, errors.New(
+			"generation retained-memory limit must fit two outputs plus 64 KiB and not exceed 1 GiB",
+		)
+	}
+	if config.CleanupInterval == 0 {
+		config.CleanupInterval = time.Minute
+	}
+	if config.CleanupInterval < 10*time.Millisecond ||
+		config.CleanupInterval > time.Hour {
+		return nil, errors.New(
+			"generation cleanup interval must be between 10 ms and 1 hour",
+		)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	manager := &Manager{
@@ -162,6 +197,8 @@ func New(
 		manager.wait.Add(1)
 		go manager.worker()
 	}
+	manager.wait.Add(1)
+	go manager.cleanupWorker()
 	go func() {
 		manager.wait.Wait()
 		close(manager.done)
@@ -173,7 +210,7 @@ func (m *Manager) Submit(request protocol.GenerationRequest) (protocol.Generatio
 	if err := protocol.ValidateGeneration(request); err != nil {
 		return protocol.GenerationJobSubmission{}, rinruntime.NewFieldError("invalid_request", err.Error(), validationField(err), err)
 	}
-	requestHash, semanticHash, err := hashRequests(request)
+	requestHash, semanticHash, requestBytes, err := hashRequests(request)
 	if err != nil {
 		return protocol.GenerationJobSubmission{}, rinruntime.NewError("job_encode_failed", "could not encode generation job", err)
 	}
@@ -206,7 +243,9 @@ func (m *Manager) Submit(request protocol.GenerationRequest) (protocol.Generatio
 			Kind: request.Kind, ContextHash: request.ContextHash, Status: "queued",
 			SubmittedAt: now.UTC().Format(time.RFC3339Nano),
 		},
-		request: request, requestHash: requestHash, semanticHash: semanticHash,
+		request: request, requestID: request.RequestID,
+		requestHash: requestHash, semanticHash: semanticHash,
+		requestBytes: requestBytes + generationJobTransitionReserve,
 	}
 	if cached, ok := m.cache[semanticHash]; ok && now.Sub(cached.createdAt) < m.config.CacheTTL {
 		result := cloneResult(cached.result)
@@ -216,7 +255,28 @@ func (m *Manager) Submit(request protocol.GenerationRequest) (protocol.Generatio
 		state.public.FinishedAt = state.public.SubmittedAt
 		state.public.Result = &result
 		state.completedAt = now
-		m.jobs[jobID] = state
+		state.request = protocol.GenerationRequest{}
+		state.requestBytes = 0
+		publicBytes, err := encodedSize(state.public)
+		if err != nil {
+			return protocol.GenerationJobSubmission{},
+				rinruntime.NewError(
+					"job_encode_failed",
+					"could not size generation job",
+					err,
+				)
+		}
+		state.publicBytes = publicBytes
+		if !m.ensureRetainedCapacity(
+			0,
+			publicBytes,
+			"",
+			semanticHash,
+		) {
+			return protocol.GenerationJobSubmission{},
+				generationMemoryLimitError()
+		}
+		m.addJob(jobID, state)
 		m.byRequest[request.RequestID] = jobID
 		return protocol.GenerationJobSubmission{ProtocolVersion: protocol.Version, JobID: jobID, Status: "succeeded"}, nil
 	}
@@ -224,14 +284,34 @@ func (m *Manager) Submit(request protocol.GenerationRequest) (protocol.Generatio
 	jobContext, cancel := context.WithCancel(m.ctx)
 	state.cancel = cancel
 	state.ctx = jobContext
-	m.jobs[jobID] = state
+	publicBytes, err := encodedSize(state.public)
+	if err != nil {
+		cancel()
+		return protocol.GenerationJobSubmission{},
+			rinruntime.NewError(
+				"job_encode_failed",
+				"could not size generation job",
+				err,
+			)
+	}
+	state.publicBytes = publicBytes
+	if !m.ensureRetainedCapacity(
+		0,
+		state.requestBytes+state.publicBytes,
+		"",
+		"",
+	) {
+		cancel()
+		return protocol.GenerationJobSubmission{},
+			generationMemoryLimitError()
+	}
+	m.addJob(jobID, state)
 	m.byRequest[request.RequestID] = jobID
 	select {
 	case m.queue <- jobID:
 		return protocol.GenerationJobSubmission{ProtocolVersion: protocol.Version, JobID: jobID, Status: "queued"}, nil
 	default:
-		delete(m.jobs, jobID)
-		delete(m.byRequest, request.RequestID)
+		m.deleteJob(jobID, state)
 		cancel()
 		return protocol.GenerationJobSubmission{}, rinruntime.NewError("generation_queue_full", "generation job queue is full", ErrQueueFull)
 	}
@@ -259,9 +339,17 @@ func (m *Manager) Cancel(jobID string) (protocol.GenerationJob, error) {
 	}
 	state.cancel()
 	now := m.now()
-	state.public.Status = "canceled"
-	state.public.FinishedAt = now.UTC().Format(time.RFC3339Nano)
-	state.public.Error = protocol.NewErrorDetail("job_canceled", "generation job was canceled", "")
+	public := state.public
+	public.Status = "canceled"
+	public.FinishedAt = now.UTC().Format(time.RFC3339Nano)
+	public.Error = protocol.NewErrorDetail(
+		"job_canceled",
+		"generation job was canceled",
+		"",
+	)
+	if !m.replaceJob(jobID, state, public, true) {
+		return protocol.GenerationJob{}, generationMemoryLimitError()
+	}
 	state.completedAt = now
 	return cloneJob(state.public), nil
 }
@@ -275,9 +363,20 @@ func (m *Manager) Close(ctx context.Context) error {
 		for _, state := range m.jobs {
 			if !terminal(state.public.Status) {
 				state.cancel()
-				state.public.Status = "canceled"
-				state.public.FinishedAt = now.UTC().Format(time.RFC3339Nano)
-				state.public.Error = protocol.NewErrorDetail("generation_closed", "generation job manager stopped", "")
+				public := state.public
+				public.Status = "canceled"
+				public.FinishedAt = now.UTC().Format(time.RFC3339Nano)
+				public.Error = protocol.NewErrorDetail(
+					"generation_closed",
+					"generation job manager stopped",
+					"",
+				)
+				_ = m.replaceJob(
+					state.public.JobID,
+					state,
+					public,
+					true,
+				)
 				state.completedAt = now
 			}
 		}
@@ -303,6 +402,22 @@ func (m *Manager) worker() {
 	}
 }
 
+func (m *Manager) cleanupWorker() {
+	defer m.wait.Done()
+	ticker := time.NewTicker(m.config.CleanupInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		case now := <-ticker.C:
+			m.mu.Lock()
+			m.cleanup(now)
+			m.mu.Unlock()
+		}
+	}
+}
+
 func (m *Manager) run(jobID string) {
 	m.mu.Lock()
 	state, exists := m.jobs[jobID]
@@ -310,8 +425,23 @@ func (m *Manager) run(jobID string) {
 		m.mu.Unlock()
 		return
 	}
-	state.public.Status = "running"
-	state.public.StartedAt = m.now().UTC().Format(time.RFC3339Nano)
+	public := state.public
+	public.Status = "running"
+	public.StartedAt = m.now().UTC().Format(time.RFC3339Nano)
+	if !m.replaceJob(jobID, state, public, false) {
+		failed := state.public
+		failed.Status = "failed"
+		failed.FinishedAt = m.now().UTC().Format(time.RFC3339Nano)
+		failed.Error = protocol.NewErrorDetail(
+			"generation_memory_limit",
+			"generation retained-memory capacity is full",
+			"",
+		)
+		_ = m.replaceJob(jobID, state, failed, true)
+		state.completedAt = m.now()
+		m.mu.Unlock()
+		return
+	}
 	request := state.request
 	jobContext := state.ctx
 	m.mu.Unlock()
@@ -338,27 +468,46 @@ func (m *Manager) run(jobID string) {
 	if !exists {
 		return
 	}
+	if state.public.Status == "canceled" {
+		return
+	}
 	if err == nil {
 		result, validationErr := m.validateResult(response)
 		if validationErr != nil {
 			err = validationErr
-		} else if state.public.Status != "canceled" {
-			state.public.Status = "succeeded"
-			state.public.Result = &result
-			state.public.Error = nil
-			m.cache[state.semanticHash] = cacheEntry{result: cloneResult(result), createdAt: now}
-			m.trimCache(now)
-		}
-	}
-	if err != nil && state.public.Status != "canceled" {
-		if errors.Is(err, context.Canceled) {
-			state.public.Status = "canceled"
 		} else {
-			state.public.Status = "failed"
+			public := state.public
+			public.Status = "succeeded"
+			public.Result = &result
+			public.Error = nil
+			public.FinishedAt = now.UTC().Format(time.RFC3339Nano)
+			if m.replaceSuccessfulJob(
+				jobID,
+				state,
+				public,
+				result,
+				now,
+			) {
+				state.completedAt = now
+				m.trimCache(now)
+				return
+			}
+			err = generationMemoryLimitError()
 		}
-		state.public.Error = jobError(err)
 	}
-	state.public.FinishedAt = now.UTC().Format(time.RFC3339Nano)
+	if err != nil {
+		public := state.public
+		if errors.Is(err, context.Canceled) {
+			public.Status = "canceled"
+		} else {
+			public.Status = "failed"
+		}
+		public.Error = jobError(err)
+		public.FinishedAt = now.UTC().Format(time.RFC3339Nano)
+		// Admission reserves enough bytes for bounded terminal metadata, and
+		// clearing the request releases additional capacity.
+		_ = m.replaceJob(jobID, state, public, true)
+	}
 	state.completedAt = now
 }
 
@@ -428,7 +577,7 @@ func (m *Manager) trimCache(now time.Time) {
 	entries := make([]cached, 0, len(m.cache))
 	for hash, entry := range m.cache {
 		if now.Sub(entry.createdAt) >= m.config.CacheTTL {
-			delete(m.cache, hash)
+			m.deleteCache(hash)
 			continue
 		}
 		entries = append(entries, cached{hash: hash, at: entry.createdAt})
@@ -443,30 +592,219 @@ func (m *Manager) trimCache(now time.Time) {
 		return entries[i].at.Before(entries[j].at)
 	})
 	for len(m.cache) > m.config.CacheEntries && len(entries) > 0 {
-		delete(m.cache, entries[0].hash)
+		m.deleteCache(entries[0].hash)
 		entries = entries[1:]
 	}
 }
 
 func (m *Manager) deleteJob(id string, state *jobState) {
 	delete(m.jobs, id)
-	delete(m.byRequest, state.request.RequestID)
+	delete(m.byRequest, state.requestID)
+	m.retainedBytes -= state.requestBytes + state.publicBytes
 }
 
-func hashRequests(request protocol.GenerationRequest) (string, string, error) {
+func (m *Manager) addJob(id string, state *jobState) {
+	m.jobs[id] = state
+	m.retainedBytes += state.requestBytes + state.publicBytes
+}
+
+func (m *Manager) replaceJob(
+	id string,
+	state *jobState,
+	public protocol.GenerationJob,
+	clearRequest bool,
+) bool {
+	publicBytes, err := encodedSize(public)
+	if err != nil {
+		return false
+	}
+	replaced := state.publicBytes
+	if clearRequest {
+		replaced += state.requestBytes
+	} else {
+		replaced += generationJobTransitionReserve
+		publicBytes += generationJobTransitionReserve
+	}
+	if !m.ensureRetainedCapacity(replaced, publicBytes, id, "") {
+		return false
+	}
+	m.retainedBytes -= replaced
+	m.retainedBytes += publicBytes
+	state.public = public
+	state.publicBytes = publicBytes
+	if !clearRequest {
+		state.publicBytes -= generationJobTransitionReserve
+	}
+	if clearRequest {
+		state.request = protocol.GenerationRequest{}
+		state.requestBytes = 0
+	}
+	return true
+}
+
+func (m *Manager) replaceSuccessfulJob(
+	id string,
+	state *jobState,
+	public protocol.GenerationJob,
+	result protocol.GenerationResult,
+	now time.Time,
+) bool {
+	publicBytes, err := encodedSize(public)
+	if err != nil {
+		return false
+	}
+	cacheBytes, err := encodedSize(result)
+	if err != nil {
+		return false
+	}
+	replaced := state.publicBytes + state.requestBytes
+	if existing, ok := m.cache[state.semanticHash]; ok {
+		replaced += existing.retainedBytes
+	}
+	needed := publicBytes + cacheBytes
+	if !m.ensureRetainedCapacity(
+		replaced,
+		needed,
+		id,
+		state.semanticHash,
+	) {
+		return false
+	}
+	m.retainedBytes -= state.publicBytes + state.requestBytes
+	state.public = public
+	state.publicBytes = publicBytes
+	state.request = protocol.GenerationRequest{}
+	state.requestBytes = 0
+	m.retainedBytes += publicBytes
+	m.putCache(
+		state.semanticHash,
+		cacheEntry{
+			result:        cloneResult(result),
+			createdAt:     now,
+			retainedBytes: cacheBytes,
+		},
+	)
+	return true
+}
+
+func (m *Manager) putCache(hash string, entry cacheEntry) {
+	m.deleteCache(hash)
+	m.cache[hash] = entry
+	m.retainedBytes += entry.retainedBytes
+}
+
+func (m *Manager) deleteCache(hash string) {
+	entry, exists := m.cache[hash]
+	if !exists {
+		return
+	}
+	delete(m.cache, hash)
+	m.retainedBytes -= entry.retainedBytes
+}
+
+func (m *Manager) ensureRetainedCapacity(
+	replaced uint64,
+	needed uint64,
+	preserveJob string,
+	preserveCache string,
+) bool {
+	fits := func() bool {
+		if replaced > m.retainedBytes ||
+			needed > m.config.MaxRetainedBytes {
+			return false
+		}
+		base := m.retainedBytes - replaced
+		return base <= m.config.MaxRetainedBytes-needed
+	}
+	if fits() {
+		return true
+	}
+	type retainedEntry struct {
+		id string
+		at time.Time
+	}
+	caches := make([]retainedEntry, 0, len(m.cache))
+	for hash, entry := range m.cache {
+		if hash != preserveCache {
+			caches = append(
+				caches,
+				retainedEntry{id: hash, at: entry.createdAt},
+			)
+		}
+	}
+	sort.Slice(caches, func(i, j int) bool {
+		if caches[i].at.Equal(caches[j].at) {
+			return caches[i].id < caches[j].id
+		}
+		return caches[i].at.Before(caches[j].at)
+	})
+	for _, entry := range caches {
+		m.deleteCache(entry.id)
+		if fits() {
+			return true
+		}
+	}
+	jobs := make([]retainedEntry, 0, len(m.jobs))
+	for id, state := range m.jobs {
+		if id != preserveJob &&
+			terminal(state.public.Status) &&
+			!state.completedAt.IsZero() {
+			jobs = append(
+				jobs,
+				retainedEntry{id: id, at: state.completedAt},
+			)
+		}
+	}
+	sort.Slice(jobs, func(i, j int) bool {
+		if jobs[i].at.Equal(jobs[j].at) {
+			return jobs[i].id < jobs[j].id
+		}
+		return jobs[i].at.Before(jobs[j].at)
+	})
+	for _, entry := range jobs {
+		m.deleteJob(entry.id, m.jobs[entry.id])
+		if fits() {
+			return true
+		}
+	}
+	return false
+}
+
+func encodedSize(value any) (uint64, error) {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return 0, err
+	}
+	return uint64(len(payload)), nil
+}
+
+func hashRequests(
+	request protocol.GenerationRequest,
+) (string, string, uint64, error) {
 	payload, err := json.Marshal(request)
 	if err != nil {
-		return "", "", err
+		return "", "", 0, err
 	}
 	requestDigest := sha256.Sum256(payload)
 	semantic := request
 	semantic.RequestID = "semantic"
 	semanticPayload, err := json.Marshal(semantic)
 	if err != nil {
-		return "", "", err
+		return "", "", 0, err
 	}
 	semanticDigest := sha256.Sum256(semanticPayload)
-	return hex.EncodeToString(requestDigest[:]), hex.EncodeToString(semanticDigest[:]), nil
+	return hex.EncodeToString(requestDigest[:]),
+		hex.EncodeToString(semanticDigest[:]),
+		uint64(len(payload)),
+		nil
+}
+
+func generationMemoryLimitError() error {
+	return rinruntime.NewError(
+		"generation_memory_limit",
+		"generation retained-memory capacity is full",
+		ErrMemoryLimit,
+	)
 }
 
 func jobError(err error) *protocol.ErrorDetail {

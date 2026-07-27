@@ -56,8 +56,15 @@ export RIN_MODEL_RESPONSE_FORMAT=json_object
 | `RIN_GENERATION_CACHE_ENTRIES` | `256` | 语义生成缓存条数 |
 | `RIN_GENERATION_CACHE_TTL` | `30m` | 语义生成缓存寿命 |
 | `RIN_GENERATION_MAX_OUTPUT_BYTES` | `524288` | 单个结构化结果最大字节数 |
+| `RIN_GENERATION_MAX_RETAINED_BYTES` | `67108864` | Request、Job Result 与语义 Cache 的编码 Payload 总预算 |
+| `RIN_GENERATION_CLEANUP_INTERVAL` | `1m` | 过期 Job/Cache 周期清理间隔 |
 
 时长采用 Go duration，例如 `250ms`、`15s`、`2m`。
+
+Generation 会在保留 Request 前预留字节；Provider 成功后，也会先为 Job Result 与
+语义 Cache 两份经验证 Payload 预留空间，再发布任一份。若淘汰 Terminal Job /
+Cache 后仍无法容纳，则返回 `generation_memory_limit`。Diagnostics 与 Prometheus
+指标公开当前值和上限；即使没有后续请求，周期清理器也会删除过期项。
 
 ## Provider 韧性契约
 

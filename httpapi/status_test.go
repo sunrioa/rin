@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/sunrioa/rin/generation"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 )
@@ -128,6 +129,28 @@ func TestTransferResourceErrorsMapToBoundedStatuses(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+func TestGenerationMemoryLimitMapsToTooManyRequests(t *testing.T) {
+	response := httptest.NewRecorder()
+	server := &Server{}
+	server.respond(
+		response,
+		nil,
+		nil,
+		rinruntime.NewError(
+			"generation_memory_limit",
+			"generation retained-memory capacity is full",
+			generation.ErrMemoryLimit,
+		),
+	)
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf(
+			"status = %d, want %d",
+			response.Code,
+			http.StatusTooManyRequests,
+		)
 	}
 }
 

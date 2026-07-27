@@ -102,6 +102,93 @@ func TestGenerationQueueIsBounded(t *testing.T) {
 	}
 }
 
+func TestGenerationRetainedPayloadBytesAreBounded(t *testing.T) {
+	client := newBlockingClient()
+	manager := newManager(t, client, generation.Config{
+		Workers:          1,
+		QueueSize:        4,
+		MaxJobs:          8,
+		MaxOutputBytes:   1024,
+		MaxRetainedBytes: 80 << 10,
+	})
+	defer closeManager(t, manager)
+
+	request := generationRequest("request.memory.running")
+	request.Messages[1].Content = strings.Repeat("x", 32768)
+	first, err := manager.Submit(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.waitStarted(t)
+	request.RequestID = "request.memory.queued"
+	if _, err := manager.Submit(request); err != nil {
+		t.Fatalf("second retained request did not fit: %v", err)
+	}
+	request.RequestID = "request.memory.rejected"
+	if _, err := manager.Submit(request); !errors.Is(
+		err,
+		generation.ErrMemoryLimit,
+	) || rinruntime.ErrorCode(err) != "generation_memory_limit" {
+		t.Fatalf("retained-memory error = %v", err)
+	}
+	diagnostics := manager.Diagnostics()
+	if diagnostics.RetainedBytes > diagnostics.MaxRetainedBytes ||
+		diagnostics.MaxRetainedBytes != 80<<10 {
+		t.Fatalf("retained payload diagnostics exceeded budget: %+v", diagnostics)
+	}
+	if _, err := manager.Cancel(first.JobID); err != nil {
+		t.Fatal(err)
+	}
+	diagnostics = manager.Diagnostics()
+	if diagnostics.RetainedBytes > diagnostics.MaxRetainedBytes {
+		t.Fatalf(
+			"cancel transition exceeded retained-memory budget: %+v",
+			diagnostics,
+		)
+	}
+}
+
+func TestGenerationCleanupRunsWithoutAnotherSubmission(t *testing.T) {
+	client := &fixtureClient{response: provider.CompletionResponse{
+		Content: `{"narration":"ephemeral"}`,
+	}}
+	manager := newManager(t, client, generation.Config{
+		Workers:          1,
+		QueueSize:        2,
+		MaxJobs:          4,
+		JobTTL:           20 * time.Millisecond,
+		CacheEntries:     4,
+		CacheTTL:         20 * time.Millisecond,
+		MaxOutputBytes:   1024,
+		MaxRetainedBytes: 128 << 10,
+		CleanupInterval:  10 * time.Millisecond,
+	})
+	defer closeManager(t, manager)
+	submission, err := manager.Submit(
+		generationRequest("request.cleanup-periodic"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job := waitJob(t, manager, submission.JobID); job.Status != "succeeded" {
+		t.Fatalf("generation did not succeed before cleanup: %+v", job)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		diagnostics := manager.Diagnostics()
+		if diagnostics.Retained == 0 &&
+			diagnostics.CacheEntries == 0 &&
+			diagnostics.RetainedBytes == 0 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf(
+		"periodic cleanup retained data: %+v",
+		manager.Diagnostics(),
+	)
+}
+
 func TestGenerationRejectsInvalidProviderOutput(t *testing.T) {
 	for _, test := range []struct {
 		name    string
@@ -150,6 +237,13 @@ func TestGenerationJobErrorUsesContractBounds(t *testing.T) {
 		utf8.RuneCountInString(job.Error.Message) != protocol.ErrorMessageMaxLength ||
 		utf8.RuneCountInString(job.Error.Field) != protocol.ErrorFieldMaxLength {
 		t.Fatalf("generation job error exceeded the wire contract: %+v", job.Error)
+	}
+	diagnostics := manager.Diagnostics()
+	if diagnostics.RetainedBytes > diagnostics.MaxRetainedBytes {
+		t.Fatalf(
+			"terminal error exceeded retained-memory budget: %+v",
+			diagnostics,
+		)
 	}
 }
 

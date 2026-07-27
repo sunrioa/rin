@@ -133,6 +133,11 @@ Job 元数据只在进程内保留，并可能在 retention TTL 后淘汰。成�
 的请求，Engine 的持久 Session 身份 ledger 会返回原始 Proposal，但进程内 Job
 记录需要重建。Job 时间戳和中间状态不持久。
 
+取消运行中的 Proposal Job 只在调用方 Request Context 内等待。如果 Policy 或
+Store 未能在 deadline 前发布权威竞态结果，DELETE 返回
+`408 job_cancel_incomplete`；调用方必须继续轮询或 exact retry，不能据此假定
+Proposal 一定没有持久化。
+
 ### 结构化生成
 
 `generation.Manager` 为游戏拥有的受限 Prompt 提供另一条有界异步队列。它
@@ -140,6 +145,10 @@ Job 元数据只在进程内保留，并可能在 retention TTL 后淘汰。成�
 请求只在进程内 Job 记录仍保留时去重；去掉 request ID 后的语义内容只做短期
 缓存。Job 淘汰或重启后，完全相同的请求仍可能再次调用 Provider。取消沿
 context 传播到 Provider。
+
+编码后的 Generation Request、保留的 Job Result 与语义 Cache Result 共用默认
+64 MiB Payload 预算。Active Request 不会被淘汰；由纳入 Close join 的周期 Worker
+清理过期项，并在接纳新 Payload 前先淘汰 Terminal Job 或旧 Cache。
 
 Generation 只保证传输、大小和顶层 JSON Object 合法。各游戏仍必须验证自己的 `ScenePacket`、任务、对白或结局 Schema。若验证失败，游戏丢弃结果并使用本地内容；模型输出永远不会自动成为 Canon。
 

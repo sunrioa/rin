@@ -383,11 +383,17 @@ func (s *Server) metrics(response http.ResponseWriter, _ *http.Request) {
 				"rin_generation_queue_capacity %d\n"+
 				"# TYPE rin_generation_jobs_retained gauge\n"+
 				"rin_generation_jobs_retained %d\n"+
+				"# TYPE rin_generation_retained_bytes gauge\n"+
+				"rin_generation_retained_bytes %d\n"+
+				"# TYPE rin_generation_max_retained_bytes gauge\n"+
+				"rin_generation_max_retained_bytes %d\n"+
 				"# TYPE rin_provider_circuit_not_closed gauge\n"+
 				"rin_provider_circuit_not_closed %d\n",
 			generationDiagnostics.QueueDepth,
 			generationDiagnostics.QueueCapacity,
 			generationDiagnostics.Retained,
+			generationDiagnostics.RetainedBytes,
+			generationDiagnostics.MaxRetainedBytes,
 			providerOpen,
 		)
 	}
@@ -589,7 +595,7 @@ func (s *Server) cancelProposalJob(response http.ResponseWriter, request *http.R
 		s.writeError(response, http.StatusServiceUnavailable, "jobs_unavailable", "asynchronous proposal jobs are unavailable", "")
 		return
 	}
-	result, err := s.jobs.Cancel(jobID)
+	result, err := s.jobs.Cancel(request.Context(), jobID)
 	s.respond(response, request, result, err)
 }
 
@@ -747,6 +753,8 @@ func (s *Server) respond(response http.ResponseWriter, request *http.Request, da
 	case errors.Is(err, jobs.ErrClosed):
 		status = http.StatusServiceUnavailable
 	case errors.Is(err, generation.ErrQueueFull):
+		status = http.StatusTooManyRequests
+	case errors.Is(err, generation.ErrMemoryLimit):
 		status = http.StatusTooManyRequests
 	case errors.Is(err, generation.ErrClosed):
 		status = http.StatusServiceUnavailable

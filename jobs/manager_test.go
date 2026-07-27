@@ -53,7 +53,7 @@ func TestProposalJobCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 	blocking.waitStarted(t)
-	result, err := manager.Cancel(submission.JobID)
+	result, err := manager.Cancel(context.Background(), submission.JobID)
 	if err != nil || result.Status != "canceled" {
 		t.Fatalf("cancel result: %+v err=%v", result, err)
 	}
@@ -97,13 +97,28 @@ func TestProposalJobCancelWaitsForPersistedProposal(t *testing.T) {
 		t.Fatal(err)
 	}
 	eventStore.waitStarted(t)
+	cancelContext, cancel := context.WithTimeout(
+		context.Background(),
+		20*time.Millisecond,
+	)
+	defer cancel()
+	if _, err := manager.Cancel(
+		cancelContext,
+		submission.JobID,
+	); rinruntime.ErrorCode(err) != "job_cancel_incomplete" ||
+		!errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("bounded Cancel error = %v", err)
+	}
 	type cancelResult struct {
 		job protocol.ProposalJob
 		err error
 	}
 	resultChannel := make(chan cancelResult, 1)
 	go func() {
-		job, cancelErr := manager.Cancel(submission.JobID)
+		job, cancelErr := manager.Cancel(
+			context.Background(),
+			submission.JobID,
+		)
 		resultChannel <- cancelResult{job: job, err: cancelErr}
 	}()
 	select {
@@ -172,7 +187,10 @@ func TestProposalJobExposesUnknownOutcomeAndSameRequestRecovers(t *testing.T) {
 	if fromGet.Error == nil || fromGet.Error.Code != "proposal_outcome_unknown" {
 		t.Fatalf("GET error code = %+v, want proposal_outcome_unknown", fromGet.Error)
 	}
-	fromCancel, err := manager.Cancel(submission.JobID)
+	fromCancel, err := manager.Cancel(
+		context.Background(),
+		submission.JobID,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

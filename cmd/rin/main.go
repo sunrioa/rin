@@ -187,6 +187,14 @@ Serve options:
 			MaxJobs: envInt("RIN_GENERATION_MAX_RETAINED", 512), JobTTL: envDuration("RIN_GENERATION_JOB_TTL", 30*time.Minute),
 			CacheEntries: envInt("RIN_GENERATION_CACHE_ENTRIES", 256), CacheTTL: envDuration("RIN_GENERATION_CACHE_TTL", 30*time.Minute),
 			MaxOutputBytes: envInt("RIN_GENERATION_MAX_OUTPUT_BYTES", 512*1024),
+			MaxRetainedBytes: envUint64(
+				"RIN_GENERATION_MAX_RETAINED_BYTES",
+				64<<20,
+			),
+			CleanupInterval: envDuration(
+				"RIN_GENERATION_CLEANUP_INTERVAL",
+				time.Minute,
+			),
 		})
 		if err != nil {
 			closeContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)

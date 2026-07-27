@@ -61,8 +61,17 @@ object with no extra fields.
 | `RIN_GENERATION_CACHE_ENTRIES` | `256` | Semantic generation-cache entries |
 | `RIN_GENERATION_CACHE_TTL` | `30m` | Semantic generation-cache lifetime |
 | `RIN_GENERATION_MAX_OUTPUT_BYTES` | `524288` | Maximum bytes for one structured result |
+| `RIN_GENERATION_MAX_RETAINED_BYTES` | `67108864` | Total encoded request, Job result, and semantic-cache payload budget |
+| `RIN_GENERATION_CLEANUP_INTERVAL` | `1m` | Periodic expired Job/cache cleanup interval |
 
 Durations use Go syntax such as `250ms`, `15s`, and `2m`.
+
+Generation admission reserves bytes before retaining a request. Provider
+success reserves the validated result in both its Job and semantic cache before
+publishing either; when terminal/cache eviction cannot make room it returns
+`generation_memory_limit`. Diagnostics and Prometheus metrics expose current
+and maximum retained payload bytes. Expired entries are removed periodically
+even when no later request arrives.
 
 ## Provider resilience contract
 
