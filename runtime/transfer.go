@@ -54,11 +54,6 @@ func (e *Engine) ExportTransfer(
 	request protocol.SessionRequest,
 	sink TransferSink,
 ) error {
-	finish, err := e.beginOperation()
-	if err != nil {
-		return err
-	}
-	defer finish()
 	if ctx == nil {
 		return NewError(
 			"transfer_invalid",
@@ -66,6 +61,11 @@ func (e *Engine) ExportTransfer(
 			nil,
 		)
 	}
+	finish, err := e.beginOperation()
+	if err != nil {
+		return err
+	}
+	defer finish()
 	if sink == nil {
 		return NewError("transfer_invalid", "transfer sink is required", nil)
 	}

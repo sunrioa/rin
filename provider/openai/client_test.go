@@ -65,6 +65,29 @@ func TestCompleteSendsSchemaAndDecodesFixture(t *testing.T) {
 	}
 }
 
+func TestCompleteRejectsNilContextBeforeTransport(t *testing.T) {
+	var calls atomic.Int32
+	client, err := New(Config{
+		BaseURL: "https://models.example/v1",
+		Model:   "fixture-model",
+		HTTPClient: &http.Client{Transport: roundTripFunc(
+			func(*http.Request) (*http.Response, error) {
+				calls.Add(1)
+				return response(http.StatusOK, nil, nil), nil
+			},
+		)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Complete(nil, provider.CompletionRequest{}); err == nil {
+		t.Fatal("Complete accepted a nil context")
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("nil context reached HTTP transport %d times", calls.Load())
+	}
+}
+
 func TestHTTPErrorIsRetryableWithoutLeakingBodyOrKey(t *testing.T) {
 	fixture := readFixture(t, "error_rate_limit.json")
 	transport := roundTripFunc(func(*http.Request) (*http.Response, error) {

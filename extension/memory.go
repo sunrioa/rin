@@ -11,6 +11,9 @@ func RebuildMemoryIndex(
 	sessionID string,
 	documents []MemoryDocument,
 ) error {
+	if err := requireContext(ctx); err != nil {
+		return err
+	}
 	if index == nil {
 		return errors.New("memory index is required")
 	}
@@ -36,6 +39,9 @@ func SearchMemory(
 	index MemoryIndex,
 	query MemoryQuery,
 ) ([]MemoryMatch, error) {
+	if err := requireContext(ctx); err != nil {
+		return nil, err
+	}
 	if index == nil {
 		return nil, errors.New("memory index is required")
 	}
@@ -57,6 +63,9 @@ func DeleteMemoryIndex(
 	index MemoryIndex,
 	sessionID string,
 ) error {
+	if err := requireContext(ctx); err != nil {
+		return err
+	}
 	if index == nil {
 		return errors.New("memory index is required")
 	}

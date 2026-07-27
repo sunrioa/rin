@@ -102,6 +102,9 @@ func NewResilient(
 }
 
 func (r *Resilient) Complete(ctx context.Context, request CompletionRequest) (CompletionResponse, error) {
+	if ctx == nil {
+		return CompletionResponse{}, errors.New("provider context is required")
+	}
 	if err := ctx.Err(); err != nil {
 		return CompletionResponse{}, err
 	}

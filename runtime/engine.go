@@ -120,7 +120,6 @@ type Engine struct {
 	transferMu             sync.Mutex
 	activeTransfers        int
 	activeTransferSessions map[string]struct{}
-	allowLegacyCreation    bool
 	checkpointFailures     atomic.Uint64
 	checkpointQuotaSkips   atomic.Uint64
 	scrubFailures          atomic.Uint64
@@ -146,9 +145,6 @@ type EngineOptions struct {
 	MaxTransferBytes       uint64
 	MaxTransferEvents      uint64
 	MaxConcurrentTransfers int
-	// AllowLegacySessionCreation is for controlled migration and compatibility
-	// verification. Normal Sidecars must leave it false.
-	AllowLegacySessionCreation bool
 }
 
 func OpenWithOptions(
@@ -210,7 +206,6 @@ func OpenWithOptions(
 		maxTransferEvents:      options.MaxTransferEvents,
 		maxConcurrentTransfers: options.MaxConcurrentTransfers,
 		activeTransferSessions: make(map[string]struct{}),
-		allowLegacyCreation:    options.AllowLegacySessionCreation,
 		shutdownDone:           make(chan struct{}),
 		scrubGate:              make(chan struct{}, 1),
 	}
@@ -328,11 +323,6 @@ func (e *Engine) CreateSession(request protocol.CreateSessionRequest) (protocol.
 			return mutationResultFromIdentity(existing.state.SessionID, identity, true), nil
 		}
 		return protocol.MutationResult{}, NewError("session_exists", "session already exists", ErrConflict)
-	}
-	if !e.allowLegacyCreation {
-		if err := protocol.ValidateCreateSession(request); err != nil {
-			return protocol.MutationResult{}, validationError(err)
-		}
 	}
 	payload := createdPayload{Request: request, RequestHash: requestHash}
 	event, err := newEvent(protocol.SessionState{}, EventSessionCreated, request.RequestID, payload, e.now())
@@ -456,6 +446,13 @@ func (e *Engine) Observe(request protocol.ObserveRequest) (protocol.MutationResu
 }
 
 func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (protocol.ActionProposal, bool, error) {
+	if ctx == nil {
+		return protocol.ActionProposal{}, false, NewError(
+			"invalid_request",
+			"proposal context is required",
+			nil,
+		)
+	}
 	finish, err := e.beginOperation()
 	if err != nil {
 		return protocol.ActionProposal{}, false, err

@@ -103,6 +103,11 @@ func (manager *SpeechManager) Prepare(
 	ctx context.Context,
 	request SpeechRequest,
 ) (SpeechResult, error) {
+	if err := requireContext(ctx); err != nil {
+		return SpeechResult{
+			Status: SpeechTextOnly, ReasonCode: SpeechCancelled,
+		}, err
+	}
 	if err := ctx.Err(); err != nil {
 		return SpeechResult{
 			Status: SpeechTextOnly, ReasonCode: SpeechCancelled,
@@ -148,6 +153,9 @@ func (manager *SpeechManager) ReportPlayback(
 	ctx context.Context,
 	report PlaybackReport,
 ) error {
+	if err := requireContext(ctx); err != nil {
+		return err
+	}
 	if err := validateIDFields(
 		idField{"session_id", report.SessionID},
 		idField{"request_id", report.RequestID},

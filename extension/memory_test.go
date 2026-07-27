@@ -132,3 +132,34 @@ func TestMemoryIndexFailsClosedOnInvalidProjectionAndResults(t *testing.T) {
 		t.Fatalf("provider error changed: %v", err)
 	}
 }
+
+func TestMemoryIndexOperationsRejectNilContextBeforeProvider(t *testing.T) {
+	index := &memoryIndexFixture{}
+	document := MemoryDocument{
+		ID: "memory.document.1", SessionID: "session.memory",
+		ActorID: "actor.memory", Text: "Remember this.",
+		SourceEventIDs: []string{"event.memory.1"},
+		StartTick:      1,
+		EndTick:        1,
+	}
+	if err := RebuildMemoryIndex(
+		nil,
+		index,
+		"session.memory",
+		[]MemoryDocument{document},
+	); err == nil {
+		t.Fatal("RebuildMemoryIndex accepted a nil context")
+	}
+	if _, err := SearchMemory(nil, index, MemoryQuery{
+		SessionID: "session.memory", ActorID: "actor.memory",
+		Text: "query", Limit: 1,
+	}); err == nil {
+		t.Fatal("SearchMemory accepted a nil context")
+	}
+	if err := DeleteMemoryIndex(nil, index, "session.memory"); err == nil {
+		t.Fatal("DeleteMemoryIndex accepted a nil context")
+	}
+	if index.replacedSession != "" || index.deletedSession != "" {
+		t.Fatal("nil context reached MemoryIndex provider")
+	}
+}

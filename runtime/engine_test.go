@@ -102,6 +102,37 @@ func TestEngineEndToEnd(t *testing.T) {
 	}
 }
 
+func TestEngineProposeRejectsNilContextWithoutCallingPolicy(t *testing.T) {
+	selectedPolicy := &countingDecisionProvider{}
+	engine := newEngine(t, store.NewMemory(), selectedPolicy)
+	const sessionID = "session.propose-nil-context"
+	if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := engine.Propose(
+		nil,
+		proposeRequest(sessionID, "propose.nil-context", 1, nil),
+	); err == nil || rinruntime.ErrorCode(err) != "invalid_request" {
+		t.Fatalf("nil proposal context error = %v", err)
+	}
+	if selectedPolicy.calls != 0 {
+		t.Fatalf("nil proposal context reached policy %d times", selectedPolicy.calls)
+	}
+}
+
+type countingDecisionProvider struct {
+	calls int
+}
+
+func (provider *countingDecisionProvider) Propose(
+	context.Context,
+	rinruntime.DecisionContext,
+) (rinruntime.DecisionDraft, error) {
+	provider.calls++
+	return rinruntime.DecisionDraft{}, nil
+}
+
 func TestActionReportsRejectAmbiguousEffectUpdates(t *testing.T) {
 	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
 	const sessionID = "session.outcome-update-validation"

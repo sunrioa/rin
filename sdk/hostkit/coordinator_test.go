@@ -759,6 +759,75 @@ func beginAndResolve(t *testing.T, fixture *testFixture) {
 	}
 }
 
+func TestCoordinatorOperationsRejectNilContextBeforePorts(t *testing.T) {
+	fixture := newFixture(t, host.ActionSucceeded)
+	operations := []struct {
+		name string
+		call func() error
+	}{
+		{
+			name: "begin",
+			call: func() error {
+				_, err := fixture.coordinator.BeginDecision(nil, fixture.request)
+				return err
+			},
+		},
+		{
+			name: "resume",
+			call: func() error {
+				_, err := fixture.coordinator.ResumePendingWork(nil)
+				return err
+			},
+		},
+		{
+			name: "dispatch",
+			call: func() error {
+				_, err := fixture.coordinator.DispatchAndEnqueue(
+					nil,
+					dispatchRequest(fixture),
+				)
+				return err
+			},
+		},
+		{
+			name: "transition",
+			call: func() error {
+				_, err := fixture.coordinator.RecordTransitionAndEnqueue(
+					nil,
+					TransitionRequest{},
+				)
+				return err
+			},
+		},
+		{
+			name: "drain",
+			call: func() error {
+				_, err := fixture.coordinator.DrainOutbox(nil)
+				return err
+			},
+		},
+		{
+			name: "reconcile",
+			call: func() error {
+				_, err := fixture.coordinator.ReconcileEpoch(nil)
+				return err
+			},
+		},
+	}
+	for _, operation := range operations {
+		t.Run(operation.name, func(t *testing.T) {
+			if err := operation.call(); err == nil {
+				t.Fatal("operation accepted a nil context")
+			}
+		})
+	}
+	if fixture.store.state.Revision != 0 ||
+		fixture.transport.submissions != 0 ||
+		len(fixture.transport.reports) != 0 {
+		t.Fatal("nil context reached a HostKit port")
+	}
+}
+
 func dispatchRequest(fixture *testFixture) DispatchRequest {
 	return DispatchRequest{
 		Proposal:           fixture.proposal,

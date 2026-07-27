@@ -24,6 +24,13 @@ type Coordinator struct {
 	mu         sync.Mutex
 }
 
+func requireContext(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("HostKit context is required")
+	}
+	return nil
+}
+
 // NewCoordinator constructs a Coordinator from explicit engine-facing ports.
 func NewCoordinator(
 	transport RinTransport,
@@ -48,6 +55,9 @@ func (coordinator *Coordinator) BeginDecision(
 	ctx context.Context,
 	request protocol.ProposeRequest,
 ) (PendingDecision, error) {
+	if err := requireContext(ctx); err != nil {
+		return PendingDecision{}, err
+	}
 	coordinator.mu.Lock()
 	defer coordinator.mu.Unlock()
 	if err := protocol.ValidatePropose(request); err != nil {
@@ -108,6 +118,9 @@ type PendingResult struct {
 func (coordinator *Coordinator) ResumePendingWork(
 	ctx context.Context,
 ) (PendingResult, error) {
+	if err := requireContext(ctx); err != nil {
+		return PendingResult{}, err
+	}
 	coordinator.mu.Lock()
 	defer coordinator.mu.Unlock()
 	if _, err := coordinator.drainOutbox(ctx); err != nil {
@@ -205,6 +218,9 @@ func (coordinator *Coordinator) DispatchAndEnqueue(
 	ctx context.Context,
 	request DispatchRequest,
 ) (ActionRecord, error) {
+	if err := requireContext(ctx); err != nil {
+		return ActionRecord{}, err
+	}
 	coordinator.mu.Lock()
 	defer coordinator.mu.Unlock()
 	state, err := coordinator.load(ctx)
@@ -406,6 +422,9 @@ func (coordinator *Coordinator) RecordTransitionAndEnqueue(
 	ctx context.Context,
 	request TransitionRequest,
 ) (ActionRecord, error) {
+	if err := requireContext(ctx); err != nil {
+		return ActionRecord{}, err
+	}
 	coordinator.mu.Lock()
 	defer coordinator.mu.Unlock()
 	state, err := coordinator.load(ctx)
@@ -496,6 +515,9 @@ func (coordinator *Coordinator) RecordTransitionAndEnqueue(
 
 // DrainOutbox reports retained entries in order and removes acknowledged ones.
 func (coordinator *Coordinator) DrainOutbox(ctx context.Context) (int, error) {
+	if err := requireContext(ctx); err != nil {
+		return 0, err
+	}
 	coordinator.mu.Lock()
 	defer coordinator.mu.Unlock()
 	return coordinator.drainOutbox(ctx)
@@ -542,6 +564,9 @@ func (coordinator *Coordinator) drainOutbox(ctx context.Context) (int, error) {
 func (coordinator *Coordinator) ReconcileEpoch(
 	ctx context.Context,
 ) (int, error) {
+	if err := requireContext(ctx); err != nil {
+		return 0, err
+	}
 	coordinator.mu.Lock()
 	defer coordinator.mu.Unlock()
 	state, err := coordinator.load(ctx)

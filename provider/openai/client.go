@@ -98,6 +98,9 @@ type responseBody struct {
 }
 
 func (c *Client) Complete(ctx context.Context, request provider.CompletionRequest) (provider.CompletionResponse, error) {
+	if ctx == nil {
+		return provider.CompletionResponse{}, errors.New("provider context is required")
+	}
 	body := requestBody{
 		Model:       c.model,
 		Messages:    request.Messages,

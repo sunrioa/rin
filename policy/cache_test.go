@@ -69,6 +69,48 @@ func TestCachedPolicyReusesSemanticRequest(t *testing.T) {
 	}
 }
 
+func TestPoliciesRejectNilContextBeforeDependencies(t *testing.T) {
+	underlying := &countingPolicy{}
+	modelClient := &completionClient{}
+	cached, err := policy.NewCached(
+		underlying,
+		policy.CacheConfig{MaxEntries: 4, TTL: time.Minute},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policies := []struct {
+		name   string
+		policy rinruntime.DecisionProvider
+	}{
+		{name: "deterministic", policy: policy.Deterministic{}},
+		{name: "cached", policy: cached},
+		{
+			name: "failover",
+			policy: policy.Failover{
+				Primary: underlying, Fallback: underlying,
+			},
+		},
+		{
+			name:   "model",
+			policy: policy.Model{GenerationProvider: modelClient},
+		},
+	}
+	for _, test := range policies {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := test.policy.Propose(nil, modelInput()); err == nil {
+				t.Fatal("Propose accepted a nil context")
+			}
+		})
+	}
+	if underlying.count() != 0 {
+		t.Fatalf("nil context reached policy dependency %d times", underlying.count())
+	}
+	if modelClient.callCount() != 0 {
+		t.Fatalf("nil context reached model provider %d times", modelClient.callCount())
+	}
+}
+
 func TestCachedPolicySeparatesCandidateGoalContracts(t *testing.T) {
 	underlying := &countingPolicy{}
 	cached, _ := policy.NewCached(underlying, policy.CacheConfig{MaxEntries: 4, TTL: time.Minute})

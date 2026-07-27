@@ -63,6 +63,30 @@ func TestProposalJobCancellation(t *testing.T) {
 	}
 }
 
+func TestProposalJobCloseRejectsNilContextWithoutClosing(t *testing.T) {
+	engine := jobEngine(t, policy.Deterministic{}, "session.close-nil-context")
+	manager := jobManager(
+		t,
+		engine,
+		jobs.Config{Workers: 1, QueueSize: 2, MaxJobs: 4},
+	)
+	defer closeManager(t, manager)
+
+	if err := manager.Close(nil); err == nil {
+		t.Fatal("Close accepted a nil context")
+	}
+	submission, err := manager.Submit(jobRequest(
+		"session.close-nil-context",
+		"request.close-nil-context",
+	))
+	if err != nil {
+		t.Fatalf("invalid Close attempt changed manager state: %v", err)
+	}
+	if job := waitJob(t, manager, submission.JobID); job.Status != "succeeded" {
+		t.Fatalf("manager did not remain available: %+v", job)
+	}
+}
+
 func TestProposalJobCancelWaitsForPersistedProposal(t *testing.T) {
 	eventStore := newBlockingProposalAppendStore(store.NewMemory())
 	engine, err := rinruntime.Open(eventStore, policy.Deterministic{})

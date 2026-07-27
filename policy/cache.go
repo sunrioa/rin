@@ -60,6 +60,9 @@ func NewCached(selectedPolicy rinruntime.DecisionProvider, config CacheConfig) (
 }
 
 func (p *Cached) Propose(ctx context.Context, input rinruntime.DecisionContext) (rinruntime.DecisionDraft, error) {
+	if err := requireContext(ctx); err != nil {
+		return rinruntime.DecisionDraft{}, err
+	}
 	key, err := proposalCacheKey(input)
 	if err != nil {
 		return rinruntime.DecisionDraft{}, err

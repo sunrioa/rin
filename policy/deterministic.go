@@ -19,6 +19,9 @@ type Deterministic struct {
 }
 
 func (p Deterministic) Propose(ctx context.Context, input rinruntime.DecisionContext) (rinruntime.DecisionDraft, error) {
+	if err := requireContext(ctx); err != nil {
+		return rinruntime.DecisionDraft{}, err
+	}
 	if err := ctx.Err(); err != nil {
 		return rinruntime.DecisionDraft{}, err
 	}

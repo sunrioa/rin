@@ -284,6 +284,9 @@ func (m *Manager) Cancel(
 }
 
 func (m *Manager) Close(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("proposal job manager close context is required")
+	}
 	m.mu.Lock()
 	if !m.closed {
 		m.closed = true

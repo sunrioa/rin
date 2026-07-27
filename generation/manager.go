@@ -355,6 +355,9 @@ func (m *Manager) Cancel(jobID string) (protocol.GenerationJob, error) {
 }
 
 func (m *Manager) Close(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("generation manager close context is required")
+	}
 	m.mu.Lock()
 	if !m.closed {
 		m.closed = true

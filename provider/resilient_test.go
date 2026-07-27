@@ -70,6 +70,27 @@ func TestResilientRetriesThenSucceeds(t *testing.T) {
 	}
 }
 
+func TestResilientRejectsNilContextBeforeCircuitOrClient(t *testing.T) {
+	client := &fakeClient{fn: func(
+		context.Context,
+		CompletionRequest,
+		int,
+	) (CompletionResponse, error) {
+		return CompletionResponse{}, nil
+	}}
+	resilient := newTestResilient(t, client, ResilienceConfig{})
+	if _, err := resilient.Complete(nil, CompletionRequest{}); err == nil {
+		t.Fatal("Complete accepted a nil context")
+	}
+	if client.callCount() != 0 {
+		t.Fatalf("nil context reached provider client %d times", client.callCount())
+	}
+	if diagnostics := resilient.Diagnostics(); diagnostics.State != "closed" ||
+		diagnostics.ConsecutiveFailures != 0 {
+		t.Fatalf("nil context changed circuit state: %+v", diagnostics)
+	}
+}
+
 func TestResilientDiagnosticsExposeCircuitState(t *testing.T) {
 	client := &fakeClient{fn: func(
 		_ context.Context,

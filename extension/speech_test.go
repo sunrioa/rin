@@ -170,6 +170,36 @@ func TestSpeechDegradesToTextAndHonorsCancellation(t *testing.T) {
 	}
 }
 
+func TestSpeechOperationsRejectNilContextBeforePorts(t *testing.T) {
+	provider := &speechProviderFixture{}
+	telemetry := &telemetryFixture{}
+	manager, err := NewSpeechManager(
+		provider,
+		telemetry,
+		SpeechManagerConfig{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := manager.Prepare(nil, speechRequestFixture())
+	if err == nil || result.Status != SpeechTextOnly ||
+		result.ReasonCode != SpeechCancelled {
+		t.Fatalf("nil Prepare context result = %+v, %v", result, err)
+	}
+	report := PlaybackReport{
+		SessionID: "session.speech", RequestID: "speech.request.1",
+		ActorID: "actor.speech", OperationID: "operation.speech",
+		ArtifactID: "audio.speech.1", Status: PlaybackCompleted,
+		DurationMillis: 850, OccurredAt: time.Now().UTC(),
+	}
+	if err := manager.ReportPlayback(nil, report); err == nil {
+		t.Fatal("ReportPlayback accepted a nil context")
+	}
+	if provider.calls != 0 || len(telemetry.events) != 0 {
+		t.Fatal("nil context reached speech provider or telemetry")
+	}
+}
+
 func TestSpeechSynthesisIgnoresTelemetryFailure(t *testing.T) {
 	request := speechRequestFixture()
 	provider := &speechProviderFixture{artifact: audioArtifactFixture(request)}

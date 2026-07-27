@@ -14,6 +14,9 @@ type Failover struct {
 }
 
 func (p Failover) Propose(ctx context.Context, input rinruntime.DecisionContext) (rinruntime.DecisionDraft, error) {
+	if err := requireContext(ctx); err != nil {
+		return rinruntime.DecisionDraft{}, err
+	}
 	if p.Primary == nil || p.Fallback == nil {
 		return rinruntime.DecisionDraft{}, errors.New("primary and fallback policies are required")
 	}

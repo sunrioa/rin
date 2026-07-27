@@ -78,6 +78,9 @@ type promptActor struct {
 }
 
 func (p Model) Propose(ctx context.Context, input rinruntime.DecisionContext) (rinruntime.DecisionDraft, error) {
+	if err := requireContext(ctx); err != nil {
+		return rinruntime.DecisionDraft{}, err
+	}
 	if p.GenerationProvider == nil {
 		return rinruntime.DecisionDraft{}, errors.New("model decision generation provider is required")
 	}

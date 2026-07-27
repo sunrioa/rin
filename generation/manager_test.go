@@ -81,6 +81,31 @@ func TestGenerationJobCancellation(t *testing.T) {
 	}
 }
 
+func TestGenerationCloseRejectsNilContextWithoutClosing(t *testing.T) {
+	client := &fixtureClient{response: provider.CompletionResponse{
+		Content: `{"narration":"still available"}`,
+	}}
+	manager := newManager(
+		t,
+		client,
+		generation.Config{Workers: 1, QueueSize: 2, MaxJobs: 4},
+	)
+	defer closeManager(t, manager)
+
+	if err := manager.Close(nil); err == nil {
+		t.Fatal("Close accepted a nil context")
+	}
+	submission, err := manager.Submit(
+		generationRequest("request.close-nil-context"),
+	)
+	if err != nil {
+		t.Fatalf("invalid Close attempt changed manager state: %v", err)
+	}
+	if job := waitJob(t, manager, submission.JobID); job.Status != "succeeded" {
+		t.Fatalf("manager did not remain available: %+v", job)
+	}
+}
+
 func TestGenerationQueueIsBounded(t *testing.T) {
 	client := newBlockingClient()
 	manager := newManager(t, client, generation.Config{Workers: 1, QueueSize: 1, MaxJobs: 3})
