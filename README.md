@@ -1,317 +1,102 @@
 # Rin
-仅供参考 正在开发中ing 文档会随时变化
-
 
 [简体中文](README.md) | [English](README.en.md)
 
-> 面向游戏的智能体运行时。
+Rin 是面向游戏的智能体运行时。它在游戏循环之外管理角色记忆、目标、决策和异步任务，并把结果作为经过校验的行动提案交回游戏。
 
-Rin 在游戏循环之外管理角色记忆、目标、决策、异步模型任务和可验证回放。
-游戏始终保留世界权威，只接收经过本地约束验证的行动提案。Rin 可以作为
-Sidecar 运行，也可以作为 Go 包嵌入工具链；Runtime 与服务端核心只使用 Go
-标准库，不绑定具体游戏、引擎或模型供应商。`host` Contract 复用经过维护的
-JSON Schema 2020-12 校验库；依赖与许可见
-[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
+## 当前状态
 
-文档索引：[简体中文](docs/README.zh-CN.md) | [English](docs/README.md)
+源码版本为 `0.7.0` Preview（pre-1.0），项目仍在开发中。正式 Release Tag 发布前，请固定仓库 Revision 或已验证的 Tag。兼容性和迁移信息见[兼容矩阵](docs/compatibility.zh-CN.md)与[变更日志](CHANGELOG.zh-CN.md)。
 
-**当前开发状态：** 源代码标识为 `0.7.0` Preview（pre-1.0）；对应的已验证
-Release Tag 创建前，应把它视为未发布的开发版本。项目会记录迁移行为，但不承诺
-后续每个 minor 版本都保持兼容。接入方应固定精确仓库 Revision 或已验证
-Release Tag。
-另见[变更日志](CHANGELOG.zh-CN.md)、[兼容矩阵](docs/compatibility.zh-CN.md)、
-[协议 v2 指南](docs/protocol-v2.zh-CN.md)和
-[发布指南](docs/release-guide.zh-CN.md)。
+## Rin 负责什么
 
-## 核心能力
+- 游戏提交角色确实观察到的 `Observation`；Rin 不读取也不解释整个游戏存档。
+- 角色根据记忆、目标、边界和当前允许的动作生成 `ActionProposal`。
+- 游戏保留世界权威，负责验证、执行或拒绝提案，再把动作结果报告给 Rin。
+- 状态变化写入带哈希链的事件日志，可通过 Replay、Timeline 和 `rin inspect` 检查。
+- 提案、Generation Job、快照和 Session Transfer 都有独立的大小、时间和并发上限。
 
-Rin 将“角色思考”和“游戏世界事实”拆开：
-
-- 游戏提交角色实际看见的 `Observation`，而不是把整个存档交给模型。
-- 角色根据记忆、目标、边界和当前允许动作生成 `ActionProposal`。
-- 提案不能直接改变剧情、背包、任务或关系；游戏验证并应用或拒绝后，
-  向 Rin 回报类型化动作生命周期。
-- 每次状态变化写入带哈希链的 JSONL 事件日志，可重放、可检查。
-- 快照绑定 `game/content/version/hash`；其 SHA-256 canonical checksum 可发现
-  意外损坏或未同步修改，Restore 则拒绝 Binding 不匹配。
-- 多 NPC 通过 tick 调度按需思考，不需要每帧调用模型。
-- 在线模型通过异步 Job 预取，慢请求、取消和状态过期不会冻结游戏主线程。
-- 通用结构化 Generation Job 让剧情、任务描述和受限对白也经过 Sidecar，而不是让游戏保存供应商 Key。
-- 模型不可用时自动回退确定性 Policy，并用 `policy_source` 标明来源。
-- Ren'Py、Godot 4、Unity 和 Unreal 参考适配器保持同一套
-  observe / propose / execute / report 权威边界。
-- 引擎无关 `host` Contract 区分静态 Capability、每轮 `ActionOffer`、带 Epoch
-  的 Invocation 与长动作终态；通用 HostKit 端口与 Coordinator 统一 Pending
-  Decision、所属线程执行、ActionRun、精确 Outbox 和 Epoch 对账。
-- 真实 OpenSpiel 游戏会在 macOS/Linux/Windows 验证顺序、同时、Chance 与
-  隐藏信息映射，防止通用契约暗中退化为单 Actor 顺序回合。
-- Python、JavaScript、C#、Java、Lua SDK 与 Fabric、BepInEx、Luanti 示例 Mod 提供快速接入层。
-- 可选分层记忆、冲突认知、候选小目标、区域休眠和确定性多角色仲裁均由 Session feature 显式启用。
-- 脱敏 Timeline、指定 revision Replay 和 `rin inspect` 让长流程角色行为可以复现和审计。
-
-同一套边界可以服务叙事角色、RPG NPC、队友、模拟居民和服务器实体。
+Rin 可以作为 Sidecar 运行，也可以作为 Go 包嵌入工具链。它不绑定特定游戏、引擎或模型供应商。在线模型是可选的；没有模型时可以使用确定性 Policy。
 
 ## 快速开始
 
-运行 Sidecar 要求 Go 1.24 或更高版本；执行 Ren'Py 适配器测试还需要 Python 3.9+。
+要求 Go 1.24 或更高版本。启动本地 Sidecar：
 
 ```bash
 make test
 go run ./cmd/rin serve -data ./rin-data
 ```
 
-默认监听 `127.0.0.1:7374`。检查服务：
+默认监听 `127.0.0.1:7374`。健康检查：
 
 ```bash
 curl http://127.0.0.1:7374/health
 ```
 
-无需下载在线模板，即可生成自包含的通用 Host 或固定依赖的 Mod 起始项目：
-
-```bash
-go run ./cmd/rin init host --list-hosts
-go run ./cmd/rin init host \
-  --engine fabric --id guide_npc --name "Guide NPC" \
-  --namespace io.github.example
-```
-
-`custom` 可为 Go、JavaScript、Python、C#、Java 与 Lua 运行时生成引擎无关
-Host 契约；同时提供 Fabric、BepInEx Mono、BepInEx IL2CPP 与 Luanti 模板。
-生成器拒绝覆盖已有路径；Capability 生成、Windows 命令、固定版本和真实游戏
-验收边界见[通用 Host 脚手架指南](docs/host-scaffolding.zh-CN.md)。
-
-运行最小开发 Quickstart：
+运行最小示例：
 
 ```bash
 go run ./examples/basic
 ```
 
-它只演示 Session 创建与 Observe，不持久化生产所需的身份。生产接入所需的
-Proposal Attempt、Applied Marker、Outcome Outbox 与崩溃恢复模式见
-[Host 动作生命周期](docs/action-lifecycle.zh-CN.md)和
-[游戏 Adapter](docs/game-adapters.zh-CN.md)；可运行的完整纵向切片位于
-[`examples/terminal-story`](examples/terminal-story/)。
+该示例只演示 Session 创建和 Observe。带有 Proposal Attempt、崩溃恢复和 Outcome Outbox 的完整切片在 [`examples/terminal-story`](examples/terminal-story/README.zh-CN.md)。
 
-生产接入建议设置独立 Sidecar Token：
+生成 Host 或 Mod 起始项目：
+
+```bash
+go run ./cmd/rin init host --list-hosts
+go run ./cmd/rin init host --engine fabric --id guide_npc --name "Guide NPC" --namespace io.github.example
+```
+
+`custom` 支持 Go、JavaScript、Python、C#、Java 和 Lua；另有 Fabric、BepInEx Mono、BepInEx IL2CPP 与 Luanti 模板。生成器不会覆盖已有路径，详见[Host 脚手架文档](docs/host-scaffolding.zh-CN.md)。
+
+## 接入路径
+
+- Ren'Py、Godot 4、Unity 和 Unreal 参考适配器
+- Python、JavaScript、C#、Java 和 Lua SDK
+- Fabric、BepInEx 和 Luanti 示例 Mod
+- 引擎无关的 `host` Contract 与 HostKit
+
+安装、线程边界和离线行为见[游戏适配文档](docs/game-adapters.zh-CN.md)。跨语言 SDK、凭据和 Mod 安装见 [SDK 与 Mod 文档](docs/sdk-and-mods.zh-CN.md)。
+
+## 文档
+
+- [文档索引](docs/README.zh-CN.md) / [English](docs/README.md)
+- [Protocol v2](docs/protocol-v2.zh-CN.md)：字段、错误和重试语义
+- [动作生命周期](docs/action-lifecycle.zh-CN.md)：Proposal、执行、Outbox 和恢复
+- [部署与监控](docs/operations.zh-CN.md)：Token、TLS、存储和运行限制
+- [发布指南](docs/release-guide.zh-CN.md)与[路线图](ROADMAP.md)
+- [安全说明](SECURITY.md)、[变更日志](CHANGELOG.zh-CN.md)和[第三方许可](THIRD-PARTY-NOTICES.md)
+
+`api/openapi.json` 是 HTTP 路径、状态码、字段和 JSON Schema 的来源；协议文档解释运行时语义，专题文档解释适配器、长期 Session、Transfer 和可选扩展。根 README 不重复这些完整内容。
+
+## 目录
+
+```text
+cmd/rin/       Sidecar 命令行程序
+api/           OpenAPI 3.1 契约
+protocol/      跨语言 v2 数据类型
+runtime/       事件状态机、提案验证、快照和调度
+store/         JSONL 文件存储与内存存储
+httpapi/       HTTP、鉴权和请求大小限制
+sdk/           Python、JavaScript、C#、Java、Lua SDK
+adapters/      Ren'Py 客户端与桥接
+tools/         契约投影和验证工具
+examples/      示例程序、适配器和 Mod
+```
+
+## 安全与部署
+
+Rin 默认不访问网络。生产 Sidecar 应设置独立 Token，并让同机 TLS Reverse Proxy 终止远程连接：
 
 ```bash
 export RIN_TOKEN="$(openssl rand -hex 32)"
 go run ./cmd/rin serve
 ```
 
-客户端随后发送 `Authorization: Bearer $RIN_TOKEN`。Token、模型 API Key 和供应商 URL 均不会写入事件、快照或响应；Generation 结果只可带有经过长度限制的模型名、结束原因和 token 计数等非秘密运维元数据，游戏可按自己的持久化白名单继续过滤。
+远程监听必须同时声明 `-allow-remote`、`RIN_TOKEN` 和 `-tls-proxy`（或 `RIN_TLS_PROXY=true`）。这些选项不会替代 TLS，也不会让公网明文监听变安全。Token、模型 Key 和供应商 URL 不会写入事件、快照或响应。完整边界见[部署与监控](docs/operations.zh-CN.md)和[安全说明](SECURITY.md)。
 
-未设置 Token 的开发 Sidecar 仅接受 Loopback Host；Browser 请求还会校验同源
-Origin 与 Fetch Metadata。正式远程访问应让 TLS Reverse Proxy 与 Rin 同机，
-Rin 继续只监听 Loopback 并设置 `RIN_TOKEN`。只有 Proxy 与 Rin 分处受控私网时
-才使用非 Loopback 监听；此时必须同时设置 `-allow-remote`、`RIN_TOKEN` 和
-`-tls-proxy`（或 `RIN_TLS_PROXY=true`），否则启动失败。该声明不会启动 TLS，
-也不会把明文公网监听变安全。完整配置见[部署与监控](docs/operations.zh-CN.md)。
-Bearer Header 必须是唯一的 `Authorization: Bearer <token>`，不会接受无前缀
-Token。
-
-## API
-
-| 方法 | 路径 | 用途 |
-| --- | --- | --- |
-| `GET` | `/health` | 无鉴权、无依赖的 Liveness |
-| `GET` | `/ready` | 无鉴权的 Store/Worker Readiness |
-| `GET` | `/metrics` | 经过鉴权的无依赖 Prometheus Metrics |
-| `GET` | `/v2/diagnostics` | 经过鉴权且不含玩家内容的有界运维状态 |
-| `POST` | `/v2/session/create` | 创建绑定游戏内容版本的会话 |
-| `POST` | `/v2/session/observe` | 提交一个或多个角色确实观察到的事件 |
-| `POST` | `/v2/agent/propose` | 从游戏白名单动作中产生角色提案 |
-| `POST` | `/v2/jobs/propose` | 异步提交角色提案任务 |
-| `GET` | `/v2/jobs/{job_id}` | 查询任务状态与结果 |
-| `DELETE` | `/v2/jobs/{job_id}` | 取消排队或执行中的任务 |
-| `POST` | `/v2/generation/jobs` | 异步提交结构化 JSON 生成任务 |
-| `GET` | `/v2/generation/jobs/{job_id}` | 查询生成任务与安全元数据 |
-| `DELETE` | `/v2/generation/jobs/{job_id}` | 取消生成任务 |
-| `POST` | `/v2/action/report` | 记录 Host 的决定、Invocation、Run 与 Outcome |
-| `POST` | `/v2/action/report-batch` | 原子记录同一 Simultaneous Decision Window 的结果 |
-| `POST` | `/v2/session/activity` | 更新角色区域与 awake/dormant 状态 |
-| `POST` | `/v2/world/arbitrate` | 对并行角色提案进行确定性冲突仲裁 |
-| `POST` | `/v2/scheduler/due` | 查询当前 tick 应思考的角色 |
-| `POST` | `/v2/session/get` | 读取会话状态 |
-| `POST` | `/v2/session/stats` | 读取生命周期与受管存储用量 |
-| `POST` | `/v2/session/archive` | 按 Binding 与 Head 前置条件冻结为只读 |
-| `POST` | `/v2/session/delete` | 删除已归档 Session 并保留最小 Tombstone |
-| `POST` | `/v2/session/snapshot` | 创建并原子保存快照 |
-| `POST` | `/v2/session/restore` | 校验并恢复快照 |
-| `POST` | `/v2/session/timeline` | 读取脱敏事件时间线 |
-| `POST` | `/v2/session/replay` | 重放到指定 revision 并返回 Snapshot |
-
-上表只是概览。[`api/openapi.json`](api/openapi.json) 是 Path、Method、状态码、
-必填字段和 JSON Shape 的唯一 Wire Schema 来源；[协议文档](docs/protocol-v2.zh-CN.md)
-定义事务、重试与持久语义。请求拒绝未知字段，Client 则必须容忍响应中的增量字段。
-
-每个公共 JSON 整数都必须能在 `-9007199254740991` 至 `9007199254740991` 内精确
-表示；Tick、Revision 等字段还具有更窄的非负约束。Action Report 和每个 Batch
-Item 都必须显式携带 `decision`；省略或 `null` 均非法。
-非 2xx 失败使用 Rin Error Envelope。Job Query 也可能返回 HTTP `200`，但终态
-`data.error` 表示异步 Operation 失败，因此 HTTP 成功不等于 Job 成功。
-
-每个持久 Session mutation 都带调用方生成的 `request_id`。在同一 Session
-lineage 内，Rin 会把该 ID 永久绑定到 mutation 类型、canonical typed JSON
-payload 和首次持久结果。完全相同的重试不会修改状态，而是返回首次结果的
-revision/head（或原始 Proposal/Arbitration），并设置 `duplicate=true`；同一 ID
-用于不同操作或 payload 时返回 `409 request_id_conflict`。Observe、Action Report 与
-Batch 的每个 Item 共用一个永久、Session-scoped 的 `event_id` 命名空间。有界
-State Receipt 只是这份历史的热投影。
-
-如果 Rin 无法确认非 Proposal mutation 是否已经写入持久 Store，会返回
-`mutation_outcome_unknown`。调用方必须保留原 Operation，并以完全相同的类型、
-payload 和 ID 重试；在同一 Request ID 下改变请求会返回
-`request_id_conflict`，其他 Session mutation 则会被这条未决 tail 阻塞。
-Proposal 写入继续使用兼容错误码 `proposal_outcome_unknown`，恢复规则相同。
-
-在线 Rin Proposal Operation 内部的 Provider 失败可以选择确定性 Policy；
-Sidecar Submit、Poll、Timeout 或 Cancel 结果丢失则不同，此时在线 Proposal 可能
-已经存在。游戏必须保留并恢复完全相同的 Proposal Attempt/Job 身份并阻塞新 Turn；
-Transport 层不得自行编造替代动作。
-
-Proposal 与 Generation Job 记录采用独立的、有界进程内保留策略。特别是
-Generation Job 被淘汰或 Sidecar 重启后，同一请求可能再次执行；持久 Session
-mutation 的保证不适用于 Generation Job。
-
-Snapshot hash 是 checksum，不是签名或来源证明：能修改 Snapshot 的一方也能
-重新计算 hash。应把 Snapshot 当作可信、不透明的状态，并按事件日志同等级别
-保护。Restore 必须携带来自运行中游戏可信内容 manifest 的
-`expected_binding`；它必须与 `snapshot.state.binding` 一致，目标 Session
-已存在时还必须与该 Session 的 Binding 一致。
-
-Event Hash 同样是无密钥 SHA-256，只校验事件链一致性，不认证真实性。能替换完整
-History 的一方可以重建事件链及派生 Index、Checkpoint 与 Snapshot。必须使用外部
-访问控制保护数据目录和备份。
-
-Inline Snapshot 的 compact JSON 上限为 16 MiB；超限时 Rin 返回
-`413 snapshot_too_large`，绝不截断 Snapshot。服务端默认请求正文上限与所有
-随附客户端默认响应上限均为 32 MiB，为 API envelope、Restore 元数据和持久
-EventRecord framing 预留空间。Live Session State 默认同时限制为 16 MiB
-compact JSON（最高可配置为 24 MiB）；下一次 Mutation 若会超限，将在写 Event
-前返回 `413 state_too_large`。超过 inline Snapshot 上限的 lineage 不能使用这些
-JSON endpoint；应改用 Bearer 保护的 `/v2/session/export` 与
-`/v2/session/import` NDJSON Session Transfer。JavaScript 和 C# SDK 提供调用方
-拥有的流式 source/sink helper，并为 Transfer 使用独立的长超时。Sidecar 默认
-限制单次 Transfer 为 1 GiB / 1,000,000 events / 64 MiB Identifier Ledger、
-全局并发 4、同 Session 并发 1；这些限制、30 分钟服务端总 deadline 与 rolling
-30 秒 inactivity deadline 均可通过 `rin serve` 参数或对应环境变量配置。
-
-完整字段和错误语义见 [协议文档](docs/protocol-v2.zh-CN.md)，职责边界见
-[架构文档](docs/architecture.zh-CN.md)，应用、结果记账和重试顺序见
-[动作结果记账](docs/action-lifecycle.zh-CN.md)。
-
-只读离线检查一个会话（会从权威事件日志校验请求所经过的恢复路径，并只打印
-脱敏时间线；健康 revision index 会直接定位请求的尾部窗口，缺失或损坏的 index
-只在内存重建，不会修改数据目录）：
-
-```bash
-go run ./cmd/rin inspect -data ./rin-data -session playthrough-1
-go run ./cmd/rin inspect -data ./rin-data -session playthrough-1 -revision 42
-```
-
-`rin inspect` 会持有数据目录的 non-blocking exclusive lock，以保证整个读取
-期间目录稳定，因此运行它或进行未协调的文件系统备份前，应先停止 Sidecar。
-该命令使用 `store.OpenFileReadOnly`，不会创建目录、清理暂存文件、完成待处理
-删除、写 index/snapshot/checkpoint 或执行 fsync 修复，并在 JSON 中输出
-`"mode": "read-only"`。因为只读视图不会向 Runtime 暴露 Checkpoint Store，
-检查会从 genesis 重放所选 Session；一次性、checkpoint-independent 全量审计
-使用 `Engine.VerifyAll()`，有界审计使用 `Engine.Scrub(ctx, maxEvents)`。正常
-Sidecar 启动仍会执行 File Store 恢复，并自动运行有界 Scrub。嵌入式调用方必须
-调用 `(*store.ReadOnlyFile).Close()` 或 `(*store.File).Close()` 释放目录锁。
-检查支持 Runtime 可配置的完整 24 MiB State 上限，并且不构造受 16 MiB 限制的
-Inline Snapshot；这不会让该 State 可通过 Snapshot/Restore 携带。
-
-随附数据目录独占锁支持 `darwin`、`linux` 与 `windows`：Unix 使用 non-blocking
-`flock`，`windows` 使用无共享模式的独占文件 handle。其他所有 GOOS 上，
-`store.OpenFile` 返回 `ErrDataDirectoryLockUnsupported` 并 fail closed。
-
-随附 File Store 只能用于本机独占文件锁、同目录原子 rename 与平台持久化
-primitive 语义可靠的本地文件系统。Unix 使用 file/directory `fsync`；Windows
-使用 `FlushFileBuffers` 同步文件，并用带 `MOVEFILE_WRITE_THROUGH` 的
-`MoveFileExW` 发布 rename。不支持 NFS、SMB、FUSE mount 和云同步目录；远程或
-共享存储必须使用外部协调的 Store。
-数据根、`sessions`、`tombstones` 与 `.rin.lock` 必须是真实目录/文件，不能是
-Symbolic Link；Writer 与只读检查遇到结构 Symlink 都会 fail closed。
-
-事件日志采用 `retain_forever`，因为 Replay、持久 Identifier History 与审计
-依赖它。File Store 默认保留每个 Session 最近 2 个有效内部 checkpoint 和最近
-2 个有效公共 Snapshot 文件。容量规划与备份必须计入无限增长的事件日志与
-Identifier History；Rin 不提供事件日志自动归档。大 lineage 的完整迁移/备份
-使用 Session Transfer；它不改变事件日志永久保留或容量规划责任。
-
-## 游戏引擎适配
-
-- Ren'Py：纯标准库 Python 客户端、`renpy.invoke_in_thread` 桥接与 authored 离线回退。
-- Godot 4.6.3：`HTTPRequest` 异步客户端、Host/World/Timeline Epoch、
-  精确 Offer Binding 与 Active Run 恢复。
-- Unity：`UnityWebRequest` Coroutine、有界响应、Domain/Scene Epoch、持久
-  Active Run 与可取消 NavMesh 长动作。
-- Unreal：Preview Runtime Plugin 骨架，包含显式 Epoch、Game Thread 授权与
-  Behavior Tree ActionRun 示例。
-- 通用 SDK：Python 3.9+、Node/Fetch、.NET 6+、Java 17+ 与 Lua 5.1+。
-- 示例 Mod：Fabric 服务端、BepInEx 6 与本机 Sidecar 限定的 Luanti 5.16.1
-  服务端 Mod；Luanti 源码和生成脚手架已通过真实 Dedicated Server 重启测试。
-
-安装、配置和离线语义见 [游戏适配文档](docs/game-adapters.zh-CN.md)。RPG 的区域、可见性、任务和多人 NPC 事件约定见 [RPG 事件约定](docs/rpg-events.zh-CN.md)。
-跨语言目录规范、线程边界、凭据策略和 Mod 安装步骤见 [SDK 与 Mod 接入文档](docs/sdk-and-mods.zh-CN.md)。
-
-## 可选模型 Policy
-
-默认不访问网络。启用 OpenAI-compatible 模型：
-
-```bash
-export RIN_POLICY=model
-export RIN_MODEL_BASE_URL="https://provider.example/v1"
-export RIN_MODEL="your-model-id"
-export RIN_MODEL_API_KEY="..."
-go run ./cmd/rin serve
-```
-
-远程端点必须使用 HTTPS；本机 `127.0.0.1`、`::1`、`localhost` 模型可使用 HTTP 且可不配置 Key。模型调用具有独立超时、总预算、有限重试、熔断和有界缓存。详细配置见 [模型接入文档](docs/model-policy.zh-CN.md)。
-
-## 目录
-
-```text
-cmd/rin/       Sidecar 命令行程序
-api/           权威 OpenAPI 3.1 Wire Schema 与嵌入契约
-httpapi/       严格 JSON、鉴权、请求大小限制
-policy/        零网络依赖的确定性离线策略
-provider/      OpenAI-compatible 客户端、重试与熔断
-jobs/          有界异步 Proposal worker queue
-generation/    有界结构化 Generation worker queue 与缓存
-extension/     可选 Memory、Speech 与无内容 Telemetry 端口
-adapters/      Ren'Py Python 客户端与桥接层
-sdk/           Python、JavaScript、C#、Java、Lua 通用客户端与路由契约
-compat/        可执行的游戏协议兼容向量
-protocol/      可跨语言实现的 v2 数据契约
-runtime/       事件状态机、提案验证、快照和调度
-store/         JSONL 文件存储与内存存储
-tools/         确定性契约 Projection Generator
-examples/      Go、Godot、Unity、Unreal 与 Fabric/BepInEx/Luanti Mod 示例
-```
-
-可安装的 Node.js
-[`Last Station`](examples/terminal-story/README.zh-CN.md) 切片覆盖 Windows、
-macOS 与 Linux，并记录当前玩家价值证据。公平的持久化规则树对照表明：单条偏好
-规则并不值得引入 Rin；详见[实测发布门禁](docs/player-value.zh-CN.md)。
-
-## 能力边界
-
-Rin 不负责渲染、导航、物理、战斗、背包、任务规则或任意脚本执行，也不把
-模型输出直接当作世界事实。项目不引入供应商 SDK、向量数据库、ORM、
-WebSocket、动态插件执行或任意文件访问。在线模型始终是可选能力：Provider 失败
-可使用 Rin 的确定性 Policy；确认没有创建在线 Proposal 时，游戏也可使用自己
-编写的离线内容。Sidecar 结果未决并不能证明 Proposal 不存在，必须保持 Fail
-Closed，直到完全相同的 Attempt 完成对账。
-
-长期记忆检索、TTS 与遥测通过供应商无关可选端口接入，不会获得游戏动作权威。
-契约、缓存/取消/降级语义和 Ren'Py 等宿主的播放线程边界见
-[可选扩展端口](docs/optional-extensions.zh-CN.md)。
-持续运行时的 Event Log、Memory Projection、语义索引、运维日志边界和加速一年
-回归见[长会话验证](docs/long-session-validation.zh-CN.md)。
-
-已交付里程碑与剩余 Preview 工作记录在 [ROADMAP.md](ROADMAP.md)。
+Rin 不负责渲染、导航、物理、战斗、背包、任务规则或任意脚本执行，也不把模型输出直接当作世界事实。项目不引入供应商 SDK、向量数据库、ORM、WebSocket 或动态插件执行。
 
 ## 许可证
 

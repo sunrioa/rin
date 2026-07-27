@@ -2,376 +2,101 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
-> Game-native agent runtime.
+Rin is a game-oriented agent runtime. It keeps character memory, goals, decisions, and asynchronous work outside the game loop, then returns locally validated action proposals to the game.
 
-Rin manages character memory, goals, decisions, asynchronous model work, and
-verified replay outside the game loop. The game keeps world authority and
-receives only locally validated action proposals. Rin can run as a sidecar or
-be embedded as a Go package in tooling. The runtime and server core use only
-the Go standard library and are independent of any specific game, engine, or
-model provider. The `host` contract reuses a maintained JSON Schema 2020-12
-validator; dependencies and licenses are listed in
-[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
+## Status
 
-Documentation index: [English](docs/README.md) |
-[简体中文](docs/README.zh-CN.md)
+The source version is `0.7.0` Preview (pre-1.0), and the project is still under development. Before a verified release tag exists, pin an exact repository revision or tag. See the [compatibility matrix](docs/compatibility.md) and [changelog](CHANGELOG.md) for migration information.
 
-**Current development status:** the source identifies itself as `0.7.0`
-Preview (pre-1.0). Until its verified release tag is created, treat it as an
-unreleased development version. The project documents migration behavior but
-does not promise compatibility across every future minor release. Pin an exact
-repository revision or verified release tag. See the
-[changelog](CHANGELOG.md), [compatibility matrix](docs/compatibility.md),
-[Protocol v2 guide](docs/protocol-v2.md), and
-[release guide](docs/release-guide.md).
+## What Rin does
 
-## Core capabilities
+- The game submits what a character actually observed as an `Observation`.
+- The character produces an `ActionProposal` from memory, goals, boundaries, and the actions currently allowed by the game.
+- The game keeps world authority. It validates, applies, or rejects the proposal and reports the action result to Rin.
+- State changes are written to a hash-chained event log that can be checked with Replay, Timeline, and `rin inspect`.
+- Proposals, Generation Jobs, snapshots, and Session Transfer each have bounded size, time, and concurrency budgets.
 
-Rin separates character reasoning from game-world facts:
-
-- The game submits what a character actually saw as an `Observation` instead
-  of handing the model an entire save.
-- A character creates an `ActionProposal` from memories, goals, boundaries,
-  and the actions currently allowed by the game.
-- A proposal cannot directly change plot, inventory, quests, or
-  relationships. The game validates and applies or rejects it, then reports
-  the typed action lifecycle to Rin.
-- Every state change is written to a hash-chained JSONL event log that can be
-  replayed and inspected.
-- Snapshots bind `game/content/version/hash`. Their SHA-256 canonical
-  checksums detect accidental corruption or an unsynchronized edit, while
-  Restore rejects a binding mismatch.
-- Tick scheduling lets many NPCs think only when needed instead of calling a
-  model every frame.
-- Asynchronous jobs prefetch online-model results so slow requests,
-  cancellation, and stale state never freeze the game thread.
-- Generic structured Generation Jobs route plot, quest descriptions, and
-  constrained dialogue through the sidecar without storing provider keys in
-  the game.
-- If a model is unavailable, Rin falls back to a deterministic policy and
-  identifies the source with `policy_source`.
-
-- Ren'Py, Godot 4, Unity, and Unreal reference adapters preserve the same
-  observe/propose/execute/report authority boundary.
-- The engine-neutral `host` contract separates static capabilities, per-turn
-  `ActionOffer` values, epoch-bound invocation, and long-action terminal
-  states. Universal HostKit ports and its Coordinator unify Pending Decision,
-  authority-thread execution, ActionRun, exact Outbox, and Epoch reconciliation.
-- Real OpenSpiel games verify sequential, simultaneous, chance, and hidden-
-  information mappings on macOS, Linux, and Windows so the universal contract
-  cannot silently collapse into single-actor turns.
-- Python, JavaScript, C#, Java, and Lua SDKs plus Fabric, BepInEx, and Luanti
-  example mods provide quick integration paths.
-- Optional layered memory, conflicting beliefs, candidate subgoals, regional
-  dormancy, and deterministic multi-actor arbitration are explicitly enabled
-  through session features.
-- A redacted timeline, revision replay, and `rin inspect` make long-running
-  character behavior reproducible and auditable.
-
-The same boundary works for narrative characters, RPG NPCs, companions,
-simulation residents, and server-side entities.
+Rin can run as a sidecar or be embedded as a Go package. It does not depend on a particular game, engine, or model provider. Online models are optional; a deterministic Policy can run without one.
 
 ## Quick start
 
-Running the sidecar requires Go 1.24 or later. Ren'Py adapter tests also
-require Python 3.9+.
+Rin requires Go 1.24 or later. Start a local sidecar:
 
 ```bash
 make test
 go run ./cmd/rin serve -data ./rin-data
 ```
 
-The default listener is `127.0.0.1:7374`. Check the service with:
+The default listener is `127.0.0.1:7374`. Check it with:
 
 ```bash
 curl http://127.0.0.1:7374/health
 ```
 
-Generate a standalone universal Host or pinned Mod starting project without
-downloading a template:
-
-```bash
-go run ./cmd/rin init host --list-hosts
-go run ./cmd/rin init host \
-  --engine fabric --id guide_npc --name "Guide NPC" \
-  --namespace io.github.example
-```
-
-`custom` generates an engine-neutral Host contract for Go, JavaScript, Python,
-C#, Java, or Lua. Fabric, BepInEx Mono, BepInEx IL2CPP, and Luanti templates
-are also included. The generator refuses to overwrite existing paths; see the
-[Host scaffolding guide](docs/host-scaffolding.md) for capability generation,
-Windows commands, pinned versions, and the real-game validation boundary.
-
-Run the minimal development quickstart:
+Run the small example:
 
 ```bash
 go run ./examples/basic
 ```
 
-It demonstrates Session creation and Observe only; it does not persist the
-identities required in production. See the [Host action
-lifecycle](docs/action-lifecycle.md) and [game adapters](docs/game-adapters.md)
-for the production Proposal Attempt, applied marker, Outcome Outbox, and crash
-recovery pattern. The runnable full vertical slice is
-[`examples/terminal-story`](examples/terminal-story/).
+It covers Session creation and Observe only. The complete vertical slice with Proposal Attempt persistence, crash recovery, and an Outcome Outbox is [`examples/terminal-story`](examples/terminal-story/README.md).
 
-Production integrations should use a dedicated sidecar token:
+Generate a Host or Mod starter project:
+
+```bash
+go run ./cmd/rin init host --list-hosts
+go run ./cmd/rin init host --engine fabric --id guide_npc --name "Guide NPC" --namespace io.github.example
+```
+
+`custom` supports Go, JavaScript, Python, C#, Java, and Lua. Fabric, BepInEx Mono, BepInEx IL2CPP, and Luanti templates are also available. The generator never overwrites an existing path; see the [Host scaffolding guide](docs/host-scaffolding.md).
+
+## Integration paths
+
+- Ren'Py, Godot 4, Unity, and Unreal reference adapters
+- Python, JavaScript, C#, Java, and Lua SDKs
+- Fabric, BepInEx, and Luanti example mods
+- The engine-neutral `host` contract and HostKit
+
+See [game adapters](docs/game-adapters.md) for installation, thread boundaries, and offline behavior. Cross-language SDK rules, credentials, and Mod installation are covered in [SDK and Mod integration](docs/sdk-and-mods.md).
+
+## Documentation
+
+- [Documentation index](docs/README.md) / [简体中文](docs/README.zh-CN.md)
+- [Protocol v2](docs/protocol-v2.md): fields, errors, and retry semantics
+- [Action lifecycle](docs/action-lifecycle.md): proposals, execution, Outbox, and recovery
+- [Deployment and monitoring](docs/operations.md): tokens, TLS, storage, and runtime limits
+- [Release guide](docs/release-guide.md) and [roadmap](ROADMAP.en.md)
+- [Security](SECURITY.en.md), [changelog](CHANGELOG.md), and [third-party notices](THIRD-PARTY-NOTICES.md)
+
+`api/openapi.json` is the source for HTTP paths, status codes, fields, and JSON Schema. The protocol reference describes runtime semantics; focused documents cover adapters, long sessions, Transfer, and optional extensions. The root README does not duplicate those details.
+
+## Repository layout
+
+```text
+cmd/rin/       Sidecar command-line program
+api/           OpenAPI 3.1 contract
+protocol/      Cross-language v2 types
+runtime/       Event state machine, proposal validation, snapshots, scheduling
+store/         JSONL file store and in-memory store
+httpapi/       HTTP, authentication, and request-size limits
+sdk/           Python, JavaScript, C#, Java, and Lua SDKs
+adapters/      Ren'Py client and bridge
+tools/         Contract projection and verification tools
+examples/      Example programs, adapters, and Mods
+```
+
+## Security and deployment
+
+Rin makes no network calls by default. A production sidecar should use a dedicated token and a same-host TLS reverse proxy:
 
 ```bash
 export RIN_TOKEN="$(openssl rand -hex 32)"
 go run ./cmd/rin serve
 ```
 
-The client then sends `Authorization: Bearer $RIN_TOKEN`. Tokens, model API
-keys, and provider URLs are never written to events, snapshots, or responses.
-Generation results may contain only bounded, non-secret operational metadata
-such as model name, finish reason, and token counts; games may apply an
-additional persistence allowlist.
+A remote listener must declare `-allow-remote`, `RIN_TOKEN`, and `-tls-proxy` (or `RIN_TLS_PROXY=true`). These options do not provide TLS or make a public plaintext listener safe. Tokens, model keys, and provider URLs are not written to events, snapshots, or responses. See [deployment and monitoring](docs/operations.md) and [security](SECURITY.en.md).
 
-A production remote deployment should terminate TLS in a same-host reverse
-proxy while Rin remains on loopback with `RIN_TOKEN` set. Only a split-proxy
-deployment on a controlled private network should use a non-loopback listener;
-that requires `-allow-remote`, `RIN_TOKEN`, and `-tls-proxy` (or
-`RIN_TLS_PROXY=true`) or startup fails. The declaration does not enable TLS or
-make a public plaintext listener safe. See
-[deployment and monitoring](docs/operations.md).
-
-## API
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/health` | Unauthenticated, dependency-free liveness |
-| `GET` | `/ready` | Unauthenticated Store/worker readiness |
-| `GET` | `/metrics` | Authenticated dependency-free Prometheus metrics |
-| `GET` | `/v2/diagnostics` | Authenticated bounded operational state without player content |
-| `POST` | `/v2/session/create` | Create a session bound to a game-content version |
-| `POST` | `/v2/session/observe` | Submit events actually observed by one or more actors |
-| `POST` | `/v2/agent/propose` | Produce a character proposal from game-allowlisted actions |
-| `POST` | `/v2/jobs/propose` | Submit an asynchronous proposal job |
-| `GET` | `/v2/jobs/{job_id}` | Read proposal-job status and result |
-| `DELETE` | `/v2/jobs/{job_id}` | Cancel a queued or running proposal job |
-| `POST` | `/v2/generation/jobs` | Submit an asynchronous structured JSON generation job |
-| `GET` | `/v2/generation/jobs/{job_id}` | Read a generation job and safe metadata |
-| `DELETE` | `/v2/generation/jobs/{job_id}` | Cancel a generation job |
-| `POST` | `/v2/action/report` | Record a host decision, invocation, run, and outcome |
-| `POST` | `/v2/action/report-batch` | Atomically record results from one simultaneous decision window |
-| `POST` | `/v2/session/activity` | Update actor region and awake/dormant state |
-| `POST` | `/v2/world/arbitrate` | Deterministically arbitrate conflicting parallel proposals |
-| `POST` | `/v2/scheduler/due` | Query actors due to think at the current tick |
-| `POST` | `/v2/session/get` | Read session state |
-| `POST` | `/v2/session/stats` | Read lifecycle and managed storage use |
-| `POST` | `/v2/session/archive` | Freeze read-only with Binding/head preconditions |
-| `POST` | `/v2/session/delete` | Delete an archived Session and retain a minimal tombstone |
-| `POST` | `/v2/session/snapshot` | Create and atomically save a snapshot |
-| `POST` | `/v2/session/restore` | Validate and restore a snapshot |
-| `POST` | `/v2/session/timeline` | Read the redacted event timeline |
-| `POST` | `/v2/session/replay` | Replay to a revision and return a snapshot |
-
-This table is an overview. [`api/openapi.json`](api/openapi.json) is the single
-wire-schema source for paths, methods, status codes, required fields, and JSON
-shapes. The [protocol reference](docs/protocol-v2.md) defines transaction,
-retry, and persistence semantics. Requests reject unknown fields, while clients
-must tolerate additive response fields.
-
-Every public JSON integer must be exactly representable from
-`-9007199254740991` through `9007199254740991`; fields such as ticks and
-revisions have narrower non-negative rules. Every Action Report and Batch item
-must explicitly include `decision`; omission or `null` is invalid. Non-2xx
-failures use the Rin error envelope. A Job lookup can
-instead return HTTP `200` with a terminal `data.error`, so HTTP success alone
-does not mean the asynchronous operation succeeded.
-
-Every durable Session mutation carries a caller-generated `request_id`.
-Within one Session lineage, Rin permanently binds that ID to the mutation kind,
-the canonical typed JSON payload, and its first durable result. An exact retry
-does not mutate state: it returns the first result's revision/head (or the
-original Proposal/Arbitration) with `duplicate=true`. Reusing the ID for a
-different operation or payload returns `409 request_id_conflict`. Observe,
-Action Report, and every Batch item share a permanent, Session-scoped `event_id`
-namespace. Bounded State Receipts are only a hot projection of this history.
-
-If Rin cannot confirm whether a non-Proposal mutation reached durable storage,
-it returns `mutation_outcome_unknown`. Keep the original operation pending and
-retry its exact kind, payload, and IDs; changing the same request returns
-`request_id_conflict`, while other Session mutations remain blocked behind the
-uncertain tail. Proposal writes retain the compatible
-`proposal_outcome_unknown` code and the same recovery rule.
-
-Provider failure inside a live Rin Proposal operation can select the
-deterministic Policy. Loss of the Sidecar submit, poll, timeout, or cancellation
-result is different: an online Proposal may already exist. Preserve and resume
-the exact Proposal Attempt/Job identity and block a new turn. The transport
-layer must never invent a replacement action.
-
-Proposal and Generation Job records have separate, bounded in-process
-retention. In particular, a Generation request may run again after its Job is
-evicted or the sidecar restarts; the durable Session-mutation guarantee does
-not apply to Generation Jobs.
-
-Snapshot hashes are checksums, not signatures or provenance proof: someone
-who can change a Snapshot can recompute them. Treat each Snapshot as trusted,
-opaque state and protect it at the same level as the event log. Restore
-requires `expected_binding` from the running game's trusted content manifest;
-it must match `snapshot.state.binding` and, when the target Session already
-exists, that Session's binding.
-
-Event hashes are also unkeyed SHA-256 values. They validate chain consistency,
-not authenticity: a party able to replace a complete history can rebuild the
-chain and its derived indexes, checkpoints, and Snapshots. Protect the data
-directory and backups with external access controls.
-
-Inline Snapshot compact JSON is limited to 16 MiB. Rin returns
-`413 snapshot_too_large` instead of truncating a Snapshot. The server's
-default request-body limit and every bundled client's default response limit
-are 32 MiB, leaving room for the API envelope, Restore metadata, and durable
-EventRecord framing. A lineage that outgrows the inline limit cannot use those
-JSON endpoints; use the Bearer-protected `/v2/session/export` and
-`/v2/session/import` NDJSON Session Transfer instead. The JavaScript and C#
-SDKs provide caller-owned streaming source/sink helpers. The Sidecar defaults
-to 1 GiB wire bytes, 1,000,000 events, and a 64 MiB retained Identifier Ledger
-per Transfer, with four Transfers globally and one per Session. `rin serve`
-flags or their corresponding environment variables configure these limits,
-the 30-minute total deadline, and the rolling 30-second inactivity deadline.
-
-See the [protocol reference](docs/protocol-v2.md) for complete fields and
-error semantics, the [architecture guide](docs/architecture.md) for
-responsibility boundaries, and [action outcome reporting](docs/action-lifecycle.md)
-for application, recording, and retry order.
-
-Inspect one session offline in read-only mode. The command validates the
-requested recovery path from the authoritative event log and prints only a
-redacted timeline. A healthy revision index locates the requested trailing
-window directly; a missing or invalid index is rebuilt only in memory:
-
-```bash
-go run ./cmd/rin inspect -data ./rin-data -session playthrough-1
-go run ./cmd/rin inspect -data ./rin-data -session playthrough-1 -revision 42
-```
-
-`rin inspect` holds a non-blocking exclusive data-directory lock to keep the
-offline view stable, so stop the Sidecar before running it or taking an
-uncoordinated filesystem backup. It uses `store.OpenFileReadOnly`: it does not
-create directories, clean staging files, finish pending deletion, write
-indexes/snapshots/checkpoints, or perform fsync repair, and its JSON reports
-`"mode": "read-only"`. Because this view does not expose a Checkpoint Store to
-Runtime, it replays the selected Session from genesis. Normal Sidecar startup
-still performs File Store recovery and bounded Scrub. Embedded callers must
-call `(*store.ReadOnlyFile).Close()` or `(*store.File).Close()` to release the
-lock. Inspection accepts the Runtime's full configurable 24 MiB State ceiling
-and computes its hash without constructing a 16 MiB inline Snapshot; this does
-not make the State portable through Snapshot/Restore. Use `Engine.VerifyAll()`
-for a one-shot checkpoint-independent audit or `Engine.Scrub(ctx, maxEvents)`
-for bounded passes.
-
-The bundled exclusive data-directory lock supports `darwin`, `linux`, and
-`windows`: Unix uses non-blocking `flock`, while Windows uses an exclusive file
-handle opened without sharing. On every other GOOS, `store.OpenFile` returns
-`ErrDataDirectoryLockUnsupported` and fails closed.
-
-Use the bundled file store only on a local filesystem with reliable exclusive
-file locking, same-directory atomic rename, and platform durability primitives.
-Unix uses file/directory `fsync`; Windows syncs files with
-`FlushFileBuffers` and publishes renames with
-`MoveFileExW(MOVEFILE_WRITE_THROUGH)`.
-NFS, SMB, FUSE mounts, and cloud-synchronized directories are unsupported;
-remote or shared storage requires an externally coordinated Store.
-The data root, `sessions`, `tombstones`, and `.rin.lock` must be real
-directories/files rather than symbolic links; writer and inspection opens
-fail closed on structural symlinks.
-
-Event logs use `retain_forever` because Replay, durable identifier history,
-and audit depend on them. The file store keeps the two newest valid internal
-checkpoints and the two newest valid public Snapshot files per Session.
-Capacity planning and backups must account for the unbounded event log and
-Identifier History; Rin does not provide automatic event-log archival.
-Complete migration or backup of a large lineage uses Session Transfer and does
-not remove the operator's retention or capacity-planning responsibility.
-
-## Game-engine adapters
-
-- Ren'Py: standard-library Python client and `renpy.invoke_in_thread` bridge.
-- Godot 4: asynchronous `HTTPRequest` signal/timer example.
-- Unity: asynchronous `UnityWebRequest` coroutine with bounded response
-  handling.
-- Unreal: Preview Runtime Plugin skeleton with explicit Epoch binding, Game
-  Thread authorization, and a Behavior Tree ActionRun example.
-- General SDKs: Python 3.9+, Node/Fetch, .NET 6+, Java 17+, and Lua 5.1+.
-- Example mods: Fabric server, BepInEx 6, and a loopback-sidecar-only Luanti
-  5.16.1 server Mod. Real dedicated-server restart tests cover both its source
-  tree and a newly generated scaffold.
-
-See [game adapters](docs/game-adapters.md) for installation, configuration,
-and offline semantics. RPG region, visibility, quest, and multi-NPC event
-conventions are in [RPG event conventions](docs/rpg-events.md).
-Cross-language structure, thread boundaries, credential policy, and mod
-installation are covered by [SDK and mod integration kits](docs/sdk-and-mods.md).
-
-## Optional model policy
-
-Rin makes no network calls by default. Enable an OpenAI-compatible model with:
-
-```bash
-export RIN_POLICY=model
-export RIN_MODEL_BASE_URL="https://provider.example/v1"
-export RIN_MODEL="your-model-id"
-export RIN_MODEL_API_KEY="..."
-go run ./cmd/rin serve
-```
-
-Remote endpoints must use HTTPS. Models on `127.0.0.1`, `::1`, or `localhost`
-may use HTTP without a key. Model calls have independent timeouts, a total
-budget, bounded retries, a circuit breaker, and a bounded cache. See
-[model policy](docs/model-policy.md) for details.
-
-## Repository layout
-
-```text
-cmd/rin/       Sidecar command-line program
-api/           Authoritative OpenAPI 3.1 wire schema and embedded contract
-httpapi/       Strict JSON, authentication, and request-size limits
-policy/        Deterministic offline policy with no network dependency
-provider/      OpenAI-compatible client, retries, and circuit breaker
-jobs/          Bounded asynchronous proposal worker queue
-generation/    Bounded structured-generation worker queue and cache
-extension/     Optional memory, speech, and content-free telemetry ports
-adapters/      Ren'Py Python client and bridge
-sdk/           Python, JavaScript, C#, Java, and Lua clients and route contract
-compat/        Executable game-protocol compatibility vectors
-protocol/      Cross-language v2 data contract
-runtime/       Event state machine, proposal validation, snapshots, scheduling
-store/         JSONL file store and in-memory store
-tools/         Deterministic contract projection generator
-examples/      Go, Godot, Unity, and Fabric/BepInEx/Luanti mod examples
-```
-
-The installable Node.js
-[`Last Station`](examples/terminal-story/README.md) slice runs on Windows,
-macOS, and Linux and records the current player-value evidence. Its fair
-persistent-rule-tree comparison shows that Rin is not justified for a single
-preference rule; see the [measured release gates](docs/player-value.md).
-
-## Scope boundaries
-
-Rin does not own rendering, navigation, physics, combat, inventory, quest
-rules, or arbitrary script execution, and it never treats model output as
-world fact. The project does not add provider SDKs, a vector database, an ORM,
-WebSockets, dynamic plugin execution, or arbitrary file access. Online models
-remain optional. Provider failure can use Rin's deterministic Policy, and a
-game can use authored offline content when it knows no online Proposal was
-created. Sidecar outcome uncertainty is not proof of absence and must remain
-fail closed until the exact Attempt is reconciled.
-
-Long-term retrieval, TTS, and telemetry integrate through vendor-neutral
-optional ports and receive no game-action authority. See
-[optional extensions](docs/optional-extensions.md) for the contracts,
-cache/cancellation/degradation semantics, and engine audio-thread boundary.
-See [long-session validation](docs/long-session-validation.md) for event-log,
-memory-projection, semantic-index, operational-log boundaries and the
-accelerated-year regression.
-
-Delivered milestones and remaining Preview work are tracked in
-[ROADMAP.en.md](ROADMAP.en.md).
+Rin does not own rendering, navigation, physics, combat, inventory, quest rules, or arbitrary script execution. Model output is never treated as a world fact. The project does not add provider SDKs, a vector database, an ORM, WebSockets, or dynamic plugin execution.
 
 ## License
 
