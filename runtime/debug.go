@@ -231,6 +231,7 @@ func (e *Engine) loadTimelineEvents(
 func replayEvents(
 	events []protocol.EventRecord,
 	targetRevision uint64,
+	maxSessionStateBytes uint64,
 ) (protocol.SessionState, protocol.IdentifierHistory, error) {
 	var (
 		state       protocol.SessionState
@@ -242,6 +243,12 @@ func replayEvents(
 		normalizeWritableState(&state)
 		state, err = applyEvent(state, event)
 		if err != nil {
+			return protocol.SessionState{}, protocol.IdentifierHistory{}, err
+		}
+		if err := ensureSessionStateSize(
+			state,
+			maxSessionStateBytes,
+		); err != nil {
 			return protocol.SessionState{}, protocol.IdentifierHistory{}, err
 		}
 		identifierDelta, identityErr := prepareIdentifierEvent(identifiers, event)

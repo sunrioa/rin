@@ -158,7 +158,11 @@ func (e *Engine) loadLegacyThrough(
 		}
 		events = events[:count]
 	}
-	state, identifiers, err := replayEvents(events, 0)
+	state, identifiers, err := replayEvents(
+		events,
+		0,
+		e.maxSessionStateBytes,
+	)
 	if err != nil {
 		return protocol.SessionState{}, protocol.IdentifierHistory{}, 0, NewError(
 			"replay_failed",
@@ -214,6 +218,17 @@ func (e *Engine) loadRangedThroughMode(
 				return e.loadRangedThroughMode(sessionID, through, ranged, false)
 			}
 			canonicalizeStateProposalPresentation(&state)
+			if err := ensureSessionStateSize(
+				state,
+				e.maxSessionStateBytes,
+			); err != nil {
+				return e.loadRangedThroughMode(
+					sessionID,
+					through,
+					ranged,
+					false,
+				)
+			}
 			identifiers, err = cloneIdentifierHistory(*checkpoint.Snapshot.IdentifierHistory)
 			if err != nil {
 				return e.loadRangedThroughMode(sessionID, through, ranged, false)
@@ -230,6 +245,7 @@ func (e *Engine) loadRangedThroughMode(
 		state,
 		identifiers,
 		epoch,
+		e.maxSessionStateBytes,
 	)
 	if err != nil && usedCheckpoint {
 		// A checkpoint is never authoritative. Even a structurally valid cache
@@ -247,6 +263,7 @@ func replayRangedTail(
 	state protocol.SessionState,
 	identifiers protocol.IdentifierHistory,
 	epoch uint64,
+	maxSessionStateBytes uint64,
 ) (protocol.SessionState, protocol.IdentifierHistory, uint64, error) {
 	for state.Revision < through {
 		page, err := ranged.LoadRange(
@@ -286,6 +303,19 @@ func replayRangedTail(
 					"session event range is invalid",
 					applyErr,
 				)
+			}
+			if sizeErr := ensureSessionStateSize(
+				next,
+				maxSessionStateBytes,
+			); sizeErr != nil {
+				return protocol.SessionState{},
+					protocol.IdentifierHistory{},
+					0,
+					NewError(
+						"replay_failed",
+						"Session State exceeds its configured byte limit",
+						sizeErr,
+					)
 			}
 			delta, identityErr := prepareIdentifierEvent(identifiers, event)
 			if identityErr != nil {

@@ -90,6 +90,10 @@ and C# priority SDKs expose streaming source/sink helpers. The Python, Java,
 and Lua packages remain JSON transport clients and do not claim large-lineage
 transfer support.
 
+Live Session State defaults to a 16 MiB compact-JSON budget. Rin rejects an
+offending mutation before persistence with `413 state_too_large`; operators
+may raise the budget only to 24 MiB so the response envelope stays readable.
+
 The SDKs are intentionally source-first and are not yet published to PyPI,
 npm, NuGet, or Maven Central. Pin this repository revision when vendoring one.
 Route compatibility is defined by

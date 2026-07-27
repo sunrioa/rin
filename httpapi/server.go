@@ -723,7 +723,7 @@ func (s *Server) respond(response http.ResponseWriter, request *http.Request, da
 		// store_load_failed describes a missing/corrupt durable resource, not a
 		// confirmed absent Session.
 		status = http.StatusInternalServerError
-	case code == "snapshot_too_large":
+	case code == "snapshot_too_large", code == "state_too_large":
 		status = http.StatusRequestEntityTooLarge
 	case code == "transfer_too_large", code == "transfer_event_limit":
 		status = http.StatusRequestEntityTooLarge

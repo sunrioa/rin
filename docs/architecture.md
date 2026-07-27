@@ -569,6 +569,15 @@ only scheduling time, never boundaries or the action allowlist.
   lineage cannot use the inline JSON Snapshot, Replay, or Restore endpoints.
   It retains a bounded-memory migration and backup path through the NDJSON
   Session Transfer export/import endpoints and JavaScript/C# stream helpers.
+- Live `SessionState` has a separate compact-JSON budget so the State endpoint
+  cannot grow beyond every bundled SDK's response limit. It defaults to
+  16 MiB and may be configured up to 24 MiB with
+  `-session-state-max-bytes` / `RIN_SESSION_STATE_MAX_BYTES`. Create, mutation,
+  and Transfer Import calculate the next complete State before persisting the
+  Event and return `413 state_too_large` without changing the log. Replay also
+  enforces the configured budget; operators must explicitly raise it, within
+  the 24 MiB envelope-safe ceiling, before opening older data created with a
+  larger limit.
 
 ## Model integration rule
 

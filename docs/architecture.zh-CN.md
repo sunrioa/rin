@@ -427,6 +427,12 @@ Lifecycle 后，`next_think_tick = max(current, report.tick + think_every_ticks)
   lineage 不能使用 inline JSON Snapshot、Replay 或 Restore endpoint，但可通过
   NDJSON Session Transfer export/import endpoint 与 JavaScript/C# stream helper
   进行有界内存迁移和备份。
+- Live `SessionState` 使用独立 compact JSON 预算，避免 State endpoint 超过随附
+  SDK 的响应上限。默认 16 MiB，可通过 `-session-state-max-bytes` /
+  `RIN_SESSION_STATE_MAX_BYTES` 配置，但最高为给 envelope 留出空间的 24 MiB。
+  Create、普通 Mutation 与 Transfer Import 会在持久化 Event 前计算下一版完整
+  State；超限返回 `413 state_too_large`，不改变日志。Replay 同样执行配置预算；
+  若旧数据由更大的上限创建，运维方必须先在 24 MiB ceiling 内显式提高配置。
 
 ## 模型接入规则
 

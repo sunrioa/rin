@@ -75,6 +75,10 @@ JavaScript 与 C# priority SDK 已提供 streaming source/sink helper；Python�
 Java 与 Lua package 仍属于 JSON transport client，不宣称支持大 lineage
 transfer。
 
+Live Session State 默认使用 16 MiB compact JSON 预算；造成超限的 Mutation 会在
+持久化前返回 `413 state_too_large`。运维配置最高只能提高到 24 MiB，以保证响应
+envelope 仍可读取。
+
 SDK 有意采用源码优先方式，尚未发布到 PyPI、npm、NuGet 或 Maven Central。
 Vendor 时应固定本仓库 Revision。路由兼容性由
 [`api/openapi.json`](../api/openapi.json) 定义；

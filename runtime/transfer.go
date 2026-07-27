@@ -393,39 +393,41 @@ func (e *Engine) BeginTransferImport(
 	releaseOperation = false
 	keepTransfer = true
 	return &runtimeTransferWriter{
-		engine:           e,
-		manifest:         manifest,
-		expectedBinding:  expectedBinding,
-		staged:           staged,
-		identifiers:      newIdentifierHistory(true),
-		unlockLifecycle:  unlockLifecycle,
-		hardLimitBytes:   e.sessionHardLimitBytes,
-		maxTransferBytes: e.maxTransferBytes,
-		transferBytes:    manifestBytes,
-		finishOperation:  finish,
-		releaseTransfer:  releaseTransfer,
+		engine:               e,
+		manifest:             manifest,
+		expectedBinding:      expectedBinding,
+		staged:               staged,
+		identifiers:          newIdentifierHistory(true),
+		unlockLifecycle:      unlockLifecycle,
+		hardLimitBytes:       e.sessionHardLimitBytes,
+		maxSessionStateBytes: e.maxSessionStateBytes,
+		maxTransferBytes:     e.maxTransferBytes,
+		transferBytes:        manifestBytes,
+		finishOperation:      finish,
+		releaseTransfer:      releaseTransfer,
 	}, nil
 }
 
 type runtimeTransferWriter struct {
 	mu sync.Mutex
 
-	engine            *Engine
-	manifest          protocol.TransferManifest
-	expectedBinding   protocol.Binding
-	staged            TransferWriter
-	state             protocol.SessionState
-	identifiers       protocol.IdentifierHistory
-	lineageGeneration uint64
-	unlockLifecycle   func()
-	finished          bool
-	failed            error
-	hardLimitBytes    uint64
-	managedBytes      uint64
-	maxTransferBytes  uint64
-	transferBytes     uint64
-	finishOperation   func()
-	releaseTransfer   func()
+	engine               *Engine
+	manifest             protocol.TransferManifest
+	expectedBinding      protocol.Binding
+	staged               TransferWriter
+	state                protocol.SessionState
+	identifiers          protocol.IdentifierHistory
+	lineageGeneration    uint64
+	unlockLifecycle      func()
+	finished             bool
+	failed               error
+	hardLimitBytes       uint64
+	maxSessionStateBytes uint64
+	managedBytes         uint64
+	maxTransferBytes     uint64
+	transferBytes        uint64
+	finishOperation      func()
+	releaseTransfer      func()
 }
 
 var _ TransferWriter = (*runtimeTransferWriter)(nil)
@@ -471,6 +473,12 @@ func (w *runtimeTransferWriter) WriteEvent(
 			"transfer event could not be applied",
 			err,
 		))
+	}
+	if err := ensureSessionStateSize(
+		next,
+		w.maxSessionStateBytes,
+	); err != nil {
+		return w.fail(err)
 	}
 	delta, err := prepareIdentifierEvent(w.identifiers, frame.Record)
 	if err != nil {

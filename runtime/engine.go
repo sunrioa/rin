@@ -53,6 +53,7 @@ type Engine struct {
 	now                    func() time.Time
 	sessionSoftLimitBytes  uint64
 	sessionHardLimitBytes  uint64
+	maxSessionStateBytes   uint64
 	maxTransferBytes       uint64
 	maxTransferEvents      uint64
 	maxConcurrentTransfers int
@@ -77,6 +78,7 @@ func Open(store Store, decisionProvider DecisionProvider) (*Engine, error) {
 type EngineOptions struct {
 	SessionSoftLimitBytes  uint64
 	SessionHardLimitBytes  uint64
+	MaxSessionStateBytes   uint64
 	MaxTransferBytes       uint64
 	MaxTransferEvents      uint64
 	MaxConcurrentTransfers int
@@ -102,6 +104,14 @@ func OpenWithOptions(
 		if _, ok := store.(LifecycleStore); !ok {
 			return nil, errors.New("Session storage limits require Store stats support")
 		}
+	}
+	if options.MaxSessionStateBytes == 0 {
+		options.MaxSessionStateBytes = DefaultMaxSessionStateBytes
+	}
+	if options.MaxSessionStateBytes > MaxConfigurableSessionStateBytes {
+		return nil, errors.New(
+			"Session State byte limit must not exceed 24 MiB",
+		)
 	}
 	if options.MaxTransferBytes == 0 {
 		options.MaxTransferBytes = DefaultMaxTransferBytes
@@ -131,6 +141,7 @@ func OpenWithOptions(
 		now:                    time.Now,
 		sessionSoftLimitBytes:  options.SessionSoftLimitBytes,
 		sessionHardLimitBytes:  options.SessionHardLimitBytes,
+		maxSessionStateBytes:   options.MaxSessionStateBytes,
 		maxTransferBytes:       options.MaxTransferBytes,
 		maxTransferEvents:      options.MaxTransferEvents,
 		maxConcurrentTransfers: options.MaxConcurrentTransfers,
@@ -1645,6 +1656,9 @@ func (e *Engine) appendAndApply(session *managedSession, event protocol.EventRec
 	if err != nil {
 		return NewError("event_apply_failed", "event could not be applied", err)
 	}
+	if err := ensureSessionStateSize(state, e.maxSessionStateBytes); err != nil {
+		return err
+	}
 	identifierDelta, err := prepareIdentifierEvent(session.identifiers, event)
 	if err != nil {
 		return NewError("event_apply_failed", "event identifiers could not be applied", err)
@@ -1846,6 +1860,12 @@ func (e *Engine) createAndConfirm(
 			applyErr,
 		)
 	}
+	if err := ensureSessionStateSize(
+		candidate,
+		e.maxSessionStateBytes,
+	); err != nil {
+		return protocol.SessionState{}, protocol.IdentifierHistory{}, err
+	}
 	identifiers := newIdentifierHistory(true)
 	identifierDelta, identityErr := prepareIdentifierEvent(identifiers, event)
 	if identityErr != nil {
@@ -1879,6 +1899,14 @@ func (e *Engine) createAndConfirm(
 					"persisted session event could not be reconciled",
 					applyErr,
 				)
+			}
+			if sizeErr := ensureSessionStateSize(
+				reconciled,
+				e.maxSessionStateBytes,
+			); sizeErr != nil {
+				return protocol.SessionState{},
+					protocol.IdentifierHistory{},
+					sizeErr
 			}
 			reconciledIdentifiers := newIdentifierHistory(true)
 			reconciledIdentifierDelta, identityErr := prepareIdentifierEvent(reconciledIdentifiers, persisted)

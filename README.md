@@ -176,8 +176,10 @@ History 的一方可以重建事件链及派生 Index、Checkpoint 与 Snapshot�
 Inline Snapshot 的 compact JSON 上限为 16 MiB；超限时 Rin 返回
 `413 snapshot_too_large`，绝不截断 Snapshot。服务端默认请求正文上限与所有
 随附客户端默认响应上限均为 32 MiB，为 API envelope、Restore 元数据和持久
-EventRecord framing 预留空间。超过 inline 上限的 lineage 不能使用这些 JSON
-endpoint；应改用 Bearer 保护的 `/v2/session/export` 与
+EventRecord framing 预留空间。Live Session State 默认同时限制为 16 MiB
+compact JSON（最高可配置为 24 MiB）；下一次 Mutation 若会超限，将在写 Event
+前返回 `413 state_too_large`。超过 inline Snapshot 上限的 lineage 不能使用这些
+JSON endpoint；应改用 Bearer 保护的 `/v2/session/export` 与
 `/v2/session/import` NDJSON Session Transfer。JavaScript 和 C# SDK 提供调用方
 拥有的流式 source/sink helper，并为 Transfer 使用独立的长超时。Sidecar 默认
 限制单次 Transfer 为 1 GiB / 1,000,000 events、全局并发 4、同 Session 并发 1；

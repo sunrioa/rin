@@ -84,6 +84,14 @@ Serve options:
 		envUint64("RIN_SESSION_HARD_LIMIT_BYTES", 0),
 		"per-Session managed byte hard limit; 0 disables",
 	)
+	maxSessionStateBytes := flags.Uint64(
+		"session-state-max-bytes",
+		envUint64(
+			"RIN_SESSION_STATE_MAX_BYTES",
+			rinruntime.DefaultMaxSessionStateBytes,
+		),
+		"maximum compact JSON bytes in one Session State",
+	)
 	maxTransferBytes := flags.Uint64(
 		"transfer-max-bytes",
 		envUint64("RIN_TRANSFER_MAX_BYTES", rinruntime.DefaultMaxTransferBytes),
@@ -151,6 +159,7 @@ Serve options:
 		rinruntime.EngineOptions{
 			SessionSoftLimitBytes:  *sessionSoftLimit,
 			SessionHardLimitBytes:  *sessionHardLimit,
+			MaxSessionStateBytes:   *maxSessionStateBytes,
 			MaxTransferBytes:       *maxTransferBytes,
 			MaxTransferEvents:      *maxTransferEvents,
 			MaxConcurrentTransfers: *maxConcurrentTransfers,
@@ -211,6 +220,7 @@ Serve options:
 		"structured_generation", generationManager != nil,
 		"session_soft_limit_bytes", *sessionSoftLimit,
 		"session_hard_limit_bytes", *sessionHardLimit,
+		"session_state_max_bytes", *maxSessionStateBytes,
 		"transfer_max_bytes", *maxTransferBytes,
 		"transfer_max_events", *maxTransferEvents,
 		"transfer_max_concurrent", *maxConcurrentTransfers,
