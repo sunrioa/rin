@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -25,7 +26,7 @@ import (
 
 func TestAuthenticationAndHealth(t *testing.T) {
 	server := newServer(t, httpapi.Options{Token: "secret-token"})
-	health := httptest.NewRequest(http.MethodGet, "/health", nil)
+	health := loopbackRequest(http.MethodGet, "/health", nil)
 	healthResponse := httptest.NewRecorder()
 	server.ServeHTTP(healthResponse, health)
 	if healthResponse.Code != http.StatusOK {
@@ -39,8 +40,38 @@ func TestAuthenticationAndHealth(t *testing.T) {
 		t.Fatalf("expected bearer challenge, got %d %s", response.Code, response.Body.String())
 	}
 
+	for _, authorization := range []string{
+		"secret-token",
+		"Bearer  secret-token",
+		"Bearer secret-token extra",
+		"Basic secret-token",
+	} {
+		request = jsonRequest(t, "/v2/session/create", apiCreateRequest())
+		request.Header.Set("Authorization", authorization)
+		response = httptest.NewRecorder()
+		server.ServeHTTP(response, request)
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf(
+				"authorization %q returned %d, want 401",
+				authorization,
+				response.Code,
+			)
+		}
+	}
+
 	request = jsonRequest(t, "/v2/session/create", apiCreateRequest())
-	request.Header.Set("Authorization", "Bearer secret-token")
+	request.Header["Authorization"] = []string{
+		"Bearer secret-token",
+		"Bearer secret-token",
+	}
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("multiple Authorization headers returned %d", response.Code)
+	}
+
+	request = jsonRequest(t, "/v2/session/create", apiCreateRequest())
+	request.Header.Set("Authorization", "bearer secret-token")
 	response = httptest.NewRecorder()
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -49,9 +80,94 @@ func TestAuthenticationAndHealth(t *testing.T) {
 	assertResponseOK(t, response)
 }
 
+func TestTokenlessServerRejectsBrowserAndHostConfusion(t *testing.T) {
+	server := newServer(t, httpapi.Options{})
+	tests := []struct {
+		name      string
+		host      string
+		origin    string
+		fetchSite string
+		want      int
+	}{
+		{
+			name: "native loopback",
+			host: "127.0.0.1:7374",
+			want: http.StatusOK,
+		},
+		{
+			name:      "same origin browser",
+			host:      "localhost:7374",
+			origin:    "http://localhost:7374",
+			fetchSite: "same-origin",
+			want:      http.StatusOK,
+		},
+		{
+			name: "host confusion",
+			host: "attacker.example",
+			want: http.StatusForbidden,
+		},
+		{
+			name:      "cross origin",
+			host:      "127.0.0.1:7374",
+			origin:    "https://attacker.example",
+			fetchSite: "cross-site",
+			want:      http.StatusForbidden,
+		},
+		{
+			name:      "loopback origin mismatch",
+			host:      "127.0.0.1:7374",
+			origin:    "http://localhost:7374",
+			fetchSite: "same-origin",
+			want:      http.StatusForbidden,
+		},
+		{
+			name:      "null origin",
+			host:      "127.0.0.1:7374",
+			origin:    "null",
+			fetchSite: "same-origin",
+			want:      http.StatusForbidden,
+		},
+		{
+			name:      "fetch metadata conflict",
+			host:      "127.0.0.1:7374",
+			fetchSite: "same-site",
+			want:      http.StatusForbidden,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := loopbackRequest(http.MethodGet, "/health", nil)
+			request.Host = test.host
+			if test.origin != "" {
+				request.Header.Set("Origin", test.origin)
+			}
+			if test.fetchSite != "" {
+				request.Header.Set("Sec-Fetch-Site", test.fetchSite)
+			}
+			response := httptest.NewRecorder()
+			server.ServeHTTP(response, request)
+			if response.Code != test.want {
+				t.Fatalf(
+					"status = %d, want %d: %s",
+					response.Code,
+					test.want,
+					response.Body.String(),
+				)
+			}
+			if test.want == http.StatusForbidden &&
+				!strings.Contains(
+					response.Body.String(),
+					`"code":"tokenless_request_forbidden"`,
+				) {
+				t.Fatalf("unexpected denial: %s", response.Body.String())
+			}
+		})
+	}
+}
+
 func TestStrictJSONAndBodyLimit(t *testing.T) {
 	server := newServer(t, httpapi.Options{MaxBodyBytes: 256})
-	request := httptest.NewRequest(http.MethodPost, "/v2/session/create", strings.NewReader(`{"protocol_version":"rin.protocol/v2","unexpected":true}`))
+	request := loopbackRequest(http.MethodPost, "/v2/session/create", strings.NewReader(`{"protocol_version":"rin.protocol/v2","unexpected":true}`))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	server.ServeHTTP(response, request)
@@ -59,7 +175,7 @@ func TestStrictJSONAndBodyLimit(t *testing.T) {
 		t.Fatalf("unknown field status: %d %s", response.Code, response.Body.String())
 	}
 
-	request = httptest.NewRequest(http.MethodPost, "/v2/session/get", strings.NewReader(
+	request = loopbackRequest(http.MethodPost, "/v2/session/get", strings.NewReader(
 		`{"protocol_version":"rin.protocol/v2","session_id":"session.first","session_id":"session.last"}`,
 	))
 	request.Header.Set("Content-Type", "application/json")
@@ -70,7 +186,7 @@ func TestStrictJSONAndBodyLimit(t *testing.T) {
 		t.Fatalf("duplicate member response: %d %s", response.Code, response.Body.String())
 	}
 
-	request = httptest.NewRequest(http.MethodPost, "/v2/session/create", strings.NewReader(`{"padding":"`+strings.Repeat("x", 400)+`"}`))
+	request = loopbackRequest(http.MethodPost, "/v2/session/create", strings.NewReader(`{"padding":"`+strings.Repeat("x", 400)+`"}`))
 	request.Header.Set("Content-Type", "application/json")
 	response = httptest.NewRecorder()
 	server.ServeHTTP(response, request)
@@ -78,7 +194,7 @@ func TestStrictJSONAndBodyLimit(t *testing.T) {
 		t.Fatalf("oversized status: %d %s", response.Code, response.Body.String())
 	}
 
-	request = httptest.NewRequest(http.MethodPost, "/v2/session/create", strings.NewReader(`{}`))
+	request = loopbackRequest(http.MethodPost, "/v2/session/create", strings.NewReader(`{}`))
 	response = httptest.NewRecorder()
 	server.ServeHTTP(response, request)
 	if response.Code != http.StatusUnsupportedMediaType {
@@ -91,7 +207,7 @@ func TestStrictJSONRejectsRawInvalidUTF8BeforeDecoding(t *testing.T) {
 	payload := []byte(`{"protocol_version":"rin.protocol/v2","session_id":"`)
 	payload = append(payload, 0xff)
 	payload = append(payload, []byte(`"}`)...)
-	request := httptest.NewRequest(http.MethodPost, "/v2/session/get", bytes.NewReader(payload))
+	request := loopbackRequest(http.MethodPost, "/v2/session/get", bytes.NewReader(payload))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 
@@ -564,7 +680,7 @@ func TestAsyncProposalJobHTTPFlow(t *testing.T) {
 	}
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		request := httptest.NewRequest(http.MethodGet, "/v2/jobs/"+submitted.Data.JobID, nil)
+		request := loopbackRequest(http.MethodGet, "/v2/jobs/"+submitted.Data.JobID, nil)
 		response = httptest.NewRecorder()
 		server.ServeHTTP(response, request)
 		var result struct {
@@ -621,7 +737,7 @@ func TestStructuredGenerationHTTPFlow(t *testing.T) {
 	}
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		request := httptest.NewRequest(http.MethodGet, "/v2/generation/jobs/"+submitted.Data.JobID, nil)
+		request := loopbackRequest(http.MethodGet, "/v2/generation/jobs/"+submitted.Data.JobID, nil)
 		response = httptest.NewRecorder()
 		server.ServeHTTP(response, request)
 		var result struct {
@@ -725,9 +841,21 @@ func jsonRequest(t *testing.T, path string, value any) *http.Request {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(payload))
+	request := loopbackRequest(http.MethodPost, path, bytes.NewReader(payload))
 	request.Header.Set("Content-Type", "application/json; charset=utf-8")
 	return request
+}
+
+func loopbackRequest(
+	method string,
+	path string,
+	body io.Reader,
+) *http.Request {
+	return httptest.NewRequest(
+		method,
+		"http://127.0.0.1"+path,
+		body,
+	)
 }
 
 func perform(t *testing.T, handler http.Handler, path string, value any) *httptest.ResponseRecorder {

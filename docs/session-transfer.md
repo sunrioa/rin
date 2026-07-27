@@ -150,13 +150,17 @@ outcome reconciliation.
 
 ### 7. HTTP and cancellation semantics
 
-The Bearer-protected operations are:
+When `RIN_TOKEN` is configured, the Bearer-protected operations are:
 
 - `POST /v2/session/export`: small JSON request and NDJSON streaming response;
 - `POST /v2/session/import`: the request body is an NDJSON stream and the
   trusted Binding arrives independently in the required
   `Rin-Expected-Game-Id`, `Rin-Expected-Content-Id`,
   `Rin-Expected-Content-Version`, and `Rin-Expected-Content-Hash` headers.
+
+Tokenless development Sidecars still enforce the loopback Host and browser
+same-origin rules documented in [Deployment and monitoring](operations.md).
+Remote Transfer always requires a token.
 
 Export accepts `application/json` and returns
 `application/x-ndjson`; import requires `application/x-ndjson`. Import rejects

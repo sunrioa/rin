@@ -25,7 +25,10 @@ func TestOperationalEndpointsAndRequestCorrelation(t *testing.T) {
 	})
 
 	ready := httptest.NewRecorder()
-	server.ServeHTTP(ready, httptest.NewRequest(http.MethodGet, "/ready", nil))
+	server.ServeHTTP(
+		ready,
+		loopbackRequest(http.MethodGet, "/ready", nil),
+	)
 	if ready.Code != http.StatusOK {
 		t.Fatalf("ready status=%d body=%s", ready.Code, ready.Body.String())
 	}
@@ -33,13 +36,13 @@ func TestOperationalEndpointsAndRequestCorrelation(t *testing.T) {
 	unauthorizedMetrics := httptest.NewRecorder()
 	server.ServeHTTP(
 		unauthorizedMetrics,
-		httptest.NewRequest(http.MethodGet, "/metrics", nil),
+		loopbackRequest(http.MethodGet, "/metrics", nil),
 	)
 	if unauthorizedMetrics.Code != http.StatusUnauthorized {
 		t.Fatalf("metrics without token status=%d", unauthorizedMetrics.Code)
 	}
 
-	metricsRequest := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	metricsRequest := loopbackRequest(http.MethodGet, "/metrics", nil)
 	metricsRequest.Header.Set("Authorization", "Bearer secret-token")
 	metricsRequest.Header.Set("Rin-Request-ID", "game.request-42")
 	metrics := httptest.NewRecorder()
@@ -51,7 +54,7 @@ func TestOperationalEndpointsAndRequestCorrelation(t *testing.T) {
 		t.Fatalf("unexpected metrics response: %d %q", metrics.Code, metrics.Body.String())
 	}
 
-	diagnosticsRequest := httptest.NewRequest(
+	diagnosticsRequest := loopbackRequest(
 		http.MethodGet,
 		"/v2/diagnostics",
 		nil,
@@ -99,7 +102,10 @@ func TestReadinessFailsWhenStoreCannotBeListed(t *testing.T) {
 	eventStore.fail = true
 	server := httpapi.New(engine, httpapi.Options{})
 	response := httptest.NewRecorder()
-	server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/ready", nil))
+	server.ServeHTTP(
+		response,
+		loopbackRequest(http.MethodGet, "/ready", nil),
+	)
 	if response.Code != http.StatusServiceUnavailable {
 		t.Fatalf("ready status=%d body=%s", response.Code, response.Body.String())
 	}

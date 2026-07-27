@@ -137,6 +137,23 @@ Serve options:
 	if flags.NArg() != 0 {
 		return fmt.Errorf("unexpected arguments: %v", flags.Args())
 	}
+	if err := validateServeEnvironment(); err != nil {
+		return err
+	}
+	if err := validateServeConfiguration(serveConfiguration{
+		maxBodyBytes:              *maxBody,
+		sessionSoftLimitBytes:     *sessionSoftLimit,
+		sessionHardLimitBytes:     *sessionHardLimit,
+		maxSessionStateBytes:      *maxSessionStateBytes,
+		maxTransferBytes:          *maxTransferBytes,
+		maxTransferEvents:         *maxTransferEvents,
+		maxConcurrentTransfers:    *maxConcurrentTransfers,
+		requestTimeout:            *requestTimeout,
+		transferTimeout:           *transferTimeout,
+		transferInactivityTimeout: *transferInactivityTimeout,
+	}); err != nil {
+		return err
+	}
 	token := os.Getenv("RIN_TOKEN")
 	if err := validateListenAddress(*address, *allowRemote, token); err != nil {
 		return err

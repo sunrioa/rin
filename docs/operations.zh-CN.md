@@ -18,6 +18,14 @@ Prompt/Response、凭据或文件系统路径。
 Liveness Probe 使用 `/health`，Readiness Probe 使用 `/ready`。Readiness 失败返回
 `503 not_ready`；不得用 `/health` 判断是否应把游戏流量路由到该实例。
 
+配置 `RIN_TOKEN` 后，鉴权 Route 只接受一个
+`Authorization: Bearer <token>` Header（Scheme 大小写不敏感）；无前缀凭据、
+多余字段、Credential 内空白与重复 Header 都会被拒绝。未配置 Token 时，包括
+Probe 在内的每个请求都必须使用 Loopback `Host`；Browser 请求若带 `Origin`，
+必须与 Loopback Host 同源，且 `Sec-Fetch-Site` 只能是 `same-origin` 或
+`none`。Native 本地游戏 Client 可继续工作，同时会拒绝 DNS Rebinding 与跨站
+Browser 请求。
+
 Linux/macOS：
 
 ```bash
@@ -48,8 +56,12 @@ powershell -ExecutionPolicy Bypass -File tools/start-rin.ps1 `
 Sidecar Exit Code。启动游戏前请检查 `/ready`。
 
 Diagnostics 与 Metrics 应按其他鉴权 API 数据保护。Sidecar 默认只绑定 Loopback；
-若 Reverse Proxy 对外暴露，必须使用 TLS，并避免把 `/metrics` 与
+若 Reverse Proxy 对外暴露，必须同时设置 `-allow-remote`、非空
+`RIN_TOKEN`，并由 Proxy 提供 TLS；不得把 `/metrics` 与
 `/v2/diagnostics` 放到公网 Route。
+
+容量、并发、Timeout 与 Boolean 环境变量一旦显式设置为非法值，Rin 会立即失败，
+不会把拼写错误静默替换成默认值；命令行显式设置的非正数 Limit 也遵循同一规则。
 
 ## 监控内容
 
@@ -60,7 +72,8 @@ JSON Diagnostics Snapshot 包含：
 - Active/Pending Checkpoint、Checkpoint Failure 与 Quota Skip；
 - Runtime Closed 状态与 Active Engine Operation 数；
 - Proposal/Generation Queue Depth/Capacity、Retained/Max-retained Job 和状态计数；
-- Generation Cache 大小与 Provider Circuit Breaker 状态；
+- Generation Cache 大小、Retained Payload 当前字节数与配置上限，以及 Provider
+  Circuit Breaker 状态；
 - HTTP Request、In-flight、4xx/5xx 以及累计耗时。
 
 Prometheus 输出使用固定名称，包括 `rin_http_requests_total`、

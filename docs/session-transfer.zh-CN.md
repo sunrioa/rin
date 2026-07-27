@@ -128,12 +128,15 @@ Transfer 不允许只导出有界 State 或删除 tombstone，否则放弃分支
 
 ### 7. HTTP 与取消语义
 
-现有两个 Bearer 保护的 operation：
+配置 `RIN_TOKEN` 后，现有两个由 Bearer 保护的 Operation：
 
 - `POST /v2/session/export`：小型 JSON 请求，NDJSON streaming response；
 - `POST /v2/session/import`：请求正文为 NDJSON stream；可信 Binding 独立通过
   必填的 `Rin-Expected-Game-Id`、`Rin-Expected-Content-Id`、
   `Rin-Expected-Content-Version` 与 `Rin-Expected-Content-Hash` header 传入。
+
+未配置 Token 的开发 Sidecar 仍执行[部署与监控](operations.zh-CN.md)中的
+Loopback Host 与 Browser 同源规则；远程 Transfer 始终要求 Token。
 
 Export 接受 `application/json` 并返回 `application/x-ndjson`；Import 要求
 `application/x-ndjson`。Import 只允许未设置 `Content-Encoding` 或设置为

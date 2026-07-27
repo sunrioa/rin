@@ -212,6 +212,162 @@ func TestValidateListenAddress(t *testing.T) {
 	}
 }
 
+func TestValidateServeEnvironmentRejectsInvalidConfiguredValues(t *testing.T) {
+	tests := []struct {
+		name  string
+		key   string
+		value string
+	}{
+		{
+			name:  "body integer",
+			key:   "RIN_MAX_BODY_BYTES",
+			value: "many",
+		},
+		{
+			name:  "positive integer",
+			key:   "RIN_JOB_WORKERS",
+			value: "0",
+		},
+		{
+			name:  "positive unsigned integer",
+			key:   "RIN_TRANSFER_MAX_BYTES",
+			value: "-1",
+		},
+		{
+			name:  "duration",
+			key:   "RIN_REQUEST_TIMEOUT",
+			value: "soon",
+		},
+		{
+			name:  "boolean",
+			key:   "RIN_MODEL_ALLOW_INSECURE",
+			value: "sometimes",
+		},
+		{
+			name:  "bearer whitespace",
+			key:   "RIN_TOKEN",
+			value: "not a bearer token",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			clearServeEnvironment(t)
+			t.Setenv(test.key, test.value)
+			err := validateServeEnvironment()
+			if err == nil || !strings.Contains(err.Error(), test.key) {
+				t.Fatalf("error = %v, want named environment failure", err)
+			}
+		})
+	}
+
+	clearServeEnvironment(t)
+	t.Setenv("RIN_SESSION_SOFT_LIMIT_BYTES", "0")
+	t.Setenv("RIN_REQUEST_TIMEOUT", "250ms")
+	t.Setenv("RIN_MODEL_ALLOW_INSECURE", "false")
+	if err := validateServeEnvironment(); err != nil {
+		t.Fatalf("valid environment rejected: %v", err)
+	}
+}
+
+func TestValidateServeConfigurationRejectsExplicitFallbackValues(
+	t *testing.T,
+) {
+	valid := serveConfiguration{
+		maxBodyBytes:              1,
+		maxSessionStateBytes:      1,
+		maxTransferBytes:          1,
+		maxTransferEvents:         1,
+		maxConcurrentTransfers:    1,
+		requestTimeout:            time.Millisecond,
+		transferTimeout:           time.Millisecond,
+		transferInactivityTimeout: time.Millisecond,
+	}
+	tests := []struct {
+		name   string
+		mutate func(*serveConfiguration)
+	}{
+		{
+			name: "body",
+			mutate: func(config *serveConfiguration) {
+				config.maxBodyBytes = 0
+			},
+		},
+		{
+			name: "Session State",
+			mutate: func(config *serveConfiguration) {
+				config.maxSessionStateBytes = 0
+			},
+		},
+		{
+			name: "Transfer concurrency",
+			mutate: func(config *serveConfiguration) {
+				config.maxConcurrentTransfers = -1
+			},
+		},
+		{
+			name: "ordinary timeout",
+			mutate: func(config *serveConfiguration) {
+				config.requestTimeout = 0
+			},
+		},
+		{
+			name: "Session limits",
+			mutate: func(config *serveConfiguration) {
+				config.sessionSoftLimitBytes = 2
+				config.sessionHardLimitBytes = 1
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			config := valid
+			test.mutate(&config)
+			if err := validateServeConfiguration(config); err == nil {
+				t.Fatal("invalid explicit configuration was accepted")
+			}
+		})
+	}
+	if err := validateServeConfiguration(valid); err != nil {
+		t.Fatalf("valid configuration rejected: %v", err)
+	}
+}
+
+func TestServeFailsBeforeStartupForInvalidConfiguredLimits(t *testing.T) {
+	t.Run("environment", func(t *testing.T) {
+		clearServeEnvironment(t)
+		t.Setenv("RIN_REQUEST_TIMEOUT", "never")
+		err := run([]string{"serve"})
+		if err == nil ||
+			!strings.Contains(err.Error(), "RIN_REQUEST_TIMEOUT") {
+			t.Fatalf("run error = %v", err)
+		}
+	})
+	t.Run("flag", func(t *testing.T) {
+		clearServeEnvironment(t)
+		err := run([]string{"serve", "-max-body-bytes", "0"})
+		if err == nil ||
+			!strings.Contains(err.Error(), "max-body-bytes") {
+			t.Fatalf("run error = %v", err)
+		}
+	})
+}
+
+func clearServeEnvironment(t *testing.T) {
+	t.Helper()
+	keys := []string{
+		"RIN_MAX_BODY_BYTES",
+		"RIN_MODEL_ALLOW_INSECURE",
+		"RIN_TOKEN",
+	}
+	keys = append(keys, positiveIntEnvironment...)
+	keys = append(keys, positiveUintEnvironment...)
+	keys = append(keys, nonNegativeUintEnvironment...)
+	keys = append(keys, positiveDurationEnvironment...)
+	for _, key := range keys {
+		t.Setenv(key, "")
+	}
+}
+
 func TestValidateModelEndpoint(t *testing.T) {
 	tests := []struct {
 		name      string

@@ -169,7 +169,7 @@ func TestHTTPTransferFailsClosedForCorruptionAndFraming(t *testing.T) {
 
 func TestHTTPTransferRejectsCompressedImport(t *testing.T) {
 	server := transferHTTPServer(t)
-	request := httptest.NewRequest(http.MethodPost, "/v2/session/import", strings.NewReader("{}\n"))
+	request := loopbackRequest(http.MethodPost, "/v2/session/import", strings.NewReader("{}\n"))
 	request.Header.Set("Content-Type", "application/x-ndjson")
 	request.Header.Set("Content-Encoding", "gzip")
 	response := httptest.NewRecorder()
@@ -258,7 +258,7 @@ func TestHTTPTransferCancellationAbortsInvisibleImport(t *testing.T) {
 	target := transferHTTPServer(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	request := httptest.NewRequest(
+	request := loopbackRequest(
 		http.MethodPost,
 		"/v2/session/import",
 		bytes.NewReader(export.Body.Bytes()),
@@ -362,7 +362,7 @@ func importTransfer(
 	binding protocol.Binding,
 ) *httptest.ResponseRecorder {
 	t.Helper()
-	request := httptest.NewRequest(http.MethodPost, "/v2/session/import", bytes.NewReader(body))
+	request := loopbackRequest(http.MethodPost, "/v2/session/import", bytes.NewReader(body))
 	request.Header.Set("Content-Type", "application/x-ndjson")
 	request.Header.Set("Rin-Expected-Game-Id", binding.GameID)
 	request.Header.Set("Rin-Expected-Content-Id", binding.ContentID)

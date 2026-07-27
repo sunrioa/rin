@@ -202,7 +202,10 @@ func TestJobPathIdentifiersAreValidatedBeforeManagerAvailability(t *testing.T) {
 		{http.MethodDelete, "/v2/generation/jobs/bad!"},
 	} {
 		response := httptest.NewRecorder()
-		server.ServeHTTP(response, httptest.NewRequest(test.method, test.path, nil))
+		server.ServeHTTP(
+			response,
+			loopbackRequest(test.method, test.path, nil),
+		)
 		if response.Code != http.StatusBadRequest {
 			t.Errorf("%s %s status=%d body=%s", test.method, test.path, response.Code, response.Body.String())
 			continue
@@ -481,7 +484,10 @@ func TestHTTPUnknownFieldsFollowContractAndSnapshotHash(t *testing.T) {
 func TestHealthPublishesReleaseIdentity(t *testing.T) {
 	server := newServer(t, httpapi.Options{})
 	response := httptest.NewRecorder()
-	server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/health", nil))
+	server.ServeHTTP(
+		response,
+		loopbackRequest(http.MethodGet, "/health", nil),
+	)
 	if response.Code != http.StatusOK {
 		t.Fatalf("health status=%d body=%s", response.Code, response.Body.String())
 	}
@@ -552,7 +558,7 @@ func performRawJSON(
 	path string,
 	payload string,
 ) *httptest.ResponseRecorder {
-	request := httptest.NewRequest(method, path, strings.NewReader(payload))
+	request := loopbackRequest(method, path, strings.NewReader(payload))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)

@@ -13,7 +13,10 @@ import (
 	"io"
 	"log/slog"
 	"mime"
+	"net"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -786,14 +789,38 @@ func (s *Server) write(response http.ResponseWriter, status int, value protocol.
 
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		if request.URL.Path == "/health" ||
-			request.URL.Path == "/ready" ||
-			s.token == "" {
+		if s.token == "" {
+			if !validTokenlessLoopbackRequest(request) {
+				s.writeError(
+					response,
+					http.StatusForbidden,
+					"tokenless_request_forbidden",
+					"tokenless requests require a same-origin loopback Host",
+					"",
+				)
+				return
+			}
 			next.ServeHTTP(response, request)
 			return
 		}
-		provided := strings.TrimPrefix(request.Header.Get("Authorization"), "Bearer ")
-		valid := len(provided) == len(s.token) && subtle.ConstantTimeCompare([]byte(provided), []byte(s.token)) == 1
+		if request.URL.Path == "/health" ||
+			request.URL.Path == "/ready" {
+			next.ServeHTTP(response, request)
+			return
+		}
+		values := request.Header.Values("Authorization")
+		provided := ""
+		if len(values) == 1 {
+			scheme, credential, found := strings.Cut(values[0], " ")
+			if found &&
+				strings.EqualFold(scheme, "Bearer") &&
+				credential != "" &&
+				!strings.ContainsAny(credential, " \t") {
+				provided = credential
+			}
+		}
+		valid := len(provided) == len(s.token) &&
+			subtle.ConstantTimeCompare([]byte(provided), []byte(s.token)) == 1
 		if !valid {
 			response.Header().Set("WWW-Authenticate", "Bearer")
 			s.writeError(response, http.StatusUnauthorized, "unauthorized", "a valid bearer token is required", "")
@@ -801,6 +828,107 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(response, request)
 	})
+}
+
+func validTokenlessLoopbackRequest(request *http.Request) bool {
+	requestHost, requestPort, ok := loopbackAuthority(request.Host)
+	if !ok {
+		return false
+	}
+	scheme := "http"
+	if request.TLS != nil {
+		scheme = "https"
+	}
+	if requestPort == "" {
+		requestPort = defaultPort(scheme)
+	}
+
+	fetchSite := request.Header.Values("Sec-Fetch-Site")
+	if len(fetchSite) > 1 {
+		return false
+	}
+	if len(fetchSite) == 1 &&
+		fetchSite[0] != "same-origin" &&
+		fetchSite[0] != "none" {
+		return false
+	}
+
+	origins := request.Header.Values("Origin")
+	if len(origins) == 0 {
+		return true
+	}
+	if len(origins) != 1 {
+		return false
+	}
+	origin, err := url.Parse(origins[0])
+	if err != nil ||
+		origin.Scheme != scheme ||
+		origin.Opaque != "" ||
+		origin.User != nil ||
+		origin.RawQuery != "" ||
+		origin.Fragment != "" ||
+		origin.Path != "" {
+		return false
+	}
+	originHost, originPort, ok := loopbackAuthority(origin.Host)
+	if !ok {
+		return false
+	}
+	if originPort == "" {
+		originPort = defaultPort(origin.Scheme)
+	}
+	return sameAuthorityHost(requestHost, originHost) &&
+		requestPort == originPort
+}
+
+func loopbackAuthority(authority string) (string, string, bool) {
+	if authority == "" || strings.TrimSpace(authority) != authority {
+		return "", "", false
+	}
+	parsed, err := url.Parse("http://" + authority)
+	if err != nil ||
+		parsed.User != nil ||
+		parsed.Host != authority ||
+		parsed.Path != "" ||
+		parsed.RawQuery != "" ||
+		parsed.Fragment != "" {
+		return "", "", false
+	}
+	host := parsed.Hostname()
+	if !strings.EqualFold(host, "localhost") {
+		ip := net.ParseIP(host)
+		if ip == nil || !ip.IsLoopback() {
+			return "", "", false
+		}
+	}
+	port := parsed.Port()
+	if port == "" {
+		if strings.HasSuffix(authority, ":") {
+			return "", "", false
+		}
+		return host, "", true
+	}
+	value, err := strconv.ParseUint(port, 10, 16)
+	if err != nil || value == 0 {
+		return "", "", false
+	}
+	return host, port, true
+}
+
+func sameAuthorityHost(left, right string) bool {
+	leftIP := net.ParseIP(left)
+	rightIP := net.ParseIP(right)
+	if leftIP != nil || rightIP != nil {
+		return leftIP != nil && rightIP != nil && leftIP.Equal(rightIP)
+	}
+	return strings.EqualFold(left, right)
+}
+
+func defaultPort(scheme string) string {
+	if scheme == "https" {
+		return "443"
+	}
+	return "80"
 }
 
 type observedResponseWriter struct {

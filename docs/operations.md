@@ -20,6 +20,15 @@ Use `/health` for a liveness probe and `/ready` for a readiness probe. A failed
 readiness check returns `503 not_ready`; do not use `/health` to decide whether
 to route game traffic.
 
+When `RIN_TOKEN` is configured, authenticated routes accept exactly one
+`Authorization: Bearer <token>` header (the scheme is case-insensitive);
+unprefixed credentials, extra fields, whitespace in the credential, and
+duplicate headers are rejected. Without a token, every request—including
+probes—must carry a loopback `Host`. Browser requests must additionally have a
+same-origin loopback `Origin` when present and `Sec-Fetch-Site` must be
+`same-origin` or `none`. This keeps native local game clients usable while
+rejecting DNS-rebinding and cross-site browser requests.
+
 Linux/macOS:
 
 ```bash
@@ -52,7 +61,12 @@ binds loopback by default, and propagates the Sidecar exit code. Check
 
 Treat diagnostics and metrics like other authenticated API data. Bind the
 Sidecar to loopback by default; if a reverse proxy exposes it remotely, require
-TLS and keep `/metrics` and `/v2/diagnostics` off public routes.
+`-allow-remote`, a non-empty `RIN_TOKEN`, and TLS at the proxy, and keep
+`/metrics` and `/v2/diagnostics` off public routes.
+
+Capacity, concurrency, timeout, and boolean environment variables fail fast
+when explicitly set to an invalid value; Rin does not silently replace a typo
+with a default. The same rule applies to explicit non-positive CLI limits.
 
 ## What to monitor
 
@@ -65,7 +79,8 @@ The JSON diagnostics snapshot reports:
 - Runtime closed state and active Engine operation count;
 - Proposal and Generation queue depth/capacity, retained/max-retained Jobs, and
   status counts;
-- Generation cache size and Provider Circuit Breaker state;
+- Generation cache size, retained payload bytes and their configured ceiling,
+  and Provider Circuit Breaker state;
 - HTTP request count, in-flight count, 4xx/5xx counts, and cumulative duration.
 
 Prometheus exposition uses fixed names including

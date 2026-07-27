@@ -99,6 +99,11 @@ go run ./cmd/rin serve
 
 客户端随后发送 `Authorization: Bearer $RIN_TOKEN`。Token、模型 API Key 和供应商 URL 均不会写入事件、快照或响应；Generation 结果只可带有经过长度限制的模型名、结束原因和 token 计数等非秘密运维元数据，游戏可按自己的持久化白名单继续过滤。
 
+未设置 Token 的开发 Sidecar 仅接受 Loopback Host；Browser 请求还会校验同源
+Origin 与 Fetch Metadata。远程监听必须显式设置 `-allow-remote` 与
+`RIN_TOKEN`，并应通过 TLS Reverse Proxy 暴露。Bearer Header 必须是唯一的
+`Authorization: Bearer <token>`，不会接受无前缀 Token。
+
 ## API
 
 | 方法 | 路径 | 用途 |
