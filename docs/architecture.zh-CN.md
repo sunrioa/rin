@@ -122,7 +122,10 @@ Attempt 与 total deadline 依赖 `provider.StructuredGenerationProvider` 的协
 硬契约：实现必须观察
 `ctx.Done()` 并及时返回。Go 无法强制抢占一个永久阻塞的第三方 Client。
 
-模型 Draft 按 Session head hash、Actor 和语义请求建立有界内存缓存。相同 key 的并发调用合并成一次供应商请求；状态变化后 head hash 改变，旧结果不会命中新世界状态。
+模型 Draft 按 Lineage Generation、Revision、World Revision、Head Hash、完整决策
+Actor State 的 Digest 与语义请求建立有界内存缓存。相同 Key 的并发调用合并成一次
+供应商请求；Restore 或 Transfer 改变权威 Lineage 后，即使 World Revision 重复，
+也不会复用另一权威状态生成的 Draft。
 
 ### 异步任务
 

@@ -2,6 +2,7 @@ package policy_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -89,6 +90,63 @@ func TestCachedPolicySeparatesCandidateGoalContracts(t *testing.T) {
 	}
 }
 
+func TestCachedPolicySeparatesLineageHeadAndActorState(t *testing.T) {
+	underlying := &countingPolicy{}
+	cached, err := policy.NewCached(
+		underlying,
+		policy.CacheConfig{MaxEntries: 8, TTL: time.Minute},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := modelInput()
+	base.LineageGeneration = 3
+	base.State.WorldRevision = 7
+	if _, err := cached.Propose(context.Background(), base); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name   string
+		mutate func(*rinruntime.DecisionContext)
+	}{
+		{
+			name: "lineage",
+			mutate: func(input *rinruntime.DecisionContext) {
+				input.LineageGeneration++
+			},
+		},
+		{
+			name: "head with repeated world revision",
+			mutate: func(input *rinruntime.DecisionContext) {
+				input.State.HeadHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+			},
+		},
+		{
+			name: "decision actor state",
+			mutate: func(input *rinruntime.DecisionContext) {
+				input.Actor.Memories[0].Summary = "The player interrupted."
+			},
+		},
+	}
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			input := base
+			input.Request.RequestID = "request.cache-boundary." + test.name
+			input.Actor = cloneActorForCacheTest(t, base.Actor)
+			test.mutate(&input)
+			if _, err := cached.Propose(context.Background(), input); err != nil {
+				t.Fatal(err)
+			}
+			if underlying.count() != index+2 {
+				t.Fatalf(
+					"distinct cache context reused a draft: calls=%d",
+					underlying.count(),
+				)
+			}
+		})
+	}
+}
+
 func TestCachedPolicyCollapsesConcurrentCalls(t *testing.T) {
 	underlying := &countingPolicy{started: make(chan struct{}), release: make(chan struct{})}
 	cached, _ := policy.NewCached(underlying, policy.CacheConfig{MaxEntries: 8, TTL: time.Minute})
@@ -129,4 +187,20 @@ func TestCachedPolicyDoesNotCacheFailures(t *testing.T) {
 	if underlying.count() != 2 {
 		t.Fatalf("failures were cached: %d", underlying.count())
 	}
+}
+
+func cloneActorForCacheTest(
+	t *testing.T,
+	actor protocol.ActorState,
+) protocol.ActorState {
+	t.Helper()
+	payload, err := json.Marshal(actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cloned protocol.ActorState
+	if err := json.Unmarshal(payload, &cloned); err != nil {
+		t.Fatal(err)
+	}
+	return cloned
 }

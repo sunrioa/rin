@@ -173,10 +173,12 @@ the `provider.StructuredGenerationProvider` cooperative cancellation contract: a
 must observe `ctx.Done()` and return promptly. Go cannot forcibly preempt a
 third-party client that blocks forever.
 
-Model drafts use a bounded in-memory cache keyed by session head hash, actor,
-and semantic request. Concurrent calls with the same key collapse into one
-provider request. Once state changes, the head hash changes and an old result
-cannot match the new world state.
+Model drafts use a bounded in-memory cache keyed by lineage generation,
+revision, world revision, head hash, a digest of the complete decision Actor
+state, and the semantic request. Concurrent calls with the same key collapse
+into one provider request. Restore and Transfer lineage changes therefore
+cannot reuse a draft produced for a different authority state, even when a
+world revision repeats.
 
 ### Async jobs
 

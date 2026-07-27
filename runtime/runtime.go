@@ -207,9 +207,10 @@ type CheckpointStore interface {
 }
 
 type DecisionContext struct {
-	State   protocol.SessionState
-	Actor   protocol.ActorState
-	Request protocol.ProposeRequest
+	State             protocol.SessionState
+	Actor             protocol.ActorState
+	Request           protocol.ProposeRequest
+	LineageGeneration uint64
 }
 
 type DecisionDraft struct {

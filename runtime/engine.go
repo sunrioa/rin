@@ -489,7 +489,12 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 	arbitrationEnabled := protocol.HasFeature(session.state.Features, protocol.FeatureArbitration)
 	session.mu.Unlock()
 
-	draft, err := e.decisionProvider.Propose(ctx, DecisionContext{State: stateCopy, Actor: policyActor, Request: policyRequest})
+	draft, err := e.decisionProvider.Propose(ctx, DecisionContext{
+		State:             stateCopy,
+		Actor:             policyActor,
+		Request:           policyRequest,
+		LineageGeneration: baseLineageEpoch,
+	})
 	if err != nil {
 		if errors.Is(err, ErrNoSafeAction) {
 			return protocol.ActionProposal{}, false, NewError("no_safe_action", "no candidate action satisfies the actor boundary", err)

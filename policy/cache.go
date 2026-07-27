@@ -106,37 +106,45 @@ func (p *Cached) Propose(ctx context.Context, input rinruntime.DecisionContext) 
 }
 
 func proposalCacheKey(input rinruntime.DecisionContext) (string, error) {
+	actorPayload, err := json.Marshal(input.Actor)
+	if err != nil {
+		return "", err
+	}
+	actorDigest := sha256.Sum256(actorPayload)
 	payload, err := json.Marshal(struct {
-		SessionID      string `json:"session_id"`
-		StateVersion   any    `json:"state_version"`
-		ActorID        string `json:"actor_id"`
-		Tick           int64  `json:"tick"`
-		Intent         string `json:"intent"`
-		Tags           any    `json:"tags"`
-		Actions        any    `json:"actions"`
-		CandidateGoals any    `json:"candidate_goals"`
-		Urgent         bool   `json:"urgent"`
+		SessionID         string `json:"session_id"`
+		LineageGeneration uint64 `json:"lineage_generation"`
+		Revision          uint64 `json:"revision"`
+		WorldRevision     uint64 `json:"world_revision"`
+		HeadHash          string `json:"head_hash"`
+		ActorID           string `json:"actor_id"`
+		ActorStateHash    string `json:"actor_state_hash"`
+		Tick              int64  `json:"tick"`
+		Intent            string `json:"intent"`
+		Tags              any    `json:"tags"`
+		Actions           any    `json:"actions"`
+		CandidateGoals    any    `json:"candidate_goals"`
+		Urgent            bool   `json:"urgent"`
 	}{
-		SessionID: input.State.SessionID, StateVersion: policyStateVersion(input), ActorID: input.Actor.ID,
-		Tick: input.Request.Tick, Intent: input.Request.Intent, Tags: input.Request.Tags,
-		Actions: input.Request.Offers, CandidateGoals: input.Request.CandidateGoals, Urgent: input.Request.Urgent,
+		SessionID:         input.State.SessionID,
+		LineageGeneration: input.LineageGeneration,
+		Revision:          input.State.Revision,
+		WorldRevision:     input.State.WorldRevision,
+		HeadHash:          input.State.HeadHash,
+		ActorID:           input.Actor.ID,
+		ActorStateHash:    hex.EncodeToString(actorDigest[:]),
+		Tick:              input.Request.Tick,
+		Intent:            input.Request.Intent,
+		Tags:              input.Request.Tags,
+		Actions:           input.Request.Offers,
+		CandidateGoals:    input.Request.CandidateGoals,
+		Urgent:            input.Request.Urgent,
 	})
 	if err != nil {
 		return "", err
 	}
 	digest := sha256.Sum256(payload)
 	return hex.EncodeToString(digest[:]), nil
-}
-
-func policyStateVersion(input rinruntime.DecisionContext) any {
-	if input.State.WorldRevision > 0 {
-		return struct {
-			WorldRevision uint64 `json:"world_revision"`
-		}{WorldRevision: input.State.WorldRevision}
-	}
-	return struct {
-		HeadHash string `json:"head_hash"`
-	}{HeadHash: input.State.HeadHash}
 }
 
 func (p *Cached) removeExpired(now time.Time) {

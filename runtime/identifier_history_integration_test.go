@@ -1152,7 +1152,14 @@ func TestProposeRejectsRestoreEvenWhenWorldRevisionRepeats(t *testing.T) {
 		started: make(chan struct{}),
 		release: make(chan struct{}),
 	}
-	engine := newEngine(t, store.NewMemory(), blocking)
+	cached, err := policy.NewCached(
+		blocking,
+		policy.CacheConfig{MaxEntries: 8, TTL: time.Minute},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := newEngine(t, store.NewMemory(), cached)
 	create := createRequest(sessionID)
 	create.Features = append(create.Features, protocol.FeatureArbitration)
 	if _, err := engine.CreateSession(create); err != nil {
@@ -1219,6 +1226,24 @@ func TestProposeRejectsRestoreEvenWhenWorldRevisionRepeats(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("blocked proposal did not finish")
+	}
+	retry := proposeRequest(
+		sessionID,
+		"propose.identifier-after-restore",
+		1,
+		nil,
+	)
+	if _, _, err := engine.Propose(context.Background(), retry); err != nil {
+		t.Fatal(err)
+	}
+	blocking.mu.Lock()
+	calls := blocking.calls
+	blocking.mu.Unlock()
+	if calls != 2 {
+		t.Fatalf(
+			"restored lineage reused the pre-restore policy draft: calls=%d",
+			calls,
+		)
 	}
 }
 
