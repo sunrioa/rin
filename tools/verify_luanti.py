@@ -102,8 +102,8 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="rin-luanti-") as temporary:
         root = pathlib.Path(temporary)
         user = root / "user"
-        game = user / "games" / "rin_test"
         world = user / "worlds" / "rin_test"
+        game = world / "game"
         mod_source = args.mod.resolve()
         mod_configuration = (mod_source / "mod.conf").read_text(encoding="utf-8")
         name_match = re.search(r"(?m)^name\s*=\s*([a-z0-9_]+)\s*$", mod_configuration)
@@ -112,7 +112,7 @@ def main() -> None:
         mod_name = name_match.group(1)
         mod = game / "mods" / mod_name
         mod.parent.mkdir(parents=True)
-        world.mkdir(parents=True)
+        world.mkdir(parents=True, exist_ok=True)
         shutil.copytree(mod_source, mod)
         shutil.copy2(
             pathlib.Path("sdk/lua/test_client.lua").resolve(),
@@ -155,8 +155,6 @@ def main() -> None:
                 "--server",
                 "--world",
                 str(world),
-                "--gameid",
-                "rin_test",
                 "--config",
                 str(config),
                 "--port",

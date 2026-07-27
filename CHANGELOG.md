@@ -79,7 +79,9 @@ across every future minor release.
 - Luanti lifecycle verification accepts exact and build-qualified version
   output and allocates a fresh UDP port per server run, matching Windows and
   macOS release binaries without relying on the engine's default port. CI
-  failures expose escaped server diagnostics as step annotations.
+  failures expose escaped server diagnostics as step annotations. The
+  temporary test uses Luanti's world-embedded game layout so game discovery
+  does not depend on platform-specific user search paths.
 
 ## [0.6.0] - 2026-07-24 - Preview
 

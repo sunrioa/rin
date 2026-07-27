@@ -68,7 +68,8 @@
   不再重复执行会超过 Go 标准超时的磁盘容量负载。
 - Luanti 生命周期校验同时接受精确版本输出与带构建信息的版本输出，并为每次
   Server 运行分配新的 UDP Port，使 Windows 与 macOS 官方发布包均不依赖默认端口；
-  CI 失败会把转义后的 Server 诊断写入 Step Annotation。
+  CI 失败会把转义后的 Server 诊断写入 Step Annotation。临时测试改用 Luanti
+  世界内嵌 Game 布局，不再依赖平台不同的 User Game 搜索路径。
 
 ## [0.6.0] - 2026-07-24 - Preview
 
