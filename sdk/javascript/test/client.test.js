@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { isDeepStrictEqual } from "node:util";
 
 import {
   DEFAULT_MAX_RESPONSE_BYTES,
@@ -97,7 +98,11 @@ test("WorkflowCoordinator gives idempotent apply a stable operation ID", async (
       attempt = structuredClone(value);
       return true;
     },
-    async saveProposalAttempt(value) { attempt = structuredClone(value); },
+    async saveProposalAttempt(expected, replacement) {
+      if (!isDeepStrictEqual(attempt, expected)) return false;
+      attempt = structuredClone(replacement);
+      return true;
+    },
     async completeProposalAttempt(input) {
       entries.push({ key: "outcome.workflow", report: structuredClone(input.report) });
       attempt = null;
@@ -165,7 +170,7 @@ test("WorkflowCoordinator rejects concurrent resume on one host instance", async
       return null;
     },
     async createProposalAttempt() { return true; },
-    async saveProposalAttempt() {},
+    async saveProposalAttempt() { return false; },
     async completeProposalAttempt() {},
     async listOutcomeReports() { return []; },
     async acknowledgeOutcome() {},
@@ -187,6 +192,49 @@ test("WorkflowCoordinator rejects concurrent resume on one host instance", async
   );
 });
 
+test("Proposal Attempt stops when its Job persistence CAS loses", async () => {
+  const original = {
+    version: 1,
+    operation_id: "operation.fixture",
+    request: proposeRequest("request.fixture"),
+    job_id: "",
+  };
+  let polls = 0;
+  const store = {
+    async loadProposalAttempt() { return structuredClone(original); },
+    async createProposalAttempt() { return true; },
+    async saveProposalAttempt(expected, replacement) {
+      assert.deepEqual(expected, original);
+      assert.equal(replacement.job_id, "job.fixture");
+      return false;
+    },
+    async settleProposalAttempt() {},
+  };
+  const client = new RinClient(undefined, {
+    fetch: async (url) => {
+      if (new URL(url).pathname === "/v2/jobs/propose") {
+        return response(202, {
+          ok: true,
+          data: {
+            job_id: "job.fixture",
+            status: "queued",
+            duplicate: false,
+          },
+        });
+      }
+      polls++;
+      throw new Error("stale Attempt must not poll");
+    },
+  });
+
+  await assert.rejects(
+    new ProposalAttemptCoordinator(client, store).resume(),
+    (error) => error instanceof RinConfigurationError &&
+      error.code === "proposal_attempt_changed",
+  );
+  assert.equal(polls, 0);
+});
+
 test("Proposal Attempt settles game effect and Outbox atomically", async () => {
   let attempt = null;
   const outbox = [];
@@ -198,7 +246,11 @@ test("Proposal Attempt settles game effect and Outbox atomically", async () => {
       attempt = structuredClone(value);
       return true;
     },
-    async saveProposalAttempt(value) { attempt = structuredClone(value); },
+    async saveProposalAttempt(expected, replacement) {
+      if (!isDeepStrictEqual(attempt, expected)) return false;
+      attempt = structuredClone(replacement);
+      return true;
+    },
     async settleProposalAttempt(input) {
       assert.equal(input.attempt.operation_id, "operation.fixture");
       await input.apply();

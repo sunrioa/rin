@@ -440,7 +440,10 @@ export interface ProposalAttemptPersistence {
   /** Atomically creates the Attempt; returns false when one already exists. */
   createProposalAttempt(attempt: ProposalAttempt): Promise<boolean>;
   /** Updates only the matching Attempt when persisting its Job identity. */
-  saveProposalAttempt(attempt: ProposalAttempt): Promise<void>;
+  saveProposalAttempt(
+    expected: ProposalAttempt,
+    replacement: ProposalAttempt,
+  ): Promise<boolean>;
 }
 
 export interface ProposalAttemptStore extends ProposalAttemptPersistence {

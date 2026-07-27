@@ -217,8 +217,15 @@ export class ProposalAttemptCoordinator {
     if (!job) {
       const submission = await this.client.submitProposalJob(attempt.request);
       requireIdentifier("job_id", submission.job_id);
-      attempt = { ...attempt, job_id: submission.job_id };
-      await this.store.saveProposalAttempt(attempt);
+      const expected = attempt;
+      const replacement = { ...attempt, job_id: submission.job_id };
+      if (await this.store.saveProposalAttempt(expected, replacement) !== true) {
+        throw new RinConfigurationError(
+          "proposal_attempt_changed",
+          "Proposal Attempt changed before its Job ID could be saved",
+        );
+      }
+      attempt = replacement;
       job = await this.client.waitForProposal(attempt.job_id, options);
     }
     if (!isObject(job.proposal) ||
