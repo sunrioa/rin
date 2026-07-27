@@ -70,6 +70,8 @@
   Server 运行分配新的 UDP Port，使 Windows 与 macOS 官方发布包均不依赖默认端口；
   CI 失败会把转义后的 Server 诊断写入 Step Annotation。临时测试改用 Luanti
   世界内嵌 Game 布局，不再依赖平台不同的 User Game 搜索路径。
+- 示例索引不再引用已删除的 Recovery 示例；相对文档链接测试会拒绝未跟踪的本地
+  路径，避免开发工作区残留掩盖过期链接。
 
 ## [0.6.0] - 2026-07-24 - Preview
 

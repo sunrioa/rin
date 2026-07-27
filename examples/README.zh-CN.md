@@ -6,11 +6,6 @@
 创建 Session 并记录一次 Observe。其 ID 只存在于当前进程，因此它是开发 Smoke
 Test，不是生产存档架构。
 
-设计真实接入时请使用 [`recovery`](recovery/)。它演示稳定身份、持久 Proposal
-Attempt、Applied-operation Marker、权威 Outcome Outbox、Exact Retry、离线对账、
-Snapshot Binding、可恢复的临时文件替换与重启恢复。这些复杂内容被独立放置，避免
-Quickstart 再次变得不可读。
-
 可安装的 Node.js 18+ [`terminal-story`](terminal-story/) 是覆盖
 Windows/macOS/Linux 的可玩纵向切片，包含安全 JavaScript SDK 工作流、可复现
 Sidecar 基准，以及不回避结果的持久化规则树对照。

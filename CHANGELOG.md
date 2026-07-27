@@ -82,6 +82,9 @@ across every future minor release.
   failures expose escaped server diagnostics as step annotations. The
   temporary test uses Luanti's world-embedded game layout so game discovery
   does not depend on platform-specific user search paths.
+- Example indexes no longer reference the removed recovery example. Relative
+  documentation-link tests reject untracked local paths that could hide stale
+  links in a developer worktree.
 
 ## [0.6.0] - 2026-07-24 - Preview
 

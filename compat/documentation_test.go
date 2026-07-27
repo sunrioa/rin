@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -292,6 +293,9 @@ func TestRelativeDocumentationLinksResolve(t *testing.T) {
 				filepath.Base(path) == "CHANGELOG.zh-CN.md" {
 				return nil
 			}
+			if tracked, checked := repositoryTracks(path); checked && !tracked {
+				return nil
+			}
 			payload, err := os.ReadFile(path)
 			if err != nil {
 				return err
@@ -304,8 +308,17 @@ func TestRelativeDocumentationLinksResolve(t *testing.T) {
 				}
 				target = strings.SplitN(target, "#", 2)[0]
 				target = strings.Trim(target, "<>")
-				if _, err := os.Stat(filepath.Join(filepath.Dir(path), filepath.FromSlash(target))); err != nil {
+				resolved := filepath.Join(filepath.Dir(path), filepath.FromSlash(target))
+				if _, err := os.Stat(resolved); err != nil {
 					t.Errorf("%s has broken relative link %q", path, match[1])
+					continue
+				}
+				if tracked, checked := repositoryTracks(resolved); checked && !tracked {
+					t.Errorf(
+						"%s has relative link %q hidden by an untracked local path",
+						path,
+						match[1],
+					)
 				}
 			}
 			return nil
@@ -313,6 +326,54 @@ func TestRelativeDocumentationLinksResolve(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func repositoryTracks(path string) (tracked bool, checked bool) {
+	root, err := filepath.Abs("..")
+	if err != nil {
+		return false, false
+	}
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return false, false
+	}
+	relative, err := filepath.Rel(root, absolute)
+	if err != nil || relative == ".." ||
+		strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return false, true
+	}
+	command := exec.Command(
+		"git",
+		"-C",
+		root,
+		"ls-files",
+		"--",
+		filepath.ToSlash(relative),
+	)
+	output, err := command.Output()
+	if err != nil {
+		return false, false
+	}
+	return strings.TrimSpace(string(output)) != "", true
+}
+
+func TestRepositoryTrackingRejectsUntrackedLocalPath(t *testing.T) {
+	path, err := os.MkdirTemp("..", ".rin-untracked-link-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			t.Errorf("remove temporary link target: %v", err)
+		}
+	})
+	tracked, checked := repositoryTracks(path)
+	if !checked {
+		t.Skip("Git tracking metadata is unavailable")
+	}
+	if tracked {
+		t.Fatal("untracked local path reported as repository content")
 	}
 }
 
