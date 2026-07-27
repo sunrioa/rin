@@ -599,6 +599,19 @@ func (w *runtimeTransferWriter) Publish(
 		}
 	}
 	if err := w.engine.verifySessionFromGenesis(w.manifest.SessionID); err != nil {
+		// Publish already made the complete target authoritative. Keep the
+		// durable Session visible as an unloaded descriptor so a later access
+		// retries the same lazy-load path used after process restart. The
+		// transfer writer is terminal at this point; releasing its lifecycle
+		// lease prevents a same-process recovery call from deadlocking.
+		w.engine.mu.Lock()
+		if _, exists := w.engine.sessions[w.manifest.SessionID]; !exists {
+			w.engine.sessions[w.manifest.SessionID] = &managedSession{
+				id: w.manifest.SessionID,
+			}
+		}
+		w.engine.mu.Unlock()
+		w.finish()
 		return w.fail(NewError(
 			"transfer_replay_failed",
 			"published transfer failed genesis verification",

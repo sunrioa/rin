@@ -27,8 +27,10 @@ DTO，不实现游戏引擎、导航、物理、存档系统、模型 Provider �
    Operation ID，并在任何网络调用前提交 Pending Decision。已有 Pending
    Decision、未清空 Outcome Outbox 或 Action/Outbox 容量耗尽时拒绝新请求。
 2. `ResumePendingWork` 先清空精确 Report。没有 Job ID 时才使用保留的 Request
-   Identity 提交，随后保存 Job ID，并只做一次有界 Poll，不在内部 Wait Loop。Submit 成功但保存前
-   崩溃时，依靠 Rin 幂等 Request Identity 恢复。
+   Identity 提交，随后保存 Job ID，并只做一次有界 Poll，不在内部 Wait Loop。
+   Submit 成功但保存前崩溃时，依靠 Rin 幂等 Request Identity 恢复。Transport
+   必须把 Wire `job_not_found` 包装为 `ErrProposalJobNotFound`；Sidecar 重启丢失
+   Job 后，HostKit 会先持久清除旧 Job ID，再精确重提保留的 Request。
 3. `DispatchAndEnqueue` 验证 Proposal 精确选择了 Pending Decision 中的一项
    Offer；在任何游戏效果之前预检 Retained State 容量与 Report Metadata。
    随后在所属线程绑定当前 Descriptor Digest 与 Epoch，检查可信 Principal 的

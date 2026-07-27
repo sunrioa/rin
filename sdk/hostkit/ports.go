@@ -5,10 +5,17 @@ package hostkit
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/protocol"
 )
+
+// ErrProposalJobNotFound classifies a PollProposal result whose Job ID is no
+// longer known by Rin, for example after a Sidecar restart. RinTransport
+// implementations must wrap this sentinel when the wire error code is
+// "job_not_found" so Coordinator can exact-resubmit the durable request.
+var ErrProposalJobNotFound = errors.New("proposal job is no longer known by Rin")
 
 // RinTransport is the complete network boundary needed by Coordinator.
 // Implementations may use HTTP, an embedded runtime, or a test double.

@@ -139,6 +139,65 @@ func TestTransferRoundTripUsesImmutableExportBoundary(t *testing.T) {
 	}
 }
 
+func TestPublishedTransferRecoversAfterTransientGenesisReadFailure(t *testing.T) {
+	source := transferEngine(t, store.NewMemory())
+	const sessionID = "session.transfer-post-publish-recovery"
+	createTransferSession(t, source, sessionID)
+	observeTransferSession(t, source, sessionID, 2)
+	sink := &collectingTransferSink{}
+	if err := source.ExportTransfer(
+		context.Background(),
+		protocol.SessionRequest{
+			ProtocolVersion: protocol.Version,
+			SessionID:       sessionID,
+		},
+		sink,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	fileStore, err := store.OpenFile(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fileStore.Close()
+	flaky := &failHeadOnceStore{File: fileStore}
+	target := transferEngine(t, flaky)
+	writer, err := target.BeginTransferImport(sink.manifest, sink.manifest.Binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Abort()
+	for _, frame := range sink.events {
+		if err := writer.WriteEvent(frame); err != nil {
+			t.Fatal(err)
+		}
+	}
+	flaky.failNextHead = true
+	if err := writer.Publish(sink.complete); rinruntime.ErrorCode(err) !=
+		"transfer_replay_failed" {
+		t.Fatalf("post-publish verification error = %v", err)
+	}
+
+	recovered, err := target.State(protocol.SessionRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       sessionID,
+	})
+	if err != nil {
+		t.Fatalf("same-process lazy recovery failed: %v", err)
+	}
+	if recovered.Revision != sink.manifest.TerminalRevision ||
+		recovered.HeadHash != sink.manifest.TerminalHeadHash {
+		t.Fatalf("recovered state = %+v", recovered)
+	}
+	if _, err := target.BeginTransferImport(
+		sink.manifest,
+		sink.manifest.Binding,
+	); rinruntime.ErrorCode(err) != "session_exists" {
+		t.Fatalf("published target accepted a duplicate import: %v", err)
+	}
+}
+
 func TestTransferImportRejectsWrongBindingAndLineageGeneration(t *testing.T) {
 	sourceStore := store.NewMemory()
 	source := transferEngine(t, sourceStore)
@@ -557,6 +616,21 @@ func TestEngineCloseWaitsForTransferImportAbort(t *testing.T) {
 
 type transferLegacyStore struct {
 	rinruntime.Store
+}
+
+type failHeadOnceStore struct {
+	*store.File
+	failNextHead bool
+}
+
+func (s *failHeadOnceStore) Head(
+	sessionID string,
+) (rinruntime.EventAnchor, error) {
+	if s.failNextHead {
+		s.failNextHead = false
+		return rinruntime.EventAnchor{}, errors.New("simulated transient Head failure")
+	}
+	return s.File.Head(sessionID)
 }
 
 func transferEngine(t *testing.T, eventStore rinruntime.Store) *rinruntime.Engine {

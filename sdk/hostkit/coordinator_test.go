@@ -142,6 +142,97 @@ func TestCoordinatorRecoversSubmitBeforeJobIDSave(t *testing.T) {
 	}
 }
 
+func TestCoordinatorExactResubmitsJobLostAfterSidecarRestart(t *testing.T) {
+	fixture := newFixture(t, host.ActionSucceeded)
+	if _, err := fixture.coordinator.BeginDecision(
+		context.Background(), fixture.request,
+	); err != nil {
+		t.Fatal(err)
+	}
+	first, err := fixture.coordinator.ResumePendingWork(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Pending.JobID != "job.test" || fixture.transport.submissions != 1 {
+		t.Fatalf("initial submission = %+v, count = %d", first, fixture.transport.submissions)
+	}
+
+	fixture.transport.pollErrors = []error{
+		fmt.Errorf("poll failed: %w", ErrProposalJobNotFound),
+		nil,
+	}
+	fixture.transport.submission.JobID = "job.restarted"
+	fixture.transport.job.JobID = "job.restarted"
+	recovered, err := fixture.coordinator.ResumePendingWork(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !recovered.Ready || recovered.Pending.JobID != "job.restarted" ||
+		fixture.transport.submissions != 2 {
+		t.Fatalf("restart recovery = %+v, submissions = %d",
+			recovered, fixture.transport.submissions)
+	}
+	if !reflect.DeepEqual(
+		fixture.transport.submittedRequests[0],
+		fixture.transport.submittedRequests[1],
+	) {
+		t.Fatal("restart recovery changed the durable Propose request")
+	}
+	state, err := fixture.store.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Pending == nil || state.Pending.JobID != "job.restarted" {
+		t.Fatalf("replacement Job ID was not durable: %+v", state.Pending)
+	}
+}
+
+func TestCoordinatorDoesNotResubmitUnclassifiedPollError(t *testing.T) {
+	fixture := newFixture(t, host.ActionSucceeded)
+	if _, err := fixture.coordinator.BeginDecision(
+		context.Background(), fixture.request,
+	); err != nil {
+		t.Fatal(err)
+	}
+	fixture.transport.pollErrors = []error{errors.New("sidecar unavailable")}
+	if _, err := fixture.coordinator.ResumePendingWork(context.Background()); err == nil {
+		t.Fatal("ResumePendingWork accepted an unclassified poll error")
+	}
+	if fixture.transport.submissions != 1 {
+		t.Fatalf("submissions = %d, want only the initial submission",
+			fixture.transport.submissions)
+	}
+}
+
+func TestCoordinatorRetainsEmptyJobAfterRestartResubmitSaveFailure(t *testing.T) {
+	fixture := newFixture(t, host.ActionSucceeded)
+	if _, err := fixture.coordinator.BeginDecision(
+		context.Background(), fixture.request,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.coordinator.ResumePendingWork(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	fixture.transport.pollErrors = []error{ErrProposalJobNotFound}
+	fixture.store.failCASAfter = 2
+	if _, err := fixture.coordinator.ResumePendingWork(
+		context.Background(),
+	); !errors.Is(err, ErrConcurrentUpdate) {
+		t.Fatalf("error = %v, want replacement Job ID save failure", err)
+	}
+	state, err := fixture.store.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Pending == nil || state.Pending.JobID != "" {
+		t.Fatalf("unsafe stale Job ID remained after recovery failure: %+v", state.Pending)
+	}
+	if fixture.transport.submissions != 2 {
+		t.Fatalf("submissions = %d, want exact replacement submit", fixture.transport.submissions)
+	}
+}
+
 func TestCoordinatorSupportsLongRunTransition(t *testing.T) {
 	fixture := newFixture(t, host.ActionRunning)
 	beginAndResolve(t, fixture)
@@ -917,9 +1008,10 @@ func (fixture *testFixture) advanceEpoch() {
 }
 
 type memoryStore struct {
-	mu          sync.Mutex
-	state       WorkflowState
-	failNextCAS bool
+	mu           sync.Mutex
+	state        WorkflowState
+	failNextCAS  bool
+	failCASAfter int
 }
 
 func (store *memoryStore) replace(t *testing.T, state WorkflowState) {
@@ -948,6 +1040,12 @@ func (store *memoryStore) CompareAndSwap(
 	if store.failNextCAS {
 		store.failNextCAS = false
 		return ErrConcurrentUpdate
+	}
+	if store.failCASAfter > 0 {
+		store.failCASAfter--
+		if store.failCASAfter == 0 {
+			return ErrConcurrentUpdate
+		}
 	}
 	if store.state.Revision != expected {
 		return ErrConcurrentUpdate
@@ -987,19 +1085,22 @@ func (store *memoryStore) CommitEffect(
 }
 
 type fakeTransport struct {
-	submission   protocol.ProposalJobSubmission
-	job          protocol.ProposalJob
-	beforeSubmit func() error
-	reportError  error
-	submissions  int
-	reports      []protocol.ReportActionRequest
+	submission        protocol.ProposalJobSubmission
+	job               protocol.ProposalJob
+	beforeSubmit      func() error
+	reportError       error
+	pollErrors        []error
+	submissions       int
+	submittedRequests []protocol.ProposeRequest
+	reports           []protocol.ReportActionRequest
 }
 
 func (transport *fakeTransport) SubmitProposal(
 	_ context.Context,
-	_ protocol.ProposeRequest,
+	request protocol.ProposeRequest,
 ) (protocol.ProposalJobSubmission, error) {
 	transport.submissions++
+	transport.submittedRequests = append(transport.submittedRequests, request)
 	if transport.beforeSubmit != nil {
 		if err := transport.beforeSubmit(); err != nil {
 			return protocol.ProposalJobSubmission{}, err
@@ -1012,6 +1113,13 @@ func (transport *fakeTransport) PollProposal(
 	context.Context,
 	string,
 ) (protocol.ProposalJob, error) {
+	if len(transport.pollErrors) != 0 {
+		err := transport.pollErrors[0]
+		transport.pollErrors = transport.pollErrors[1:]
+		if err != nil {
+			return protocol.ProposalJob{}, err
+		}
+	}
 	return transport.job, nil
 }
 

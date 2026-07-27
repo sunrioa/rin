@@ -146,35 +146,33 @@ func (coordinator *Coordinator) ResumePendingWork(
 		return PendingResult{}, ErrStaleEpoch
 	}
 	if pending.JobID == "" {
-		submission, submitErr := coordinator.transport.SubmitProposal(ctx, pending.Request)
-		if submitErr != nil {
-			return PendingResult{}, submitErr
-		}
-		if submission.ProtocolVersion != protocol.Version ||
-			!validJobStatus(submission.Status) {
-			return PendingResult{}, errors.New("Rin returned an invalid Proposal Job submission")
-		}
-		if err := protocol.ValidateIdentifier("job_id", submission.JobID); err != nil {
+		state, pending, err = coordinator.submitPending(ctx, state)
+		if err != nil {
 			return PendingResult{}, err
 		}
+	}
+	job, err := coordinator.transport.PollProposal(ctx, pending.JobID)
+	if errors.Is(err, ErrProposalJobNotFound) {
 		next, cloneErr := state.Clone()
 		if cloneErr != nil {
 			return PendingResult{}, cloneErr
 		}
-		next.Pending.JobID = submission.JobID
+		next.Pending.JobID = ""
 		next.Revision++
-		if err := next.Validate(); err != nil {
-			return PendingResult{}, err
+		if validationErr := next.Validate(); validationErr != nil {
+			return PendingResult{}, validationErr
 		}
-		if err := coordinator.store.CompareAndSwap(
+		if saveErr := coordinator.store.CompareAndSwap(
 			ctx, state.Revision, next,
-		); err != nil {
+		); saveErr != nil {
+			return PendingResult{}, saveErr
+		}
+		state, pending, err = coordinator.submitPending(ctx, next)
+		if err != nil {
 			return PendingResult{}, err
 		}
-		state = next
-		pending = *next.Pending
+		job, err = coordinator.transport.PollProposal(ctx, pending.JobID)
 	}
-	job, err := coordinator.transport.PollProposal(ctx, pending.JobID)
 	if err != nil {
 		return PendingResult{}, err
 	}
@@ -198,6 +196,40 @@ func (coordinator *Coordinator) ResumePendingWork(
 	default:
 		return PendingResult{}, fmt.Errorf("unknown Proposal Job status %q", job.Status)
 	}
+}
+
+func (coordinator *Coordinator) submitPending(
+	ctx context.Context,
+	state WorkflowState,
+) (WorkflowState, PendingDecision, error) {
+	pending := *state.Pending
+	submission, err := coordinator.transport.SubmitProposal(ctx, pending.Request)
+	if err != nil {
+		return WorkflowState{}, PendingDecision{}, err
+	}
+	if submission.ProtocolVersion != protocol.Version ||
+		!validJobStatus(submission.Status) {
+		return WorkflowState{}, PendingDecision{},
+			errors.New("Rin returned an invalid Proposal Job submission")
+	}
+	if err := protocol.ValidateIdentifier("job_id", submission.JobID); err != nil {
+		return WorkflowState{}, PendingDecision{}, err
+	}
+	next, err := state.Clone()
+	if err != nil {
+		return WorkflowState{}, PendingDecision{}, err
+	}
+	next.Pending.JobID = submission.JobID
+	next.Revision++
+	if err := next.Validate(); err != nil {
+		return WorkflowState{}, PendingDecision{}, err
+	}
+	if err := coordinator.store.CompareAndSwap(
+		ctx, state.Revision, next,
+	); err != nil {
+		return WorkflowState{}, PendingDecision{}, err
+	}
+	return next, *next.Pending, nil
 }
 
 // DispatchRequest adds host-authored report metadata to a selected Proposal.

@@ -31,8 +31,11 @@ unbounded binary data must not enter `WorkflowState`.
    Outbox, or exhausted Action/Outbox capacity.
 2. `ResumePendingWork` drains exact reports first. It submits with the retained
    request identity only when no Job ID exists, saves that Job ID, and performs
-   one bounded poll without an internal wait loop. A crash between submit and save is recovered through
-   Rin's idempotent request identity.
+   one bounded poll without an internal wait loop. A crash between submit and
+   save is recovered through Rin's idempotent request identity. A transport
+   must wrap `ErrProposalJobNotFound` for wire error `job_not_found`; HostKit
+   then durably clears the stale Job ID and exact-resubmits the retained request
+   after a Sidecar restart.
 3. `DispatchAndEnqueue` verifies that the Proposal selected an exact offer from
    the Pending Decision. Before any game effect, it preflights retained-state
    capacity and report metadata. On the authority thread it binds the current
