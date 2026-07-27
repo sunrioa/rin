@@ -10,8 +10,11 @@ Rin `0.7.0` 是 Preview、pre-1.0 软件。Preview 状态不会放宽本文的 F
 ## Defaults
 
 - 服务默认只监听 `127.0.0.1`。
-- 非 loopback 地址必须同时传入 `-allow-remote` 并设置 `RIN_TOKEN`。
-- Rin 不终止入站 TLS；远程部署必须放在受控网络和 TLS 反向代理之后。
+- 非 loopback 地址必须同时传入 `-allow-remote`、设置 `RIN_TOKEN`，并传入
+  `-tls-proxy` 或设置 `RIN_TLS_PROXY=true`；缺少任一项会在打开数据目录前失败。
+- Rin 不终止入站 TLS。正式远程部署应让 TLS Reverse Proxy 与 Rin 同机，并让
+  Rin 继续监听 loopback；分机部署只允许在受控私网监听，并限制为仅 Proxy 可达。
+  TLS Proxy 声明只是运维断言，不会启用 TLS，也不能保护公网明文端口。
 - 除不含内容的 `/health` 与 `/ready` Probe 外，配置 Token 后所有端点都使用
   constant-time Bearer 校验。`/metrics` 与 `/v2/diagnostics` 仍需鉴权，不得作为
   Reverse Proxy 的公网 Route。
@@ -43,7 +46,8 @@ Rin `0.7.0` 是 Preview、pre-1.0 软件。Preview 状态不会放宽本文的 F
   Template、Status 与 Duration。运维 Diagnostics 只使用聚合计数和有界
   Status/Error 分类，不包含玩家内容或每 Session Label。
 - 供应商 URL 禁止 userinfo、query、fragment 和自动 HTTP 重定向；远程模型默认强制 HTTPS。
-- 官方游戏适配器同样禁止重定向；明文 Sidecar HTTP 只允许显式 loopback，远程 HTTPS 必须配置 Token。
+- 官方游戏适配器同样禁止重定向；远程 HTTPS 必须配置 Token。Sidecar 明文 HTTP
+  应保持 loopback；仅分机 Proxy 场景可在上述三重门禁与私网防火墙后监听。
 
 ## Trust model
 
@@ -51,6 +55,11 @@ Policy 和模型输出均不可信。Runtime 只接受游戏为当前 Decision W
 的 Action Offer，并校验 Actor、Epoch、Observation Sequence、Capability Digest、
 Deadline、Goal、Memory、Boundary、Revision 与 Content Binding。Rin 不执行
 脚本、Shell、动态插件或模型生成的工具调用。
+
+Observation 的 `HostValidatedPayload` 是已认证 Host 作出的信任断言。Host 必须先
+按精确 Schema 与 Digest 校验 Data；Rin 只校验有界严格 JSON Envelope 并保留
+Schema 身份。Digest 不是校验证明，模型或远端 Provider 输出未经 Host 校验不得
+放入该字段。Go Adapter 应使用 `protocol.NewHostValidatedPayload`。
 
 Snapshot 是可信、不透明的序列化状态，必须按事件日志同等级别保护。其中
 SHA-256 canonical checksum 可发现意外损坏或未同步修改，但不是签名或来源
@@ -101,9 +110,10 @@ Policy；Sidecar Submit、Poll、Timeout 或 Cancel 结果未决则不是 Offlin
 Attempt/Job 身份并阻塞新 Turn。
 
 随附 File Store 会在读写前取得数据目录的 non-blocking exclusive lock。第二个
-进程打开同一目录会失败；嵌入式调用方必须调用 `(*store.File).Close()` 释放
-lease。`darwin` 与 `linux` 使用 `flock`，`windows` 使用无共享模式的独占文件
-handle。其他所有 GOOS 上，`store.OpenFile` 返回
+进程打开同一目录会失败；嵌入式调用方必须调用 `(*store.File).Close()` 或
+`(*store.ReadOnlyFile).Close()` 释放 lease。`darwin` 与 `linux` 使用 `flock`，
+`windows` 使用无共享模式的独占文件 handle。其他所有 GOOS 上，
+`store.OpenFile` 返回
 `ErrDataDirectoryLockUnsupported` 并 fail closed。高可用或多实例宿主必须实现
 另一个外部协调 Store，不能共享 JSONL 目录。
 

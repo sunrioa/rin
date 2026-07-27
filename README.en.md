@@ -129,6 +129,14 @@ Generation results may contain only bounded, non-secret operational metadata
 such as model name, finish reason, and token counts; games may apply an
 additional persistence allowlist.
 
+A production remote deployment should terminate TLS in a same-host reverse
+proxy while Rin remains on loopback with `RIN_TOKEN` set. Only a split-proxy
+deployment on a controlled private network should use a non-loopback listener;
+that requires `-allow-remote`, `RIN_TOKEN`, and `-tls-proxy` (or
+`RIN_TLS_PROXY=true`) or startup fails. The declaration does not enable TLS or
+make a public plaintext listener safe. See
+[deployment and monitoring](docs/operations.md).
+
 ## API
 
 | Method | Path | Purpose |
@@ -227,31 +235,27 @@ error semantics, the [architecture guide](docs/architecture.md) for
 responsibility boundaries, and [action outcome reporting](docs/action-lifecycle.md)
 for application, recording, and retry order.
 
-Inspect one session offline. The command validates the requested recovery
-path and prints only a redacted timeline. A healthy revision index lets it
-locate the requested trailing window directly rather than paging from genesis:
+Inspect one session offline in read-only mode. The command validates the
+requested recovery path from the authoritative event log and prints only a
+redacted timeline. A healthy revision index locates the requested trailing
+window directly; a missing or invalid index is rebuilt only in memory:
 
 ```bash
 go run ./cmd/rin inspect -data ./rin-data -session playthrough-1
 go run ./cmd/rin inspect -data ./rin-data -session playthrough-1 -revision 42
 ```
 
-The bundled file store holds a non-blocking exclusive lock on the data
-directory, so stop the sidecar before running `rin inspect` or taking an
-uncoordinated filesystem backup. Embedded Go callers must call
-`(*store.File).Close()` to release that lock. Engine startup enumerates
-Sessions lazily; the first access loads one Session from its newest usable
-validated internal checkpoint, or from genesis when none is usable, then
-replays its event tail. When lazy recovery used no checkpoint, or when
-the selected checkpoint tail reaches 16,384 events, Runtime best-effort queues
-an asynchronous checkpoint at the recovered head. It may not be durable when
-the read returns, and a cache-write failure does not fail that read. Small
-Sessions below revision 256 also repair exact head after checkpoint fallback.
-Call
-`Engine.VerifyAll()` for a one-shot checkpoint-independent audit, or
-`Engine.Scrub(ctx, maxEvents)` to spread the same genesis-to-head validation
-over bounded passes. The bundled Sidecar runs bounded Scrub passes
-automatically.
+`rin inspect` holds a non-blocking exclusive data-directory lock to keep the
+offline view stable, so stop the Sidecar before running it or taking an
+uncoordinated filesystem backup. It uses `store.OpenFileReadOnly`: it does not
+create directories, clean staging files, finish pending deletion, write
+indexes/snapshots/checkpoints, or perform fsync repair, and its JSON reports
+`"mode": "read-only"`. Because this view does not expose a Checkpoint Store to
+Runtime, it replays the selected Session from genesis. Normal Sidecar startup
+still performs File Store recovery and bounded Scrub. Embedded callers must
+call `(*store.ReadOnlyFile).Close()` or `(*store.File).Close()` to release the
+lock. Use `Engine.VerifyAll()` for a one-shot checkpoint-independent audit or
+`Engine.Scrub(ctx, maxEvents)` for bounded passes.
 
 The bundled exclusive data-directory lock supports `darwin`, `linux`, and
 `windows`: Unix uses non-blocking `flock`, while Windows uses an exclusive file

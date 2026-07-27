@@ -32,6 +32,14 @@ across every future minor release.
   proposal/outcome cycles, monthly snapshots, restart, historical retrieval,
   storage accounting, and final Session archive.
 - Host scenarios for authority-thread nonblocking and recovery-state cleanup.
+- A shared real-Sidecar conformance corpus for Python, JavaScript, C#, Java,
+  and Lua clients, covering strict wire errors, exact mutation retry, timeout,
+  health, and successful Session creation.
+- `store.OpenFileReadOnly` and read-only `rin inspect`; missing or invalid
+  revision indexes are rebuilt only in memory, and optional checkpoint,
+  lifecycle, and Transfer write capabilities are not exposed.
+- `protocol.NewHostValidatedPayload`, which checks a Host-owned JSON Schema,
+  exact digest, strict JSON, and defensive data copy before an Observation.
 
 ### Changed
 
@@ -64,6 +72,14 @@ across every future minor release.
 - `Engine.Close(ctx)` now rejects new operations and drains in-flight calls,
   transfer imports, and asynchronous checkpoint workers before the
   caller-owned Store is closed. The CLI uses this ordering on every exit path.
+- OpenAPI now generates each HTTP route's request-schema binding; the HTTP
+  decoder consumes that metadata instead of a handwritten Go type switch.
+- Observation structured data is now named `HostValidatedPayload` with a
+  `HostSchemaRef`, making the authenticated Host validation boundary explicit.
+  The ambiguous old names were removed without aliases.
+- Removed the ineffective `AllowLegacySessionCreation` option and the
+  `ValidateRequiredFields` compatibility alias. Public Go APIs that accept
+  `context.Context` now reject nil before dependency calls or state changes.
 
 ### Fixed
 
@@ -104,6 +120,12 @@ across every future minor release.
 - Example indexes no longer reference the removed recovery example. Relative
   documentation-link tests reject untracked local paths that could hide stale
   links in a developer worktree.
+- `rin doctor host` now runs a bounded, output-limited version probe, rejects
+  stale command shims, and tries Windows-compatible Python command names.
+- A non-loopback listener now fails before touching the data directory unless
+  remote listening, Bearer authentication, and TLS reverse-proxy termination
+  are all declared. Same-host TLS proxy plus loopback Rin is the documented
+  production path.
 
 ## [0.6.0] - 2026-07-24 - Preview
 

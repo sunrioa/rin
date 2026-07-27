@@ -12,9 +12,14 @@ be evaluated through the Changelog and migration guides.
 ## Defaults
 
 - The service listens only on `127.0.0.1` by default.
-- A non-loopback listener requires both `-allow-remote` and `RIN_TOKEN`.
-- Rin does not terminate inbound TLS. Remote deployments must place it
-  behind a TLS reverse proxy on a controlled network.
+- A non-loopback listener requires `-allow-remote`, `RIN_TOKEN`, and either
+  `-tls-proxy` or `RIN_TLS_PROXY=true`. Missing any one fails before the data
+  directory is opened.
+- Rin does not terminate inbound TLS. Production remote deployments should
+  run a TLS reverse proxy on the same host and keep Rin on loopback. A split
+  deployment may listen only on a controlled private network restricted to
+  the proxy. The TLS-proxy declaration is an operator assertion; it neither
+  enables TLS nor protects a public plaintext port.
 - Once a token is configured, every endpoint except the content-free
   `/health` and `/ready` probes uses constant-time Bearer-token verification.
   `/metrics` and `/v2/diagnostics` remain authenticated and must not be exposed
@@ -56,8 +61,9 @@ be evaluated through the Changelog and migration guides.
   per-Session labels.
 - Provider URLs reject userinfo, query strings, fragments, and automatic HTTP
   redirects. Remote model endpoints require HTTPS by default.
-- Official game adapters also reject redirects. Plaintext sidecar HTTP is
-  limited to explicit loopback origins, while remote HTTPS requires a token.
+- Official game adapters also reject redirects, and remote HTTPS requires a
+  token. Keep plaintext Sidecar HTTP on loopback; only a split-proxy deployment
+  may use the three gates above behind a private-network firewall.
 
 ## Trust model
 
@@ -66,6 +72,13 @@ action offers declared by the game for the current Decision Window and
 verifies actor, epoch, observation sequence, capability digest, deadline,
 goal, memory, boundary, revision, and content binding. Rin does not execute
 scripts, shells, dynamic plugins, or model-generated tool calls.
+
+Observation `HostValidatedPayload` is an authenticated Host trust assertion.
+The Host must validate Data against the exact Schema and digest first; Rin only
+validates the bounded strict-JSON envelope and preserves schema identity. A
+digest is not proof of validation, and model or remote Provider output must not
+enter this field without Host validation. Go adapters should use
+`protocol.NewHostValidatedPayload`.
 
 Snapshots are trusted, opaque serialized state and require the same controls
 as event logs. Their SHA-256 canonical checksums detect accidental corruption
@@ -141,7 +154,8 @@ Attempt/Job identity and block new turns.
 
 The bundled file store takes a non-blocking exclusive data-directory lock
 before reading or writing. A second process fails to open that directory, and
-embedded callers must call `(*store.File).Close()` to release the lease.
+embedded callers must call `(*store.File).Close()` or
+`(*store.ReadOnlyFile).Close()` to release the lease.
 The bundled exclusive data-directory lock supports `darwin`, `linux`, and
 `windows`: Unix uses `flock`, while Windows opens an exclusive file handle
 without sharing. On every other GOOS, `store.OpenFile` returns

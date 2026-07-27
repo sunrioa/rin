@@ -27,6 +27,13 @@
   Proposal/Outcome、每月 Snapshot、重启、历史检索、存储统计与最终 Session
   Archive。
 - 新增 Authority Thread 非阻塞与 Recovery State Cleanup Host Scenario。
+- Python、JavaScript、C#、Java 与 Lua Client 共用真实 Sidecar Conformance
+  Corpus，覆盖严格 Wire 错误、Mutation Exact Retry、Timeout、Health 与成功
+  Session Create。
+- 新增 `store.OpenFileReadOnly` 与真正只读的 `rin inspect`；缺失或无效的 Revision
+  Index 只在内存重建，且不暴露可选 Checkpoint、Lifecycle 与 Transfer 写能力。
+- 新增 `protocol.NewHostValidatedPayload`，在 Observation 前校验 Host 自有 JSON
+  Schema、精确 Digest、严格 JSON，并防御性复制 Data。
 
 ### 变化
 
@@ -55,6 +62,13 @@
   Draft 自由文本字段被直接删除，不保留兼容 Alias。
 - `Engine.Close(ctx)` 现在会拒绝新操作，并在调用方关闭 Store 前排空在途调用、
   Transfer Import 与异步 Checkpoint Worker；CLI 的全部退出路径均使用该顺序。
+- OpenAPI 现在生成每条 HTTP Route 的 Request Schema Binding；HTTP Decoder
+  直接消费该元数据，不再维护手写 Go Type Switch。
+- Observation 结构化数据改名为 `HostValidatedPayload` 与 `HostSchemaRef`，明确
+  已认证 Host 的校验信任边界；含糊旧名称被删除且不保留 Alias。
+- 删除无效的 `AllowLegacySessionCreation` 选项与 `ValidateRequiredFields`
+  兼容 Alias。所有接受 `context.Context` 的公共 Go API 都会在调用依赖或修改
+  状态前拒绝 nil。
 
 ### 修复
 
@@ -87,6 +101,10 @@
   世界内嵌 Game 布局，不再依赖平台不同的 User Game 搜索路径。
 - 示例索引不再引用已删除的 Recovery 示例；相对文档链接测试会拒绝未跟踪的本地
   路径，避免开发工作区残留掩盖过期链接。
+- `rin doctor host` 现在执行有界且限制输出的版本探测，会拒绝失效命令 Shim，
+  并尝试兼容 Windows 的 Python 命令名。
+- 非 Loopback 监听若未同时声明远程监听、Bearer 鉴权与 TLS Reverse Proxy
+  终止，会在接触数据目录前失败；正式路径是同机 TLS Proxy 加 Loopback Rin。
 
 ## [0.6.0] - 2026-07-24 - Preview
 

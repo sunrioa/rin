@@ -269,7 +269,7 @@ func TestContractExamplesStrictGoRoundTripAndPresence(t *testing.T) {
 			if !exists {
 				t.Fatalf("missing example fixture")
 			}
-			if requiredErr, err := rinapi.ValidateRequiredFields(name, raw); err != nil {
+			if requiredErr, err := rinapi.ValidateRequestShape(name, raw); err != nil {
 				t.Fatal(err)
 			} else if requiredErr != nil {
 				t.Fatalf("example violates schema presence: %v", requiredErr)
@@ -283,7 +283,7 @@ func TestContractExamplesStrictGoRoundTripAndPresence(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if requiredErr, err := rinapi.ValidateRequiredFields(name, roundTrip); err != nil {
+			if requiredErr, err := rinapi.ValidateRequestShape(name, roundTrip); err != nil {
 				t.Fatal(err)
 			} else if requiredErr != nil {
 				t.Fatalf("Go round-trip violates schema presence: %v", requiredErr)
@@ -341,7 +341,7 @@ func TestOptionalZeroDefaultsMatchTypedValidatorSemantics(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			requiredErr, err := rinapi.ValidateRequiredFields(test.schemaName, mutated)
+			requiredErr, err := rinapi.ValidateRequestShape(test.schemaName, mutated)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -392,7 +392,7 @@ func TestActionDecisionRemainsExplicitlyRequired(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			requiredErr, err := rinapi.ValidateRequiredFields(test.schemaName, []byte(test.payload))
+			requiredErr, err := rinapi.ValidateRequestShape(test.schemaName, []byte(test.payload))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -406,7 +406,7 @@ func TestActionDecisionRemainsExplicitlyRequired(t *testing.T) {
 			`{"protocol_version":"rin.protocol/v2","session_id":"s","request_id":"r",` +
 				`"report":{"proposal_id":"p","event_id":"e","decision":"` + decision + `","summary":""}}`,
 		)
-		if requiredErr, err := rinapi.ValidateRequiredFields("ReportActionRequest", payload); err != nil {
+		if requiredErr, err := rinapi.ValidateRequestShape("ReportActionRequest", payload); err != nil {
 			t.Fatal(err)
 		} else if requiredErr != nil {
 			t.Fatalf("explicit decision=%s rejected: %v", decision, requiredErr)

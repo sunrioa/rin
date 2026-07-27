@@ -68,16 +68,6 @@ func ValidateRequestShape(
 	return contract.validate(schema, value, "", 0)
 }
 
-// ValidateRequiredFields is kept as a narrow compatibility name for callers
-// that adopted the initial contract API. It now performs full request-shape
-// validation, including closed-object unknown-member checks.
-func ValidateRequiredFields(
-	schemaName string,
-	payload []byte,
-) (*ShapeError, error) {
-	return ValidateRequestShape(schemaName, payload)
-}
-
 func loadRequestShapeContract() (requestShapeContract, error) {
 	requestShapeOnce.Do(func() {
 		var document struct {
