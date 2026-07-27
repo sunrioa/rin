@@ -80,16 +80,20 @@ Runtime replay; transport checksums do not replace it.
 
 Total transfer size is not subject to the inline 16 MiB Snapshot ceiling.
 Runtime nevertheless defaults to a 1 GiB total wire-byte limit, 1,000,000
-events, four concurrent Transfers globally, and one active Transfer per
-Session. Configure these with `-transfer-max-bytes`,
-`-transfer-max-events`, and `-transfer-max-concurrent`, or the corresponding
-`RIN_TRANSFER_MAX_BYTES`, `RIN_TRANSFER_MAX_EVENTS`, and
-`RIN_TRANSFER_MAX_CONCURRENT` environment variables. `transfer_too_large` and
-`transfer_event_limit` map to HTTP 413, global `transfer_capacity` maps to 429,
-and same-Session `transfer_in_progress` maps to 409. The byte budget includes
-manifest, Event, LF, and complete framing. Import checks it before staging the
-offending Event; Export checks it before sending the offending frame. A limit
-failure cannot publish a partial Session.
+events, a 64 MiB retained Identifier Ledger budget, four concurrent Transfers
+globally, and one active Transfer per Session. Configure these with
+`-transfer-max-bytes`, `-transfer-max-events`,
+`-transfer-max-identity-bytes`, and `-transfer-max-concurrent`, or the
+corresponding `RIN_TRANSFER_MAX_BYTES`, `RIN_TRANSFER_MAX_EVENTS`,
+`RIN_TRANSFER_MAX_IDENTITY_BYTES`, and `RIN_TRANSFER_MAX_CONCURRENT`
+environment variables. `transfer_too_large`, `transfer_event_limit`, and
+`transfer_identity_limit` map to HTTP 413, global `transfer_capacity` maps to
+429, and same-Session `transfer_in_progress` maps to 409. The wire-byte budget
+includes manifest, Event, LF, and complete framing. The identity budget counts
+encoded retained entries plus cold-segment Bloom and hash indexes. Import
+checks both before staging the offending Event; Export checks its wire budget
+before sending the offending frame. A limit failure cannot publish a partial
+Session.
 
 ### 3. Export an immutable boundary
 
@@ -121,9 +125,10 @@ outcome, never a partial Session. `TransferRecoveryStore` fences and verifies
 that exact manifest boundary; the same Import stream can then confirm and
 register it. A different manifest or stream remains `session_exists`.
 
-Custom Stores without `TransferStore` retain existing APIs while Import returns
-`transfer_unavailable`. Runtime must not simulate a non-atomic import through
-`Create` and `Append`.
+Custom Stores must implement both `TransferStore` and bounded-page
+`RangeStore` for Import; otherwise Import returns `transfer_unavailable`.
+Runtime must not simulate a non-atomic or aggregate-memory import through
+`Create`, `Append`, or `Store.Load`.
 
 ### 5. Import target and Binding
 
@@ -139,10 +144,17 @@ Transfer is the migration mechanism for an oversized lineage.
 ### 6. Do not truncate Identifier History
 
 Complete Event Log replay, including history embedded in Restore events, must
-reconstruct Identifier History deterministically. After atomic import, Runtime
-verifies and replays from genesis before registering the Session as live.
-Checkpoint creation may follow asynchronously but cannot replace the first
-complete verification.
+reconstruct Identifier History deterministically. Before atomic publication,
+Runtime has already validated identities into the same segmented Ledger that
+becomes the live Session index; it does not materialize or copy a complete
+Request/Event map at Publish. Runtime then reads the published log from genesis
+in bounded pages, verifies every event hash and the terminal manifest anchor,
+and compares rebuilt State and lineage generation with the validated stream
+before registering the Session as live. Because the terminal SHA-256 commits
+the exact event bytes, duplicating the complete identity projection during
+this readback would add memory without adding an independent integrity
+guarantee. Checkpoint creation may follow asynchronously but cannot replace
+this publication readback.
 
 Transfer cannot export only bounded State or discard tombstones. Doing so would
 make identifiers from abandoned branches reusable and break exact retry and

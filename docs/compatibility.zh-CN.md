@@ -46,7 +46,7 @@ v2 Host 生命周期是基础协议，没有 Feature Flag。当前可选 Session
 - `goal-candidates-v1`；
 - `actor-activity-v1`；
 - `arbitration-v1`；
-- `identifier-history-v1`。
+- `identifier-history-v2`。
 
 通过 `/health` 协商，并且只启用游戏真正持久化与实现的 Feature。
 

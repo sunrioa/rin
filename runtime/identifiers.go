@@ -316,19 +316,30 @@ func prepareLedgerIdentifierEvent(
 	current identifierLedger,
 	event protocol.EventRecord,
 ) (identifierLedger, error) {
-	delta, err := decodeIdentifierEventDelta(event)
+	delta, err := prepareLedgerIdentifierDelta(current, event)
 	if err != nil {
 		return identifierLedger{}, err
+	}
+	return current.withDelta(delta)
+}
+
+func prepareLedgerIdentifierDelta(
+	current identifierLedger,
+	event protocol.EventRecord,
+) (identifierEventDelta, error) {
+	delta, err := decodeIdentifierEventDelta(event)
+	if err != nil {
+		return identifierEventDelta{}, err
 	}
 	if delta.imported != nil {
 		if err := validateIdentifierLedgerMerge(
 			current,
 			*delta.imported,
 		); err != nil {
-			return identifierLedger{}, err
+			return identifierEventDelta{}, err
 		}
 	}
-	return current.withDelta(delta)
+	return delta, nil
 }
 
 func decodeIdentifierEventDelta(

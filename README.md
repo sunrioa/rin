@@ -191,9 +191,9 @@ compact JSON（最高可配置为 24 MiB）；下一次 Mutation 若会超限，
 JSON endpoint；应改用 Bearer 保护的 `/v2/session/export` 与
 `/v2/session/import` NDJSON Session Transfer。JavaScript 和 C# SDK 提供调用方
 拥有的流式 source/sink helper，并为 Transfer 使用独立的长超时。Sidecar 默认
-限制单次 Transfer 为 1 GiB / 1,000,000 events、全局并发 4、同 Session 并发 1；
-这些限制、30 分钟服务端总 deadline 与 rolling 30 秒 inactivity deadline 均可
-通过 `rin serve` 参数或对应环境变量配置。
+限制单次 Transfer 为 1 GiB / 1,000,000 events / 64 MiB Identifier Ledger、
+全局并发 4、同 Session 并发 1；这些限制、30 分钟服务端总 deadline 与 rolling
+30 秒 inactivity deadline 均可通过 `rin serve` 参数或对应环境变量配置。
 
 完整字段和错误语义见 [协议文档](docs/protocol-v2.zh-CN.md)，职责边界见
 [架构文档](docs/architecture.zh-CN.md)，应用、结果记账和重试顺序见

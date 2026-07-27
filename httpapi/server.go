@@ -760,7 +760,9 @@ func (s *Server) respond(response http.ResponseWriter, request *http.Request, da
 		status = http.StatusInternalServerError
 	case code == "snapshot_too_large", code == "state_too_large":
 		status = http.StatusRequestEntityTooLarge
-	case code == "transfer_too_large", code == "transfer_event_limit":
+	case code == "transfer_too_large",
+		code == "transfer_event_limit",
+		code == "transfer_identity_limit":
 		status = http.StatusRequestEntityTooLarge
 	case code == "transfer_capacity":
 		status = http.StatusTooManyRequests

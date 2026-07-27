@@ -33,6 +33,7 @@ var positiveUintEnvironment = []string{
 	"RIN_SESSION_STATE_MAX_BYTES",
 	"RIN_TRANSFER_MAX_BYTES",
 	"RIN_TRANSFER_MAX_EVENTS",
+	"RIN_TRANSFER_MAX_IDENTITY_BYTES",
 	"RIN_GENERATION_MAX_RETAINED_BYTES",
 }
 
@@ -158,6 +159,7 @@ type serveConfiguration struct {
 	maxSessionStateBytes      uint64
 	maxTransferBytes          uint64
 	maxTransferEvents         uint64
+	maxTransferIdentityBytes  uint64
 	maxConcurrentTransfers    int
 	requestTimeout            time.Duration
 	transferTimeout           time.Duration
@@ -184,6 +186,8 @@ func validateServeConfiguration(config serveConfiguration) error {
 		return errors.New("transfer-max-bytes must be positive")
 	case config.maxTransferEvents == 0:
 		return errors.New("transfer-max-events must be positive")
+	case config.maxTransferIdentityBytes == 0:
+		return errors.New("transfer-max-identity-bytes must be positive")
 	case config.maxConcurrentTransfers <= 0:
 		return errors.New("transfer-max-concurrent must be positive")
 	case config.requestTimeout <= 0:
@@ -204,12 +208,13 @@ func validateServeConfiguration(config serveConfiguration) error {
 		)
 	}
 	if err := rinruntime.ValidateEngineOptions(rinruntime.EngineOptions{
-		SessionSoftLimitBytes:  config.sessionSoftLimitBytes,
-		SessionHardLimitBytes:  config.sessionHardLimitBytes,
-		MaxSessionStateBytes:   config.maxSessionStateBytes,
-		MaxTransferBytes:       config.maxTransferBytes,
-		MaxTransferEvents:      config.maxTransferEvents,
-		MaxConcurrentTransfers: config.maxConcurrentTransfers,
+		SessionSoftLimitBytes:    config.sessionSoftLimitBytes,
+		SessionHardLimitBytes:    config.sessionHardLimitBytes,
+		MaxSessionStateBytes:     config.maxSessionStateBytes,
+		MaxTransferBytes:         config.maxTransferBytes,
+		MaxTransferEvents:        config.maxTransferEvents,
+		MaxTransferIdentityBytes: config.maxTransferIdentityBytes,
+		MaxConcurrentTransfers:   config.maxConcurrentTransfers,
 	}); err != nil {
 		return fmt.Errorf("invalid Runtime limits: %w", err)
 	}

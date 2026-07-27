@@ -216,6 +216,68 @@ func TestCurrentDocumentationMatchesGeneratedContractIdentity(t *testing.T) {
 	}
 }
 
+func TestOpenAPIIdentifierHistoryVersionMatchesRuntime(t *testing.T) {
+	payload, err := os.ReadFile("../api/openapi.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		Components struct {
+			Schemas map[string]json.RawMessage `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(payload, &document); err != nil {
+		t.Fatal(err)
+	}
+	var historySchema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(
+		document.Components.Schemas["IdentifierHistoryState"],
+		&historySchema,
+	); err != nil {
+		t.Fatalf("decode OpenAPI Identifier History schema: %v", err)
+	}
+	var versionSchema struct {
+		Const string `json:"const"`
+	}
+	if err := json.Unmarshal(
+		historySchema.Properties["version"],
+		&versionSchema,
+	); err != nil {
+		t.Fatalf("decode OpenAPI Identifier History version: %v", err)
+	}
+	version := versionSchema.Const
+	if version != protocol.IdentifierHistoryVersion {
+		t.Fatalf(
+			"OpenAPI Identifier History version = %q, Runtime = %q",
+			version,
+			protocol.IdentifierHistoryVersion,
+		)
+	}
+	for _, path := range []string{
+		"../docs/compatibility.md",
+		"../docs/compatibility.zh-CN.md",
+		"../docs/architecture.md",
+		"../docs/architecture.zh-CN.md",
+	} {
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if !strings.Contains(
+			string(content),
+			"`"+protocol.IdentifierHistoryVersion+"`",
+		) {
+			t.Errorf(
+				"%s does not identify %s",
+				path,
+				protocol.IdentifierHistoryVersion,
+			)
+		}
+	}
+}
+
 func TestCurrentDocumentationEvidenceMatchesRepository(t *testing.T) {
 	routesPayload, err := os.ReadFile("../sdk/conformance/routes.json")
 	if err != nil {

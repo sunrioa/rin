@@ -299,6 +299,7 @@ func TestValidateServeConfigurationRejectsExplicitFallbackValues(
 		maxSessionStateBytes:      1,
 		maxTransferBytes:          1,
 		maxTransferEvents:         1,
+		maxTransferIdentityBytes:  1,
 		maxConcurrentTransfers:    1,
 		requestTimeout:            time.Millisecond,
 		transferTimeout:           time.Millisecond,
@@ -369,6 +370,13 @@ func TestValidateServeConfigurationRejectsExplicitFallbackValues(
 			},
 		},
 		{
+			name: "Transfer identity upper bound",
+			mutate: func(config *serveConfiguration) {
+				config.maxTransferIdentityBytes =
+					rinruntime.MaxConfigurableTransferIdentityBytes + 1
+			},
+		},
+		{
 			name: "Transfer concurrency upper bound",
 			mutate: func(config *serveConfiguration) {
 				config.maxConcurrentTransfers = 65
@@ -417,6 +425,15 @@ func TestInvalidServeLimitsDoNotTouchDataDirectory(t *testing.T) {
 		{
 			name: "Transfer bytes",
 			args: []string{"-transfer-max-bytes", fmt.Sprint((1 << 40) + 1)},
+		},
+		{
+			name: "Transfer identity bytes",
+			args: []string{
+				"-transfer-max-identity-bytes",
+				fmt.Sprint(
+					rinruntime.MaxConfigurableTransferIdentityBytes + 1,
+				),
+			},
 		},
 		{
 			name: "Transfer concurrency",

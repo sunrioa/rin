@@ -36,18 +36,8 @@ func (e *Engine) ensureLoaded(session *managedSession) error {
 			ErrCorruptLog,
 		)
 	}
-	ledger, err := identifierLedgerFromHistory(identifiers)
-	if err != nil {
-		session.lastLoadErrorCode = "replay_failed"
-		session.mu.Unlock()
-		return NewError(
-			"replay_failed",
-			"session identifier history could not be indexed",
-			err,
-		)
-	}
 	session.state = state
-	session.identifiers = ledger
+	session.identifiers = identifiers
 	session.lineageEpoch = lineageEpoch
 	if lifecycle, ok := e.store.(LifecycleStore); ok {
 		status, lifecycleErr := lifecycle.Lifecycle(session.id)
@@ -87,18 +77,18 @@ func (e *Engine) ensureLoaded(session *managedSession) error {
 
 func (e *Engine) loadCurrentSession(
 	sessionID string,
-) (protocol.SessionState, protocol.IdentifierHistory, uint64, uint64, error) {
+) (protocol.SessionState, identifierLedger, uint64, uint64, error) {
 	if ranged, ok := e.store.(RangeStore); ok {
 		head, err := ranged.Head(sessionID)
 		if err != nil {
-			return protocol.SessionState{}, protocol.IdentifierHistory{}, 0, 0, NewError(
+			return protocol.SessionState{}, identifierLedger{}, 0, 0, NewError(
 				"store_load_failed",
 				"could not read session log head",
 				err,
 			)
 		}
 		if head.Revision == 0 || head.HeadHash == "" {
-			return protocol.SessionState{}, protocol.IdentifierHistory{}, 0, 0, NewError(
+			return protocol.SessionState{}, identifierLedger{}, 0, 0, NewError(
 				"replay_failed",
 				"session event log has no valid head",
 				ErrCorruptLog,
@@ -110,10 +100,10 @@ func (e *Engine) loadCurrentSession(
 			ranged,
 		)
 		if err != nil {
-			return protocol.SessionState{}, protocol.IdentifierHistory{}, 0, 0, err
+			return protocol.SessionState{}, identifierLedger{}, 0, 0, err
 		}
 		if state.Revision != head.Revision || state.HeadHash != head.HeadHash {
-			return protocol.SessionState{}, protocol.IdentifierHistory{}, 0, 0, NewError(
+			return protocol.SessionState{}, identifierLedger{}, 0, 0, NewError(
 				"replay_failed",
 				"session replay does not match the durable log head",
 				ErrCorruptLog,
@@ -130,7 +120,7 @@ func (e *Engine) loadCurrentSession(
 func (e *Engine) loadSessionThrough(
 	sessionID string,
 	through uint64,
-) (protocol.SessionState, protocol.IdentifierHistory, uint64, error) {
+) (protocol.SessionState, identifierLedger, uint64, error) {
 	if ranged, ok := e.store.(RangeStore); ok {
 		state, identifiers, epoch, _, err := e.loadRangedThrough(
 			sessionID,
@@ -145,10 +135,10 @@ func (e *Engine) loadSessionThrough(
 func (e *Engine) loadLegacyThrough(
 	sessionID string,
 	through uint64,
-) (protocol.SessionState, protocol.IdentifierHistory, uint64, error) {
+) (protocol.SessionState, identifierLedger, uint64, error) {
 	events, err := e.store.Load(sessionID)
 	if err != nil {
-		return protocol.SessionState{}, protocol.IdentifierHistory{}, 0, NewError(
+		return protocol.SessionState{}, identifierLedger{}, 0, NewError(
 			"store_load_failed",
 			"could not load session log",
 			err,
@@ -160,7 +150,7 @@ func (e *Engine) loadLegacyThrough(
 			count++
 		}
 		if count == 0 || events[count-1].Sequence != through {
-			return protocol.SessionState{}, protocol.IdentifierHistory{}, 0, NewFieldError(
+			return protocol.SessionState{}, identifierLedger{}, 0, NewFieldError(
 				"revision_not_found",
 				"requested revision does not exist",
 				"revision",
@@ -175,20 +165,28 @@ func (e *Engine) loadLegacyThrough(
 		e.maxSessionStateBytes,
 	)
 	if err != nil {
-		return protocol.SessionState{}, protocol.IdentifierHistory{}, 0, NewError(
+		return protocol.SessionState{}, identifierLedger{}, 0, NewError(
 			"replay_failed",
 			"session event log is invalid",
 			err,
 		)
 	}
-	return state, identifiers, restoredEventCount(events), nil
+	ledger, err := identifierLedgerFromHistory(identifiers)
+	if err != nil {
+		return protocol.SessionState{}, identifierLedger{}, 0, NewError(
+			"replay_failed",
+			"session identifier history could not be indexed",
+			err,
+		)
+	}
+	return state, ledger, restoredEventCount(events), nil
 }
 
 func (e *Engine) loadRangedThrough(
 	sessionID string,
 	through uint64,
 	ranged RangeStore,
-) (protocol.SessionState, protocol.IdentifierHistory, uint64, uint64, error) {
+) (protocol.SessionState, identifierLedger, uint64, uint64, error) {
 	return e.loadRangedThroughMode(sessionID, through, ranged, true)
 }
 
@@ -197,9 +195,9 @@ func (e *Engine) loadRangedThroughMode(
 	through uint64,
 	ranged RangeStore,
 	useCheckpoint bool,
-) (protocol.SessionState, protocol.IdentifierHistory, uint64, uint64, error) {
+) (protocol.SessionState, identifierLedger, uint64, uint64, error) {
 	if through == 0 {
-		return protocol.SessionState{}, protocol.IdentifierHistory{}, 0, 0, NewFieldError(
+		return protocol.SessionState{}, identifierLedger{}, 0, 0, NewFieldError(
 			"revision_not_found",
 			"requested revision does not exist",
 			"revision",
@@ -208,7 +206,7 @@ func (e *Engine) loadRangedThroughMode(
 	}
 	var (
 		state              protocol.SessionState
-		identifiers        = newIdentifierHistory(true)
+		identifiers        = newIdentifierLedger(true)
 		epoch              uint64
 		usedCheckpoint     bool
 		checkpointRevision uint64
@@ -240,7 +238,9 @@ func (e *Engine) loadRangedThroughMode(
 					false,
 				)
 			}
-			identifiers, err = cloneIdentifierHistory(*checkpoint.Snapshot.IdentifierHistory)
+			identifiers, err = identifierLedgerFromHistory(
+				*checkpoint.Snapshot.IdentifierHistory,
+			)
 			if err != nil {
 				return e.loadRangedThroughMode(sessionID, through, ranged, false)
 			}
@@ -257,6 +257,7 @@ func (e *Engine) loadRangedThroughMode(
 		identifiers,
 		epoch,
 		e.maxSessionStateBytes,
+		true,
 	)
 	if err != nil && usedCheckpoint {
 		// A checkpoint is never authoritative. Even a structurally valid cache
@@ -272,10 +273,11 @@ func replayRangedTail(
 	through uint64,
 	ranged RangeStore,
 	state protocol.SessionState,
-	identifiers protocol.IdentifierHistory,
+	identifiers identifierLedger,
 	epoch uint64,
 	maxSessionStateBytes uint64,
-) (protocol.SessionState, protocol.IdentifierHistory, uint64, error) {
+	projectIdentifiers bool,
+) (protocol.SessionState, identifierLedger, uint64, error) {
 	for state.Revision < through {
 		page, err := ranged.LoadRange(
 			sessionID,
@@ -284,14 +286,14 @@ func replayRangedTail(
 			replayPageSize,
 		)
 		if err != nil {
-			return protocol.SessionState{}, protocol.IdentifierHistory{}, 0, NewError(
+			return protocol.SessionState{}, identifierLedger{}, 0, NewError(
 				"store_load_failed",
 				"could not load session event range",
 				err,
 			)
 		}
 		if len(page.Events) == 0 || len(page.Events) > replayPageSize {
-			return protocol.SessionState{}, protocol.IdentifierHistory{}, 0, NewError(
+			return protocol.SessionState{}, identifierLedger{}, 0, NewError(
 				"replay_failed",
 				"session event range is not a bounded page",
 				ErrCorruptLog,
@@ -300,7 +302,7 @@ func replayRangedTail(
 		before := state.Revision
 		for _, event := range page.Events {
 			if event.Sequence > through {
-				return protocol.SessionState{}, protocol.IdentifierHistory{}, 0, NewError(
+				return protocol.SessionState{}, identifierLedger{}, 0, NewError(
 					"replay_failed",
 					"session event range exceeded its requested boundary",
 					ErrCorruptLog,
@@ -309,7 +311,7 @@ func replayRangedTail(
 			normalizeWritableState(&state)
 			next, applyErr := applyEvent(state, event)
 			if applyErr != nil {
-				return protocol.SessionState{}, protocol.IdentifierHistory{}, 0, NewError(
+				return protocol.SessionState{}, identifierLedger{}, 0, NewError(
 					"replay_failed",
 					"session event range is invalid",
 					applyErr,
@@ -320,7 +322,7 @@ func replayRangedTail(
 				maxSessionStateBytes,
 			); sizeErr != nil {
 				return protocol.SessionState{},
-					protocol.IdentifierHistory{},
+					identifierLedger{},
 					0,
 					NewError(
 						"replay_failed",
@@ -328,36 +330,47 @@ func replayRangedTail(
 						sizeErr,
 					)
 			}
-			delta, identityErr := prepareIdentifierEvent(identifiers, event)
-			if identityErr != nil {
-				return protocol.SessionState{}, protocol.IdentifierHistory{}, 0, NewError(
-					"replay_failed",
-					"session event identifiers are invalid",
-					identityErr,
+			if projectIdentifiers {
+				delta, identityErr := prepareLedgerIdentifierDelta(
+					identifiers,
+					event,
 				)
+				if identityErr != nil {
+					return protocol.SessionState{}, identifierLedger{}, 0, NewError(
+						"replay_failed",
+						"session event identifiers are invalid",
+						identityErr,
+					)
+				}
+				if identityErr := identifiers.applyDelta(delta); identityErr != nil {
+					return protocol.SessionState{}, identifierLedger{}, 0, NewError(
+						"replay_failed",
+						"session event identifiers could not be indexed",
+						identityErr,
+					)
+				}
 			}
-			applyIdentifierDelta(&identifiers, delta)
 			state = next
 			if event.Type == EventSessionRestored && epoch != ^uint64(0) {
 				epoch++
 			}
 		}
 		if state.Revision <= before {
-			return protocol.SessionState{}, protocol.IdentifierHistory{}, 0, NewError(
+			return protocol.SessionState{}, identifierLedger{}, 0, NewError(
 				"replay_failed",
 				"session event range made no progress",
 				ErrCorruptLog,
 			)
 		}
 		if state.Revision < through && !page.HasMore {
-			return protocol.SessionState{}, protocol.IdentifierHistory{}, 0, NewError(
+			return protocol.SessionState{}, identifierLedger{}, 0, NewError(
 				"replay_failed",
 				"session event range omitted a durable suffix",
 				ErrCorruptLog,
 			)
 		}
 		if state.Revision == through && page.HasMore {
-			return protocol.SessionState{}, protocol.IdentifierHistory{}, 0, NewError(
+			return protocol.SessionState{}, identifierLedger{}, 0, NewError(
 				"replay_failed",
 				"session event range reported data past its boundary",
 				ErrCorruptLog,

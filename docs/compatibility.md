@@ -49,7 +49,7 @@ optional Session features are:
 - `goal-candidates-v1`;
 - `actor-activity-v1`;
 - `arbitration-v1`;
-- `identifier-history-v1`.
+- `identifier-history-v2`.
 
 Negotiate through `/health` and enable only features the game actually
 persists and implements.

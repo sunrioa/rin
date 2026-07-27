@@ -297,6 +297,23 @@ func TestTransferRequiresBoundedAndAtomicStoreCapabilities(t *testing.T) {
 	); rinruntime.ErrorCode(err) != "transfer_unavailable" {
 		t.Fatalf("legacy import error = %v", err)
 	}
+
+	fileStore, err := store.OpenFile(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fileStore.Close()
+	atomicOnly := &atomicOnlyTransferStore{
+		Store:    fileStore,
+		transfer: fileStore,
+	}
+	atomicOnlyEngine := transferEngine(t, atomicOnly)
+	if _, err := atomicOnlyEngine.BeginTransferImport(
+		manifest,
+		manifest.Binding,
+	); rinruntime.ErrorCode(err) != "transfer_unavailable" {
+		t.Fatalf("non-ranged atomic import error = %v", err)
+	}
 }
 
 func TestTransferExportStopsAfterCancellation(t *testing.T) {
@@ -448,6 +465,40 @@ func TestTransferLimitsRejectBeforeUnboundedWork(t *testing.T) {
 	}
 	if err := writer.Abort(); err != nil {
 		t.Fatal(err)
+	}
+
+	identityLimitedStore, err := store.OpenFile(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer identityLimitedStore.Close()
+	identityLimited, err := rinruntime.OpenWithOptions(
+		identityLimitedStore,
+		policy.Deterministic{},
+		rinruntime.EngineOptions{MaxTransferIdentityBytes: 1},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, err = identityLimited.BeginTransferImport(
+		sink.manifest,
+		sink.manifest.Binding,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.WriteEvent(sink.events[0]); rinruntime.ErrorCode(err) !=
+		"transfer_identity_limit" {
+		t.Fatalf("identity limit error = %v", err)
+	}
+	if err := writer.Abort(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := identityLimited.State(protocol.SessionRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       sessionID,
+	}); !errors.Is(err, rinruntime.ErrNotFound) {
+		t.Fatalf("identity-limit rejected import became visible: %v", err)
 	}
 }
 
@@ -616,6 +667,17 @@ func TestEngineCloseWaitsForTransferImportAbort(t *testing.T) {
 
 type transferLegacyStore struct {
 	rinruntime.Store
+}
+
+type atomicOnlyTransferStore struct {
+	rinruntime.Store
+	transfer rinruntime.TransferStore
+}
+
+func (store *atomicOnlyTransferStore) BeginTransfer(
+	manifest protocol.TransferManifest,
+) (rinruntime.TransferWriter, error) {
+	return store.transfer.BeginTransfer(manifest)
 }
 
 type failHeadOnceStore struct {

@@ -92,7 +92,7 @@ privacy-erasure mechanism. Replay, checkpoints, backups, and retained
 Snapshots can still contain text no longer present in bounded cognition State.
 
 Durable request identity is deliberately separate from those bounded cognition
-projections. Each managed Session retains an `identifier-history-v1` ledger
+projections. Each managed Session retains an `identifier-history-v2` ledger
 whose request entries bind a mutation kind and canonical typed-request digest
 to its original result, while event entries tombstone every accepted Observe
 or Outcome Event ID. `SessionState.Receipts` remains a 1,024-entry hot
@@ -434,11 +434,14 @@ Runtime export requires `RangeStore`: it captures revision, head, Binding, and
 lineage generation under the Session lock, then releases mutation serialization
 and reads only bounded pages through that immutable anchor. A concurrent
 mutation is not included. Runtime import checks the caller's trusted Binding,
-replays State and complete Identifier History incrementally while staging,
-checks the manifest boundary and lineage generation, publishes once, then
-performs a bounded genesis-to-head verification before registering the Session
-as live. Runtime never falls back to aggregate `Store.Load` for export or to
-public `Create`/`Append` for import.
+replays State and writes complete Identifier History directly into the final
+segmented Ledger while staging, checks the manifest boundary, lineage
+generation, and configured identity-index byte budget, then publishes once. A
+bounded-page genesis-to-head readback verifies every event hash and compares
+rebuilt State with the stream; it does not build a duplicate identity map
+already committed by that hash chain. Both import and export require
+`RangeStore`. Runtime never falls back to aggregate `Store.Load` or public
+`Create`/`Append` for Transfer.
 
 Runtime queues a revision-1 checkpoint after Session creation (including a
 fresh Session created by Restore). It then uses a hierarchical schedule:
@@ -490,7 +493,7 @@ to those local files; it neither truncates Identifier History nor changes the
 
 Snapshot `state_hash` covers bounded State. `identifier_history_hash`
 independently covers canonical `identifier_history`, including its
-`identifier-history-v1` version and `coverage_complete` marker. History retains
+`identifier-history-v2` version and `coverage_complete` marker. History retains
 original Proposal/Arbitration results, so it grows linearly with mutations and
 may re-expose text already evicted from cognition State. Snapshot files and
 bodies require the same confidentiality and integrity controls as the full

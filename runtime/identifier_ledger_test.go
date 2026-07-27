@@ -58,6 +58,13 @@ func TestIdentifierLedgerKeepsOnlyBoundedHotMaps(t *testing.T) {
 	if len(ledger.segments) < 2 {
 		t.Fatalf("identifier history was not segmented: %d", len(ledger.segments))
 	}
+	if ledger.identityBytes() == 0 || ledger.retainedBytes == 0 {
+		t.Fatalf(
+			"identifier byte accounting omitted retained data: total=%d cold=%d",
+			ledger.identityBytes(),
+			ledger.retainedBytes,
+		)
+	}
 	for _, revision := range []int{1, mutations / 2, mutations} {
 		requestID := fmt.Sprintf("request.segmented.%05d", revision)
 		identity, found, err := ledger.request(requestID)
@@ -107,6 +114,48 @@ func TestIdentifierLedgerKeepsOnlyBoundedHotMaps(t *testing.T) {
 	}
 	if !reflect.DeepEqual(materialized, expected) {
 		t.Fatal("segmented identifier ledger did not materialize exactly")
+	}
+}
+
+func TestIdentifierLedgerInPlaceImportUsesReportedByteBudget(t *testing.T) {
+	ledger := newIdentifierLedger(true)
+	const mutations = 16_384
+	for revision := 1; revision <= mutations; revision++ {
+		requestID := fmt.Sprintf("request.import.%05d", revision)
+		if err := ledger.applyDelta(identifierEventDelta{
+			request: protocol.RequestIdentity{
+				Kind:           EventObserved,
+				RequestHash:    strings.Repeat("a", 64),
+				ResultRevision: uint64(revision),
+				ResultHeadHash: strings.Repeat("b", 64),
+			},
+			events: []identifiedEvent{{
+				id:   "event.import." + requestID,
+				kind: EventObserved,
+			}},
+			event: protocol.EventRecord{
+				Sequence:  uint64(revision),
+				Type:      EventObserved,
+				RequestID: requestID,
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(ledger.hotRequests)+len(ledger.hotEvents) >=
+		identifierHotEntryLimit {
+		t.Fatalf(
+			"in-place import hot maps grew past their bound: requests=%d events=%d",
+			len(ledger.hotRequests),
+			len(ledger.hotEvents),
+		)
+	}
+	if ledger.identityBytes() == 0 ||
+		ledger.identityBytes() >= DefaultMaxTransferIdentityBytes {
+		t.Fatalf(
+			"in-place import reported implausible identity bytes: %d",
+			ledger.identityBytes(),
+		)
 	}
 }
 

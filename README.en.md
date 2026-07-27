@@ -228,7 +228,11 @@ are 32 MiB, leaving room for the API envelope, Restore metadata, and durable
 EventRecord framing. A lineage that outgrows the inline limit cannot use those
 JSON endpoints; use the Bearer-protected `/v2/session/export` and
 `/v2/session/import` NDJSON Session Transfer instead. The JavaScript and C#
-SDKs provide caller-owned streaming source/sink helpers.
+SDKs provide caller-owned streaming source/sink helpers. The Sidecar defaults
+to 1 GiB wire bytes, 1,000,000 events, and a 64 MiB retained Identifier Ledger
+per Transfer, with four Transfers globally and one per Session. `rin serve`
+flags or their corresponding environment variables configure these limits,
+the 30-minute total deadline, and the rolling 30-second inactivity deadline.
 
 See the [protocol reference](docs/protocol-v2.md) for complete fields and
 error semantics, the [architecture guide](docs/architecture.md) for

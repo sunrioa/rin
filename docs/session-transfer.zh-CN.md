@@ -68,15 +68,18 @@ sequence gap、断裂的 `prev_hash`、多余 event，以及与 manifest 或最�
 - 导入接受 stream/file source，不要求完整 byte array。
 
 正文总长度不受 16 MiB inline Snapshot 上限限制，但 Runtime 默认仍限制单次
-Transfer wire bytes 为 1 GiB、事件数为 1,000,000、全局并发为 4，并限制同一
-Session 同时只能有一个 Transfer。可通过 `-transfer-max-bytes`、
-`-transfer-max-events`、`-transfer-max-concurrent` 或对应的
+Transfer wire bytes 为 1 GiB、事件数为 1,000,000、保留 Identifier Ledger
+预算为 64 MiB、全局并发为 4，并限制同一 Session 同时只能有一个 Transfer。
+可通过 `-transfer-max-bytes`、`-transfer-max-events`、
+`-transfer-max-identity-bytes`、`-transfer-max-concurrent` 或对应的
 `RIN_TRANSFER_MAX_BYTES`、`RIN_TRANSFER_MAX_EVENTS`、
-`RIN_TRANSFER_MAX_CONCURRENT` 环境变量配置。`transfer_too_large` 与
-`transfer_event_limit` 映射为 HTTP 413，全局 `transfer_capacity` 映射为
-429，同 Session `transfer_in_progress` 映射为 409。字节预算包含 manifest、
-Event、LF 与 complete framing；Import 会在写入违规 Event 前拒绝，Export 会在
-发送违规 frame 前拒绝。达到限制时不能发布部分 Session。
+`RIN_TRANSFER_MAX_IDENTITY_BYTES`、`RIN_TRANSFER_MAX_CONCURRENT`
+环境变量配置。`transfer_too_large`、`transfer_event_limit` 与
+`transfer_identity_limit` 映射为 HTTP 413，全局 `transfer_capacity` 映射为
+429，同 Session `transfer_in_progress` 映射为 409。Wire byte 预算包含
+manifest、Event、LF 与 complete framing；Identity 预算包含编码后的保留 Entry、
+冷 Segment Bloom 与 Hash Index。Import 会在写入违规 Event 前检查两者，Export
+会在发送违规 frame 前检查 Wire 预算。达到限制时不能发布部分 Session。
 
 ### 3. 导出固定 immutable boundary
 
@@ -105,8 +108,9 @@ Atomic Rename 之后若父目录 Sync 失败，完整 Target 可能已经可见�
 完全相同的 Manifest Boundary；客户端重发同一 Import Stream 后即可确认并注册。
 不同 Manifest 或 Stream 仍返回 `session_exists`。
 
-未实现 `TransferStore` 的自定义 Store 继续支持现有 API，但 Import 返回
-`transfer_unavailable`；Runtime 不用 `Create`/`Append` 模拟非原子导入。
+自定义 Store 必须同时实现 `TransferStore` 与有界分页的 `RangeStore` 才能
+Import，否则返回 `transfer_unavailable`；Runtime 不用 `Create`、`Append`
+或聚合内存的 `Store.Load` 模拟导入。
 
 ### 5. 导入目标与 Binding
 
@@ -120,8 +124,13 @@ manifest 及首事件恢复出的 Binding 一致。
 ### 6. Identifier History 不截断
 
 完整 Event Log，包括 Restore event 中携带的历史，必须能确定性重建 Identifier
-History。原子导入后 Runtime 从 genesis 验证并重放一次，再注册 live Session。
-checkpoint 可随后异步创建，但不能代替第一次完整验证。
+History。原子发布前，Runtime 已把 Identity 直接校验到最终 live Session 使用的
+分段 Ledger，不会在 Publish 时物化或复制完整 Request/Event Map。发布后 Runtime
+从 genesis 有界分页读取，逐条验证 Event Hash 与 Manifest 终点，并把重建的 State
+和 lineage generation 与已校验 Stream 比较后才注册 live Session。Terminal
+SHA-256 已承诺精确 Event Bytes，因此在 Readback 中再构建一份完整 Identity
+Projection 只增加内存，不增加独立完整性保证。Checkpoint 可随后异步创建，但
+不能代替该发布后 Readback。
 
 Transfer 不允许只导出有界 State 或删除 tombstone，否则放弃分支中的 ID 会重新
 可用，破坏 exact retry 和 outcome reconciliation。

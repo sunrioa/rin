@@ -103,35 +103,36 @@ type sessionLifecycleGate struct {
 }
 
 type Engine struct {
-	mu                     sync.RWMutex
-	sessions               map[string]*managedSession
-	pendingCreates         map[string]uncertainMutationAppend
-	lifecycleMu            sync.Mutex
-	lifecycleGates         map[string]*sessionLifecycleGate
-	store                  Store
-	decisionProvider       DecisionProvider
-	now                    func() time.Time
-	sessionSoftLimitBytes  uint64
-	sessionHardLimitBytes  uint64
-	maxSessionStateBytes   uint64
-	maxTransferBytes       uint64
-	maxTransferEvents      uint64
-	maxConcurrentTransfers int
-	transferMu             sync.Mutex
-	activeTransfers        int
-	activeTransferSessions map[string]struct{}
-	checkpointFailures     atomic.Uint64
-	checkpointQuotaSkips   atomic.Uint64
-	scrubFailures          atomic.Uint64
-	scrubMu                sync.Mutex
-	scrub                  scrubProgress
-	scrubGate              chan struct{}
-	shutdownMu             sync.Mutex
-	shutdownDone           chan struct{}
-	shutdownSignaled       bool
-	closed                 bool
-	activeOperations       int
-	checkpointWorkers      int
+	mu                       sync.RWMutex
+	sessions                 map[string]*managedSession
+	pendingCreates           map[string]uncertainMutationAppend
+	lifecycleMu              sync.Mutex
+	lifecycleGates           map[string]*sessionLifecycleGate
+	store                    Store
+	decisionProvider         DecisionProvider
+	now                      func() time.Time
+	sessionSoftLimitBytes    uint64
+	sessionHardLimitBytes    uint64
+	maxSessionStateBytes     uint64
+	maxTransferBytes         uint64
+	maxTransferEvents        uint64
+	maxTransferIdentityBytes uint64
+	maxConcurrentTransfers   int
+	transferMu               sync.Mutex
+	activeTransfers          int
+	activeTransferSessions   map[string]struct{}
+	checkpointFailures       atomic.Uint64
+	checkpointQuotaSkips     atomic.Uint64
+	scrubFailures            atomic.Uint64
+	scrubMu                  sync.Mutex
+	scrub                    scrubProgress
+	scrubGate                chan struct{}
+	shutdownMu               sync.Mutex
+	shutdownDone             chan struct{}
+	shutdownSignaled         bool
+	closed                   bool
+	activeOperations         int
+	checkpointWorkers        int
 }
 
 func Open(store Store, decisionProvider DecisionProvider) (*Engine, error) {
@@ -139,12 +140,13 @@ func Open(store Store, decisionProvider DecisionProvider) (*Engine, error) {
 }
 
 type EngineOptions struct {
-	SessionSoftLimitBytes  uint64
-	SessionHardLimitBytes  uint64
-	MaxSessionStateBytes   uint64
-	MaxTransferBytes       uint64
-	MaxTransferEvents      uint64
-	MaxConcurrentTransfers int
+	SessionSoftLimitBytes    uint64
+	SessionHardLimitBytes    uint64
+	MaxSessionStateBytes     uint64
+	MaxTransferBytes         uint64
+	MaxTransferEvents        uint64
+	MaxTransferIdentityBytes uint64
+	MaxConcurrentTransfers   int
 }
 
 func OpenWithOptions(
@@ -167,21 +169,22 @@ func OpenWithOptions(
 		}
 	}
 	engine := &Engine{
-		sessions:               make(map[string]*managedSession),
-		pendingCreates:         make(map[string]uncertainMutationAppend),
-		lifecycleGates:         make(map[string]*sessionLifecycleGate),
-		store:                  store,
-		decisionProvider:       decisionProvider,
-		now:                    time.Now,
-		sessionSoftLimitBytes:  options.SessionSoftLimitBytes,
-		sessionHardLimitBytes:  options.SessionHardLimitBytes,
-		maxSessionStateBytes:   options.MaxSessionStateBytes,
-		maxTransferBytes:       options.MaxTransferBytes,
-		maxTransferEvents:      options.MaxTransferEvents,
-		maxConcurrentTransfers: options.MaxConcurrentTransfers,
-		activeTransferSessions: make(map[string]struct{}),
-		shutdownDone:           make(chan struct{}),
-		scrubGate:              make(chan struct{}, 1),
+		sessions:                 make(map[string]*managedSession),
+		pendingCreates:           make(map[string]uncertainMutationAppend),
+		lifecycleGates:           make(map[string]*sessionLifecycleGate),
+		store:                    store,
+		decisionProvider:         decisionProvider,
+		now:                      time.Now,
+		sessionSoftLimitBytes:    options.SessionSoftLimitBytes,
+		sessionHardLimitBytes:    options.SessionHardLimitBytes,
+		maxSessionStateBytes:     options.MaxSessionStateBytes,
+		maxTransferBytes:         options.MaxTransferBytes,
+		maxTransferEvents:        options.MaxTransferEvents,
+		maxTransferIdentityBytes: options.MaxTransferIdentityBytes,
+		maxConcurrentTransfers:   options.MaxConcurrentTransfers,
+		activeTransferSessions:   make(map[string]struct{}),
+		shutdownDone:             make(chan struct{}),
+		scrubGate:                make(chan struct{}, 1),
 	}
 	ids, err := store.ListSessions()
 	if err != nil {
@@ -231,6 +234,15 @@ func normalizeEngineOptions(options EngineOptions) (EngineOptions, error) {
 	}
 	if options.MaxTransferEvents > uint64(protocol.MaxJSONSafeInteger) {
 		return EngineOptions{}, errors.New("Transfer event limit must be JSON-safe")
+	}
+	if options.MaxTransferIdentityBytes == 0 {
+		options.MaxTransferIdentityBytes = DefaultMaxTransferIdentityBytes
+	}
+	if options.MaxTransferIdentityBytes >
+		MaxConfigurableTransferIdentityBytes {
+		return EngineOptions{}, errors.New(
+			"Transfer identifier byte limit must not exceed 1 GiB",
+		)
 	}
 	if options.MaxConcurrentTransfers == 0 {
 		options.MaxConcurrentTransfers = DefaultMaxConcurrentTransfers

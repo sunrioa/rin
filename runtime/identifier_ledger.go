@@ -21,6 +21,8 @@ type identifierLedger struct {
 	coverageComplete bool
 	hotRequests      map[string]protocol.RequestIdentity
 	hotEvents        map[string]protocol.EventIdentity
+	hotBytes         uint64
+	retainedBytes    uint64
 	segments         []identifierSegment
 	requestIndex     identifierHashIndex
 	eventIndex       identifierHashIndex
@@ -57,34 +59,38 @@ type identifierEventEntry struct {
 	Identity protocol.EventIdentity `json:"identity"`
 }
 
+func newIdentifierLedger(complete bool) identifierLedger {
+	return identifierLedger{
+		version:          protocol.IdentifierHistoryVersion,
+		coverageComplete: complete,
+		hotRequests:      make(map[string]protocol.RequestIdentity),
+		hotEvents:        make(map[string]protocol.EventIdentity),
+	}
+}
+
 func identifierLedgerFromHistory(
 	history protocol.IdentifierHistory,
 ) (identifierLedger, error) {
 	normalizeIdentifierHistory(&history)
-	ledger := identifierLedger{
-		version:          history.Version,
-		coverageComplete: history.CoverageComplete,
-		hotRequests:      make(map[string]protocol.RequestIdentity),
-		hotEvents:        make(map[string]protocol.EventIdentity),
-	}
-	requestIDs := make([]string, 0, len(history.Requests))
-	for requestID := range history.Requests {
-		requestIDs = append(requestIDs, requestID)
-	}
-	sort.Strings(requestIDs)
-	for _, requestID := range requestIDs {
-		ledger.hotRequests[requestID] = history.Requests[requestID]
+	ledger := newIdentifierLedger(history.CoverageComplete)
+	ledger.version = history.Version
+	for requestID, identity := range history.Requests {
+		if identity.Proposal != nil {
+			proposal := *identity.Proposal
+			canonicalizeProposalPresentation(&proposal)
+			identity.Proposal = &proposal
+		}
+		if err := ledger.setHotRequest(requestID, identity); err != nil {
+			return identifierLedger{}, err
+		}
 		if err := ledger.sealHotIfFull(); err != nil {
 			return identifierLedger{}, err
 		}
 	}
-	eventIDs := make([]string, 0, len(history.Events))
-	for eventID := range history.Events {
-		eventIDs = append(eventIDs, eventID)
-	}
-	sort.Strings(eventIDs)
-	for _, eventID := range eventIDs {
-		ledger.hotEvents[eventID] = history.Events[eventID]
+	for eventID, identity := range history.Events {
+		if err := ledger.setHotEvent(eventID, identity); err != nil {
+			return identifierLedger{}, err
+		}
 		if err := ledger.sealHotIfFull(); err != nil {
 			return identifierLedger{}, err
 		}
@@ -104,7 +110,9 @@ func (l identifierLedger) capture() identifierLedger {
 			map[string]protocol.EventIdentity,
 			len(l.hotEvents),
 		),
-		segments: append([]identifierSegment(nil), l.segments...),
+		hotBytes:      l.hotBytes,
+		retainedBytes: l.retainedBytes,
+		segments:      append([]identifierSegment(nil), l.segments...),
 		requestIndex: identifierHashIndex{
 			levels: append([][]uint64(nil), l.requestIndex.levels...),
 		},
@@ -220,48 +228,79 @@ func (l identifierLedger) withDelta(
 	delta identifierEventDelta,
 ) (identifierLedger, error) {
 	next := l.capture()
-	next.normalize()
+	if err := next.applyDelta(delta); err != nil {
+		return identifierLedger{}, err
+	}
+	return next, nil
+}
+
+func (l *identifierLedger) applyDelta(delta identifierEventDelta) error {
+	l.normalize()
 	if delta.imported != nil {
-		next.coverageComplete =
-			next.coverageComplete && delta.imported.CoverageComplete
+		l.coverageComplete =
+			l.coverageComplete && delta.imported.CoverageComplete
 		for requestID, value := range delta.imported.Requests {
-			existing, found, err := next.request(requestID)
+			existing, found, err := l.request(requestID)
 			if err != nil {
-				return identifierLedger{}, err
+				return err
 			}
 			if !found {
-				next.hotRequests[requestID] = value
+				if err := l.setHotRequest(requestID, value); err != nil {
+					return err
+				}
 			} else if !reflect.DeepEqual(existing, value) {
-				next.hotRequests[requestID] = mergeRequestIdentity(
-					existing,
-					value,
-				)
+				if err := l.setHotRequest(
+					requestID,
+					mergeRequestIdentity(existing, value),
+				); err != nil {
+					return err
+				}
+			}
+			if err := l.sealHotIfFull(); err != nil {
+				return err
 			}
 		}
 		for eventID, value := range delta.imported.Events {
-			existing, found, err := next.event(eventID)
+			existing, found, err := l.event(eventID)
 			if err != nil {
-				return identifierLedger{}, err
+				return err
 			}
 			if !found {
-				next.hotEvents[eventID] = value
+				if err := l.setHotEvent(eventID, value); err != nil {
+					return err
+				}
 			} else if !reflect.DeepEqual(existing, value) {
-				next.hotEvents[eventID] = mergeEventIdentity(
-					existing,
-					value,
-				)
+				if err := l.setHotEvent(
+					eventID,
+					mergeEventIdentity(existing, value),
+				); err != nil {
+					return err
+				}
+			}
+			if err := l.sealHotIfFull(); err != nil {
+				return err
 			}
 		}
 	}
-	if existing, found, err := next.request(delta.event.RequestID); err != nil {
-		return identifierLedger{}, err
+	if existing, found, err := l.request(delta.event.RequestID); err != nil {
+		return err
 	} else if found {
-		next.hotRequests[delta.event.RequestID] = mergeRequestIdentity(
-			existing,
-			delta.request,
-		)
+		if err := l.setHotRequest(
+			delta.event.RequestID,
+			mergeRequestIdentity(existing, delta.request),
+		); err != nil {
+			return err
+		}
 	} else {
-		next.hotRequests[delta.event.RequestID] = delta.request
+		if err := l.setHotRequest(
+			delta.event.RequestID,
+			delta.request,
+		); err != nil {
+			return err
+		}
+	}
+	if err := l.sealHotIfFull(); err != nil {
+		return err
 	}
 	for _, value := range delta.events {
 		identity := protocol.EventIdentity{
@@ -269,21 +308,23 @@ func (l identifierLedger) withDelta(
 			RequestID: delta.event.RequestID,
 			Revision:  delta.event.Sequence,
 		}
-		existing, found, err := next.event(value.id)
+		existing, found, err := l.event(value.id)
 		if err != nil {
-			return identifierLedger{}, err
+			return err
 		}
 		if found {
 			identity = mergeEventIdentity(existing, identity)
 		}
 		if value.id != "" {
-			next.hotEvents[value.id] = identity
+			if err := l.setHotEvent(value.id, identity); err != nil {
+				return err
+			}
+		}
+		if err := l.sealHotIfFull(); err != nil {
+			return err
 		}
 	}
-	if err := next.sealHotIfFull(); err != nil {
-		return identifierLedger{}, err
-	}
-	return next, nil
+	return nil
 }
 
 func (l *identifierLedger) normalize() {
@@ -354,9 +395,113 @@ func (l *identifierLedger) sealHotIfFull() error {
 	l.segments = append(l.segments, segment)
 	l.requestIndex = l.requestIndex.add(requestHashes)
 	l.eventIndex = l.eventIndex.add(eventHashes)
+	l.retainedBytes += uint64(len(encoded)) +
+		uint64(2*identifierBloomWords*8) +
+		uint64(len(requestHashes)+len(eventHashes))*8
 	l.hotRequests = make(map[string]protocol.RequestIdentity)
 	l.hotEvents = make(map[string]protocol.EventIdentity)
+	l.hotBytes = 0
 	return nil
+}
+
+func (l *identifierLedger) setHotRequest(
+	requestID string,
+	identity protocol.RequestIdentity,
+) error {
+	if existing, found := l.hotRequests[requestID]; found {
+		size, err := identifierRequestEntryBytes(requestID, existing)
+		if err != nil {
+			return err
+		}
+		l.hotBytes -= size
+	}
+	size, err := identifierRequestEntryBytes(requestID, identity)
+	if err != nil {
+		return err
+	}
+	l.hotRequests[requestID] = identity
+	l.hotBytes += size
+	return nil
+}
+
+func (l *identifierLedger) setHotEvent(
+	eventID string,
+	identity protocol.EventIdentity,
+) error {
+	if eventID == "" {
+		return nil
+	}
+	if existing, found := l.hotEvents[eventID]; found {
+		size, err := identifierEventEntryBytes(eventID, existing)
+		if err != nil {
+			return err
+		}
+		l.hotBytes -= size
+	}
+	size, err := identifierEventEntryBytes(eventID, identity)
+	if err != nil {
+		return err
+	}
+	l.hotEvents[eventID] = identity
+	l.hotBytes += size
+	return nil
+}
+
+func identifierRequestEntryBytes(
+	requestID string,
+	identity protocol.RequestIdentity,
+) (uint64, error) {
+	encoded, err := json.Marshal(identifierRequestEntry{
+		ID: requestID, Identity: identity,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("encode request identifier entry: %w", err)
+	}
+	return uint64(len(encoded) + 1), nil
+}
+
+func identifierEventEntryBytes(
+	eventID string,
+	identity protocol.EventIdentity,
+) (uint64, error) {
+	encoded, err := json.Marshal(identifierEventEntry{
+		ID: eventID, Identity: identity,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("encode event identifier entry: %w", err)
+	}
+	return uint64(len(encoded) + 1), nil
+}
+
+func (l identifierLedger) identityBytes() uint64 {
+	return l.retainedBytes + l.hotBytes
+}
+
+func validateIdentifierLedgerCoversState(
+	ledger identifierLedger,
+	state protocol.SessionState,
+) error {
+	retained := identifiersFromState(state)
+	history := newIdentifierHistory(ledger.coverageComplete)
+	for requestID := range retained.Requests {
+		identity, found, err := ledger.request(requestID)
+		if err != nil {
+			return err
+		}
+		if found {
+			history.Requests[requestID] = identity
+		}
+	}
+	for eventID := range retained.Events {
+		identity, found, err := ledger.event(eventID)
+		if err != nil {
+			return err
+		}
+		if found {
+			history.Events[eventID] = identity
+		}
+	}
+	return validateIdentifiersCoverState(history, state)
 }
 
 func decodeIdentifierSegment(

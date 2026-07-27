@@ -82,6 +82,12 @@
 - File Store 会在最后一个活跃或排队的使用者退出后移除按 Session/Artifact
   建立的 Mutex；高基数 Transfer Abort 与 Artifact Churn 不再留下随进程生命期
   无限增长的锁表。
+- Transfer Import 直接构建最终分段 Identifier Ledger，执行独立且可配置的
+  Retained Index Byte Budget；发布后的 Hash/State Readback 不再额外构建两份
+  完整 Identity Map。
+- OpenAPI 与兼容性文档统一要求 `identifier-history-v2`，与 Runtime Validator
+  一致；生成的 Consumer 不再宣告一个会被 Runtime 拒绝的 Identifier History
+  版本。
 - Epoch 现在与外层 Session 绑定；Host Sequence 字段统一要求正数且 JSON-safe；
   Wire 与持久化 JSON 统一拒绝重复 Object Member Name。
 - Archive/Delete Exact Retry 现在会重新 Fence 已可见 Marker，并完成 Rename

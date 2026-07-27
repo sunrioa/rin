@@ -3395,7 +3395,7 @@
         ],
         "properties": {
           "version": {
-            "const": "identifier-history-v1"
+            "const": "identifier-history-v2"
           },
           "coverage_complete": {
             "type": "boolean"

@@ -14,16 +14,19 @@ import (
 const (
 	// DefaultMaxTransferBytes bounds one import or export without preventing
 	// large, explicitly streamed Sessions.
-	DefaultMaxTransferBytes       uint64 = 1 << 30
-	DefaultMaxTransferEvents      uint64 = 1_000_000
-	DefaultMaxConcurrentTransfers        = 4
+	DefaultMaxTransferBytes              uint64 = 1 << 30
+	DefaultMaxTransferEvents             uint64 = 1_000_000
+	DefaultMaxTransferIdentityBytes      uint64 = 64 << 20
+	MaxConfigurableTransferIdentityBytes uint64 = 1 << 30
+	DefaultMaxConcurrentTransfers               = 4
 )
 
 type TransferLimits struct {
-	MaxBytes      uint64
-	MaxEvents     uint64
-	MaxConcurrent int
-	MaxPerSession int
+	MaxBytes         uint64
+	MaxEvents        uint64
+	MaxIdentityBytes uint64
+	MaxConcurrent    int
+	MaxPerSession    int
 }
 
 // TransferLimits returns the immutable resource envelope enforced by Runtime.
@@ -31,10 +34,11 @@ type TransferLimits struct {
 // representation before JSON whitespace is discarded.
 func (e *Engine) TransferLimits() TransferLimits {
 	return TransferLimits{
-		MaxBytes:      e.maxTransferBytes,
-		MaxEvents:     e.maxTransferEvents,
-		MaxConcurrent: e.maxConcurrentTransfers,
-		MaxPerSession: 1,
+		MaxBytes:         e.maxTransferBytes,
+		MaxEvents:        e.maxTransferEvents,
+		MaxIdentityBytes: e.maxTransferIdentityBytes,
+		MaxConcurrent:    e.maxConcurrentTransfers,
+		MaxPerSession:    1,
 	}
 }
 
@@ -339,6 +343,14 @@ func (e *Engine) BeginTransferImport(
 			ErrConflict,
 		)
 	}
+	ranged, ok := e.store.(RangeStore)
+	if !ok {
+		return nil, NewError(
+			"transfer_unavailable",
+			"store does not support bounded event ranges",
+			ErrConflict,
+		)
+	}
 	releaseTransfer, err := e.beginTransfer(manifest.SessionID)
 	if err != nil {
 		return nil, err
@@ -397,11 +409,13 @@ func (e *Engine) BeginTransferImport(
 		manifest:             manifest,
 		expectedBinding:      expectedBinding,
 		staged:               staged,
-		identifiers:          newIdentifierHistory(true),
+		ranged:               ranged,
+		identifiers:          newIdentifierLedger(true),
 		unlockLifecycle:      unlockLifecycle,
 		hardLimitBytes:       e.sessionHardLimitBytes,
 		maxSessionStateBytes: e.maxSessionStateBytes,
 		maxTransferBytes:     e.maxTransferBytes,
+		maxIdentityBytes:     e.maxTransferIdentityBytes,
 		transferBytes:        manifestBytes,
 		finishOperation:      finish,
 		releaseTransfer:      releaseTransfer,
@@ -415,8 +429,9 @@ type runtimeTransferWriter struct {
 	manifest             protocol.TransferManifest
 	expectedBinding      protocol.Binding
 	staged               TransferWriter
+	ranged               RangeStore
 	state                protocol.SessionState
-	identifiers          protocol.IdentifierHistory
+	identifiers          identifierLedger
 	lineageGeneration    uint64
 	unlockLifecycle      func()
 	finished             bool
@@ -425,6 +440,7 @@ type runtimeTransferWriter struct {
 	maxSessionStateBytes uint64
 	managedBytes         uint64
 	maxTransferBytes     uint64
+	maxIdentityBytes     uint64
 	transferBytes        uint64
 	finishOperation      func()
 	releaseTransfer      func()
@@ -480,7 +496,10 @@ func (w *runtimeTransferWriter) WriteEvent(
 	); err != nil {
 		return w.fail(err)
 	}
-	delta, err := prepareIdentifierEvent(w.identifiers, frame.Record)
+	delta, err := prepareLedgerIdentifierDelta(
+		w.identifiers,
+		frame.Record,
+	)
 	if err != nil {
 		return w.fail(NewError(
 			"transfer_replay_failed",
@@ -497,6 +516,16 @@ func (w *runtimeTransferWriter) WriteEvent(
 			ErrConflict,
 		))
 	}
+	if err := w.identifiers.applyDelta(delta); err != nil {
+		return w.fail(NewError(
+			"transfer_replay_failed",
+			"transfer event identifiers could not be indexed",
+			err,
+		))
+	}
+	if w.identifiers.identityBytes() > w.maxIdentityBytes {
+		return w.fail(transferIdentityLimitError())
+	}
 	if err := w.staged.WriteEvent(frame); err != nil {
 		return w.fail(NewError(
 			"transfer_stage_failed",
@@ -506,7 +535,6 @@ func (w *runtimeTransferWriter) WriteEvent(
 	}
 	w.managedBytes += additional
 	w.transferBytes += frameBytes
-	applyIdentifierDelta(&w.identifiers, delta)
 	w.state = next
 	if frame.Record.Type == EventSessionRestored &&
 		w.lineageGeneration != ^uint64(0) {
@@ -556,28 +584,13 @@ func (w *runtimeTransferWriter) Publish(
 			err,
 		))
 	}
-	if err := protocol.ValidateIdentifierHistory(
+	if err := validateIdentifierLedgerCoversState(
 		w.identifiers,
-		w.manifest.SessionID,
+		w.state,
 	); err != nil {
 		return w.fail(NewError(
 			"transfer_replay_failed",
-			"replayed transfer identifier history is invalid",
-			err,
-		))
-	}
-	if err := validateIdentifiersCoverState(w.identifiers, w.state); err != nil {
-		return w.fail(NewError(
-			"transfer_replay_failed",
 			"replayed transfer identifiers do not cover state",
-			err,
-		))
-	}
-	ledger, err := identifierLedgerFromHistory(w.identifiers)
-	if err != nil {
-		return w.fail(NewError(
-			"transfer_replay_failed",
-			"replayed transfer identifiers could not be indexed",
 			err,
 		))
 	}
@@ -598,7 +611,7 @@ func (w *runtimeTransferWriter) Publish(
 			))
 		}
 	}
-	if err := w.engine.verifySessionFromGenesis(w.manifest.SessionID); err != nil {
+	if err := w.verifyPublishedFromGenesis(); err != nil {
 		// Publish already made the complete target authoritative. Keep the
 		// durable Session visible as an unloaded descriptor so a later access
 		// retries the same lazy-load path used after process restart. The
@@ -622,7 +635,7 @@ func (w *runtimeTransferWriter) Publish(
 		id:           w.manifest.SessionID,
 		loaded:       true,
 		state:        w.state,
-		identifiers:  ledger,
+		identifiers:  w.identifiers,
 		lineageEpoch: w.lineageGeneration,
 	}
 	w.engine.mu.Lock()
@@ -662,8 +675,68 @@ func (w *runtimeTransferWriter) ready() error {
 func (w *runtimeTransferWriter) fail(err error) error {
 	if w.failed == nil {
 		w.failed = err
+		w.identifiers = identifierLedger{}
 	}
 	return err
+}
+
+func (w *runtimeTransferWriter) verifyPublishedFromGenesis() error {
+	head, err := w.ranged.Head(w.manifest.SessionID)
+	if err != nil {
+		return NewError(
+			"store_load_failed",
+			"could not read published transfer head",
+			err,
+		)
+	}
+	if head.Revision != w.manifest.TerminalRevision ||
+		head.HeadHash != w.manifest.TerminalHeadHash {
+		return NewError(
+			"replay_failed",
+			"published transfer does not match its manifest head",
+			ErrCorruptLog,
+		)
+	}
+	state, _, epoch, err := replayRangedTail(
+		w.manifest.SessionID,
+		head.Revision,
+		w.ranged,
+		protocol.SessionState{},
+		identifierLedger{},
+		0,
+		w.maxSessionStateBytes,
+		false,
+	)
+	if err != nil {
+		return err
+	}
+	expectedStateHash, err := hashJSON(w.state)
+	if err != nil {
+		return NewError(
+			"replay_failed",
+			"validated transfer State could not be hashed",
+			err,
+		)
+	}
+	publishedStateHash, err := hashJSON(state)
+	if err != nil {
+		return NewError(
+			"replay_failed",
+			"published transfer State could not be hashed",
+			err,
+		)
+	}
+	if state.Revision != head.Revision ||
+		state.HeadHash != head.HeadHash ||
+		epoch != w.lineageGeneration ||
+		publishedStateHash != expectedStateHash {
+		return NewError(
+			"replay_failed",
+			"published transfer replay differs from the validated stream",
+			ErrCorruptLog,
+		)
+	}
+	return nil
 }
 
 func (w *runtimeTransferWriter) finish() {
@@ -739,6 +812,14 @@ func transferEventLimitError() error {
 	return NewError(
 		"transfer_event_limit",
 		"Transfer exceeds the configured event limit",
+		ErrConflict,
+	)
+}
+
+func transferIdentityLimitError() error {
+	return NewError(
+		"transfer_identity_limit",
+		"Session transfer exceeds the identifier index byte limit",
 		ErrConflict,
 	)
 }

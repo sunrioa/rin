@@ -94,6 +94,13 @@ across every future minor release.
 - File Store removes per-Session and per-artifact mutexes after their final
   active or queued user exits, so high-cardinality Transfer abort and artifact
   churn do not leave an unbounded process-lifetime lock map.
+- Transfer import builds the final segmented Identifier Ledger directly,
+  enforces a separate configurable retained-index byte budget, and performs
+  post-publication hash/State readback without constructing two additional
+  complete identity maps.
+- OpenAPI and compatibility documentation now require
+  `identifier-history-v2`, matching Runtime validation so generated consumers
+  no longer advertise an Identifier History version that Runtime rejects.
 - Epochs are bound to their containing Session, host sequence fields enforce
   positive JSON-safe integers, and wire/persisted JSON rejects duplicate
   object member names consistently.

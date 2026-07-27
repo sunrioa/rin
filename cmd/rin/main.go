@@ -107,6 +107,14 @@ Serve options:
 		envUint64("RIN_TRANSFER_MAX_EVENTS", rinruntime.DefaultMaxTransferEvents),
 		"maximum events in one Session Transfer",
 	)
+	maxTransferIdentityBytes := flags.Uint64(
+		"transfer-max-identity-bytes",
+		envUint64(
+			"RIN_TRANSFER_MAX_IDENTITY_BYTES",
+			rinruntime.DefaultMaxTransferIdentityBytes,
+		),
+		"maximum retained identifier-index bytes in one Session Transfer",
+	)
 	maxConcurrentTransfers := flags.Int(
 		"transfer-max-concurrent",
 		envInt(
@@ -193,6 +201,7 @@ Serve options:
 		maxSessionStateBytes:      *maxSessionStateBytes,
 		maxTransferBytes:          *maxTransferBytes,
 		maxTransferEvents:         *maxTransferEvents,
+		maxTransferIdentityBytes:  *maxTransferIdentityBytes,
 		maxConcurrentTransfers:    *maxConcurrentTransfers,
 		requestTimeout:            *requestTimeout,
 		transferTimeout:           *transferTimeout,
@@ -229,12 +238,13 @@ Serve options:
 		fileStore,
 		modelRuntime.DecisionProvider,
 		rinruntime.EngineOptions{
-			SessionSoftLimitBytes:  *sessionSoftLimit,
-			SessionHardLimitBytes:  *sessionHardLimit,
-			MaxSessionStateBytes:   *maxSessionStateBytes,
-			MaxTransferBytes:       *maxTransferBytes,
-			MaxTransferEvents:      *maxTransferEvents,
-			MaxConcurrentTransfers: *maxConcurrentTransfers,
+			SessionSoftLimitBytes:    *sessionSoftLimit,
+			SessionHardLimitBytes:    *sessionHardLimit,
+			MaxSessionStateBytes:     *maxSessionStateBytes,
+			MaxTransferBytes:         *maxTransferBytes,
+			MaxTransferEvents:        *maxTransferEvents,
+			MaxTransferIdentityBytes: *maxTransferIdentityBytes,
+			MaxConcurrentTransfers:   *maxConcurrentTransfers,
 		},
 	)
 	if err != nil {
@@ -291,6 +301,7 @@ Serve options:
 		"session_state_max_bytes", *maxSessionStateBytes,
 		"transfer_max_bytes", *maxTransferBytes,
 		"transfer_max_events", *maxTransferEvents,
+		"transfer_max_identity_bytes", *maxTransferIdentityBytes,
 		"transfer_max_concurrent", *maxConcurrentTransfers,
 		"request_timeout", *requestTimeout,
 		"transfer_timeout", *transferTimeout,

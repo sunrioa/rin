@@ -70,7 +70,7 @@ Identifier History，也不是隐私擦除机制。Replay、checkpoint、备份�
 Snapshot 可能继续包含已经不在有界 cognition State 中的文本。
 
 持久 Request 身份有意与这些有界 cognition 投影分离。每个 managed Session 都
-保留一份 `identifier-history-v1` ledger：Request entry 将 mutation 类型和
+保留一份 `identifier-history-v2` ledger：Request entry 将 mutation 类型和
 canonical typed-request digest 绑定到原始结果，Event entry 则永久记录每个
 已接受的 Observe/Outcome Event ID。`SessionState.Receipts` 仍是 1,024 项的
 兼容与诊断热投影；淘汰 Receipt 不会删除 Identifier History。
@@ -322,10 +322,12 @@ checkpoint 写入失败不会撤销已经持久的 mutation，也不会让成功
 Runtime export 强制要求 `RangeStore`：它在 Session lock 下捕获 revision、head、
 Binding 与 lineage generation，随后释放 mutation serialization，并且只通过该
 immutable anchor 分页读取有界 range；并发 mutation 不会进入本次导出。Runtime
-import 会检查调用方可信 Binding，在 staging 期间增量重放 State 与完整
-Identifier History，核对 manifest boundary 和 lineage generation，只发布一次，
-然后执行有界的 genesis-to-head 验证，最后才把 Session 注册为 live。Runtime
-不会在 export 时回退到聚合 `Store.Load`，也不会在 import 时回退到公共
+import 会检查调用方可信 Binding，在 staging 期间增量重放 State，并把完整
+Identifier History 直接写入最终使用的分段 Ledger；核对 manifest boundary、
+lineage generation 与配置的 Identity Index Byte Budget 后只发布一次。随后通过
+有界分页从 genesis 读回，逐条验证 Event Hash，并比较重建 State 与原 Stream；
+Hash Chain 已承诺的 Identity 不会再构建一份重复 Map。Import 与 Export 都要求
+`RangeStore`。Runtime 不会为 Transfer 回退到聚合 `Store.Load` 或公共
 `Create`/`Append`。
 
 Runtime 会在 Session 创建后（包括 Restore 新建 Session）排队 revision 1
@@ -366,7 +368,7 @@ revision/hash 相同但 Identifier History 更新的 Snapshot。使用方必须�
 inline 契约。
 
 Snapshot 的 `state_hash` 覆盖有界 State，`identifier_history_hash` 则独立覆盖
-canonical `identifier_history`，包括 `identifier-history-v1` 版本与
+canonical `identifier_history`，包括 `identifier-history-v2` 版本与
 `coverage_complete` 标记。History 会保留原始 Proposal/Arbitration 结果，因此
 随 mutation 线性增长，也可能重新携带已从 cognition State 淘汰的文本。
 Snapshot 文件和正文必须使用与完整事件日志同级的保密与完整性控制。这些

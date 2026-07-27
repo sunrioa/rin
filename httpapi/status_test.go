@@ -103,6 +103,7 @@ func TestTransferResourceErrorsMapToBoundedStatuses(t *testing.T) {
 	}{
 		{code: "transfer_too_large", status: http.StatusRequestEntityTooLarge},
 		{code: "transfer_event_limit", status: http.StatusRequestEntityTooLarge},
+		{code: "transfer_identity_limit", status: http.StatusRequestEntityTooLarge},
 		{code: "transfer_capacity", status: http.StatusTooManyRequests},
 		{code: "transfer_in_progress", status: http.StatusConflict},
 		{code: "state_too_large", status: http.StatusRequestEntityTooLarge},
