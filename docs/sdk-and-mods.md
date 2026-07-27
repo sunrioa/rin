@@ -30,8 +30,10 @@ This document describes Rin `0.7.0` Preview. The authoritative wire schema is
 
 Every implementation exposes the 28-route inventory generated into
 [`sdk/conformance/routes.json`](../sdk/conformance/routes.json) from OpenAPI.
-That inventory checks coverage; it is not a second wire contract or behavior
-proof. Python and
+Each entry also carries the route's generated `request_schema`; the HTTP
+decoder consumes that same metadata, so there is no separate handwritten
+Go-type-to-schema switch. The inventory checks coverage and ownership; it is
+not a second wire contract or behavior proof. Python and
 JavaScript have no runtime dependencies. C# uses framework APIs on .NET 6;
 its .NET Standard 2.0 compatibility target pins `System.Text.Json`. Java
 reuses the host's JSON library through a two-method codec. Lua injects all
@@ -42,7 +44,7 @@ APIs.
 
 ```text
 sdk/
-  conformance/       language-neutral route inventory
+  conformance/       route/schema inventory and live Sidecar corpus
   <language>/        source, language README, tests, optional quickstart
 examples/mods/
   fabric-rin-npc/    pinned, buildable Fabric server Mod

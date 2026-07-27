@@ -102,7 +102,8 @@ Route compatibility is defined by
 [`conformance/routes.json`](conformance/routes.json) is its generated coverage
 inventory. Each operation is tagged `transport` or `streaming`. Every client
 must cover the transport profile; only clients with bounded stream APIs may
-claim the streaming profile.
+claim the streaming profile. Its `request_schema` field and the HTTP decoder's
+route binding are generated together, eliminating a separate schema switch.
 
 [`conformance/sidecar-corpus.json`](conformance/sidecar-corpus.json) is the
 shared live-transport corpus. `make test-sdk-sidecar` builds a real Sidecar,

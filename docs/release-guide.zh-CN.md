@@ -25,6 +25,7 @@ go test -race ./...
 go vet ./...
 python3 -m unittest discover -s adapters/renpy -p 'test_*.py'
 make test-sdks
+make test-sdk-sidecar
 make test-terminal-story
 CGO_ENABLED=0 go build -trimpath ./cmd/rin
 python3 tools/generate_contract.py --check --tag v0.7.0
@@ -36,7 +37,8 @@ make build VERSION=0.7.0
 
 - 每个本地 Markdown Link 都能解析；
 - `api/openapi.json` 是合法 JSON，且包含与
-  `sdk/conformance/routes.json` 相同的 28 个 Route Operation；
+  `sdk/conformance/routes.json` 相同的 28 个 Route Operation 及各 JSON
+  Request Schema Binding；
 - 中英文发布文档互相链接；
 - 迁移清单覆盖安全整数、`accepted` 必填、UTF-8、错误层次、Proposal
   Attempt/Outbox 恢复和 Restore Binding；

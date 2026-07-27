@@ -59,6 +59,7 @@ class Operation:
     path: str
     success_status: int
     sdk_profile: str
+    request_schema: str
 
 
 def load_contract() -> Contract:
@@ -173,6 +174,81 @@ def load_contract() -> Contract:
     )
 
 
+def resolve_local_object(
+    document: Mapping[str, object],
+    reference: str,
+    prefix: str,
+    description: str,
+) -> Mapping[str, object]:
+    if not reference.startswith(prefix):
+        raise ContractError(
+            f"{description} reference {reference!r} must start with {prefix!r}"
+        )
+    component_name = reference[len(prefix) :]
+    if not component_name or "/" in component_name or "~" in component_name:
+        raise ContractError(
+            f"{description} reference {reference!r} must name one direct component"
+        )
+    current: object = document
+    for encoded in reference[2:].split("/"):
+        name = encoded.replace("~1", "/").replace("~0", "~")
+        if not isinstance(current, dict) or name not in current:
+            raise ContractError(f"{description} reference {reference!r} does not exist")
+        current = current[name]
+    if not isinstance(current, dict):
+        raise ContractError(f"{description} reference {reference!r} is not an object")
+    return current
+
+
+def operation_request_schema(
+    contract: Contract,
+    operation: Mapping[str, object],
+    route: str,
+) -> str:
+    request_body = operation.get("requestBody")
+    if request_body is None:
+        return ""
+    if not isinstance(request_body, dict):
+        raise ContractError(f"{route} requestBody must be an object")
+    reference = request_body.get("$ref")
+    if reference is not None:
+        if not isinstance(reference, str):
+            raise ContractError(f"{route} requestBody $ref must be a string")
+        request_body = resolve_local_object(
+            contract.document,
+            reference,
+            "#/components/requestBodies/",
+            f"{route} requestBody",
+        )
+    if request_body.get("required") is not True:
+        raise ContractError(f"{route} requestBody must be required")
+    content = request_body.get("content")
+    if not isinstance(content, dict) or not content:
+        raise ContractError(f"{route} requestBody must declare content")
+    if len(content) != 1:
+        raise ContractError(f"{route} requestBody must declare exactly one media type")
+    json_content = content.get("application/json")
+    if json_content is None:
+        return ""
+    if not isinstance(json_content, dict):
+        raise ContractError(f"{route} application/json request content must be an object")
+    schema = json_content.get("schema")
+    if not isinstance(schema, dict):
+        raise ContractError(f"{route} application/json request must declare a schema")
+    schema_reference = schema.get("$ref")
+    if not isinstance(schema_reference, str):
+        raise ContractError(
+            f"{route} application/json request schema must use a component $ref"
+        )
+    resolve_local_object(
+        contract.document,
+        schema_reference,
+        "#/components/schemas/",
+        f"{route} request schema",
+    )
+    return schema_reference.removeprefix("#/components/schemas/")
+
+
 def contract_operations(contract: Contract) -> List[Operation]:
     operations: List[Operation] = []
     paths = contract.document["paths"]
@@ -225,6 +301,7 @@ def contract_operations(contract: Contract) -> List[Operation]:
                 )
             seen_ids.add(operation_id)
             seen_routes.add(route_key)
+            route_description = f"{route_key[0]} {path}"
             operations.append(
                 Operation(
                     operation_id=operation_id,
@@ -232,6 +309,11 @@ def contract_operations(contract: Contract) -> List[Operation]:
                     path=path,
                     success_status=success_statuses[0],
                     sdk_profile=sdk_profile,
+                    request_schema=operation_request_schema(
+                        contract,
+                        operation,
+                        route_description,
+                    ),
                 )
             )
     if not operations:
@@ -252,6 +334,7 @@ def render_routes(contract: Contract, operations: Iterable[Operation]) -> str:
                 "path": operation.path,
                 "status": operation.success_status,
                 "profile": operation.sdk_profile,
+                "request_schema": operation.request_schema,
             }
             for operation in operations
         ],
@@ -322,7 +405,8 @@ def render_go_routes(operations: Iterable[Operation]) -> str:
             f'OperationID: "{operation.operation_id}", '
             f"Method: {method_constant}, "
             f'Path: "{operation.path}", '
-            f"SuccessStatus: {status_constant}"
+            f"SuccessStatus: {status_constant}, "
+            f'RequestSchema: "{operation.request_schema}"'
             "},"
         )
         handler_names.append((operation.operation_id, handler))
@@ -352,6 +436,7 @@ def render_go_routes(operations: Iterable[Operation]) -> str:
         "\tMethod        string\n"
         "\tPath          string\n"
         "\tSuccessStatus int\n"
+        "\tRequestSchema string\n"
         "}\n"
         "\n"
         "var generatedContractRoutes = [...]ContractRoute{\n"
@@ -372,12 +457,34 @@ def render_go_routes(operations: Iterable[Operation]) -> str:
         "\t}\n"
         "}\n"
         "\n"
-        "func contractSuccessStatus(request *http.Request) int {\n"
+        "func contractRouteForRequest(request *http.Request) (ContractRoute, error) {\n"
         "\troute, ok := request.Context().Value(contractRouteContextKey{}).(ContractRoute)\n"
         "\tif !ok {\n"
-        '\t\tpanic("httpapi: request is missing generated OpenAPI route metadata")\n'
+        '\t\treturn ContractRoute{}, fmt.Errorf("request is missing generated OpenAPI route metadata")\n'
+        "\t}\n"
+        "\treturn route, nil\n"
+        "}\n"
+        "\n"
+        "func contractSuccessStatus(request *http.Request) int {\n"
+        "\troute, err := contractRouteForRequest(request)\n"
+        "\tif err != nil {\n"
+        '\t\tpanic("httpapi: " + err.Error())\n'
         "\t}\n"
         "\treturn route.SuccessStatus\n"
+        "}\n"
+        "\n"
+        "func contractRequestSchema(request *http.Request) (string, error) {\n"
+        "\troute, err := contractRouteForRequest(request)\n"
+        "\tif err != nil {\n"
+        "\t\treturn \"\", err\n"
+        "\t}\n"
+        "\tif route.RequestSchema == \"\" {\n"
+        "\t\treturn \"\", fmt.Errorf(\n"
+        '\t\t\t"OpenAPI operation %s has no application/json request schema",\n'
+        "\t\t\troute.OperationID,\n"
+        "\t\t)\n"
+        "\t}\n"
+        "\treturn route.RequestSchema, nil\n"
         "}\n"
         "\n"
         "func (s *Server) registerContractRoutes(mux *http.ServeMux) {\n"

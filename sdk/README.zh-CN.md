@@ -86,6 +86,8 @@ Vendor 时应固定本仓库 Revision。路由兼容性由
 [`conformance/routes.json`](conformance/routes.json) 是它生成的覆盖清单。每个
 operation 标记为 `transport` 或 `streaming`；所有 client 必须覆盖 transport
 profile，只有提供有界 stream API 的 client 才能声明 streaming profile。
+其中 `request_schema` 与 HTTP Decoder 的 Route Binding 同时生成，不再另行
+维护一份 Schema Switch。
 
 [`conformance/sidecar-corpus.json`](conformance/sidecar-corpus.json) 是共享的
 真实传输 Corpus。`make test-sdk-sidecar` 会构建真实 Sidecar，只执行一次严格

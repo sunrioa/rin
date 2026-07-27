@@ -20,43 +20,10 @@ type contractShapeError struct {
 // objects before encoding/json discards presence and unknown-member details.
 func validateContractShape(
 	payload []byte,
-	target any,
+	schemaName string,
 ) (*contractShapeError, error) {
-	schemaName := ""
-	switch target.(type) {
-	case *protocol.CreateSessionRequest:
-		schemaName = "CreateSessionRequest"
-	case *protocol.ObserveRequest:
-		schemaName = "ObserveRequest"
-	case *protocol.ProposeRequest:
-		schemaName = "ProposeRequest"
-	case *protocol.ReportActionRequest:
-		schemaName = "ReportActionRequest"
-	case *protocol.BatchActionReportRequest:
-		schemaName = "BatchActionReportRequest"
-	case *protocol.SetActorActivityRequest:
-		schemaName = "SetActorActivityRequest"
-	case *protocol.ArbitrateRequest:
-		schemaName = "ArbitrateRequest"
-	case *protocol.SessionRequest:
-		schemaName = "SessionRequest"
-	case *protocol.ArchiveSessionRequest:
-		schemaName = "ArchiveSessionRequest"
-	case *protocol.DeleteSessionRequest:
-		schemaName = "DeleteSessionRequest"
-	case *protocol.RestoreRequest:
-		schemaName = "RestoreRequest"
-	case *protocol.TimelineRequest:
-		schemaName = "TimelineRequest"
-	case *protocol.ReplayRequest:
-		schemaName = "ReplayRequest"
-	case *protocol.DueAgentsRequest:
-		schemaName = "DueAgentsRequest"
-	case *protocol.GenerationRequest:
-		schemaName = "GenerationRequest"
-	}
 	if schemaName == "" {
-		return nil, fmt.Errorf("no OpenAPI request schema is registered for %T", target)
+		return nil, fmt.Errorf("OpenAPI request schema is empty")
 	}
 	shapeErr, err := rinapi.ValidateRequestShape(schemaName, payload)
 	if err != nil {

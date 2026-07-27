@@ -688,7 +688,11 @@ func (s *Server) decode(response http.ResponseWriter, request *http.Request, tar
 		s.writeError(response, http.StatusBadRequest, "invalid_json", "request body must be valid UTF-8 JSON", "")
 		return false
 	}
-	shapeErr, contractErr := validateContractShape(payload, target)
+	schemaName, contractErr := contractRequestSchema(request)
+	var shapeErr *contractShapeError
+	if contractErr == nil {
+		shapeErr, contractErr = validateContractShape(payload, schemaName)
+	}
 	if contractErr != nil {
 		s.logger.Error("request contract validation failed", "error", contractErr)
 		s.writeError(response, http.StatusInternalServerError, "internal_error", "request contract validation is unavailable", "")

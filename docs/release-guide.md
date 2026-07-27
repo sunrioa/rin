@@ -28,6 +28,7 @@ go test -race ./...
 go vet ./...
 python3 -m unittest discover -s adapters/renpy -p 'test_*.py'
 make test-sdks
+make test-sdk-sidecar
 make test-terminal-story
 CGO_ENABLED=0 go build -trimpath ./cmd/rin
 python3 tools/generate_contract.py --check --tag v0.7.0
@@ -39,7 +40,7 @@ The last command must print `0.7.0`. Also verify:
 
 - every local Markdown link resolves;
 - `api/openapi.json` parses as JSON and contains the same 28 route operations as
-  `sdk/conformance/routes.json`;
+  `sdk/conformance/routes.json`, including each JSON request schema binding;
 - English and Chinese release documents link to each other;
 - the migration checklist covers safe integers, required `accepted`, UTF-8,
   error layers, Proposal Attempt/Outbox recovery, and Restore Binding;

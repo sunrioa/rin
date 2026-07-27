@@ -28,7 +28,9 @@ Identity 与有界恢复状态，但其存储无法与任意游戏世界效果�
 
 每套实现暴露由 OpenAPI 生成到
 [`sdk/conformance/routes.json`](../sdk/conformance/routes.json) 的 28 Route
-Inventory。该清单只核对覆盖，不是第二份 Wire Contract，也不是行为证明。
+Inventory。每项还包含生成的 `request_schema`；HTTP Decoder 使用同一份元数据，
+不再维护另一份手写 Go Type 到 Schema Switch。该清单核对覆盖与归属，但不是
+第二份 Wire Contract，也不是行为证明。
 Python 和 JavaScript 没有运行时依赖；C# 在 .NET 6 使用 Framework API，
 其 .NET Standard 2.0 兼容 Target 固定 `System.Text.Json`；
 Java 通过两个方法的 Codec 复用宿主 JSON 库；Lua 注入全部宿主服务，因为
@@ -38,7 +40,7 @@ Java 通过两个方法的 Codec 复用宿主 JSON 库；Lua 注入全部宿主�
 
 ```text
 sdk/
-  conformance/       与语言无关的路由清单
+  conformance/       与语言无关的路由/Schema 清单和真实 Sidecar Corpus
   <language>/        源码、语言 README、测试、可选快速开始
 examples/mods/
   fabric-rin-npc/    固定版本、可构建的 Fabric 服务端 Mod

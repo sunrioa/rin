@@ -19,10 +19,11 @@ type sdkRouteManifest struct {
 }
 
 type sdkRoute struct {
-	Name   string `json:"name"`
-	Method string `json:"method"`
-	Path   string `json:"path"`
-	Status int    `json:"status"`
+	Name          string `json:"name"`
+	Method        string `json:"method"`
+	Path          string `json:"path"`
+	Status        int    `json:"status"`
+	RequestSchema string `json:"request_schema"`
 }
 
 func TestGeneratedSDKRouteManifestMatchesRuntimeRouteTable(t *testing.T) {
@@ -62,7 +63,8 @@ func TestGeneratedSDKRouteManifestMatchesRuntimeRouteTable(t *testing.T) {
 			continue
 		}
 		if runtimeRoute.OperationID != operation.Name ||
-			runtimeRoute.SuccessStatus != operation.Status {
+			runtimeRoute.SuccessStatus != operation.Status ||
+			runtimeRoute.RequestSchema != operation.RequestSchema {
 			t.Errorf(
 				"route %s projection mismatch: manifest=%+v runtime=%+v",
 				key,

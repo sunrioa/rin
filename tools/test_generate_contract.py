@@ -61,6 +61,45 @@ class ContractAuthorityTests(unittest.TestCase):
             r"unsupported x-rin-sdk-profile",
         )
 
+    def test_json_request_schema_must_be_a_local_component(self):
+        self.assert_contract_rejected(
+            lambda document: document["components"]["requestBodies"][
+                "CreateSession"
+            ]["content"]["application/json"].update(
+                {"schema": {"$ref": "https://example.invalid/schema.json"}}
+            ),
+            r"request schema reference .* must start with",
+        )
+
+    def test_request_body_must_be_required(self):
+        self.assert_contract_rejected(
+            lambda document: document["components"]["requestBodies"][
+                "CreateSession"
+            ].update({"required": False}),
+            r"requestBody must be required",
+        )
+
+    def test_generated_routes_bind_request_schemas(self):
+        contract = generate_contract.load_contract()
+        operations = {
+            operation.operation_id: operation
+            for operation in generate_contract.contract_operations(contract)
+        }
+        self.assertEqual(
+            operations["create_session"].request_schema,
+            "CreateSessionRequest",
+        )
+        self.assertEqual(
+            operations["submit_proposal_job"].request_schema,
+            "ProposeRequest",
+        )
+        self.assertEqual(
+            operations["export_session"].request_schema,
+            "SessionRequest",
+        )
+        self.assertEqual(operations["health"].request_schema, "")
+        self.assertEqual(operations["import_session"].request_schema, "")
+
 
 if __name__ == "__main__":
     unittest.main()

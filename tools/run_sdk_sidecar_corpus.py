@@ -20,7 +20,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, Optional
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -440,6 +440,7 @@ def main() -> None:
             stderr=subprocess.STDOUT,
             creationflags=creation_flags,
         )
+        failure: Optional[BaseException] = None
         try:
             wait_ready(base_url, process)
             run_wire_cases(base_url, corpus)
@@ -447,14 +448,20 @@ def main() -> None:
             java_output.mkdir()
             for language in args.languages:
                 run_sdk(language, args, corpus, base_url, slow_url, java_output)
+        except BaseException as error:
+            failure = error
         finally:
             stop_process(process)
             output.close()
             slow_server.shutdown()
             slow_server.server_close()
             slow_thread.join(timeout=5)
+        log = (root / "sidecar.log").read_text(encoding="utf-8", errors="replace")
+        if failure is not None:
+            raise RuntimeError(
+                f"SDK corpus failed: {failure}\nSidecar log:\n{log[-4000:]}"
+            ) from failure
         if process.returncode != 0:
-            log = (root / "sidecar.log").read_text(encoding="utf-8", errors="replace")
             raise RuntimeError(
                 f"Rin Sidecar exited with {process.returncode}:\n{log[-4000:]}"
             )
