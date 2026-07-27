@@ -117,7 +117,7 @@ export class StoryWorkflowStore {
     await this.flush();
   }
 
-  applyRinAction(action) {
+  recordRinAction(action) {
     this.document.game.shown_action_ids.push(action.id);
   }
 

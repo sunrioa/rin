@@ -53,7 +53,7 @@ try {
       preference: "tea",
       sequence,
       ensureSession: sequence === 1,
-      applyAction: async () => {},
+      presentAction: async () => {},
     });
     rinLatencies.push(performance.now() - started);
   }
@@ -80,7 +80,7 @@ try {
     preference: "tea",
     store: localStore,
     client: new RinClient("http://127.0.0.1:1", { timeoutMs: 100 }),
-    applyAction: async () => {},
+    presentAction: async () => {},
   });
   const localMs = performance.now() - localStarted;
 

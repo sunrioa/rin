@@ -23,7 +23,7 @@ try {
     sessionId,
     preference,
     store,
-    applyAction: async (action) => {
+    presentAction: async (action) => {
       shown = action.description;
       if (!options.json) console.log(`\n${shown}`);
     },

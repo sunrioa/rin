@@ -45,6 +45,10 @@ npm start
 `--mode baseline` 运行持久化规则树。默认 `--mode auto` 仅在启动健康检查证明尚未
 发生任何 Rin 变更时回退；进入操作后的传输不确定性会 Fail Closed，等待精确恢复。
 
+权威动作是故事存档中的 `shown_action_ids` 变更；该变更、Outcome Outbox Entry
+与清除 Proposal Attempt 会通过一次文件替换共同发布。`presentAction` 只允许
+执行非权威的终端/UI 呈现，并且仅在文件替换成功后运行；它不得修改世界状态。
+
 非交互运行：
 
 ```bash

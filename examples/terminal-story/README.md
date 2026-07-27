@@ -50,6 +50,12 @@ npm start
 it falls back only when the startup health check proves no Rin mutation began.
 Transport uncertainty after that point fails closed for exact recovery.
 
+The authoritative action is the `shown_action_ids` mutation in the story save.
+That mutation, the Outcome Outbox entry, and clearing the Proposal Attempt are
+published by one file replacement. `presentAction` is deliberately limited to
+non-authoritative terminal/UI presentation and runs only after that replacement
+succeeds; it must not perform world-state mutation.
+
 For a non-interactive run:
 
 ```bash

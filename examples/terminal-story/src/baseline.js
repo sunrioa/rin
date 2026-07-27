@@ -2,7 +2,10 @@ import { actionById, preferredAction } from "./catalog.js";
 
 // The fair comparison persists the one field this authored rule tree needs.
 // It is intentionally not a stateless straw man.
-export async function runRuleTree(store, preference, applyAction) {
+export async function runRuleTree(store, preference, presentAction) {
+  if (typeof presentAction !== "function") {
+    throw new TypeError("presentAction must be a function");
+  }
   if (store.hasPendingRinWork()) {
     throw new Error("pending Rin work must be reconciled before rule-tree play");
   }
@@ -12,7 +15,7 @@ export async function runRuleTree(store, preference, applyAction) {
     ? preferredAction(savedPreference)
     : actionById("offer.water");
   await store.applyBaselineAction(action);
-  await applyAction(action);
+  await presentAction(action);
   return {
     mode: "baseline",
     action,

@@ -13,10 +13,13 @@ import {
 export async function runRinStory(client, store, {
   sessionId,
   preference,
-  applyAction,
+  presentAction,
   sequence,
   ensureSession = true,
 }) {
+  if (typeof presentAction !== "function") {
+    throw new TypeError("presentAction must be a function");
+  }
   await store.ensureSessionId(sessionId);
   const turn = await store.beginRinTurn(preference, sequence);
   const prefix = `${sessionId}.${turn.sequence}`;
@@ -146,10 +149,10 @@ export async function runRinStory(client, store, {
       summary: "The game displayed the selected authored line.",
     },
   };
-  await coordinator.settle(resolved.attempt, resolved.proposal, report, async () => {
-    store.applyRinAction(action);
-    await applyAction(action);
+  await coordinator.settle(resolved.attempt, resolved.proposal, report, () => {
+    store.recordRinAction(action);
   });
+  await presentAction(action);
   await outbox.drain();
 
   return {

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { RinClient, RinTransportError } from "@sunrioa/rin-sdk";
 import { runRuleTree } from "../src/baseline.js";
+import { runRinStory } from "../src/rin-adapter.js";
 import { StoryWorkflowStore } from "../src/workflow-store.js";
 import { runStory } from "../src/runner.js";
 
@@ -41,7 +42,7 @@ test("Proposal settlement publishes game effect and Outcome Outbox together", as
   await store.settleProposalAttempt({
     attempt,
     report: { request_id: "report.fixture" },
-    apply: async () => store.applyRinAction({ id: "offer.tea" }),
+    apply: async () => store.recordRinAction({ id: "offer.tea" }),
   });
 
   const persisted = JSON.parse(await readFile(store.path, "utf8"));
@@ -49,6 +50,87 @@ test("Proposal settlement publishes game effect and Outcome Outbox together", as
   assert.equal(persisted.game.pending_turn, null);
   assert.deepEqual(persisted.game.shown_action_ids, ["offer.tea"]);
   assert.equal(persisted.outbox[0].key, "report.fixture");
+});
+
+test("Rin presentation runs only after the authoritative settlement commits", async () => {
+  const store = await temporaryStore();
+  let proposalRequest;
+  let reportCalls = 0;
+  const client = new RinClient("http://127.0.0.1:7374", {
+    fetch: async (target, options) => {
+      const path = new URL(target).pathname;
+      const request = options.body ? JSON.parse(options.body) : null;
+      if (path === "/health") {
+        return response(200, {
+          ok: true,
+          data: {
+            status: "ok",
+            protocol_version: "rin.protocol/v2",
+            features: [],
+            recommended_features: [],
+          },
+        });
+      }
+      if (path === "/v2/jobs/propose") {
+        proposalRequest = request;
+        return response(202, {
+          ok: true,
+          data: { job_id: "job.fixture", status: "queued", duplicate: false },
+        });
+      }
+      if (path === "/v2/jobs/job.fixture") {
+        return response(200, {
+          ok: true,
+          data: {
+            job_id: "job.fixture",
+            session_id: proposalRequest.session_id,
+            request_id: proposalRequest.request_id,
+            status: "succeeded",
+            proposal: {
+              id: "proposal.fixture",
+              session_id: proposalRequest.session_id,
+              request_id: proposalRequest.request_id,
+              actor_id: proposalRequest.actor_id,
+              tick: proposalRequest.tick,
+              decision_window: proposalRequest.decision_window,
+              action: proposalRequest.offers[0],
+              recalled_memory_ids: [],
+              policy_source: "deterministic",
+            },
+          },
+        });
+      }
+      if (path === "/v2/action/report") {
+        reportCalls++;
+        return response(200, {
+          ok: true,
+          data: { session_id: request.session_id, duplicate: false },
+        });
+      }
+      return response(200, {
+        ok: true,
+        data: { session_id: "session.fixture", duplicate: false },
+      });
+    },
+  });
+
+  const result = await runRinStory(client, store, {
+    sessionId: "session.fixture",
+    preference: "tea",
+    presentAction: async (action) => {
+      const committed = await new StoryWorkflowStore(store.path).load();
+      assert.deepEqual(committed.game.shown_action_ids, [action.id]);
+      assert.equal(committed.document.attempt, null);
+      assert.equal(committed.document.outbox.length, 1);
+      assert.equal(reportCalls, 0);
+    },
+  });
+
+  assert.equal(result.action.id, "offer.tea");
+  assert.equal(reportCalls, 1);
+  const completed = await new StoryWorkflowStore(store.path).load();
+  assert.deepEqual(completed.game.shown_action_ids, ["offer.tea"]);
+  assert.deepEqual(completed.document.outbox, []);
 });
 
 test("a restart reuses the durable Session and pending turn", async () => {
@@ -82,7 +164,7 @@ test("auto mode uses local content only before any Rin mutation", async () => {
     preference: "coffee",
     store,
     client: unavailable,
-    applyAction: async () => {},
+    presentAction: async () => {},
   });
   assert.equal(result.mode, "local");
   assert.equal(result.action.id, "offer.coffee");
@@ -115,7 +197,7 @@ test("transport uncertainty after health never silently applies local", async ()
       preference: "tea",
       store,
       client,
-      applyAction: async () => assert.fail("local action must not run"),
+      presentAction: async () => assert.fail("local action must not run"),
     }),
     (error) => error instanceof RinTransportError,
   );

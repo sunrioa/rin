@@ -9,11 +9,11 @@ export async function runStory({
   sessionId,
   preference,
   store,
-  applyAction,
+  presentAction,
   client = new RinClient(baseUrl, { token, timeoutMs: 5000 }),
 }) {
   if (mode === "baseline") {
-    return runRuleTree(store, preference, applyAction);
+    return runRuleTree(store, preference, presentAction);
   }
   if (mode !== "auto" && mode !== "rin") {
     throw new Error("mode must be auto, rin, or baseline");
@@ -26,7 +26,7 @@ export async function runStory({
       // Local is safe only before a Session mutation. Once runRinStory
       // starts, uncertainty is surfaced for exact recovery instead.
       if (error instanceof RinTransportError) {
-        const result = await runRuleTree(store, preference, applyAction);
+        const result = await runRuleTree(store, preference, presentAction);
         return { ...result, mode: "local", local_reason: error.code };
       }
       throw error;
@@ -35,6 +35,6 @@ export async function runStory({
   return runRinStory(client, store, {
     sessionId,
     preference,
-    applyAction,
+    presentAction,
   });
 }
