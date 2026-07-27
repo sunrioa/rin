@@ -12,6 +12,9 @@ ever-growing prompt. It separates four storage classes:
 | Optional semantic search | Disposable `MemoryIndex`; rebuild or delete it without changing authoritative history |
 | Operational logs/telemetry | Content-free request and lifecycle metadata; external log rotation owns retention |
 
+The bundled File Store gzip-compresses rebuildable checkpoints while keeping
+the authoritative hash-chained event log as plain JSONL.
+
 Archiving a Session freezes its event-chain anchor and makes the Session
 read-only. It does not rewrite, truncate, or silently delete authoritative
 events. Use authenticated Session stats for capacity monitoring, bounded
@@ -35,6 +38,11 @@ The test asserts that the authoritative revision/head survives restart,
 detailed memories remain bounded, older memories have summaries, event/index/
 snapshot byte accounting is nonzero, historical queries still work, and
 shutdown drains checkpoint workers before the Store is closed.
+
+The complete 365-day capacity test runs as a dedicated ordinary-test gate. Race
+builds exclude that one disk-volume test so they remain inside Go's standard
+test timeout; the full Race suite still covers File Store artifact concurrency
+and Engine operation, transfer, and checkpoint shutdown paths.
 
 This is a deterministic capacity/lifecycle regression. It is not a one-year
 wall-clock soak, a game-frame benchmark, a provider availability claim, or

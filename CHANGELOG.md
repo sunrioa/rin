@@ -65,6 +65,18 @@ across every future minor release.
   transfer imports, and asynchronous checkpoint workers before the
   caller-owned Store is closed. The CLI uses this ordering on every exit path.
 
+### Fixed
+
+- Health capability negotiation now encodes an empty recommended feature
+  baseline as `[]` instead of `null`, matching every SDK's array contract.
+- The Windows Luanti lifecycle gate allows bounded cold-start time and reports
+  archive, checked-in Host, and generated Host failures as separate CI steps.
+- File Store checkpoints are atomically gzip-compressed as rebuildable
+  projections; authoritative event logs remain plain hash-chained JSONL.
+- The accelerated-year capacity test has a dedicated ordinary-test gate;
+  Race builds retain concurrency/lifecycle tests without duplicating that
+  disk-volume workload past Go's standard timeout.
+
 ## [0.6.0] - 2026-07-24 - Preview
 
 The `v0.6.0` tag is created from the verified main branch only after the

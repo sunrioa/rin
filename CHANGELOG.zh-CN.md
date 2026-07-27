@@ -56,6 +56,17 @@
 - `Engine.Close(ctx)` 现在会拒绝新操作，并在调用方关闭 Store 前排空在途调用、
   Transfer Import 与异步 Checkpoint Worker；CLI 的全部退出路径均使用该顺序。
 
+### 修复
+
+- Health 能力协商现在把空的推荐 Feature Baseline 编码为 `[]` 而不是 `null`，
+  与所有 SDK 的数组契约一致。
+- Windows Luanti 生命周期门禁为冷启动保留有界时间，并把 Archive、源码 Host
+  和生成 Host 的失败拆分为独立 CI Step。
+- File Store 会原子 gzip 压缩可重建的 Checkpoint Projection；权威 Event Log
+  仍保持普通 Hash-chained JSONL。
+- 加速一年容量测试改为独立普通测试门禁；Race Build 保留并发/生命周期覆盖，
+  不再重复执行会超过 Go 标准超时的磁盘容量负载。
+
 ## [0.6.0] - 2026-07-24 - Preview
 
 只有发布检查全部通过后，才会从已验证的主分支创建 `v0.6.0` Tag。流程见

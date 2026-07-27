@@ -147,13 +147,31 @@ try {
         lastRin.action.id === lastBaseline.action.id,
     },
   };
-  if (evidence.player_visible.rin_action_id !== "offer.tea" ||
-      evidence.player_visible.persistent_rule_tree_action_id !== "offer.tea" ||
-      evidence.player_visible.rin_recalled_memory !== true ||
-      evidence.local.mode !== "local" ||
-      evidence.provider.calls !== 0 ||
-      evidence.storage.projected_100_hours_bytes >= 50 * 1024 * 1024) {
-    throw new Error("player-value release gate failed");
+  const gateFailures = [];
+  if (evidence.player_visible.rin_action_id !== "offer.tea") {
+    gateFailures.push(`rin_action_id=${evidence.player_visible.rin_action_id}`);
+  }
+  if (evidence.player_visible.persistent_rule_tree_action_id !== "offer.tea") {
+    gateFailures.push(
+      `persistent_rule_tree_action_id=${evidence.player_visible.persistent_rule_tree_action_id}`,
+    );
+  }
+  if (evidence.player_visible.rin_recalled_memory !== true) {
+    gateFailures.push(`rin_recalled_memory=${evidence.player_visible.rin_recalled_memory}`);
+  }
+  if (evidence.local.mode !== "local") {
+    gateFailures.push(`local_mode=${evidence.local.mode}`);
+  }
+  if (evidence.provider.calls !== 0) {
+    gateFailures.push(`provider_calls=${evidence.provider.calls}`);
+  }
+  if (evidence.storage.projected_100_hours_bytes >= 50 * 1024 * 1024) {
+    gateFailures.push(
+      `projected_100_hours_bytes=${evidence.storage.projected_100_hours_bytes}`,
+    );
+  }
+  if (gateFailures.length > 0) {
+    throw new Error(`player-value release gate failed: ${gateFailures.join(", ")}`);
   }
   const encoded = `${JSON.stringify(evidence, null, 2)}\n`;
   if (options.output) await writeFile(resolve(options.output), encoded, "utf8");

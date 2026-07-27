@@ -43,7 +43,7 @@ export async function runRinStory(client, store, {
     offer_id: action.id,
     decision_window_id: decisionWindow.id,
     actor_id: "npc.mira",
-    capability: { id: "story.show-line", version: "1" },
+    capability: { id: "story.show-line", version: "1.0.0" },
     descriptor_digest: "a".repeat(64),
     description: action.description,
     arguments: { action_id: action.id },

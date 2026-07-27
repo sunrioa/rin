@@ -12,6 +12,9 @@ Rin 不会把 NPC 的完整生命周期塞进应用日志或一个不断增长�
 | 可选语义检索 | 可丢弃 `MemoryIndex`；重建或删除不会修改权威 History |
 | 运维日志/Telemetry | 不含内容的 Request 与 Lifecycle Metadata；保留由外部日志轮转负责 |
 
+随附 File Store 会 gzip 压缩可重建 Checkpoint，同时让权威 Hash-chained
+Event Log 保持普通 JSONL。
+
 Archive Session 会冻结 Event Chain Anchor 并把 Session 设为只读，但不会重写、
 截断或静默删除权威 Event。容量监控使用经鉴权的 Session Stats，备份/迁移使用
 有界 Export；需要移除数据时按文档执行 Archive-then-delete 与 Tombstone Policy。
@@ -32,6 +35,10 @@ Archive Session 会冻结 Event Chain Anchor 并把 Session 设为只读，但�
 测试会确认：权威 Revision/Head 在重启后不变，详细 Memory 有界，较旧 Memory
 形成 Summary，Event/Index/Snapshot 字节统计非零，历史查询仍有效，并且关闭
 Store 前会排空 Checkpoint Worker。
+
+完整 365 天容量测试作为独立普通测试门禁运行。Race Build 会排除这一项磁盘容量
+测试，以保持在 Go 标准测试超时内；完整 Race Suite 仍覆盖 File Store Artifact
+并发，以及 Engine Operation、Transfer 和 Checkpoint 关停路径。
 
 这是确定性的容量与生命周期回归，不是一年真实墙钟 Soak、游戏帧预算 Benchmark、
 Provider 可用性承诺，也不能证明某个具体 Mod Loader。真实 Host 门禁仍要求每个

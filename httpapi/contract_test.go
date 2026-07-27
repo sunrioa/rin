@@ -488,9 +488,11 @@ func TestHealthPublishesReleaseIdentity(t *testing.T) {
 	var envelope struct {
 		OK   bool `json:"ok"`
 		Data struct {
-			ProtocolVersion string `json:"protocol_version"`
-			ReleaseVersion  string `json:"release_version"`
-			ReleaseStatus   string `json:"release_status"`
+			ProtocolVersion     string   `json:"protocol_version"`
+			ReleaseVersion      string   `json:"release_version"`
+			ReleaseStatus       string   `json:"release_status"`
+			Features            []string `json:"features"`
+			RecommendedFeatures []string `json:"recommended_features"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
@@ -499,7 +501,9 @@ func TestHealthPublishesReleaseIdentity(t *testing.T) {
 	if !envelope.OK ||
 		envelope.Data.ProtocolVersion != protocol.Version ||
 		envelope.Data.ReleaseVersion != protocol.ContractReleaseVersion ||
-		envelope.Data.ReleaseStatus != protocol.ContractReleaseStatus {
+		envelope.Data.ReleaseStatus != protocol.ContractReleaseStatus ||
+		envelope.Data.Features == nil ||
+		envelope.Data.RecommendedFeatures == nil {
 		t.Fatalf("health release identity=%+v", envelope)
 	}
 }

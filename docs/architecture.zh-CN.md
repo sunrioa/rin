@@ -241,7 +241,7 @@ rin-data/
     └── session.id/
         ├── events.jsonl
         ├── events.idx
-        ├── checkpoint-<revision>-<hash>.json
+        ├── checkpoint-<revision>-<hash>.json.gz
         └── snapshot-<revision>-<hash>.json
 ```
 
@@ -313,7 +313,8 @@ Session 最多只有一个 worker 和一个 latest pending capture，因此 acti
 checkpoint 完成，所以调用返回时 checkpoint 可能尚不可见。
 
 同一 Session 的 `SaveCheckpoint` 可能与 `Append`、`Load`、`Head` 或
-`LoadRange` 并发。CheckpointStore 必须 concurrency-safe，并把昂贵的派生
+`LoadRange` 并发。File Store 会用 gzip 保存体积较大的可重建 Checkpoint；
+权威 Event Log 仍是普通 JSONL。CheckpointStore 必须 concurrency-safe，并把昂贵的派生
 Artifact 工作与权威事件操作所需的同步隔离。`Engine.Close(ctx)` 会阻止新操作，
 并在调用方关闭 Store 前等待在途调用、Transfer Import 与 Checkpoint Worker。
 Context 可以限制等待时间，但不能抢占永久阻塞 `SaveCheckpoint` 的不合规 Store；

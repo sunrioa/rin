@@ -35,6 +35,8 @@ jobs:
         run: test -z "$(gofmt -l .)"
       - name: Vet
         run: go vet ./...
+      - name: Test accelerated-year File Store lifecycle
+        run: go test ./runtime -run '^TestAcceleratedYearSession$' -count=1
       - name: Test with race detector
         run: go test -race ./...
 
@@ -192,7 +194,7 @@ jobs:
         run: go build -trimpath -o bin/rin.exe ./cmd/rin
       - name: Run real-Sidecar player-value gates
         working-directory: examples/terminal-story
-        run: node ./src/benchmark.js --iterations 20
+        run: node ./src/benchmark.js --iterations 100
 
   sdk-java:
     runs-on: ubuntu-latest
@@ -425,7 +427,7 @@ jobs:
         run: >-
           go run ./cmd/rin init host --engine luanti --id ci_luanti_npc
           --name "CI Luanti NPC" --output luanti-generated
-      - name: Download and verify Luanti 5.16.1
+      - name: Download and verify Luanti 5.16.1 archive
         shell: pwsh
         run: |
           $url = "https://github.com/luanti-org/luanti/releases/download/5.16.1/luanti-5.16.1-win64.zip"
@@ -435,8 +437,15 @@ jobs:
             throw "Luanti SHA-256 mismatch"
           }
           Expand-Archive luanti.zip -DestinationPath luanti
-          python tools/verify_luanti.py --luanti luanti/luanti-5.16.1-win64/bin/luanti.exe
-          python tools/verify_luanti.py --luanti luanti/luanti-5.16.1-win64/bin/luanti.exe --mod luanti-generated
+      - name: Verify checked-in Luanti Host lifecycle
+        run: >-
+          python tools/verify_luanti.py
+          --luanti luanti/luanti-5.16.1-win64/bin/luanti.exe
+      - name: Verify generated Luanti Host lifecycle
+        run: >-
+          python tools/verify_luanti.py
+          --luanti luanti/luanti-5.16.1-win64/bin/luanti.exe
+          --mod luanti-generated
 
   godot-reference:
     strategy:

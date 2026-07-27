@@ -400,7 +400,7 @@ func TestFileStoreRetainsTwoSnapshotsAndCheckpoints(t *testing.T) {
 	if err != nil || len(snapshots) != 2 {
 		t.Fatalf("retained snapshots = %v, err=%v", snapshots, err)
 	}
-	checkpoints, err := filepath.Glob(filepath.Join(directory, "checkpoint-*.json"))
+	checkpoints, err := filepath.Glob(filepath.Join(directory, "checkpoint-*.json.gz"))
 	if err != nil || len(checkpoints) != 2 {
 		t.Fatalf("retained checkpoints = %v, err=%v", checkpoints, err)
 	}
@@ -417,19 +417,16 @@ func TestFileStoreRetainsTwoSnapshotsAndCheckpoints(t *testing.T) {
 	}
 	sort.Strings(checkpoints)
 	var corrupted rinruntime.Checkpoint
-	payload, err := os.ReadFile(checkpoints[len(checkpoints)-1])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(payload, &corrupted); err != nil {
+	if err := decodeGZIPJSONFile(checkpoints[len(checkpoints)-1], &corrupted); err != nil {
 		t.Fatal(err)
 	}
 	corrupted.Snapshot.State.Tick++
-	payload, err = json.Marshal(corrupted)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(checkpoints[len(checkpoints)-1], payload, 0o600); err != nil {
+	if err := fileStore.writeGZIPJSONAtomically(
+		directory,
+		".test-checkpoint-*.tmp",
+		checkpoints[len(checkpoints)-1],
+		corrupted,
+	); err != nil {
 		t.Fatal(err)
 	}
 	fallback, err := fileStore.LoadCheckpoint("session.retention", 3)
@@ -1214,7 +1211,7 @@ func TestFileStoreRepairsSameNameDerivedArtifacts(t *testing.T) {
 	checkpointPath := filepath.Join(
 		directory,
 		fmt.Sprintf(
-			"checkpoint-%020d-%s.json",
+			"checkpoint-%020d-%s.json.gz",
 			checkpoint.Revision,
 			checkpoint.Checksum,
 		),
@@ -1249,7 +1246,7 @@ func TestFileStoreRepairsSameNameDerivedArtifacts(t *testing.T) {
 	var repairErr error
 	for {
 		repairedCheckpoint = rinruntime.Checkpoint{}
-		repairErr = decodeJSONFile(checkpointPath, &repairedCheckpoint)
+		repairErr = decodeGZIPJSONFile(checkpointPath, &repairedCheckpoint)
 		if repairErr == nil {
 			repairErr = rinruntime.ValidateCheckpoint(repairedCheckpoint)
 		}
@@ -1456,7 +1453,7 @@ func TestFileStoreArtifactIOAllowsAppendAndCloseWaits(t *testing.T) {
 		"sessions",
 		sessionID,
 		fmt.Sprintf(
-			"checkpoint-%020d-%s.json",
+			"checkpoint-%020d-%s.json.gz",
 			checkpoint.Revision,
 			checkpoint.Checksum,
 		),
@@ -1618,7 +1615,7 @@ func TestFileStoreArtifactRetryFencesExistingRename(t *testing.T) {
 			destination: filepath.Join(
 				directory,
 				fmt.Sprintf(
-					"checkpoint-%020d-%s.json",
+					"checkpoint-%020d-%s.json.gz",
 					checkpoint.Revision,
 					checkpoint.Checksum,
 				),

@@ -15,6 +15,7 @@ import tempfile
 
 VERSION = "5.16.1"
 MARKER = re.compile(r"\[rin_lifecycle\]\s+(\{.*\})")
+SERVER_TIMEOUT_SECONDS = 90
 
 
 def run(command: list[str], environment: dict[str, str]) -> str:
@@ -26,13 +27,16 @@ def run(command: list[str], environment: dict[str, str]) -> str:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            timeout=30,
+            timeout=SERVER_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired as error:
         output = error.stdout or ""
         if isinstance(output, bytes):
             output = output.decode(errors="replace")
-        raise SystemExit(f"Luanti verification timed out:\n{output}") from error
+        raise SystemExit(
+            f"Luanti verification timed out after "
+            f"{SERVER_TIMEOUT_SECONDS} seconds:\n{output}"
+        ) from error
     if completed.returncode != 0:
         raise SystemExit(
             f"Luanti verification failed ({completed.returncode}):\n"
@@ -75,6 +79,7 @@ def main() -> None:
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        timeout=30,
     ).stdout
     if not version.startswith(f"Luanti {VERSION} "):
         raise SystemExit(f"expected Luanti {VERSION}, got {version!r}")

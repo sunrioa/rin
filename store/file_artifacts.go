@@ -1,9 +1,11 @@
 package store
 
 import (
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,7 +18,7 @@ import (
 
 var (
 	snapshotFilePattern   = regexp.MustCompile(`^snapshot-([0-9]{20})-([0-9a-f]{64})\.json$`)
-	checkpointFilePattern = regexp.MustCompile(`^checkpoint-([0-9]{20})-([0-9a-f]{64})\.json$`)
+	checkpointFilePattern = regexp.MustCompile(`^checkpoint-([0-9]{20})-([0-9a-f]{64})\.json\.gz$`)
 )
 
 const (
@@ -36,6 +38,26 @@ func (s *File) writeJSONAtomically(
 	value any,
 	indent bool,
 ) error {
+	return s.writeArtifactAtomically(
+		directory,
+		temporaryPattern,
+		destination,
+		func(writer io.Writer) error {
+			encoder := json.NewEncoder(writer)
+			if indent {
+				encoder.SetIndent("", "  ")
+			}
+			return encoder.Encode(value)
+		},
+	)
+}
+
+func (s *File) writeArtifactAtomically(
+	directory string,
+	temporaryPattern string,
+	destination string,
+	write func(io.Writer) error,
+) error {
 	temporary, err := os.CreateTemp(directory, temporaryPattern)
 	if err != nil {
 		return err
@@ -46,11 +68,7 @@ func (s *File) writeJSONAtomically(
 		_ = temporary.Close()
 		return err
 	}
-	encoder := json.NewEncoder(temporary)
-	if indent {
-		encoder.SetIndent("", "  ")
-	}
-	if err := encoder.Encode(value); err != nil {
+	if err := write(temporary); err != nil {
 		_ = temporary.Close()
 		return err
 	}
@@ -74,6 +92,43 @@ func decodeJSONFile(path string, target any) error {
 	}
 	defer file.Close()
 	decoder := json.NewDecoder(file)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	return ensureEOF(decoder)
+}
+
+func (s *File) writeGZIPJSONAtomically(
+	directory string,
+	temporaryPattern string,
+	destination string,
+	value any,
+) error {
+	return s.writeArtifactAtomically(
+		directory,
+		temporaryPattern,
+		destination,
+		func(writer io.Writer) error {
+			compressed := gzip.NewWriter(writer)
+			encodeErr := json.NewEncoder(compressed).Encode(value)
+			return errors.Join(encodeErr, compressed.Close())
+		},
+	)
+}
+
+func decodeGZIPJSONFile(path string, target any) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	compressed, err := gzip.NewReader(file)
+	if err != nil {
+		return err
+	}
+	defer compressed.Close()
+	decoder := json.NewDecoder(compressed)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		return err
@@ -142,7 +197,7 @@ func validateStoredCheckpoint(
 	checksum string,
 ) error {
 	var checkpoint rinruntime.Checkpoint
-	if err := decodeJSONFile(path, &checkpoint); err != nil {
+	if err := decodeGZIPJSONFile(path, &checkpoint); err != nil {
 		return fmt.Errorf("read published checkpoint: %w", err)
 	}
 	if checkpoint.SessionID != sessionID ||
@@ -239,7 +294,7 @@ func (s *File) SaveCheckpoint(sessionID string, checkpoint rinruntime.Checkpoint
 	}
 	destination := filepath.Join(
 		directory,
-		fmt.Sprintf("checkpoint-%020d-%s.json", checkpoint.Revision, checkpoint.Checksum),
+		fmt.Sprintf("checkpoint-%020d-%s.json.gz", checkpoint.Revision, checkpoint.Checksum),
 	)
 	if existingErr := validateStoredCheckpoint(
 		destination,
@@ -262,7 +317,12 @@ func (s *File) SaveCheckpoint(sessionID string, checkpoint rinruntime.Checkpoint
 			)
 		}
 	}
-	if err := s.writeJSONAtomically(directory, ".checkpoint-*.tmp", destination, checkpoint, false); err != nil {
+	if err := s.writeGZIPJSONAtomically(
+		directory,
+		".checkpoint-*.tmp",
+		destination,
+		checkpoint,
+	); err != nil {
 		return err
 	}
 	if err := validateStoredCheckpoint(
@@ -319,7 +379,7 @@ func (s *File) LoadCheckpoint(
 	for _, candidate := range candidates {
 		var checkpoint rinruntime.Checkpoint
 		path := filepath.Join(directory, candidate.name)
-		if err := decodeJSONFile(path, &checkpoint); err != nil {
+		if err := decodeGZIPJSONFile(path, &checkpoint); err != nil {
 			continue
 		}
 		matches := checkpointFilePattern.FindStringSubmatch(candidate.name)

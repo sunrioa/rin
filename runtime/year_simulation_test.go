@@ -1,3 +1,5 @@
+//go:build !race
+
 package runtime_test
 
 import (

@@ -1,6 +1,8 @@
 package compat_test
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -9,6 +11,118 @@ import (
 
 	"github.com/sunrioa/rin/protocol"
 )
+
+func TestPlayerValueDocumentationMatchesEvidence(t *testing.T) {
+	payload, err := os.ReadFile(
+		"../examples/terminal-story/evidence/benchmark-darwin-arm64.json",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var evidence struct {
+		SchemaVersion int `json:"schema_version"`
+		Workload      struct {
+			Turns int `json:"turns"`
+		} `json:"workload"`
+		Setup struct {
+			SidecarReadyMS float64 `json:"sidecar_ready_ms"`
+		} `json:"setup"`
+		LatencyMS struct {
+			Rin struct {
+				P50 float64 `json:"p50"`
+				P95 float64 `json:"p95"`
+			} `json:"rin_full_safe_turn"`
+			RuleTree struct {
+				P50 float64 `json:"p50"`
+				P95 float64 `json:"p95"`
+			} `json:"persistent_rule_tree_turn"`
+			Local float64 `json:"startup_local_turn"`
+		} `json:"latency_ms"`
+		IntegrationLines struct {
+			Rin      int `json:"rin_adapter"`
+			RuleTree int `json:"persistent_rule_tree"`
+		} `json:"integration_nonblank_lines"`
+		Storage struct {
+			MeasuredBytes  uint64 `json:"measured_bytes"`
+			ProjectedBytes uint64 `json:"projected_100_hours_bytes"`
+		} `json:"storage"`
+	}
+	if err := json.Unmarshal(payload, &evidence); err != nil {
+		t.Fatal(err)
+	}
+	if evidence.SchemaVersion != 1 || evidence.Workload.Turns != 100 {
+		t.Fatalf("unexpected player-value evidence identity: %+v", evidence)
+	}
+	commonMarkers := []string{
+		fmt.Sprintf(
+			"| P50 | %g ms | %g ms |",
+			evidence.LatencyMS.Rin.P50,
+			evidence.LatencyMS.RuleTree.P50,
+		),
+		fmt.Sprintf(
+			"| P95 | %g ms | %g ms |",
+			evidence.LatencyMS.Rin.P95,
+			evidence.LatencyMS.RuleTree.P95,
+		),
+	}
+	documentMarkers := map[string][]string{
+		"../docs/player-value.md": {
+			fmt.Sprintf(
+				"| Integration nonblank lines | %d | %d |",
+				evidence.IntegrationLines.Rin,
+				evidence.IntegrationLines.RuleTree,
+			),
+			fmt.Sprintf(
+				"Sidecar readiness took %g ms. Rin retained %d bytes",
+				evidence.Setup.SidecarReadyMS,
+				evidence.Storage.MeasuredBytes,
+			),
+			fmt.Sprintf(
+				"is %d bytes for 100 hours",
+				evidence.Storage.ProjectedBytes,
+			),
+			fmt.Sprintf(
+				"Startup-only local mode completed in %g ms",
+				evidence.LatencyMS.Local,
+			),
+		},
+		"../docs/player-value.zh-CN.md": {
+			fmt.Sprintf(
+				"| 接入非空代码行 | %d | %d |",
+				evidence.IntegrationLines.Rin,
+				evidence.IntegrationLines.RuleTree,
+			),
+			fmt.Sprintf(
+				"Sidecar Ready 耗时 %g ms。100 回合后 Rin 保留 %d Bytes",
+				evidence.Setup.SidecarReadyMS,
+				evidence.Storage.MeasuredBytes,
+			),
+			fmt.Sprintf(
+				"100 小时为 %d Bytes",
+				evidence.Storage.ProjectedBytes,
+			),
+			fmt.Sprintf(
+				"Local Mode 耗时 %g ms",
+				evidence.LatencyMS.Local,
+			),
+		},
+	}
+	for path, specificMarkers := range documentMarkers {
+		document, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		normalized := strings.Join(
+			strings.Fields(strings.ReplaceAll(string(document), ",", "")),
+			" ",
+		)
+		for _, marker := range append(commonMarkers, specificMarkers...) {
+			if !strings.Contains(normalized, marker) {
+				t.Errorf("%s does not match evidence marker %q", path, marker)
+			}
+		}
+	}
+}
 
 func TestBilingualDocumentationPairs(t *testing.T) {
 	pairs := [][2]string{

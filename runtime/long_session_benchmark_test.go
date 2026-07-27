@@ -755,7 +755,7 @@ func buildLongFileSessionFixture(b *testing.B) longSessionBenchmarkFixture {
 	if indexInfo.Size() == 0 {
 		b.Fatal("fixture events.idx is empty")
 	}
-	checkpoints, err := filepath.Glob(filepath.Join(sessionDirectory, "checkpoint-*.json"))
+	checkpoints, err := filepath.Glob(filepath.Join(sessionDirectory, "checkpoint-*.json.gz"))
 	if err != nil {
 		b.Fatal(err)
 	}

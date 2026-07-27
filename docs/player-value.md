@@ -18,16 +18,16 @@ performance promise. The raw evidence is
 
 | Measure | Rin safe turn | Persistent rule tree |
 | --- | ---: | ---: |
-| Integration nonblank lines | 92 | 19 |
-| P50 | 62.88 ms | 9.99 ms |
-| P95 | 72.06 ms | 11.12 ms |
+| Integration nonblank lines | 158 | 19 |
+| P50 | 68.87 ms | 10.79 ms |
+| P95 | 82.32 ms | 12.98 ms |
 | Player-visible choice | tea | tea |
 | Provider calls / cost | 0 / USD 0 | 0 / USD 0 |
 
 The benchmark reloads the game save between every turn. Sidecar readiness took
-40.81 ms. Rin retained 604,954 bytes after 100 turns;
+73.28 ms. Rin retained 536,612 bytes after 100 turns;
 the deliberately conservative linear projection at 60 turns/hour is
-36,297,240 bytes for 100 hours. Startup-only local mode completed in 9.63 ms
+32,196,720 bytes for 100 hours. Startup-only local mode completed in 125.83 ms
 and preserved the authored tea result. A failure after Rin mutation begins
 fails closed because absence of a response is not proof of absence.
 
@@ -39,7 +39,7 @@ It also supplies generalized history, audit, bounded recall, exact retry, and
 crash-safe outcome reconciliation.
 
 It does **not** beat a purpose-built persistent rule tree for one preference.
-The measured slice requires 73 more integration lines and roughly 6.5x P95
+The measured slice requires 139 more integration lines and roughly 6.3x P95
 latency for identical visible output. Rin is therefore unjustified for this
 small rule. The value hypothesis is only plausible when a game has enough
 independent memories, actors, and authored actions that bespoke persistence

@@ -335,7 +335,7 @@ rin-data/
     └── session.id/
         ├── events.jsonl
         ├── events.idx
-        ├── checkpoint-<revision>-<hash>.json
+        ├── checkpoint-<revision>-<hash>.json.gz
         └── snapshot-<revision>-<hash>.json
 ```
 
@@ -424,7 +424,9 @@ checkpoint to finish, and the checkpoint might therefore not be visible
 immediately when the call returns.
 
 `SaveCheckpoint` may run concurrently with `Append`, `Load`, `Head`, or
-`LoadRange` for the same Session. A CheckpointStore must be concurrency-safe
+`LoadRange` for the same Session. File Store checkpoints use gzip because they
+are large, rebuildable projections; the authoritative event log remains plain
+JSONL. A CheckpointStore must be concurrency-safe
 and isolate expensive derived-artifact work from synchronization needed by
 authoritative event operations. `Engine.Close(ctx)` prevents new operations
 and waits for in-flight calls, transfer imports, and checkpoint workers before
