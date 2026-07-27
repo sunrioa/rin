@@ -62,7 +62,9 @@ Worker 结果变成 `stale_epoch`。Bridge 在 Load 后调用
 被 Rollback。
 
 Registry 仍是进程内对象；持久剧情状态必须保存完整 Pending Turn 与返回的 Job ID。
-Worker、Lock、HTTP Response 与 Token 都不得写入 Rollback/Save Data。Python 测试
+Worker、Lock、HTTP Response 与 Token 都不得写入 Rollback/Save Data。
+读取有界响应体时，Adapter 会沿用连接建立前启动的 Transport Deadline，
+不会因每次 Socket Read 而重新计时。Python 测试
 覆盖进程重启、旧存档 Load、重复 Rollback、Persistent Ledger Merge、上限、损坏
 状态、Worker 失效与迟到完成。该 Suite 在 Linux CI 运行；本地 macOS 的
 Ren'Py 8.5.3 Lint 和真引擎 Rollback Harness 已通过，Windows 执行尚未自动化。

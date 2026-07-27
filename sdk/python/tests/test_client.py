@@ -1,8 +1,12 @@
 import io
 import json
 import sys
+import threading
+import time
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.error import HTTPError
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -79,6 +83,39 @@ class _AdvancingClock:
         self.value += seconds
 
 
+class _DripResponse:
+    def __init__(self, clock, *, status=200):
+        self.status = status
+        self.headers = {}
+        self.clock = clock
+        self.payload = b'{"ok":true,"data":{"status":"ok"}}'
+        self.position = 0
+        self.socket_timeouts = []
+
+    def getcode(self):
+        return self.status
+
+    def read1(self, _maximum=-1):
+        self.clock.value += 0.03
+        if self.position >= len(self.payload):
+            return b""
+        chunk = self.payload[self.position:self.position + 1]
+        self.position += 1
+        return chunk
+
+    def settimeout(self, timeout):
+        self.socket_timeouts.append(timeout)
+
+    def close(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+
 def _proposal_job(status="running", *, job_id="job.fixture", proposal=None, error=None):
     job = {
         "job_id": job_id,
@@ -129,6 +166,78 @@ class RinClientTests(unittest.TestCase):
         with self.assertRaises(RinTransportError) as caught:
             client.health()
         self.assertEqual(caught.exception.code, "transport_timeout")
+
+    def test_total_deadline_remains_active_while_response_drips(self):
+        clock = _AdvancingClock()
+        response = _DripResponse(clock)
+        client = RinClient(timeout=0.05, clock=clock.now)
+
+        class DripOpener:
+            def open(self, _request, timeout):
+                self.timeout = timeout
+                return response
+
+        client._opener = DripOpener()
+        with self.assertRaises(RinTransportError) as caught:
+            client.health()
+
+        self.assertEqual(caught.exception.code, "transport_timeout")
+        self.assertEqual(response.position, 2)
+        self.assertAlmostEqual(client._opener.timeout, 0.05)
+        self.assertGreater(response.socket_timeouts[0], response.socket_timeouts[1])
+
+    def test_total_deadline_applies_to_http_error_bodies(self):
+        clock = _AdvancingClock()
+        response = _DripResponse(clock, status=503)
+        client = RinClient(timeout=0.05, clock=clock.now)
+
+        class DripErrorOpener:
+            def open(self, request, timeout):
+                del timeout
+                raise HTTPError(request.full_url, 503, "Unavailable", {}, response)
+
+        client._opener = DripErrorOpener()
+        with self.assertRaises(RinTransportError) as caught:
+            client.health()
+
+        self.assertEqual(caught.exception.code, "transport_timeout")
+
+    def test_real_slow_response_cannot_extend_total_deadline(self):
+        class SlowHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                payload = b'{"ok":true,"data":{"status":"ok"}}'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                try:
+                    for byte in payload:
+                        self.wfile.write(bytes((byte,)))
+                        self.wfile.flush()
+                        time.sleep(0.04)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+
+            def log_message(self, _format, *_args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), SlowHandler)
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        started = time.monotonic()
+        try:
+            client = RinClient(
+                "http://127.0.0.1:" + str(server.server_port),
+                timeout=0.1,
+            )
+            with self.assertRaises(RinTransportError) as caught:
+                client.health()
+            self.assertEqual(caught.exception.code, "transport_timeout")
+            self.assertLess(time.monotonic() - started, 0.5)
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join(timeout=1)
 
     def test_routes_and_token(self):
         client = RinClient(token="fixture")

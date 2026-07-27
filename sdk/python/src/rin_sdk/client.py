@@ -260,12 +260,26 @@ class RinClient:
         if self.token:
             headers["Authorization"] = "Bearer " + self.token
         request = Request(self.base_url + path, data=body, headers=headers, method=method)
+        deadline = self._clock() + self.timeout
         try:
-            with self._opener.open(request, timeout=self.timeout) as response:
-                return self._decode(response, int(response.getcode()), tuple(expected_statuses))
+            with self._opener.open(
+                request,
+                timeout=_remaining_timeout(deadline, self._clock),
+            ) as response:
+                return self._decode(
+                    response,
+                    int(response.getcode()),
+                    tuple(expected_statuses),
+                    deadline,
+                )
         except HTTPError as exc:
             try:
-                return self._decode_error(exc, int(exc.code))
+                return self._decode_error(exc, int(exc.code), deadline)
+            except (socket.timeout, TimeoutError) as timeout_exc:
+                raise RinTransportError(
+                    "transport_timeout",
+                    "Rin request timed out",
+                ) from timeout_exc
             finally:
                 exc.close()
         except (URLError, TimeoutError, OSError) as exc:
@@ -275,7 +289,13 @@ class RinClient:
                 raise RinTransportError("transport_timeout", "Rin request timed out") from exc
             raise RinTransportError("transport_failed", "Rin is unavailable") from exc
 
-    def _decode(self, response: Any, status: int, expected: Tuple[int, ...]) -> Dict[str, Any]:
+    def _decode(
+        self,
+        response: Any,
+        status: int,
+        expected: Tuple[int, ...],
+        deadline: float,
+    ) -> Dict[str, Any]:
         declared = response.headers.get("Content-Length", "")
         if declared:
             try:
@@ -286,9 +306,13 @@ class RinClient:
                     raise RinProtocolError("response_too_large", "Rin response exceeds the configured limit")
             except ValueError as exc:
                 raise RinProtocolError("invalid_response", "Rin returned an invalid Content-Length") from exc
-        raw = response.read(self.max_response_bytes + 1)
-        if len(raw) > self.max_response_bytes:
-            raise RinProtocolError("response_too_large", "Rin response exceeds the configured limit")
+        raw = _read_bounded_response(
+            response,
+            self.max_response_bytes,
+            deadline,
+            self._clock,
+            "Rin response exceeds the configured limit",
+        )
         envelope = _parse_envelope(raw)
         if status not in expected or envelope.get("ok") is not True:
             raise _api_error(envelope, status)
@@ -297,17 +321,84 @@ class RinClient:
             raise RinProtocolError("invalid_response", "Rin response data must be an object")
         return data
 
-    def _decode_error(self, response: HTTPError, status: int) -> Dict[str, Any]:
+    def _decode_error(
+        self,
+        response: HTTPError,
+        status: int,
+        deadline: float,
+    ) -> Dict[str, Any]:
         if 300 <= status < 400:
             raise RinTransportError("redirect_rejected", "Rin endpoint attempted to redirect")
-        raw = response.read(self.max_response_bytes + 1)
-        if len(raw) > self.max_response_bytes:
-            raise RinProtocolError("response_too_large", "Rin error response exceeds the configured limit")
+        raw = _read_bounded_response(
+            response,
+            self.max_response_bytes,
+            deadline,
+            self._clock,
+            "Rin error response exceeds the configured limit",
+        )
         try:
             envelope = _parse_envelope(raw)
         except RinProtocolError:
             envelope = {}
         raise _api_error(envelope, status)
+
+
+def _remaining_timeout(deadline: float, clock: Callable[[], float]) -> float:
+    remaining = deadline - clock()
+    if remaining <= 0:
+        raise TimeoutError("Rin request deadline expired")
+    return remaining
+
+
+def _read_bounded_response(
+    response: Any,
+    maximum: int,
+    deadline: float,
+    clock: Callable[[], float],
+    too_large_message: str,
+) -> bytes:
+    reader = getattr(response, "read1", None)
+    if not callable(reader):
+        error_stream = getattr(response, "fp", None)
+        reader = getattr(error_stream, "read1", None)
+    if not callable(reader):
+        reader = response.read
+
+    payload = bytearray()
+    while True:
+        remaining = _remaining_timeout(deadline, clock)
+        _set_response_timeout(response, remaining)
+        chunk = reader(min(64 * 1024, maximum + 1 - len(payload)))
+        if clock() > deadline:
+            raise TimeoutError("Rin request deadline expired")
+        if not isinstance(chunk, (bytes, bytearray)):
+            raise RinProtocolError("invalid_response", "Rin response body was not bytes")
+        if not chunk:
+            return bytes(payload)
+        payload.extend(chunk)
+        if len(payload) > maximum:
+            raise RinProtocolError("response_too_large", too_large_message)
+
+
+def _set_response_timeout(response: Any, timeout: float) -> None:
+    pending = [response]
+    seen = set()
+    for _ in range(16):
+        if not pending:
+            return
+        current = pending.pop(0)
+        identity = id(current)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        setter = getattr(current, "settimeout", None)
+        if callable(setter):
+            setter(timeout)
+            return
+        for name in ("fp", "raw", "_sock", "sock"):
+            child = getattr(current, name, None)
+            if child is not None:
+                pending.append(child)
 
 
 def _parse_envelope(raw: bytes) -> Dict[str, Any]:

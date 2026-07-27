@@ -74,6 +74,8 @@ official Ren'Py guidance requires callback migrations not to be rolled back.
 The worker registry remains process-local; persistent story state must contain
 the complete Pending Turn and any returned Job ID. Never put a worker, lock,
 HTTP response, or token in rollback/save data.
+Bounded response-body reads spend from the transport deadline started before
+connection setup rather than resetting it for each socket read.
 
 The Python suite covers process restart, old-save load, repeated rollback,
 persistent-ledger merge, bounds, malformed state, worker invalidation, and late
