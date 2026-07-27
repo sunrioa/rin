@@ -1,6 +1,6 @@
 # Proposal Attempt CAS 与 MutationResult 契约修复设计
 
-日期：2026-07-28  
+日期：2026-07-28
 基线：`b1ce8cb0d4c9646f49045fa3d0dc9965b1aaa183`
 
 ## 目标
