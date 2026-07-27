@@ -8,7 +8,7 @@ JAVA ?= java
 LUA ?= lua
 VERSION ?= 0.7.0
 
-.PHONY: fmt test verify contract-check contract-write test-go test-long-session test-adapters test-unreal test-luanti test-sdks test-sdk-python test-sdk-javascript test-sdk-csharp test-sdk-java test-sdk-lua test-terminal-story race vet build
+.PHONY: fmt test verify contract-check contract-write test-go test-long-session test-adapters test-unreal test-luanti test-sdks test-sdk-sidecar test-sdk-python test-sdk-javascript test-sdk-csharp test-sdk-java test-sdk-lua test-terminal-story race vet build
 
 fmt:
 	$(GO) fmt ./...
@@ -41,6 +41,19 @@ test-luanti:
 	$(PYTHON) -m unittest tools.test_verify_luanti
 
 test-sdks: test-sdk-python test-sdk-javascript test-sdk-csharp test-sdk-java test-sdk-lua
+
+test-sdk-sidecar:
+	mkdir -p .cache/sdk-sidecar
+	CGO_ENABLED=0 $(GO) build -o .cache/sdk-sidecar/rin ./cmd/rin
+	$(PYTHON) -m unittest tools.test_sdk_sidecar_corpus
+	$(PYTHON) tools/run_sdk_sidecar_corpus.py \
+		--rin .cache/sdk-sidecar/rin \
+		--python $(PYTHON) \
+		--node $(NODE) \
+		--dotnet $(DOTNET) \
+		--javac $(JAVAC) \
+		--java $(JAVA) \
+		--lua $(LUA)
 
 test-sdk-python:
 	$(PYTHON) -m unittest discover -s sdk/python/tests -p 'test_*.py'

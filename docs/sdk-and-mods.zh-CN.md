@@ -206,6 +206,7 @@ Offer Binding、Authority Generation、Settlement 与 Outbox 状态；游戏侧�
 ```bash
 make test
 make test-sdks
+make test-sdk-sidecar
 python3 tools/generate_contract.py --check
 ```
 
@@ -223,12 +224,14 @@ Backend、重启测试
 Contract Generator Check 防止 OpenAPI 与生成的
 Route/Version Projection 漂移。
 
-SDK Test 会通过本地 Fake Transport 或 HTTP Test Server 真实调用 Client Method，
-并断言 Method/Path、非空 UTF-8 JSON Body、Bearer/User-Agent Header、成功
-Envelope Data 与 API Status/Code/Field Mapping；它们不是针对运行中 Sidecar
-的 End-to-end Test。生成的 Route Manifest 会与 `httpapi.ContractRoutes()` 比较
-以发现 Route 漂移；其余 Go Source Marker Check 只是静态防回退 Lint。Marker
-或 Method Name 存在不能证明 Runtime Transport 行为。
+SDK 单元测试通过本地 Fake Transport 或 HTTP Test Server 真实调用 Client Method，
+并断言 Method/Path、UTF-8 JSON、Header、Envelope、Limit 与 Error Mapping。
+独立的共享 Corpus 会构建真实 Sidecar，只执行一次严格 Wire 拒绝用例，再让五种
+SDK Transport 验证 Health、Mutation、精确重试与超时。Linux CI 执行五种语言；
+Windows CI 对四种自带独立 HTTP Stack 的 SDK 重复 Corpus，官方 Luanti Windows
+Job 则执行 Lua Host 生命周期。生成的 Route Manifest 也会与
+`httpapi.ContractRoutes()` 比较以发现漂移；静态 Marker 仍只是防回退 Lint，
+不作为 Runtime 证据。
 
 ## 主要参考
 

@@ -87,6 +87,12 @@ Vendor 时应固定本仓库 Revision。路由兼容性由
 operation 标记为 `transport` 或 `streaming`；所有 client 必须覆盖 transport
 profile，只有提供有界 stream API 的 client 才能声明 streaming profile。
 
+[`conformance/sidecar-corpus.json`](conformance/sidecar-corpus.json) 是共享的
+真实传输 Corpus。`make test-sdk-sidecar` 会构建真实 Sidecar，只执行一次严格
+Wire 用例，然后让 Python、JavaScript、C#、Java、Lua 对同一进程与请求模板执行
+Health、首次 Mutation、精确重试和超时检查。Lua Runner 使用它通常由宿主持有的
+HTTP/JSON Port，不会伪称 SDK 自带网络栈。
+
 游戏专用示例位于 [`examples/mods`](../examples/mods)。它们展示宿主事件
 如何进入 Rin，以及游戏在何处验证并应用 Proposal。它们是接入模板，不是
 适用于每个游戏版本的通用补丁。

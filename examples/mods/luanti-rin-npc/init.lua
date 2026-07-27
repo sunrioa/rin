@@ -63,7 +63,12 @@ local function fetch(request, callback)
         extra_headers = extra_headers,
         quiet = true,
     }, function(result)
-        if not result.completed or not result.succeeded then callback({}); return end
+        if not result.completed or not result.succeeded then
+            callback(nil, {
+                code = result.timeout and "transport_timeout" or "transport_failed",
+            })
+            return
+        end
         callback({ status = result.code, body = result.data or "", headers = {} })
     end)
 end

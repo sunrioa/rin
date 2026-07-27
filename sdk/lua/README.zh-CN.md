@@ -6,8 +6,11 @@
 
 宿主需要提供三个 Adapter：
 
-- `http_fetch(request, callback)` 返回 `{status, body, headers}`，并且必须
-  遵守 `follow_redirects = false`；
+- `http_fetch(request, callback)` 通过 `callback(response)` 返回
+  `{status, body, headers}`，并且必须遵守 `follow_redirects = false`。传输失败
+  应调用 `callback(nil, {code = "transport_failed"})`；宿主 HTTP API 明确报告
+  超时时使用 `transport_timeout`。Adapter 文本不会作为可信 SDK Error Message
+  对外暴露；
 - `json_encode(table)` 和 `json_decode(string)` 使用引擎的 JSON Codec；
 - 可选 `schedule(seconds, callback)` 和单调 `now()` 可在不阻塞游戏循环
   的情况下轮询 Job。未提供 `now` 时使用可移植但分辨率较低的 `os.time`

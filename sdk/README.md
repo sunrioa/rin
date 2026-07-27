@@ -104,6 +104,13 @@ inventory. Each operation is tagged `transport` or `streaming`. Every client
 must cover the transport profile; only clients with bounded stream APIs may
 claim the streaming profile.
 
+[`conformance/sidecar-corpus.json`](conformance/sidecar-corpus.json) is the
+shared live-transport corpus. `make test-sdk-sidecar` builds a real Sidecar,
+runs strict Wire cases once, then makes Python, JavaScript, C#, Java, and Lua
+perform health, first mutation, exact retry, and timeout checks against the
+same process and request template. The Lua runner supplies its normal
+host-owned HTTP/JSON ports rather than claiming a bundled networking stack.
+
 Game-specific examples live under [`examples/mods`](../examples/mods). They
 show where host events enter Rin and where the game validates and applies a
 proposal. They are integration templates, not universal patches for every

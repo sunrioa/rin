@@ -239,6 +239,7 @@ Unity releases.
 ```bash
 make test
 make test-sdks
+make test-sdk-sidecar
 python3 tools/generate_contract.py --check
 ```
 
@@ -257,13 +258,16 @@ backends, restart tests, and install packages build on Linux and Windows. The
 contract generator check prevents drift from OpenAPI to generated route/version
 projections.
 
-The SDK tests invoke real client methods against local fake transports or HTTP
-test servers and assert method/path selection, a nonempty UTF-8 JSON body,
-Bearer/User-Agent headers, success-envelope data, and API status/code/field
-mapping. They are not end-to-end tests against a live Sidecar. The generated
-route manifest is compared with `httpapi.ContractRoutes()` for route drift;
-remaining Go source-marker checks are static regression lints only. The
-presence of a marker or method name does not prove runtime transport behavior.
+Unit SDK tests invoke real client methods against local fake transports or HTTP
+test servers and assert method/path selection, UTF-8 JSON, headers, envelope
+data, limits, and error mapping. The separate shared corpus builds a real
+Sidecar and tests strict Wire rejection once, then runs all five SDK transports
+against it for health, mutation, exact retry, and timeout behavior. Linux CI
+runs all five; Windows CI repeats the corpus for the four SDKs with standalone
+HTTP stacks, while the official Luanti Windows job exercises the Lua Host
+lifecycle. The generated route manifest is also compared with
+`httpapi.ContractRoutes()` for route drift. Static markers remain regression
+lints and are not presented as runtime evidence.
 
 ## Primary references
 

@@ -424,6 +424,57 @@ jobs:
           luac5.1 -p examples/mods/luanti-rin-npc/init.lua examples/mods/luanti-rin-npc/state.lua
           luac5.4 -p examples/mods/luanti-rin-npc/init.lua examples/mods/luanti-rin-npc/state.lua
 
+  sdk-sidecar-corpus:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            languages: python,javascript,csharp,java,lua
+            rin: .cache/sdk-sidecar/rin
+          - os: windows-latest
+            languages: python,javascript,csharp,java
+            rin: .cache/sdk-sidecar/rin.exe
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.9"
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.x"
+          cache: true
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "18"
+          package-manager-cache: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "6.0.x"
+      - name: Install the Lua corpus runtime
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.4
+      - name: Build the real Sidecar
+        run: |
+          python -c "from pathlib import Path; Path('.cache/sdk-sidecar').mkdir(parents=True, exist_ok=True)"
+          go build -trimpath -o "${{ matrix.rin }}" ./cmd/rin
+      - name: Validate the shared corpus
+        run: python -m unittest tools.test_sdk_sidecar_corpus
+      - name: Run real-Sidecar wire and SDK cases
+        shell: bash
+        run: >-
+          python tools/run_sdk_sidecar_corpus.py
+          --rin "${{ matrix.rin }}"
+          --languages "${{ matrix.languages }}"
+          --lua lua5.4
+
   luanti-reference:
     runs-on: windows-latest
     steps:

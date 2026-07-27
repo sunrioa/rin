@@ -384,7 +384,15 @@ function Client:_request(method, path, payload, expected_status, callback)
         delivered = true
         callback(data, err)
     end
-    local started, start_error = pcall(self.http_fetch, request, function(response)
+    local started, start_error = pcall(self.http_fetch, request, function(response, transport_error)
+        if response == nil and type(transport_error) == "table" then
+            local timed_out = transport_error.code == "transport_timeout"
+            finish(nil, failure(
+                timed_out and "transport_timeout" or "transport_failed",
+                timed_out and "Rin request timed out" or "Rin transport failed"
+            ))
+            return
+        end
         if type(response) ~= "table" then
             finish(nil, failure("transport_failed", "Rin transport returned an invalid response"))
             return

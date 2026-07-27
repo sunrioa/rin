@@ -14,6 +14,7 @@ this development release.
 | Paths, methods, status, JSON shape | [`api/openapi.json`](../api/openapi.json) |
 | Host/action/recovery semantics | [Protocol v2](protocol-v2.md), [Host Contract](host-contract.md), [action lifecycle](action-lifecycle.md) |
 | SDK operation inventory | [`sdk/conformance/routes.json`](../sdk/conformance/routes.json) |
+| SDK live transport behavior | [`sdk/conformance/sidecar-corpus.json`](../sdk/conformance/sidecar-corpus.json) |
 | Release process | [release guide](release-guide.md) |
 
 When prose and OpenAPI disagree about a wire shape, OpenAPI wins and the prose
@@ -71,6 +72,7 @@ must use `DecisionContext`, `DecisionDraft`, `DecisionProvider`, and
 | OpenSpiel 2.0.1 decision semantics | tested | CI | CI |
 | Java SDK/Fabric compile | tested | CI | CI |
 | Lua SDK/Luanti 5.16.1 dedicated lifecycle | tested | Lua CI | real server CI |
+| Shared real-Sidecar SDK corpus | five SDKs tested | five SDKs CI | Python/JavaScript/C#/Java CI |
 | Real Fabric/BepInEx/Unity/Unreal host | manual evidence required | manual evidence required | manual evidence required |
 | Luanti live Sidecar/multiplayer/fault injection | manual evidence required | manual evidence required | manual evidence required |
 

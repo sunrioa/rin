@@ -20,3 +20,5 @@ python3 -m unittest discover -s sdk/python/tests -p 'test_*.py'
 
 客户端是同步的。桌面工具和回合制服务器可以直接调用；实时游戏应在自己的
 Worker 系统中运行请求，只把返回的普通 Dictionary 切回游戏线程。
+Socket Deadline 会映射为 `RinTransportError("transport_timeout", ...)`；其他
+连接失败使用 `transport_failed`。

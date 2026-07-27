@@ -9,6 +9,8 @@ __pycache__/
 *.log
 sdk/csharp/**/bin/
 sdk/csharp/**/obj/
+sdk/conformance/**/bin/
+sdk/conformance/**/obj/
 examples/mods/bepinex-rin-npc/**/bin/
 examples/mods/bepinex-rin-npc/**/obj/
 examples/mods/bepinex-rin-npc/dist/

@@ -62,6 +62,12 @@ class _Opener:
         return _Response(status, {"ok": True, "data": {"status": "ok", "job_id": "job.fixture"}})
 
 
+class _TimeoutOpener:
+    def open(self, _request, timeout):
+        del timeout
+        raise TimeoutError("timed out")
+
+
 class _AdvancingClock:
     def __init__(self):
         self.value = 0.0
@@ -116,6 +122,13 @@ class RinClientTests(unittest.TestCase):
     def test_default_response_limit_matches_the_inline_transport_budget(self):
         self.assertEqual(DEFAULT_MAX_RESPONSE_BYTES, 32 * 1024 * 1024)
         self.assertEqual(RinClient().max_response_bytes, DEFAULT_MAX_RESPONSE_BYTES)
+
+    def test_network_timeout_has_a_stable_transport_code(self):
+        client = RinClient()
+        client._opener = _TimeoutOpener()
+        with self.assertRaises(RinTransportError) as caught:
+            client.health()
+        self.assertEqual(caught.exception.code, "transport_timeout")
 
     def test_routes_and_token(self):
         client = RinClient(token="fixture")

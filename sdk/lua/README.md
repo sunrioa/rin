@@ -6,8 +6,11 @@ An engine-neutral callback client for Lua 5.1+.
 
 Supply three host adapters:
 
-- `http_fetch(request, callback)` returns `{status, body, headers}` and must
-  honor `follow_redirects = false`;
+- `http_fetch(request, callback)` calls `callback(response)` with
+  `{status, body, headers}` and must honor `follow_redirects = false`. A
+  transport failure calls `callback(nil, {code = "transport_failed"})`; use
+  `transport_timeout` when the host HTTP API explicitly reports a timeout.
+  Adapter-provided text is never exposed as a trusted SDK error message;
 - `json_encode(table)` and `json_decode(string)` use the engine's JSON codec;
 - optional `schedule(seconds, callback)` and a monotonic `now()` enable job
   polling without blocking the game loop. Without `now`, the portable but

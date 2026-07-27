@@ -184,6 +184,18 @@ for _, invalid_payload in ipairs(invalid_payloads) do
     end)
     assert(callback_called, "invalid JSON payload did not fail synchronously")
 end
+
+local adapter_error_client = assert(rin.new({
+    http_fetch = function(_, callback)
+        callback(nil, { code = "transport_timeout", message = "untrusted" })
+    end,
+    json_encode = function() return "{}" end,
+    json_decode = function() return {} end,
+}))
+adapter_error_client:health(function(data, err)
+    assert(data == nil and err and err.code == "transport_timeout")
+    assert(err.message == "Rin request timed out", "adapter error text crossed the trust boundary")
+end)
 assert(invalid_transport_calls == 0, "invalid JSON payload reached the transport")
 assert(invalid_codec_calls == 0, "invalid JSON payload reached the host codec")
 

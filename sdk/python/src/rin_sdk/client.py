@@ -6,6 +6,7 @@ import ipaddress
 import json
 import math
 import re
+import socket
 import time
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 from urllib.error import HTTPError, URLError
@@ -268,6 +269,10 @@ class RinClient:
             finally:
                 exc.close()
         except (URLError, TimeoutError, OSError) as exc:
+            reason = getattr(exc, "reason", None)
+            timeout_types = (TimeoutError, socket.timeout)
+            if isinstance(exc, timeout_types) or isinstance(reason, timeout_types):
+                raise RinTransportError("transport_timeout", "Rin request timed out") from exc
             raise RinTransportError("transport_failed", "Rin is unavailable") from exc
 
     def _decode(self, response: Any, status: int, expected: Tuple[int, ...]) -> Dict[str, Any]:

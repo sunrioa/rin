@@ -13,6 +13,7 @@ Rin `0.7.0` 是 **Preview**、pre-1.0 软件。应固定精确 Commit 或已验�
 | Path、Method、Status、JSON Shape | [`api/openapi.json`](../api/openapi.json) |
 | Host、动作与恢复语义 | [协议 v2](protocol-v2.zh-CN.md)、[Host Contract](host-contract.zh-CN.md)、[动作生命周期](action-lifecycle.zh-CN.md) |
 | SDK Operation Inventory | [`sdk/conformance/routes.json`](../sdk/conformance/routes.json) |
+| SDK 真实传输行为 | [`sdk/conformance/sidecar-corpus.json`](../sdk/conformance/sidecar-corpus.json) |
 | 发布流程 | [发布指南](release-guide.zh-CN.md) |
 
 若 Prose 与 OpenAPI 的 Wire Shape 冲突，以 OpenAPI 为准，Prose 属于文档缺陷。
@@ -66,6 +67,7 @@ Go-only 可选扩展端口不是 Wire Feature Flag，也不会改变 Session 权
 | OpenSpiel 2.0.1 决策语义 | 已测试 | CI | CI |
 | Java SDK/Fabric Compile | 已测试 | CI | CI |
 | Lua SDK/Luanti 5.16.1 Dedicated 生命周期 | 已测试 | Lua CI | 真实 Server CI |
+| 共享真实 Sidecar SDK Corpus | 五种 SDK 已测试 | 五种 SDK CI | Python/JavaScript/C#/Java CI |
 | 真实 Fabric/BepInEx/Unity/Unreal Host | 需手工证据 | 需手工证据 | 需手工证据 |
 | Luanti 实时 Sidecar/多人/故障注入 | 需手工证据 | 需手工证据 | 需手工证据 |
 

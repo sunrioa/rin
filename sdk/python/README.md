@@ -21,3 +21,5 @@ python3 -m unittest discover -s sdk/python/tests -p 'test_*.py'
 The client is synchronous. Desktop tools and turn-based servers can call it
 directly; a real-time game should run calls on its worker system and marshal
 only the returned plain dictionaries back to the game thread.
+Socket deadlines are reported as `RinTransportError("transport_timeout", ...)`;
+other connection failures use `transport_failed`.
