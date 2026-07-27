@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/sunrioa/rin/internal/portablepath"
 	"github.com/sunrioa/rin/protocol"
 )
 
@@ -153,7 +154,7 @@ func validateRenderedFiles(files []renderedFile) error {
 	}
 	seen := make(map[string]string, len(files))
 	for _, file := range files {
-		if err := validateTemplatePath(file.Path); err != nil {
+		if err := portablepath.ValidateRelative(file.Path); err != nil {
 			return err
 		}
 		key := strings.ToLower(file.Path)

@@ -3,6 +3,8 @@ package hostscaffold
 import (
 	"strings"
 	"testing"
+
+	"github.com/sunrioa/rin/internal/portablepath"
 )
 
 func testOptions(host string) Options {
@@ -243,11 +245,11 @@ func TestTemplatePathValidationUsesWindowsSemantics(t *testing.T) {
 		"", "/absolute", "../escape", "nested/../escape", `nested\escape`,
 		"C:/escape", "README.md/../escape", "CON", "aux.txt", "name.",
 		"name ", "stream:name", "double//separator", "COM¹.txt", "lpt²",
-		string([]byte{0xff}), strings.Repeat("界", maxPortablePathSegmentUTF16+1),
+		string([]byte{0xff}), strings.Repeat("界", portablepath.MaxSegmentUTF16+1),
 	}
 	for _, candidate := range invalid {
-		if err := validateTemplatePath(candidate); err == nil {
-			t.Errorf("validateTemplatePath(%q) unexpectedly succeeded", candidate)
+		if err := portablepath.ValidateRelative(candidate); err == nil {
+			t.Errorf("ValidateRelative(%q) unexpectedly succeeded", candidate)
 		}
 	}
 	valid := []string{
@@ -256,8 +258,8 @@ func TestTemplatePathValidationUsesWindowsSemantics(t *testing.T) {
 		"父目录/file.txt",
 	}
 	for _, candidate := range valid {
-		if err := validateTemplatePath(candidate); err != nil {
-			t.Errorf("validateTemplatePath(%q): %v", candidate, err)
+		if err := portablepath.ValidateRelative(candidate); err != nil {
+			t.Errorf("ValidateRelative(%q): %v", candidate, err)
 		}
 	}
 }

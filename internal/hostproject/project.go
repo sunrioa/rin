@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/internal/portablepath"
 	"github.com/sunrioa/rin/protocol"
 )
 
@@ -101,9 +102,15 @@ func Inspect(root string) (Report, error) {
 	seen := make(map[string]struct{}, len(manifest.Files))
 	var modifiedFiles []string
 	for _, entry := range manifest.Files {
-		if !fs.ValidPath(entry.Path) || entry.Path == "." ||
-			strings.Contains(entry.Path, `\`) {
-			return Report{}, fmt.Errorf("manifest contains unsafe path %q", entry.Path)
+		if err := portablepath.ValidateProjectPath(
+			absolute,
+			entry.Path,
+		); err != nil {
+			return Report{}, fmt.Errorf(
+				"manifest contains non-portable path %q: %w",
+				entry.Path,
+				err,
+			)
 		}
 		key := strings.ToLower(entry.Path)
 		if _, exists := seen[key]; exists {

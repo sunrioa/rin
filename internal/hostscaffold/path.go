@@ -8,88 +8,10 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"unicode/utf16"
 	"unicode/utf8"
+
+	"github.com/sunrioa/rin/internal/portablepath"
 )
-
-const (
-	maxPortablePathSegmentUTF16 = 255
-	maxPortableAbsoluteUTF16    = 240
-)
-
-var windowsReservedNames = func() map[string]struct{} {
-	names := map[string]struct{}{
-		"CON": {}, "PRN": {}, "AUX": {}, "NUL": {},
-	}
-	for index := 1; index <= 9; index++ {
-		names[fmt.Sprintf("COM%d", index)] = struct{}{}
-		names[fmt.Sprintf("LPT%d", index)] = struct{}{}
-	}
-	for _, suffix := range []string{"¹", "²", "³"} {
-		names["COM"+suffix] = struct{}{}
-		names["LPT"+suffix] = struct{}{}
-	}
-	return names
-}()
-
-func validateTemplatePath(templatePath string) error {
-	if !utf8.ValidString(templatePath) {
-		return errors.New("template path must be valid UTF-8")
-	}
-	if templatePath == "" || strings.Contains(templatePath, `\`) {
-		return errors.New("template path must be a non-empty slash-separated relative path")
-	}
-	if strings.HasPrefix(templatePath, "/") || path.IsAbs(templatePath) ||
-		path.Clean(templatePath) != templatePath {
-		return fmt.Errorf("unsafe template path %q", templatePath)
-	}
-	segments := strings.Split(templatePath, "/")
-	for _, segment := range segments {
-		if segment == "" || segment == "." || segment == ".." {
-			return fmt.Errorf("unsafe template path %q", templatePath)
-		}
-		if err := validatePortablePathSegment(segment); err != nil {
-			return fmt.Errorf("unsafe template path %q: %w", templatePath, err)
-		}
-	}
-	return nil
-}
-
-func validatePortablePathSegment(segment string) error {
-	if !utf8.ValidString(segment) {
-		return errors.New("path segment must be valid UTF-8")
-	}
-	if strings.TrimRight(segment, " .") != segment {
-		return errors.New("path segment must not end in a space or period")
-	}
-	if strings.ContainsAny(segment, `<>:"/\|?*`) {
-		return errors.New("path segment contains a character invalid on Windows")
-	}
-	for _, character := range segment {
-		if character < 32 {
-			return errors.New("path segment contains a control character")
-		}
-	}
-	if isWindowsReservedName(segment) {
-		return fmt.Errorf("%q is a Windows reserved device name", segment)
-	}
-	if utf16Length(segment) > maxPortablePathSegmentUTF16 {
-		return fmt.Errorf(
-			"path segment exceeds the portable %d UTF-16 code-unit limit",
-			maxPortablePathSegmentUTF16,
-		)
-	}
-	return nil
-}
-
-func isWindowsReservedName(name string) bool {
-	base := name
-	if index := strings.IndexByte(base, '.'); index >= 0 {
-		base = base[:index]
-	}
-	_, reserved := windowsReservedNames[strings.ToUpper(base)]
-	return reserved
-}
 
 type outputLocation struct {
 	absolute    string
@@ -183,7 +105,7 @@ func openOutputLocation(cwd, output string) (
 	}
 	segments := strings.Split(cleanSlash, "/")
 	for _, segment := range segments {
-		if err := validatePortablePathSegment(segment); err != nil {
+		if err := portablepath.ValidateSegment(segment); err != nil {
 			return nil, fmt.Errorf("invalid -output: %w", err)
 		}
 	}
@@ -195,10 +117,10 @@ func openOutputLocation(cwd, output string) (
 		return nil, errors.New("current directory must be valid UTF-8")
 	}
 	target := filepath.Join(cwdAbsolute, filepath.FromSlash(cleanSlash))
-	if utf16Length(target) > maxPortableAbsoluteUTF16 {
+	if portablepath.UTF16Length(target) > portablepath.MaxAbsoluteUTF16 {
 		return nil, fmt.Errorf(
 			"absolute output path exceeds the portable %d UTF-16 code-unit budget",
-			maxPortableAbsoluteUTF16,
+			portablepath.MaxAbsoluteUTF16,
 		)
 	}
 
@@ -299,21 +221,9 @@ func openBoundDirectory(
 
 func validateAbsolutePlanPaths(target string, files []renderedFile) error {
 	for _, file := range files {
-		candidate := filepath.Join(target, filepath.FromSlash(file.Path))
-		if !utf8.ValidString(candidate) {
-			return fmt.Errorf("generated path %q is not valid UTF-8", file.Path)
-		}
-		if utf16Length(candidate) > maxPortableAbsoluteUTF16 {
-			return fmt.Errorf(
-				"generated path %q exceeds the portable %d UTF-16 code-unit absolute-path budget",
-				file.Path,
-				maxPortableAbsoluteUTF16,
-			)
+		if err := portablepath.ValidateProjectPath(target, file.Path); err != nil {
+			return err
 		}
 	}
 	return nil
-}
-
-func utf16Length(value string) int {
-	return len(utf16.Encode([]rune(value)))
 }

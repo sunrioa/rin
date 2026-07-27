@@ -21,7 +21,10 @@ var (
 	lowerHexSHA256 = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
-const maxInteroperableInteger = 9_007_199_254_740_991
+const (
+	maxHostIdentifierBytes  = 96
+	maxInteroperableInteger = 9_007_199_254_740_991
+)
 
 // ValidateHostManifest verifies an engine-neutral host declaration.
 func ValidateHostManifest(manifest HostManifest) error {
@@ -600,8 +603,13 @@ func validateVersionIdentifiers(value string, prerelease bool) error {
 }
 
 func validateHostID(field, value string, namespaced bool) error {
-	if len(value) == 0 || len(value) > 128 || !hostIDPattern.MatchString(value) {
-		return invalid(field, "must be a lowercase safe identifier of at most 128 bytes")
+	if len(value) == 0 ||
+		len(value) > maxHostIdentifierBytes ||
+		!hostIDPattern.MatchString(value) {
+		return invalid(
+			field,
+			"must be a lowercase safe identifier of at most 96 bytes",
+		)
 	}
 	if namespaced && !strings.ContainsRune(value, '.') {
 		return invalid(field, "must be namespaced")

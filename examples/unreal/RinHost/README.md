@@ -20,6 +20,8 @@ At load, the game must call `ConfigureHostIdentity` with a stable save/profile
 ID and a persisted boot generation, then `BindWorldIdentity` with its
 authoritative world and timeline generations. The plugin deliberately does not
 derive identity from a process GUID, object pointer, PIE name, or map path.
+The local boundary limits identifiers to 96 safe characters and Epoch/progress
+counters to `1..9007199254740991`; increments fail closed at the ceiling.
 `AuthorizeAndQueueInvocation` performs the final Epoch, exact capability
 version, digest, revocation, and duplicate-operation checks in one Game Thread
 call. Authorize before enqueuing `UBTTask_RinHostMoveTo`; the task reports

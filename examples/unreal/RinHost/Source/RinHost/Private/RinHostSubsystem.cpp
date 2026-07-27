@@ -58,7 +58,7 @@ bool URinHostSubsystem::ConfigureHostIdentity(
 {
     check(IsInGameThread());
     if (!FRinHostEpoch::IsSafeIdentifier(StableSessionId, false) ||
-        HostGeneration <= 0)
+        !FRinHostEpoch::IsSafePositiveInteger(HostGeneration))
     {
         return false;
     }
@@ -103,8 +103,8 @@ bool URinHostSubsystem::BindWorldIdentity(
     check(IsInGameThread());
     if (Epoch.SessionId.IsEmpty() ||
         !FRinHostEpoch::IsSafeIdentifier(StableWorldId, false) ||
-        WorldGeneration <= 0 ||
-        TimelineGeneration <= 0)
+        !FRinHostEpoch::IsSafePositiveInteger(WorldGeneration) ||
+        !FRinHostEpoch::IsSafePositiveInteger(TimelineGeneration))
     {
         return false;
     }
@@ -185,7 +185,8 @@ bool URinHostSubsystem::RevokeCapability(
 void URinHostSubsystem::ForkTimeline()
 {
     check(IsInGameThread());
-    if (!Epoch.IsValid())
+    if (!Epoch.IsValid() ||
+        Epoch.TimelineGeneration >= FRinHostEpoch::MaxJsonSafeInteger)
     {
         return;
     }
@@ -243,7 +244,7 @@ bool URinHostSubsystem::ReportRun(
     if (OperationId.IsEmpty() ||
         !Epoch.IsValid() ||
         ExpectedEpoch != Epoch ||
-        ProgressSequence <= 0 ||
+        !FRinHostEpoch::IsSafePositiveInteger(ProgressSequence) ||
         Progress < 0 ||
         Progress > 100)
     {
@@ -285,6 +286,11 @@ void URinHostSubsystem::MarkActiveRunsOutcomeUnknown(const FString& Message)
     {
         if (Entry.Value.Status != ERinActionRunStatus::Queued &&
             Entry.Value.Status != ERinActionRunStatus::Running)
+        {
+            continue;
+        }
+        if (Entry.Value.ProgressSequence >=
+            FRinHostEpoch::MaxJsonSafeInteger)
         {
             continue;
         }

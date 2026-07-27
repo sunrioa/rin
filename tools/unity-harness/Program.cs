@@ -67,6 +67,7 @@ internal static class Program
             Require(!(bool)Get(malformed, "authoritativeStateReady"), "malformed state was accepted");
 
             VerifyOpaqueActionArguments();
+            VerifyIdentifierBoundaries();
             VerifyOfferBinding();
             VerifyActionGate();
             VerifyInterruptedRunRecovery();
@@ -77,6 +78,19 @@ internal static class Program
         {
             Directory.Delete(root, true);
         }
+    }
+
+    private static void VerifyIdentifierBoundaries()
+    {
+        Require(
+            RinUnityIds.IsValid("a" + new string('b', 95)),
+            "96-character protocol identifier was rejected");
+        Require(
+            !RinUnityIds.IsValid("a" + new string('b', 96)),
+            "97-character protocol identifier was accepted");
+        Require(
+            !RinUnityIds.IsValid("a" + new string('b', 127)),
+            "128-character protocol identifier was accepted");
     }
 
     private static void VerifyOfferBinding()

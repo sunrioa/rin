@@ -363,7 +363,7 @@ internal static class RinUnityIds
 
     public static bool IsValid(string value)
     {
-        if (string.IsNullOrEmpty(value) || value.Length > 128 ||
+        if (string.IsNullOrEmpty(value) || value.Length > 96 ||
             value[0] < 'a' || value[0] > 'z')
         {
             return false;

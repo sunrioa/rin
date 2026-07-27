@@ -21,6 +21,9 @@ struct RINHOST_API FRinHostEpoch
 {
     GENERATED_BODY()
 
+    static constexpr int32 MaxIdentifierLength = 96;
+    static constexpr int64 MaxJsonSafeInteger = 9007199254740991LL;
+
     UPROPERTY(BlueprintReadOnly, Category = "Rin")
     FString SessionId;
 
@@ -38,6 +41,7 @@ struct RINHOST_API FRinHostEpoch
 
     bool IsValid() const;
     static bool IsSafeIdentifier(const FString& Value, bool bNamespaced);
+    static bool IsSafePositiveInteger(int64 Value);
     bool operator==(const FRinHostEpoch& Other) const;
     bool operator!=(const FRinHostEpoch& Other) const
     {

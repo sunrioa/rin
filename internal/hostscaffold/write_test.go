@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/sunrioa/rin/internal/portablepath"
 )
 
 func TestGenerateWritesACompletePortableTree(t *testing.T) {
@@ -134,7 +136,7 @@ func TestOutputValidationRejectsEscapesAndWindowsHazards(t *testing.T) {
 		"guide ",
 		"file:stream",
 		string([]byte{0xff}),
-		strings.Repeat("界", maxPortablePathSegmentUTF16+1),
+		strings.Repeat("界", portablepath.MaxSegmentUTF16+1),
 	}
 	for _, output := range invalid {
 		options.Output = output
@@ -393,7 +395,7 @@ func TestConcurrentTemplateParentSymlinkCannotEscapeTargetRoot(t *testing.T) {
 func TestOutputValidationEnforcesPortableUTF16PathBudget(t *testing.T) {
 	base := t.TempDir()
 	options := testOptions(HostLuanti)
-	options.Output = strings.Repeat("a", maxPortableAbsoluteUTF16)
+	options.Output = strings.Repeat("a", portablepath.MaxAbsoluteUTF16)
 	_, err := GenerateAt(base, options)
 	if err == nil || !strings.Contains(err.Error(), "UTF-16") {
 		t.Fatalf("overlong absolute output error = %v", err)

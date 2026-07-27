@@ -24,6 +24,9 @@ and ignores late callbacks from an older generation. A domain reload recovers
 a persisted Active Run as `outcome-unknown`; it never executes that operation
 again blindly.
 
+Local validation uses the protocol ceilings: identifiers are at most 96 safe
+characters and all wire counters are at most `9007199254740991`.
+
 `RinNpcExample` demonstrates a game-authored `movement.move_to` offer.
 `RinNavMeshAction` owns `NavMeshAgent.SetDestination`, observes completion over
 later frames, resets the path on cancellation, and returns a typed terminal

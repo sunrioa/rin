@@ -375,7 +375,9 @@ durable outcome together. See
 - [x] Register `init host`, `add skill`, `conformance host`, `doctor host`,
   the five exact Host names, and actionable help and error output.
 - [x] Enforce host-aware ID, display-name, namespace, semantic-version, output,
-  Windows-name, case-collision, and symbolic-link validation before writing.
+  Windows-name, case-collision, and symbolic-link validation before writing;
+  `conformance host` reuses the same portable-path rules for every manifest
+  entry.
 - [x] Provide contract skeletons for Go, JavaScript, Python, C#, Java, and Lua;
   embed existing templates and complete SDK sources in the Rin binary, generate
   a sorted SHA-256 manifest, and preserve required script modes.

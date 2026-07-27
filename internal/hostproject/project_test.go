@@ -1,9 +1,11 @@
 package hostproject
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -63,6 +65,51 @@ func TestInspectReportsGeneratedFileMutation(t *testing.T) {
 	if len(report.ModifiedFiles) != 1 ||
 		report.ModifiedFiles[0] != "src/README.md" {
 		t.Fatalf("modified files = %v", report.ModifiedFiles)
+	}
+}
+
+func TestInspectRejectsWindowsNonPortableManifestPaths(t *testing.T) {
+	for _, candidate := range []string{
+		"CON",
+		"NUL.txt",
+		"src/a:b",
+		"src/trailing.",
+		"src/trailing ",
+		"src/control\x01.txt",
+		strings.Repeat("a", 256),
+		strings.Repeat("p", 220) + "/file.txt",
+	} {
+		t.Run(fmt.Sprintf("%q", candidate), func(t *testing.T) {
+			root := generateCustomHost(t)
+			manifestPath := filepath.Join(root, "rin-scaffold.json")
+			data, err := os.ReadFile(manifestPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var manifest Manifest
+			if err := json.Unmarshal(data, &manifest); err != nil {
+				t.Fatal(err)
+			}
+			manifest.Files = append(manifest.Files, struct {
+				Path   string `json:"path"`
+				Role   string `json:"role"`
+				SHA256 string `json:"sha256"`
+			}{
+				Path: candidate, Role: "test", SHA256: strings.Repeat("a", 64),
+			})
+			data, err = json.MarshalIndent(manifest, "", "  ")
+			if err != nil {
+				t.Fatal(err)
+			}
+			data = append(data, '\n')
+			if err := os.WriteFile(manifestPath, data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Inspect(root); err == nil ||
+				!strings.Contains(err.Error(), "non-portable path") {
+				t.Fatalf("Inspect accepted %q: %v", candidate, err)
+			}
+		})
 	}
 }
 

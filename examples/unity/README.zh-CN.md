@@ -20,6 +20,9 @@ Run、Tick High-water、Applied Marker 与最多 64 条精确报告。Flush 临�
 Generation 的迟到 Callback 会被忽略。Domain Reload 会把持久 Active Run 恢复为
 `outcome-unknown`，不会盲目再次执行同一个 Operation。
 
+本地校验与协议上限一致：Identifier 最多 96 个安全字符，所有 Wire Counter
+最高为 `9007199254740991`。
+
 `RinNpcExample` 演示游戏编写的 `movement.move_to` Offer。
 `RinNavMeshAction` 拥有 `NavMeshAgent.SetDestination`，跨帧观察完成、取消时
 Reset Path，并返回类型化终态。模型只选择密封 Offer，不能提供 Transform、

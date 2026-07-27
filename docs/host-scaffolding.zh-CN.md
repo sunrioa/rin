@@ -332,7 +332,8 @@ Generation，不覆盖多人、实时 Sidecar、强制终止或长时间 Soak。
 - [x] 注册 `init host`、`add skill`、`conformance host`、`doctor host`、
   五个精确 Host 名，以及可操作的 Help 与错误输出。
 - [x] 写入前执行 Host-aware ID、显示名、Namespace、语义版本、输出路径、
-  Windows 名称、大小写冲突和符号链接校验。
+  Windows 名称、大小写冲突和符号链接校验；`conformance host` 对每个
+  Manifest Entry 复用同一套可移植路径规则。
 - [x] 为任意游戏提供 Go、JavaScript、Python、C#、Java 与 Lua Runtime
   契约骨架；在 Rin Binary 内嵌现有模板与完整 SDK 源码，生成排序后的 SHA-256
   Manifest，并保留必要的脚本 Mode。

@@ -18,7 +18,9 @@
 加载时，游戏必须用稳定的存档/Profile ID 和持久化 Boot Generation 调用
 `ConfigureHostIdentity`，再用权威 World/Timeline Generation 调用
 `BindWorldIdentity`。Plugin 有意不从进程 GUID、对象指针、PIE 名称或地图路径
-推断身份。`AuthorizeAndQueueInvocation` 在一次 Game Thread 调用中完成最终
+推断身份。本地边界将 Identifier 限制为 96 个安全字符，将 Epoch/Progress
+Counter 限制为 `1..9007199254740991`；到达上限后递增会 fail closed。
+`AuthorizeAndQueueInvocation` 在一次 Game Thread 调用中完成最终
 Epoch、精确 Capability Version、Digest、撤销和重复 Operation 检查。只有先完成
 授权入队，才可启动 `UBTTask_RinHostMoveTo`；该 Task 只负责为已入队 Operation
 报告 `running` 和终态。

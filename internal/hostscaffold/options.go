@@ -9,6 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/sunrioa/rin/internal/portablepath"
 	sdkassets "github.com/sunrioa/rin/sdk"
 )
 
@@ -100,7 +101,7 @@ func normalizeOptions(options Options) (normalizedOptions, error) {
 		return normalizedOptions{}, errors.New(
 			"-id must be 2-64 lowercase ASCII letters, digits, or single underscores and start with a letter")
 	}
-	if isWindowsReservedName(options.ID) {
+	if portablepath.IsWindowsReservedName(options.ID) {
 		return normalizedOptions{}, fmt.Errorf("-id %q is reserved on Windows", options.ID)
 	}
 	if options.Name == "" {
@@ -209,7 +210,7 @@ func validateNamespace(namespace, id string) error {
 		if _, reserved := javaKeywords[segment]; reserved {
 			return fmt.Errorf("Java package segment %q is reserved", segment)
 		}
-		if isWindowsReservedName(segment) {
+		if portablepath.IsWindowsReservedName(segment) {
 			return fmt.Errorf("package segment %q is reserved on Windows", segment)
 		}
 	}

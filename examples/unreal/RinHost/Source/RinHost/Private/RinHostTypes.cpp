@@ -115,9 +115,9 @@ bool FRinHostEpoch::IsValid() const
 {
     return IsSafeIdentifier(SessionId, false) &&
         IsSafeIdentifier(WorldId, false) &&
-        HostGeneration > 0 &&
-        WorldGeneration > 0 &&
-        TimelineGeneration > 0;
+        IsSafePositiveInteger(HostGeneration) &&
+        IsSafePositiveInteger(WorldGeneration) &&
+        IsSafePositiveInteger(TimelineGeneration);
 }
 
 bool FRinHostEpoch::IsSafeIdentifier(
@@ -126,7 +126,7 @@ bool FRinHostEpoch::IsSafeIdentifier(
 )
 {
     if (Value.IsEmpty() ||
-        Value.Len() > 128 ||
+        Value.Len() > MaxIdentifierLength ||
         Value[0] < TEXT('a') ||
         Value[0] > TEXT('z') ||
         (bNamespaced && !Value.Contains(TEXT("."))))
@@ -151,6 +151,11 @@ bool FRinHostEpoch::IsSafeIdentifier(
         bPreviousWasSeparator = bSeparator;
     }
     return !bPreviousWasSeparator;
+}
+
+bool FRinHostEpoch::IsSafePositiveInteger(const int64 Value)
+{
+    return Value > 0 && Value <= MaxJsonSafeInteger;
 }
 
 bool FRinHostEpoch::operator==(const FRinHostEpoch& Other) const

@@ -32,9 +32,12 @@ REQUIRED = {
         "IsInGameThread",
         "ENamedThreads::GameThread",
         "CanTransition",
+        "Epoch.TimelineGeneration >= FRinHostEpoch::MaxJsonSafeInteger",
+        "IsSafePositiveInteger(ProgressSequence)",
     ),
     "Source/RinHost/Private/RinHostTypes.cpp": (
         "IsSafeIdentifier",
+        "IsSafePositiveInteger",
         "IsExactVersion",
         "IsLowerHexDigest",
     ),
@@ -110,6 +113,21 @@ def verify_plugin(plugin: Path) -> None:
         for fragment in fragments:
             if fragment not in source:
                 raise SystemExit(f"{relative} is missing {fragment!r}")
+    types_header = (
+        plugin / "Source/RinHost/Public/RinHostTypes.h"
+    ).read_text("utf-8")
+    identifier_limit = re.search(
+        r"MaxIdentifierLength\s*=\s*(\d+)",
+        types_header,
+    )
+    json_limit = re.search(
+        r"MaxJsonSafeInteger\s*=\s*(\d+)LL",
+        types_header,
+    )
+    if identifier_limit is None or int(identifier_limit.group(1)) != 96:
+        raise SystemExit("Unreal identifier limit must match protocol value 96")
+    if json_limit is None or int(json_limit.group(1)) != 9007199254740991:
+        raise SystemExit("Unreal JSON integer limit does not match the protocol")
     print(f"Unreal Host skeleton verified: {len(files)} files")
 
 

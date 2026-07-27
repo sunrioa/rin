@@ -265,6 +265,20 @@ func TestCapabilityVersionIsExactSemVer(t *testing.T) {
 	}
 }
 
+func TestHostIdentifiersMatchProtocolLengthCeiling(t *testing.T) {
+	reference := CapabilityRef{
+		ID:      "a." + strings.Repeat("b", 94),
+		Version: "1.0.0",
+	}
+	if err := reference.Validate("capability"); err != nil {
+		t.Fatalf("96-byte identifier rejected: %v", err)
+	}
+	reference.ID += "c"
+	if err := reference.Validate("capability"); err == nil {
+		t.Fatal("97-byte identifier was accepted")
+	}
+}
+
 func testManifest() HostManifest {
 	return HostManifest{
 		ContractVersion:     ContractVersion,
