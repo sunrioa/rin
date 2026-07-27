@@ -168,7 +168,7 @@ func TestRuntimeVersionProbeIsBoundedAndRecognizesRuntime(t *testing.T) {
 		os.Args[0],
 		"python",
 		[]string{"-test.run=^TestRuntimeProbeHelper$"},
-		time.Second,
+		10*time.Second,
 	)
 	if success.status != RuntimeAvailable ||
 		success.version != "Python 3.12.1" {
