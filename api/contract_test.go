@@ -156,6 +156,16 @@ func TestOpenAPIReferencesInputsAndResponseEvolutionRules(t *testing.T) {
 		signed["maximum"] != float64(protocol.MaxJSONSafeInteger) {
 		t.Fatalf("JSON integer schemas do not use the generated safe ceiling")
 	}
+	positive, ok := schemas["JSONSafePositiveInteger"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing JSONSafePositiveInteger schema")
+	}
+	mutationRevision := schemas["MutationResult"].(map[string]any)["properties"].(map[string]any)["revision"].(map[string]any)
+	if positive["minimum"] != float64(1) ||
+		positive["maximum"] != float64(protocol.MaxJSONSafeInteger) ||
+		mutationRevision["$ref"] != "#/components/schemas/JSONSafePositiveInteger" {
+		t.Fatalf("MutationResult revision must use the positive JSON-safe integer schema")
+	}
 	errorProperties := schemas["ErrorDetail"].(map[string]any)["properties"].(map[string]any)
 	if errorProperties["code"].(map[string]any)["maxLength"] != float64(protocol.ErrorCodeMaxLength) ||
 		errorProperties["message"].(map[string]any)["maxLength"] != float64(protocol.ErrorMessageMaxLength) ||
