@@ -40,7 +40,8 @@ for non-loopback endpoints, and keep bearer tokens outside game saves.
 
 Identifiers use lowercase ASCII segments separated by `.`, `_`, or `-`.
 Integers carried across SDKs must be in the JSON-safe range
-`0..9007199254740991`.
+`0..9007199254740991`. JSON object member names must be unique at every wire
+and persistence boundary.
 
 ## Session creation
 
@@ -91,6 +92,10 @@ to another:
 - Increment `host` when authority is recreated.
 - Increment `world` after a scene, level, shard, or authoritative world load.
 - Increment `timeline` after rollback, save-line fork, or loading older state.
+
+All three generations are positive JSON-safe integers. The Epoch
+`session_id` must equal the containing request and Session state; a nested
+Epoch from another Session is rejected even when all other fields are valid.
 
 `Timepoint` is `{ "clock": "event|step|realtime", "value": N }`.
 Realtime values are Unix milliseconds; event and step values are monotonic

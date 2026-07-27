@@ -10,6 +10,7 @@ import (
 	"io"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/sunrioa/rin/internal/jsonwire"
 )
 
 const (
@@ -35,7 +36,7 @@ func prepareSchema(document []byte) ([]byte, *jsonschema.Schema, error) {
 	if len(document) == 0 || len(document) > maxSchemaBytes {
 		return nil, nil, invalid("schema.document", "must contain 1-65536 bytes")
 	}
-	if err := rejectDuplicateJSONNames(document); err != nil {
+	if err := jsonwire.Validate(document); err != nil {
 		return nil, nil, invalid("schema.document", err.Error())
 	}
 
@@ -149,7 +150,7 @@ func decodeJSON(document []byte) (any, error) {
 	if len(document) == 0 {
 		return nil, errors.New("is required")
 	}
-	if err := rejectDuplicateJSONNames(document); err != nil {
+	if err := jsonwire.Validate(document); err != nil {
 		return nil, err
 	}
 	value, err := jsonschema.UnmarshalJSON(bytes.NewReader(document))
@@ -157,70 +158,6 @@ func decodeJSON(document []byte) (any, error) {
 		return nil, fmt.Errorf("must be valid JSON: %w", err)
 	}
 	return value, nil
-}
-
-func rejectDuplicateJSONNames(document []byte) error {
-	decoder := json.NewDecoder(bytes.NewReader(document))
-	decoder.UseNumber()
-	if err := walkJSONValue(decoder); err != nil {
-		return err
-	}
-	return requireJSONEOF(decoder)
-}
-
-func walkJSONValue(decoder *json.Decoder) error {
-	token, err := decoder.Token()
-	if err != nil {
-		return err
-	}
-	delimiter, ok := token.(json.Delim)
-	if !ok {
-		return nil
-	}
-	switch delimiter {
-	case '{':
-		names := make(map[string]struct{})
-		for decoder.More() {
-			token, err := decoder.Token()
-			if err != nil {
-				return err
-			}
-			name, ok := token.(string)
-			if !ok {
-				return errors.New("object name must be a string")
-			}
-			if _, duplicate := names[name]; duplicate {
-				return fmt.Errorf("duplicate object name %q", name)
-			}
-			names[name] = struct{}{}
-			if err := walkJSONValue(decoder); err != nil {
-				return err
-			}
-		}
-		token, err := decoder.Token()
-		if err != nil {
-			return err
-		}
-		if token != json.Delim('}') {
-			return errors.New("object is not closed")
-		}
-	case '[':
-		for decoder.More() {
-			if err := walkJSONValue(decoder); err != nil {
-				return err
-			}
-		}
-		token, err := decoder.Token()
-		if err != nil {
-			return err
-		}
-		if token != json.Delim(']') {
-			return errors.New("array is not closed")
-		}
-	default:
-		return errors.New("unexpected JSON delimiter")
-	}
-	return nil
 }
 
 func requireJSONEOF(decoder *json.Decoder) error {

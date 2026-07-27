@@ -46,11 +46,14 @@ Godot Node、服务端 Mod、Web 游戏和自研引擎，而不偏向其中任�
 
 ## Epoch 与对象引用
 
-`Epoch` 包含稳定 Session/World ID 和三个正整数 Generation：
+`Epoch` 包含稳定 Session/World ID 和三个正数、JSON-safe 的 Generation：
 
 - `host`：宿主进程或权威实例被替换时变化；
 - `world`：Scene、Map、Level、Shard 或等价世界重载时变化；
 - `timeline`：存档分叉、Rollback、Rewind 或权威分支时变化。
+
+Epoch 的 Session ID 必须等于外层 Request 与 Session State。Observation、
+Decision、Invocation 与 Outcome 边界都会拒绝来自另一 Session 的嵌套 Epoch。
 
 它们不是渲染帧、物理帧、模拟 Step 或墙钟时间。`HostRef` 在 Adapter 外部是不透明
 引用，只能由所属 Adapter 在引擎权威线程解析；Ephemeral Ref 不得持久化。

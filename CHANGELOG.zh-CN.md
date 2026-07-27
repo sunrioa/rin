@@ -58,6 +58,10 @@
 
 ### 修复
 
+- Event Replay 与 Transfer Import 现在会在 Reduce 前校验每个类型化 Payload；
+  自洽哈希的恶意 Event 会返回损坏日志错误，不再解引用缺失的动作生命周期记录。
+- Epoch 现在与外层 Session 绑定；Host Sequence 字段统一要求正数且 JSON-safe；
+  Wire 与持久化 JSON 统一拒绝重复 Object Member Name。
 - 修正当前文档中的 28 Route SDK 清单、Terminal Story 100 回合门禁、
   Windows/macOS Luanti 验证及 Linux/macOS Ren'Py 覆盖范围，并删除已移除的
   Recovery 示例命令。

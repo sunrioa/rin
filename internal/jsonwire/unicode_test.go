@@ -1,6 +1,10 @@
 package jsonwire
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+	"unicode/utf8"
+)
 
 func TestValid(t *testing.T) {
 	tests := []struct {
@@ -18,6 +22,9 @@ func TestValid(t *testing.T) {
 		{name: "unpaired low surrogate", payload: []byte(`{"text":"\udc00"}`), want: false},
 		{name: "two high surrogates", payload: []byte(`{"text":"\ud800\ud801"}`), want: false},
 		{name: "high surrogate followed by text", payload: []byte(`{"text":"\ud800x"}`), want: false},
+		{name: "duplicate root name", payload: []byte(`{"text":"first","text":"last"}`), want: false},
+		{name: "duplicate escaped name", payload: []byte(`{"text":"first","te\u0078t":"last"}`), want: false},
+		{name: "duplicate nested name", payload: []byte(`{"nested":{"id":1,"id":2}}`), want: false},
 		{name: "invalid JSON", payload: []byte(`{"text":`), want: false},
 	}
 	for _, test := range tests {
@@ -27,4 +34,28 @@ func TestValid(t *testing.T) {
 			}
 		})
 	}
+}
+
+func FuzzValid(f *testing.F) {
+	for _, seed := range [][]byte{
+		[]byte(`{"text":"hello"}`),
+		[]byte(`{"text":"first","text":"last"}`),
+		[]byte(`{"nested":{"id":1,"id":2}}`),
+		[]byte(`{"text":"\ud83d\ude00"}`),
+		{'"', 0xff, '"'},
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, payload []byte) {
+		if !Valid(payload) {
+			return
+		}
+		if !utf8.Valid(payload) || !json.Valid(payload) {
+			t.Fatalf("Valid accepted malformed JSON: %q", payload)
+		}
+		var value any
+		if err := json.Unmarshal(payload, &value); err != nil {
+			t.Fatalf("Valid payload did not decode: %v", err)
+		}
+	})
 }

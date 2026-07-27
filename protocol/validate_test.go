@@ -208,6 +208,87 @@ func TestLivingWorldRequestValidation(t *testing.T) {
 	}
 }
 
+func TestEpochsMustBelongToRequestSession(t *testing.T) {
+	t.Run("observe", func(t *testing.T) {
+		request := protocol.ObserveRequest{
+			ProtocolVersion: protocol.Version,
+			SessionID:       "session.test",
+			RequestID:       "observe.cross-session",
+			EventID:         "event.cross-session",
+			ObserverIDs:     []string{"npc.test"},
+			Source:          "game",
+			Kind:            "world",
+			Summary:         "An observation from the wrong Session.",
+			Importance:      1,
+			Epoch:           validEpoch(),
+			ObservationSeq:  1,
+		}
+		request.Epoch.SessionID = "session.other"
+		if err := protocol.ValidateObserve(request); err == nil {
+			t.Fatal("cross-Session observation epoch was accepted")
+		}
+	})
+
+	t.Run("propose", func(t *testing.T) {
+		window := validWindow()
+		window.Epoch.SessionID = "session.other"
+		offer := validOffer("wait")
+		offer.ExpectedEpoch = window.Epoch
+		request := protocol.ProposeRequest{
+			ProtocolVersion: protocol.Version,
+			SessionID:       "session.test",
+			RequestID:       "proposal.cross-session",
+			ActorID:         "npc.test",
+			Intent:          "wait",
+			DecisionWindow:  window,
+			Offers:          []protocol.ActionOffer{offer},
+		}
+		if err := protocol.ValidatePropose(request); err == nil {
+			t.Fatal("cross-Session decision window was accepted")
+		}
+	})
+
+	t.Run("action report", func(t *testing.T) {
+		request := validTerminalReport(
+			"report.cross-session",
+			"event.report.cross-session",
+			nil,
+		)
+		request.Report.Invocation.ExpectedEpoch.SessionID = "session.other"
+		request.Report.Outcome.Epoch.SessionID = "session.other"
+		if err := protocol.ValidateReportAction(request); err == nil {
+			t.Fatal("cross-Session action lifecycle was accepted")
+		}
+	})
+}
+
+func TestStructuredPayloadRejectsDuplicateNames(t *testing.T) {
+	request := protocol.ObserveRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       "session.test",
+		RequestID:       "observe.duplicate-json",
+		EventID:         "event.duplicate-json",
+		ObserverIDs:     []string{"npc.test"},
+		Source:          "game",
+		Kind:            "world",
+		Summary:         "Structured observation.",
+		Importance:      1,
+		Epoch:           validEpoch(),
+		ObservationSeq:  1,
+		Payload: &protocol.StructuredPayload{
+			Schema: protocol.SchemaRef{
+				ID:      "rin.test.observation",
+				Version: "1.0.0",
+				Digest:  strings.Repeat("a", 64),
+			},
+			Data: json.RawMessage(`{"state":"open","state":"closed"}`),
+		},
+	}
+	if err := protocol.ValidateObserve(request); err == nil {
+		t.Fatal("structured payload with duplicate names was accepted")
+	}
+}
+
 func validCreate() protocol.CreateSessionRequest {
 	return protocol.CreateSessionRequest{
 		ProtocolVersion: protocol.Version,

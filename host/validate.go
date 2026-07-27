@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/sunrioa/rin/internal/jsonwire"
 )
 
 var (
@@ -119,8 +120,11 @@ func (epoch Epoch) Validate(field string) error {
 	if err := validateHostID(field+".world_id", epoch.WorldID, false); err != nil {
 		return err
 	}
-	if epoch.Host == 0 || epoch.World == 0 || epoch.Timeline == 0 {
-		return invalid(field, "host, world, and timeline generations must be positive")
+	if epoch.Host == 0 || epoch.World == 0 || epoch.Timeline == 0 ||
+		epoch.Host > maxInteroperableInteger ||
+		epoch.World > maxInteroperableInteger ||
+		epoch.Timeline > maxInteroperableInteger {
+		return invalid(field, "host, world, and timeline generations must be positive JSON-safe integers")
 	}
 	return nil
 }
@@ -315,8 +319,8 @@ func ValidateActionOffer(offer ActionOffer) error {
 	if err := offer.ExpectedEpoch.Validate("expected_epoch"); err != nil {
 		return err
 	}
-	if offer.ObservationSeq == 0 {
-		return invalid("observation_seq", "must be positive")
+	if offer.ObservationSeq == 0 || offer.ObservationSeq > maxInteroperableInteger {
+		return invalid("observation_seq", "must be a positive JSON-safe integer")
 	}
 	if err := offer.Deadline.Validate("deadline"); err != nil {
 		return err
@@ -355,6 +359,9 @@ func ValidateActionRun(run ActionRun) error {
 	}
 	if !validActionRunStatus(run.Status) {
 		return invalid("status", "is not supported")
+	}
+	if run.ProgressSeq == 0 || run.ProgressSeq > maxInteroperableInteger {
+		return invalid("progress_seq", "must be a positive JSON-safe integer")
 	}
 	if run.Progress > 100 {
 		return invalid("progress", "must be between 0 and 100")
@@ -412,8 +419,8 @@ func ValidateActionOutcome(outcome ActionOutcome) error {
 	if err := validateRefs("evidence", outcome.Evidence, outcome.Epoch); err != nil {
 		return err
 	}
-	if outcome.WorldSeq == 0 {
-		return invalid("world_seq", "must be positive")
+	if outcome.WorldSeq == 0 || outcome.WorldSeq > maxInteroperableInteger {
+		return invalid("world_seq", "must be a positive JSON-safe integer")
 	}
 	if err := outcome.OccurredAt.Validate("occurred_at"); err != nil {
 		return err
@@ -521,7 +528,7 @@ func validateJSONObject(field string, raw json.RawMessage, maximum int) error {
 	if len(raw) == 0 || len(raw) > maximum {
 		return invalid(field, "must be a bounded JSON object")
 	}
-	if err := rejectDuplicateJSONNames(raw); err != nil {
+	if err := jsonwire.Validate(raw); err != nil {
 		return invalid(field, err.Error())
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))

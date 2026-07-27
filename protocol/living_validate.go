@@ -82,7 +82,7 @@ func ValidateBatchActionReport(request BatchActionReportRequest) error {
 	eventIDs := make(map[string]struct{}, len(request.Reports))
 	for index, report := range request.Reports {
 		field := fmt.Sprintf("reports[%d]", index)
-		if err := validateActionReport(field, report); err != nil {
+		if err := validateActionReport(field, report, request.SessionID); err != nil {
 			return err
 		}
 		if _, exists := proposalIDs[report.ProposalID]; exists {

@@ -67,6 +67,12 @@ across every future minor release.
 
 ### Fixed
 
+- Event replay and Transfer import now validate each typed payload before
+  reduction, so a self-consistent malicious event returns a corrupt-log error
+  instead of dereferencing missing action lifecycle records.
+- Epochs are bound to their containing Session, host sequence fields enforce
+  positive JSON-safe integers, and wire/persisted JSON rejects duplicate
+  object member names consistently.
 - Correct current documentation evidence for the 28-route SDK inventory,
   100-turn Terminal Story gate, Windows/macOS Luanti verification, and
   Linux/macOS Ren'Py coverage; remove the deleted recovery-example command.

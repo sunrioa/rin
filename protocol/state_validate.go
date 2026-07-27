@@ -690,7 +690,7 @@ func validateProposal(field string, state SessionState, actor ActorState, propos
 	if err := validateProtocolOffer(field+".action", proposal.Action); err != nil {
 		return err
 	}
-	if err := validateDecisionWindow(field+".decision_window", proposal.DecisionWindow); err != nil {
+	if err := validateDecisionWindow(field+".decision_window", proposal.DecisionWindow, state.SessionID); err != nil {
 		return err
 	}
 	if proposal.Action.DecisionWindowID != proposal.DecisionWindow.ID ||
@@ -716,7 +716,7 @@ func validateProposal(field string, state SessionState, actor ActorState, propos
 			Run:        proposal.Run,
 			Outcome:    proposal.Outcome,
 			Summary:    proposal.Summary,
-		}); err != nil {
+		}, state.SessionID); err != nil {
 			return err
 		}
 	default:

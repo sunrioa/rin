@@ -58,12 +58,17 @@ without granting any one of them special semantics.
 
 ## Epoch and object references
 
-`Epoch` contains stable Session and World IDs plus three positive generations:
+`Epoch` contains stable Session and World IDs plus three positive JSON-safe
+generations:
 
 - `host` changes when the owning host process or authoritative instance is
   replaced;
 - `world` changes on a scene, map, level, shard, or equivalent world reload;
 - `timeline` changes on save forks, rollback, rewind, or authoritative branch.
+
+The Epoch Session ID must equal the containing request and Session state.
+Observation, decision, invocation, and outcome boundaries reject a nested
+Epoch from another Session.
 
 These values are not render frames, physics frames, simulation steps, or wall
 clock time. `HostRef` is opaque outside its adapter. Only that adapter may

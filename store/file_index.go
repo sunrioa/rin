@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/sunrioa/rin/internal/jsonwire"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 )
@@ -475,6 +476,9 @@ func decodeEvent(line []byte) (protocol.EventRecord, error) {
 }
 
 func decodeStrictJSON(payload []byte, target any) error {
+	if err := jsonwire.Validate(payload); err != nil {
+		return err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {

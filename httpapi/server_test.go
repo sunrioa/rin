@@ -59,6 +59,17 @@ func TestStrictJSONAndBodyLimit(t *testing.T) {
 		t.Fatalf("unknown field status: %d %s", response.Code, response.Body.String())
 	}
 
+	request = httptest.NewRequest(http.MethodPost, "/v2/session/get", strings.NewReader(
+		`{"protocol_version":"rin.protocol/v2","session_id":"session.first","session_id":"session.last"}`,
+	))
+	request.Header.Set("Content-Type", "application/json")
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest ||
+		!strings.Contains(response.Body.String(), `"code":"invalid_json"`) {
+		t.Fatalf("duplicate member response: %d %s", response.Code, response.Body.String())
+	}
+
 	request = httptest.NewRequest(http.MethodPost, "/v2/session/create", strings.NewReader(`{"padding":"`+strings.Repeat("x", 400)+`"}`))
 	request.Header.Set("Content-Type", "application/json")
 	response = httptest.NewRecorder()

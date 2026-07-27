@@ -322,7 +322,7 @@ func validateHistoryProposal(
 			Message: "must be a lowercase SHA-256 hash",
 		}
 	}
-	if err := validateDecisionWindow(field+".decision_window", proposal.DecisionWindow); err != nil {
+	if err := validateDecisionWindow(field+".decision_window", proposal.DecisionWindow, sessionID); err != nil {
 		return err
 	}
 	if err := validateProtocolOffer(field+".action", proposal.Action); err != nil {

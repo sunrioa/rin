@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/protocol"
 )
 
@@ -127,6 +128,14 @@ func TestReducerMaintainsBoundsAcross1361Observations(t *testing.T) {
 			Kind:            "world",
 			Summary:         summaryText,
 			Importance:      2,
+			Epoch: host.Epoch{
+				SessionID: state.SessionID,
+				WorldID:   "world.main",
+				Host:      1,
+				World:     1,
+				Timeline:  1,
+			},
+			ObservationSeq: uint64(index + 1),
 			Facts: []protocol.Fact{{
 				SubjectID:  fmt.Sprintf("subject.%04d", index),
 				Predicate:  "state",

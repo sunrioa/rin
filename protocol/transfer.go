@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"hash"
 	"time"
+
+	"github.com/sunrioa/rin/internal/jsonwire"
 )
 
 const (
@@ -163,54 +165,8 @@ func ValidateTransferEvent(frame TransferEvent) error {
 	if frame.Type != TransferFrameEvent {
 		return transferValidationError("type", "must equal "+TransferFrameEvent)
 	}
-	if frame.Record.Sequence == 0 {
-		return transferValidationError(
-			"record.sequence",
-			"must be greater than zero",
-		)
-	}
-	if err := validateJSONSafeUnsigned(
-		"record.sequence",
-		frame.Record.Sequence,
-	); err != nil {
+	if err := ValidateEventRecord(frame.Record); err != nil {
 		return err
-	}
-	if err := validateID("record.type", frame.Record.Type); err != nil {
-		return err
-	}
-	if err := validateID("record.request_id", frame.Record.RequestID); err != nil {
-		return err
-	}
-	if frame.Record.Sequence == 1 {
-		if frame.Record.PrevHash != "" {
-			return transferValidationError(
-				"record.prev_hash",
-				"must be empty for the first event",
-			)
-		}
-	} else if !hashPattern.MatchString(frame.Record.PrevHash) {
-		return transferValidationError(
-			"record.prev_hash",
-			"must be a lowercase SHA-256 hash",
-		)
-	}
-	if !hashPattern.MatchString(frame.Record.Hash) {
-		return transferValidationError(
-			"record.hash",
-			"must be a lowercase SHA-256 hash",
-		)
-	}
-	if _, err := time.Parse(time.RFC3339Nano, frame.Record.RecordedAt); err != nil {
-		return transferValidationError(
-			"record.recorded_at",
-			"must be an RFC 3339 timestamp",
-		)
-	}
-	if len(frame.Record.Data) == 0 || !json.Valid(frame.Record.Data) {
-		return transferValidationError(
-			"record.data",
-			"must contain one valid JSON value",
-		)
 	}
 	if !hashPattern.MatchString(frame.RecordSHA256) {
 		return transferValidationError(
@@ -226,6 +182,62 @@ func ValidateTransferEvent(frame TransferEvent) error {
 		return transferValidationError(
 			"record_sha256",
 			"does not match record",
+		)
+	}
+	return nil
+}
+
+// ValidateEventRecord validates the transport-independent EventRecord
+// envelope. Event-specific payload semantics are validated by the runtime
+// against the preceding Session state.
+func ValidateEventRecord(record EventRecord) error {
+	if record.Sequence == 0 {
+		return transferValidationError(
+			"record.sequence",
+			"must be greater than zero",
+		)
+	}
+	if err := validateJSONSafeUnsigned(
+		"record.sequence",
+		record.Sequence,
+	); err != nil {
+		return err
+	}
+	if err := validateID("record.type", record.Type); err != nil {
+		return err
+	}
+	if err := validateID("record.request_id", record.RequestID); err != nil {
+		return err
+	}
+	if record.Sequence == 1 {
+		if record.PrevHash != "" {
+			return transferValidationError(
+				"record.prev_hash",
+				"must be empty for the first event",
+			)
+		}
+	} else if !hashPattern.MatchString(record.PrevHash) {
+		return transferValidationError(
+			"record.prev_hash",
+			"must be a lowercase SHA-256 hash",
+		)
+	}
+	if !hashPattern.MatchString(record.Hash) {
+		return transferValidationError(
+			"record.hash",
+			"must be a lowercase SHA-256 hash",
+		)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, record.RecordedAt); err != nil {
+		return transferValidationError(
+			"record.recorded_at",
+			"must be an RFC 3339 timestamp",
+		)
+	}
+	if len(record.Data) == 0 || !jsonwire.Valid(record.Data) {
+		return transferValidationError(
+			"record.data",
+			"must contain one unambiguous JSON value",
 		)
 	}
 	return nil

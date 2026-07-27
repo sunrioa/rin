@@ -1,11 +1,8 @@
 package protocol
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"mime"
 	"net/url"
 	"regexp"
@@ -13,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/internal/jsonwire"
 )
 
 var identifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$`)
@@ -349,6 +347,9 @@ func ValidateObserve(request ObserveRequest) error {
 	if err := request.Epoch.Validate("epoch"); err != nil {
 		return protocolHostError("", err)
 	}
+	if request.Epoch.SessionID != request.SessionID {
+		return &ValidationError{Field: "epoch.session_id", Message: "must equal session_id"}
+	}
 	if request.ObservationSeq == 0 ||
 		request.ObservationSeq > uint64(MaxJSONSafeInteger) {
 		return &ValidationError{Field: "observation_seq", Message: "must be a positive JSON-safe integer"}
@@ -392,7 +393,7 @@ func ValidatePropose(request ProposeRequest) error {
 	if err := validateTags("tags", request.Tags, 32); err != nil {
 		return err
 	}
-	if err := validateDecisionWindow("decision_window", request.DecisionWindow); err != nil {
+	if err := validateDecisionWindow("decision_window", request.DecisionWindow, request.SessionID); err != nil {
 		return err
 	}
 	if !containsString(request.DecisionWindow.ActorIDs, request.ActorID) {
@@ -477,10 +478,10 @@ func ValidateReportAction(request ReportActionRequest) error {
 	if err := validateJSONSafeTick("tick", request.Tick); err != nil {
 		return err
 	}
-	return validateActionReport("report", request.Report)
+	return validateActionReport("report", request.Report, request.SessionID)
 }
 
-func validateActionReport(field string, report ActionReport) error {
+func validateActionReport(field string, report ActionReport, sessionID string) error {
 	if err := validateID(field+".proposal_id", report.ProposalID); err != nil {
 		return err
 	}
@@ -519,6 +520,12 @@ func validateActionReport(field string, report ActionReport) error {
 	}
 	if err := host.ValidateActionInvocation(*report.Invocation); err != nil {
 		return protocolHostError(field+".invocation", err)
+	}
+	if report.Invocation.ExpectedEpoch.SessionID != sessionID {
+		return &ValidationError{
+			Field:   field + ".invocation.expected_epoch.session_id",
+			Message: "must equal session_id",
+		}
 	}
 	if report.Run == nil {
 		return &ValidationError{Field: field + ".run", Message: "is required for accepted reports"}
@@ -581,7 +588,7 @@ func validateActionReport(field string, report ActionReport) error {
 	return nil
 }
 
-func validateDecisionWindow(field string, window DecisionWindow) error {
+func validateDecisionWindow(field string, window DecisionWindow, sessionID string) error {
 	if err := validateID(field+".id", window.ID); err != nil {
 		return err
 	}
@@ -592,6 +599,9 @@ func validateDecisionWindow(field string, window DecisionWindow) error {
 	}
 	if err := window.Epoch.Validate(field + ".epoch"); err != nil {
 		return protocolHostError("", err)
+	}
+	if window.Epoch.SessionID != sessionID {
+		return &ValidationError{Field: field + ".epoch.session_id", Message: "must equal session_id"}
 	}
 	if window.ObservationSeq == 0 ||
 		window.ObservationSeq > uint64(MaxJSONSafeInteger) {
@@ -634,14 +644,8 @@ func validateStructuredPayload(field string, payload StructuredPayload) error {
 	if len(payload.Data) == 0 || len(payload.Data) > 256<<10 {
 		return &ValidationError{Field: field + ".data", Message: "must contain 1-262144 bytes of JSON"}
 	}
-	decoder := json.NewDecoder(bytes.NewReader(payload.Data))
-	decoder.UseNumber()
-	var value any
-	if err := decoder.Decode(&value); err != nil {
-		return &ValidationError{Field: field + ".data", Message: "must be valid JSON"}
-	}
-	if _, err := decoder.Token(); err != io.EOF {
-		return &ValidationError{Field: field + ".data", Message: "must contain exactly one JSON value"}
+	if err := jsonwire.Validate(payload.Data); err != nil {
+		return &ValidationError{Field: field + ".data", Message: err.Error()}
 	}
 	return nil
 }

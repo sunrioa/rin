@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 
@@ -65,24 +64,27 @@ func applyEvent(state protocol.SessionState, event protocol.EventRecord) (protoc
 	if err := verifyEvent(state, event); err != nil {
 		return protocol.SessionState{}, err
 	}
-	var err error
+	payload, err := decodeAndValidateEventPayload(state, event)
+	if err != nil {
+		return protocol.SessionState{}, err
+	}
 	switch event.Type {
 	case EventSessionCreated:
-		state, err = applyCreated(state, event)
+		state, err = applyCreated(state, event, payload.(createdPayload))
 	case EventObserved:
-		err = applyObserved(&state, event)
+		err = applyObserved(&state, event, payload.(observedPayload))
 	case EventProposed:
-		err = applyProposed(&state, event)
+		err = applyProposed(&state, event, payload.(proposedPayload))
 	case EventActionReported:
-		err = applyActionReported(&state, event)
+		err = applyActionReported(&state, event, payload.(actionReportedPayload))
 	case EventActionBatchReported:
-		err = applyActionBatchReported(&state, event)
+		err = applyActionBatchReported(&state, event, payload.(actionBatchReportedPayload))
 	case EventActivityUpdated:
-		err = applyActivityUpdated(&state, event)
+		err = applyActivityUpdated(&state, event, payload.(activityUpdatedPayload))
 	case EventArbitrated:
-		err = applyArbitrated(&state, event)
+		err = applyArbitrated(&state, event, payload.(arbitratedPayload))
 	case EventSessionRestored:
-		state, err = applyRestored(state, event)
+		state, err = applyRestored(state, event, payload.(restoredPayload))
 	default:
 		err = fmt.Errorf("%w: unknown event type %q", ErrCorruptLog, event.Type)
 	}
@@ -103,18 +105,15 @@ func applyEvent(state protocol.SessionState, event protocol.EventRecord) (protoc
 	return state, nil
 }
 
-func applyCreated(state protocol.SessionState, event protocol.EventRecord) (protocol.SessionState, error) {
+func applyCreated(
+	state protocol.SessionState,
+	event protocol.EventRecord,
+	payload createdPayload,
+) (protocol.SessionState, error) {
 	if state.Revision != 0 || state.SessionID != "" {
 		return protocol.SessionState{}, fmt.Errorf("%w: session.created is not first", ErrCorruptLog)
 	}
-	var payload createdPayload
-	if err := json.Unmarshal(event.Data, &payload); err != nil {
-		return protocol.SessionState{}, fmt.Errorf("%w: decode create payload: %v", ErrCorruptLog, err)
-	}
 	request := payload.Request
-	if err := protocol.ValidateCreateSession(request); err != nil {
-		return protocol.SessionState{}, fmt.Errorf("%w: invalid create payload: %v", ErrCorruptLog, err)
-	}
 	actors := make(map[string]protocol.ActorState, len(request.Actors))
 	for _, seed := range request.Actors {
 		seed.Goals = append([]protocol.Goal(nil), seed.Goals...)
@@ -151,11 +150,11 @@ func applyCreated(state protocol.SessionState, event protocol.EventRecord) (prot
 	return created, nil
 }
 
-func applyObserved(state *protocol.SessionState, event protocol.EventRecord) error {
-	var payload observedPayload
-	if err := json.Unmarshal(event.Data, &payload); err != nil {
-		return fmt.Errorf("%w: decode observe payload: %v", ErrCorruptLog, err)
-	}
+func applyObserved(
+	state *protocol.SessionState,
+	event protocol.EventRecord,
+	payload observedPayload,
+) error {
 	request := payload.Request
 	for _, actorID := range request.ObserverIDs {
 		actor, exists := state.Actors[actorID]
@@ -207,11 +206,11 @@ func applyObserved(state *protocol.SessionState, event protocol.EventRecord) err
 	return advanceWorldRevision(state)
 }
 
-func applyProposed(state *protocol.SessionState, event protocol.EventRecord) error {
-	var payload proposedPayload
-	if err := json.Unmarshal(event.Data, &payload); err != nil {
-		return fmt.Errorf("%w: decode proposal payload: %v", ErrCorruptLog, err)
-	}
+func applyProposed(
+	state *protocol.SessionState,
+	event protocol.EventRecord,
+	payload proposedPayload,
+) error {
 	proposal := payload.Proposal
 	if _, exists := state.Actors[proposal.ActorID]; !exists {
 		return fmt.Errorf("%w: proposal actor is unknown", ErrCorruptLog)
@@ -228,11 +227,11 @@ func applyProposed(state *protocol.SessionState, event protocol.EventRecord) err
 	return nil
 }
 
-func applyActionReported(state *protocol.SessionState, event protocol.EventRecord) error {
-	var payload actionReportedPayload
-	if err := json.Unmarshal(event.Data, &payload); err != nil {
-		return fmt.Errorf("%w: decode action report payload: %v", ErrCorruptLog, err)
-	}
+func applyActionReported(
+	state *protocol.SessionState,
+	event protocol.EventRecord,
+	payload actionReportedPayload,
+) error {
 	request := payload.Request
 	if err := applyActionReport(state, request.Report, request.Tick, event.Sequence); err != nil {
 		return err
@@ -249,11 +248,11 @@ func applyActionReported(state *protocol.SessionState, event protocol.EventRecor
 	return nil
 }
 
-func applyActionBatchReported(state *protocol.SessionState, event protocol.EventRecord) error {
-	var payload actionBatchReportedPayload
-	if err := json.Unmarshal(event.Data, &payload); err != nil {
-		return fmt.Errorf("%w: decode batch action report payload: %v", ErrCorruptLog, err)
-	}
+func applyActionBatchReported(
+	state *protocol.SessionState,
+	event protocol.EventRecord,
+	payload actionBatchReportedPayload,
+) error {
 	worldChanged := false
 	for _, report := range payload.Request.Reports {
 		if err := applyActionReport(state, report, payload.Request.Tick, event.Sequence); err != nil {
@@ -288,6 +287,12 @@ func applyActionReport(state *protocol.SessionState, report protocol.ActionRepor
 	proposal.LastReportEventID = report.EventID
 	proposal.LastReportTick = tick
 	if report.Decision == protocol.ActionAccepted {
+		if report.Invocation == nil || report.Run == nil {
+			return fmt.Errorf(
+				"%w: accepted action report is missing invocation or run",
+				ErrCorruptLog,
+			)
+		}
 		proposal.Status = "accepted"
 		invocation := *report.Invocation
 		run := *report.Run
@@ -383,11 +388,11 @@ func applyActionReport(state *protocol.SessionState, report protocol.ActionRepor
 	return nil
 }
 
-func applyActivityUpdated(state *protocol.SessionState, event protocol.EventRecord) error {
-	var payload activityUpdatedPayload
-	if err := json.Unmarshal(event.Data, &payload); err != nil {
-		return fmt.Errorf("%w: decode activity payload: %v", ErrCorruptLog, err)
-	}
+func applyActivityUpdated(
+	state *protocol.SessionState,
+	event protocol.EventRecord,
+	payload activityUpdatedPayload,
+) error {
 	for _, update := range payload.Request.Updates {
 		actor, exists := state.Actors[update.ActorID]
 		if !exists {
@@ -409,11 +414,11 @@ func applyActivityUpdated(state *protocol.SessionState, event protocol.EventReco
 	return advanceWorldRevision(state)
 }
 
-func applyArbitrated(state *protocol.SessionState, event protocol.EventRecord) error {
-	var payload arbitratedPayload
-	if err := json.Unmarshal(event.Data, &payload); err != nil {
-		return fmt.Errorf("%w: decode arbitration payload: %v", ErrCorruptLog, err)
-	}
+func applyArbitrated(
+	state *protocol.SessionState,
+	event protocol.EventRecord,
+	payload arbitratedPayload,
+) error {
 	state.Arbitrations = append(state.Arbitrations, payload.Record)
 	if len(state.Arbitrations) > maxArbitrations {
 		state.Arbitrations = append([]protocol.ArbitrationRecord(nil), state.Arbitrations[len(state.Arbitrations)-maxArbitrations:]...)
@@ -425,14 +430,11 @@ func applyArbitrated(state *protocol.SessionState, event protocol.EventRecord) e
 	return nil
 }
 
-func applyRestored(current protocol.SessionState, event protocol.EventRecord) (protocol.SessionState, error) {
-	var payload restoredPayload
-	if err := json.Unmarshal(event.Data, &payload); err != nil {
-		return protocol.SessionState{}, fmt.Errorf("%w: decode restore payload: %v", ErrCorruptLog, err)
-	}
-	if err := validateSnapshotContents(payload.Snapshot); err != nil {
-		return protocol.SessionState{}, fmt.Errorf("%w: %v", ErrCorruptLog, err)
-	}
+func applyRestored(
+	current protocol.SessionState,
+	event protocol.EventRecord,
+	payload restoredPayload,
+) (protocol.SessionState, error) {
 	if payload.ExpectedBinding != nil && *payload.ExpectedBinding != payload.Snapshot.State.Binding {
 		return protocol.SessionState{}, fmt.Errorf("%w: restore expected binding mismatch", ErrCorruptLog)
 	}

@@ -35,7 +35,8 @@ Rin 负责提出建议，游戏 Host 负责决定与执行。
 并且不得把 Bearer Token 写进游戏存档。
 
 标识符由小写 ASCII 段和 `.`、`_`、`-` 分隔符组成。跨 SDK 的整数必须位于
-JSON 安全范围 `0..9007199254740991`。
+JSON 安全范围 `0..9007199254740991`。所有 Wire 与持久化边界的 JSON Object
+Member Name 都必须唯一。
 
 ## 创建 Session
 
@@ -84,6 +85,10 @@ v2 动作生命周期无需 Feature Opt-in。可选 Feature 仅提供增量能�
 - 权威进程重新建立时递增 `host`；
 - Scene、Level、Shard 或权威世界加载后递增 `world`；
 - 回滚、存档分支或加载较旧状态后递增 `timeline`。
+
+三个 Generation 都必须是正数且位于 JSON 安全范围。Epoch 的 `session_id`
+必须等于外层 Request 与 Session State；即使其他字段有效，来自另一 Session
+的嵌套 Epoch 也会被拒绝。
 
 `Timepoint` 形如 `{ "clock": "event|step|realtime", "value": N }`。
 Realtime 值是 Unix 毫秒；Event 与 Step 值是 Host 单调计数器。渲染帧不是
