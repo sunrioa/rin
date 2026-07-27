@@ -31,6 +31,24 @@ func acquireDataDirectoryLock(path string) (*os.File, error) {
 	return file, nil
 }
 
+func acquireExistingDataDirectoryLock(path string) (*os.File, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open existing data-directory lock: %w", err)
+	}
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		closeErr := file.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+			return nil, errors.Join(
+				fmt.Errorf("%w: %s", ErrDataDirectoryLocked, path),
+				closeErr,
+			)
+		}
+		return nil, errors.Join(fmt.Errorf("lock data directory: %w", err), closeErr)
+	}
+	return file, nil
+}
+
 func releaseDataDirectoryLock(file *os.File) error {
 	if file == nil {
 		return nil

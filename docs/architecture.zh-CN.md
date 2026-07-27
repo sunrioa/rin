@@ -197,8 +197,10 @@ revision 的最新可用 checkpoint，再对剩余 tail 运行正常 reducer，�
 可验证的 Snapshot，但不会把导出的 Snapshot 写回 Store。Session 加载完成后，
 Timeline 与 Replay 只在 Session lock 下捕获 live boundary，随后释放 mutation
 lock，再执行 range I/O 与重放；第一次 lazy load 仍会串行完成。`rin inspect`
-复用这两条路径输出机器可读诊断。健康 revision index 可让它直接定位请求的
-Timeline 尾部窗口，不会仅为了保留最后几条 entry 而从 genesis 向前分页。
+通过只读 Store 视图输出机器可读诊断，并从 genesis 重放所选 Session；它不会
+创建目录、完成待处理维护、写 checkpoint 或修复派生 index 文件。健康 revision
+index 可让它直接定位请求的 Timeline 尾部窗口；缺失或损坏的 index 只在内存
+重建。
 
 Replay State 对应指定 revision，但 Snapshot 会携带完整的本地 lineage
 Identifier History，包括在所选 State revision 之后产生的 tombstone；否则
@@ -216,7 +218,8 @@ genesis 到 head 重放并审计每个 Session 的完整 hash chain。
 `Engine.Scrub(ctx, maxEvents)` 提供相同的 checkpoint-independent Reducer 与
 Identifier 校验，但会保存内存游标，且单次调用绝不超过给定 Event Budget。随附
 Sidecar 会在后台运行 Scrub，并同时用事件数和 Timeout 限制每次 Pass。普通
-`rin inspect` 只读取指定 Session，不会隐式执行整个数据目录的全量审计。
+`rin inspect` 只读取指定 Session、输出 `"mode":"read-only"`，不会隐式执行
+整个数据目录的全量审计。
 
 ### Mutation 与状态闭包
 

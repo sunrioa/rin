@@ -33,6 +33,8 @@ var (
 	// durably distinguished. Only an exact retry of that append may proceed.
 	ErrDurabilityUncertain = errors.New("rin file store durability outcome is uncertain")
 	ErrFileClosed          = errors.New("rin file store is closed")
+	// ErrReadOnly rejects writes through an inspection-only File view.
+	ErrReadOnly = errors.New("rin file store is read-only")
 )
 
 type uncertainFileAppend struct {
@@ -43,6 +45,7 @@ type uncertainFileAppend struct {
 type File struct {
 	root     string
 	lockFile *os.File
+	readOnly bool
 
 	lifecycle sync.RWMutex
 	closed    bool

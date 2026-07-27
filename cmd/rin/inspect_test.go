@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -47,6 +48,9 @@ func TestRunInspectPrintsVerifiedRedactedSummary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := engine.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	if err := fileStore.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +68,9 @@ func TestRunInspectPrintsVerifiedRedactedSummary(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.SessionID != "session.inspect" || result.Revision != 1 || result.ActorCount != 1 || len(result.Timeline) != 1 {
+	if result.Mode != "read-only" || result.SessionID != "session.inspect" ||
+		result.Revision != 1 || result.ActorCount != 1 ||
+		len(result.Timeline) != 1 {
 		t.Fatalf("unexpected inspect output: %+v", result)
 	}
 }

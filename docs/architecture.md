@@ -278,10 +278,12 @@ verifiable Snapshot without writing an exported Snapshot to the store.
 Once the Session is loaded, Timeline and Replay capture their live-session
 boundary under the Session lock, then perform range I/O and replay after
 releasing that mutation lock. A first lazy load remains serialized.
-`rin inspect` reuses both paths for machine-readable diagnostics. With a
-healthy revision index it locates the requested trailing Timeline window
-directly, instead of paging forward from genesis merely to retain the last
-entries.
+`rin inspect` exposes a read-only Store view for machine-readable diagnostics.
+It replays the selected Session from genesis and never creates directories,
+finishes pending maintenance, writes checkpoints, or repairs derived index
+files. With a healthy revision index it locates the requested trailing
+Timeline window directly; a missing or invalid index is rebuilt only in
+memory.
 
 Replay State is revision-specific, but its Snapshot carries the complete
 local-lineage Identifier History, including tombstones created after the
@@ -305,8 +307,9 @@ checkpoint-independent reducer and identifier validation incrementally: it
 captures a Session head, preserves an in-memory cursor across calls, and never
 processes more than the supplied event budget. The bundled Sidecar starts this
 scrub in the background and bounds each pass by both an event budget and a
-timeout. Ordinary `rin inspect` reads only its requested Session and does not
-implicitly perform a data-directory-wide audit.
+timeout. Ordinary `rin inspect` reads only its requested Session, reports
+`"mode":"read-only"`, and does not implicitly perform a data-directory-wide
+audit.
 
 ### Mutation and state closure
 

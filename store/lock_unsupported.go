@@ -16,6 +16,10 @@ func acquireDataDirectoryLock(string) (*os.File, error) {
 	return nil, checkDataDirectoryLockSupport()
 }
 
+func acquireExistingDataDirectoryLock(string) (*os.File, error) {
+	return nil, checkDataDirectoryLockSupport()
+}
+
 func releaseDataDirectoryLock(file *os.File) error {
 	if file == nil {
 		return nil

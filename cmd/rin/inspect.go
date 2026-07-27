@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -15,6 +16,7 @@ import (
 
 type inspectOutput struct {
 	ProtocolVersion  string                   `json:"protocol_version"`
+	Mode             string                   `json:"mode"`
 	SessionID        string                   `json:"session_id"`
 	Binding          protocol.Binding         `json:"binding"`
 	Revision         uint64                   `json:"revision"`
@@ -47,7 +49,7 @@ func runInspect(arguments []string, output io.Writer) (resultErr error) {
 	if *timelineLimit < 0 || *timelineLimit > 256 {
 		return errors.New("-timeline-limit must be between 0 and 256")
 	}
-	fileStore, err := store.OpenFile(*dataDirectory)
+	fileStore, err := store.OpenFileReadOnly(*dataDirectory)
 	if err != nil {
 		return err
 	}
@@ -58,6 +60,12 @@ func runInspect(arguments []string, output io.Writer) (resultErr error) {
 	if err != nil {
 		return err
 	}
+	defer func() {
+		resultErr = errors.Join(
+			resultErr,
+			engine.Close(context.Background()),
+		)
+	}()
 	var snapshot protocol.Snapshot
 	if *revision == 0 {
 		state, stateErr := engine.State(protocol.SessionRequest{ProtocolVersion: protocol.Version, SessionID: *sessionID})
@@ -84,8 +92,9 @@ func runInspect(arguments []string, output io.Writer) (resultErr error) {
 		}
 	}
 	result := inspectOutput{
-		ProtocolVersion: protocol.Version, SessionID: snapshot.State.SessionID,
-		Binding: snapshot.State.Binding, Revision: snapshot.State.Revision,
+		ProtocolVersion: protocol.Version, Mode: "read-only",
+		SessionID: snapshot.State.SessionID,
+		Binding:   snapshot.State.Binding, Revision: snapshot.State.Revision,
 		WorldRevision: snapshot.State.WorldRevision, Tick: snapshot.State.Tick,
 		Features:   append([]string(nil), snapshot.State.Features...),
 		ActorCount: len(snapshot.State.Actors), PendingProposals: pending,

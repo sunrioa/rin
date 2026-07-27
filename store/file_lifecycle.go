@@ -120,6 +120,21 @@ func (s *File) ensureSessionDurability(sessionID string, directory string) error
 		return nil
 	}
 	eventPath := filepath.Join(directory, "events.jsonl")
+	if s.readOnly {
+		file, err := os.Open(eventPath)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return rinruntime.ErrNotFound
+			}
+			return err
+		}
+		closeErr := file.Close()
+		if closeErr != nil {
+			return closeErr
+		}
+		s.markSessionDurabilityConfirmed(sessionID)
+		return nil
+	}
 	if err := s.syncEventFile(eventPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return rinruntime.ErrNotFound

@@ -159,9 +159,11 @@ func (s *File) rebuildEventIndex(
 		s.deleteCachedIndex(sessionID)
 		return nil, err
 	}
-	if err := writeEventIndex(directory, index); err != nil {
-		s.deleteCachedIndex(sessionID)
-		return nil, err
+	if !s.readOnly {
+		if err := writeEventIndex(directory, index); err != nil {
+			s.deleteCachedIndex(sessionID)
+			return nil, err
+		}
 	}
 	s.setCachedIndex(sessionID, index)
 	return index, nil

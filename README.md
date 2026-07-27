@@ -195,25 +195,24 @@ JSON endpoint；应改用 Bearer 保护的 `/v2/session/export` 与
 [架构文档](docs/architecture.zh-CN.md)，应用、结果记账和重试顺序见
 [动作结果记账](docs/action-lifecycle.zh-CN.md)。
 
-离线检查一个会话（会校验请求所经过的恢复路径，并只打印脱敏时间线；健康
-revision index 会直接定位请求的尾部窗口，不会从 genesis 向前分页）：
+只读离线检查一个会话（会从权威事件日志校验请求所经过的恢复路径，并只打印
+脱敏时间线；健康 revision index 会直接定位请求的尾部窗口，缺失或损坏的 index
+只在内存重建，不会修改数据目录）：
 
 ```bash
 go run ./cmd/rin inspect -data ./rin-data -session playthrough-1
 go run ./cmd/rin inspect -data ./rin-data -session playthrough-1 -revision 42
 ```
 
-随附 File Store 会持有数据目录的 non-blocking exclusive lock，因此运行
-`rin inspect` 或进行未协调的文件系统备份前，应先停止 Sidecar。嵌入式 Go
-调用方必须调用 `(*store.File).Close()` 释放该锁。Engine 启动时只 lazy 枚举
-Session；第一次访问会从最新可用且已校验的内部 checkpoint 加载，若无可用
-checkpoint 则从 genesis 开始，再重放 event tail。lazy recovery 没有使用
-checkpoint，或所选 checkpoint tail 达到 16,384 个事件时，Runtime 会
-best-effort 异步排队一个恢复出的 head checkpoint；read 返回时它可能尚未
-持久化，缓存写入失败也不会让 read 失败。小于 revision 256 的 Session 在
-checkpoint 回退后也会修复 exact head。一次性、checkpoint-independent 全量
-审计使用 `Engine.VerifyAll()`；希望把相同的 genesis-to-head 校验拆成有界 Pass
-时使用 `Engine.Scrub(ctx, maxEvents)`。随附 Sidecar 会自动运行有界 Scrub。
+`rin inspect` 会持有数据目录的 non-blocking exclusive lock，以保证整个读取
+期间目录稳定，因此运行它或进行未协调的文件系统备份前，应先停止 Sidecar。
+该命令使用 `store.OpenFileReadOnly`，不会创建目录、清理暂存文件、完成待处理
+删除、写 index/snapshot/checkpoint 或执行 fsync 修复，并在 JSON 中输出
+`"mode": "read-only"`。因为只读视图不会向 Runtime 暴露 Checkpoint Store，
+检查会从 genesis 重放所选 Session；一次性、checkpoint-independent 全量审计
+使用 `Engine.VerifyAll()`，有界审计使用 `Engine.Scrub(ctx, maxEvents)`。正常
+Sidecar 启动仍会执行 File Store 恢复，并自动运行有界 Scrub。嵌入式调用方必须
+调用 `(*store.ReadOnlyFile).Close()` 或 `(*store.File).Close()` 释放目录锁。
 
 随附数据目录独占锁支持 `darwin`、`linux` 与 `windows`：Unix 使用 non-blocking
 `flock`，`windows` 使用无共享模式的独占文件 handle。其他所有 GOOS 上，
