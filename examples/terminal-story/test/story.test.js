@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -50,6 +50,62 @@ test("Proposal settlement publishes game effect and Outcome Outbox together", as
   assert.equal(persisted.game.pending_turn, null);
   assert.deepEqual(persisted.game.shown_action_ids, ["offer.tea"]);
   assert.equal(persisted.outbox[0].key, "report.fixture");
+});
+
+test("failed settlement publish leaves memory and disk at the retryable Attempt", async () => {
+  const store = await temporaryStore();
+  await store.ensureSessionId("session.fixture");
+  await store.beginRinTurn("tea", 1);
+  const attempt = {
+    version: 1,
+    operation_id: "operation.fixture",
+    request: { request_id: "request.fixture", session_id: "session.fixture" },
+    job_id: "job.fixture",
+  };
+  await store.createProposalAttempt(attempt);
+  const before = structuredClone(store.document);
+  const persistedBefore = JSON.parse(await readFile(store.path, "utf8"));
+  const publish = store.publish.bind(store);
+  store.publish = async () => {
+    throw new Error("injected rename failure");
+  };
+
+  await assert.rejects(
+    store.settleProposalAttempt({
+      attempt,
+      report: { request_id: "report.fixture" },
+      apply: async () => store.recordRinAction({ id: "offer.tea" }),
+    }),
+    /injected rename failure/,
+  );
+
+  assert.deepEqual(store.document, before);
+  assert.deepEqual(JSON.parse(await readFile(store.path, "utf8")), persistedBefore);
+  assert.throws(
+    () => store.recordRinAction({ id: "offer.tea" }),
+    /inside Proposal settlement/,
+  );
+
+  store.publish = publish;
+  await store.settleProposalAttempt({
+    attempt,
+    report: { request_id: "report.fixture" },
+    apply: async () => store.recordRinAction({ id: "offer.tea" }),
+  });
+  assert.deepEqual(store.game.shown_action_ids, ["offer.tea"]);
+  assert.equal(store.document.outbox.length, 1);
+});
+
+test("failed file replacement keeps memory unchanged and removes its temporary file", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "rin-story-rename-test-"));
+  const blockedTarget = join(directory, "save-target");
+  await mkdir(blockedTarget);
+  const store = new StoryWorkflowStore(blockedTarget);
+
+  await assert.rejects(store.rememberPreference("tea"));
+
+  assert.equal(store.game.preference, "");
+  assert.deepEqual(await readdir(directory), ["save-target"]);
 });
 
 test("Rin presentation runs only after the authoritative settlement commits", async () => {

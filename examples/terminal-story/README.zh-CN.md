@@ -48,6 +48,8 @@ npm start
 权威动作是故事存档中的 `shown_action_ids` 变更；该变更、Outcome Outbox Entry
 与清除 Proposal Attempt 会通过一次文件替换共同发布。`presentAction` 只允许
 执行非权威的终端/UI 呈现，并且仅在文件替换成功后运行；它不得修改世界状态。
+Store 使用 Copy-on-write：Write 或 Rename 失败时，内存 Document 与旧存档都
+保持不变，临时文件会被清理，Proposal Attempt 则保留用于精确重试。
 
 非交互运行：
 

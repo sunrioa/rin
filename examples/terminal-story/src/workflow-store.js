@@ -1,4 +1,5 @@
-import { mkdir, open, readFile, rename } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
 
 const EMPTY_DOCUMENT = Object.freeze({
@@ -18,6 +19,8 @@ export class StoryWorkflowStore {
   constructor(path) {
     this.path = path;
     this.document = structuredClone(EMPTY_DOCUMENT);
+    this.committing = false;
+    this.settlementDraft = null;
   }
 
   get game() {
@@ -47,14 +50,16 @@ export class StoryWorkflowStore {
     if (preference !== "tea" && preference !== "coffee") {
       throw new Error("preference must be tea or coffee");
     }
-    this.document.game.preference = preference;
-    await this.flush();
+    await this.commit((next) => {
+      next.game.preference = preference;
+    });
   }
 
   async ensureSessionId(candidate) {
     if (!this.document.game.session_id) {
-      this.document.game.session_id = candidate;
-      await this.flush();
+      await this.commit((next) => {
+        next.game.session_id = candidate;
+      });
     } else if (this.document.game.session_id !== candidate) {
       throw new Error("story save is already bound to another Session");
     }
@@ -73,16 +78,18 @@ export class StoryWorkflowStore {
         sequence !== this.document.game.next_sequence) {
       throw new Error("turn sequence does not match the durable game save");
     }
-    this.document.game.preference = preference;
-    this.document.game.pending_turn = { sequence, preference };
-    this.document.game.next_sequence = sequence + 1;
-    await this.flush();
+    await this.commit((next) => {
+      next.game.preference = preference;
+      next.game.pending_turn = { sequence, preference };
+      next.game.next_sequence = sequence + 1;
+    });
     return clone(this.document.game.pending_turn);
   }
 
   async applyBaselineAction(action) {
-    this.document.game.shown_action_ids.push(action.id);
-    await this.flush();
+    await this.commit((next) => {
+      next.game.shown_action_ids.push(action.id);
+    });
   }
 
   async loadProposalAttempt() {
@@ -91,34 +98,45 @@ export class StoryWorkflowStore {
 
   async createProposalAttempt(attempt) {
     if (this.document.attempt) return false;
-    this.document.attempt = clone(attempt);
-    await this.flush();
+    await this.commit((next) => {
+      next.attempt = clone(attempt);
+    });
     return true;
   }
 
   async saveProposalAttempt(attempt) {
-    this.document.attempt = clone(attempt);
-    await this.flush();
+    await this.commit((next) => {
+      next.attempt = clone(attempt);
+    });
   }
 
   async settleProposalAttempt({ attempt, report, apply }) {
     if (this.document.attempt?.operation_id !== attempt.operation_id) {
       throw new Error("Proposal Attempt identity changed before settlement");
     }
-    // apply mutates only this document. The game effect, Outbox entry, and
-    // cleared Attempt are then published by one atomic file replacement.
-    await apply();
-    this.document.outbox.push({
-      key: report.request_id,
-      report: clone(report),
+    // apply mutates only the draft through recordRinAction. The game effect,
+    // Outbox entry, and cleared Attempt are then published by one replacement.
+    await this.commit(async (next) => {
+      this.settlementDraft = next;
+      try {
+        await apply();
+      } finally {
+        this.settlementDraft = null;
+      }
+      next.outbox.push({
+        key: report.request_id,
+        report: clone(report),
+      });
+      next.attempt = null;
+      next.game.pending_turn = null;
     });
-    this.document.attempt = null;
-    this.document.game.pending_turn = null;
-    await this.flush();
   }
 
   recordRinAction(action) {
-    this.document.game.shown_action_ids.push(action.id);
+    if (!this.settlementDraft) {
+      throw new Error("Rin action must be recorded inside Proposal settlement");
+    }
+    this.settlementDraft.game.shown_action_ids.push(action.id);
   }
 
   async listOutcomeReports() {
@@ -128,21 +146,47 @@ export class StoryWorkflowStore {
   async acknowledgeOutcome(entry) {
     const index = this.document.outbox.findIndex((item) => item.key === entry.key);
     if (index < 0) throw new Error("Outcome Outbox entry disappeared");
-    this.document.outbox.splice(index, 1);
-    await this.flush();
+    await this.commit((next) => {
+      next.outbox.splice(index, 1);
+    });
   }
 
-  async flush() {
-    await mkdir(dirname(this.path), { recursive: true });
-    const temporary = `${this.path}.${process.pid}.${Date.now()}.tmp`;
-    const handle = await open(temporary, "wx");
-    try {
-      await handle.writeFile(`${JSON.stringify(this.document)}\n`, "utf8");
-      await handle.sync();
-    } finally {
-      await handle.close();
+  async commit(mutate) {
+    if (this.committing) {
+      throw new Error("concurrent story save mutation is not allowed");
     }
-    await rename(temporary, this.path);
+    this.committing = true;
+    try {
+      const next = clone(this.document);
+      await mutate(next);
+      validateDocument(next);
+      await this.publish(next);
+      this.document = next;
+    } finally {
+      this.committing = false;
+    }
+  }
+
+  async publish(document) {
+    await mkdir(dirname(this.path), { recursive: true });
+    const temporary = `${this.path}.${process.pid}.${randomUUID()}.tmp`;
+    let created = false;
+    try {
+      const handle = await open(temporary, "wx");
+      created = true;
+      try {
+        await handle.writeFile(`${JSON.stringify(document)}\n`, "utf8");
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      await rename(temporary, this.path);
+      created = false;
+    } finally {
+      if (created) {
+        await unlink(temporary).catch(() => {});
+      }
+    }
   }
 }
 

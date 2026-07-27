@@ -55,6 +55,9 @@ That mutation, the Outcome Outbox entry, and clearing the Proposal Attempt are
 published by one file replacement. `presentAction` is deliberately limited to
 non-authoritative terminal/UI presentation and runs only after that replacement
 succeeds; it must not perform world-state mutation.
+The Store uses copy-on-write: a failed write or rename leaves both its in-memory
+document and the previous save unchanged, removes its temporary file, and keeps
+the Proposal Attempt available for exact retry.
 
 For a non-interactive run:
 
