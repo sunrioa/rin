@@ -38,7 +38,19 @@ jobs:
       - name: Test accelerated-year File Store lifecycle
         run: go test ./runtime -run '^TestAcceleratedYearSession$' -count=1
       - name: Test with race detector
-        run: go test -race ./...
+        shell: bash
+        run: |
+          set +e
+          output="$(go test -race ./... 2>&1)"
+          status=$?
+          printf '%s\n' "$output"
+          if [ "$status" -ne 0 ]; then
+            escaped="${output//'%'/'%25'}"
+            escaped="${escaped//$'\r'/'%0D'}"
+            escaped="${escaped//$'\n'/'%0A'}"
+            printf '::error title=Go race detector::%s\n' "$escaped"
+          fi
+          exit "$status"
 
   build:
     strategy:
