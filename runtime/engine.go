@@ -155,42 +155,16 @@ func OpenWithOptions(
 	if store == nil || decisionProvider == nil {
 		return nil, errors.New("store and decision provider are required")
 	}
-	if options.SessionHardLimitBytes > 0 &&
-		options.SessionSoftLimitBytes > options.SessionHardLimitBytes {
-		return nil, errors.New("Session soft limit must not exceed hard limit")
+	normalized, err := normalizeEngineOptions(options)
+	if err != nil {
+		return nil, err
 	}
+	options = normalized
 	if options.SessionSoftLimitBytes > 0 ||
 		options.SessionHardLimitBytes > 0 {
 		if _, ok := store.(LifecycleStore); !ok {
 			return nil, errors.New("Session storage limits require Store stats support")
 		}
-	}
-	if options.MaxSessionStateBytes == 0 {
-		options.MaxSessionStateBytes = DefaultMaxSessionStateBytes
-	}
-	if options.MaxSessionStateBytes > MaxConfigurableSessionStateBytes {
-		return nil, errors.New(
-			"Session State byte limit must not exceed 24 MiB",
-		)
-	}
-	if options.MaxTransferBytes == 0 {
-		options.MaxTransferBytes = DefaultMaxTransferBytes
-	}
-	if options.MaxTransferBytes > 1<<40 {
-		return nil, errors.New("Transfer byte limit must not exceed 1 TiB")
-	}
-	if options.MaxTransferEvents == 0 {
-		options.MaxTransferEvents = DefaultMaxTransferEvents
-	}
-	if options.MaxTransferEvents > uint64(protocol.MaxJSONSafeInteger) {
-		return nil, errors.New("Transfer event limit must be JSON-safe")
-	}
-	if options.MaxConcurrentTransfers == 0 {
-		options.MaxConcurrentTransfers = DefaultMaxConcurrentTransfers
-	}
-	if options.MaxConcurrentTransfers < 1 ||
-		options.MaxConcurrentTransfers > 64 {
-		return nil, errors.New("concurrent Transfer limit must be between 1 and 64")
 	}
 	engine := &Engine{
 		sessions:               make(map[string]*managedSession),
@@ -220,6 +194,54 @@ func OpenWithOptions(
 		engine.sessions[id] = &managedSession{id: id}
 	}
 	return engine, nil
+}
+
+// ValidateEngineOptions applies the same numeric limits as OpenWithOptions
+// without opening or touching a Store.
+func ValidateEngineOptions(options EngineOptions) error {
+	_, err := normalizeEngineOptions(options)
+	return err
+}
+
+func normalizeEngineOptions(options EngineOptions) (EngineOptions, error) {
+	if options.SessionHardLimitBytes > 0 &&
+		options.SessionSoftLimitBytes > options.SessionHardLimitBytes {
+		return EngineOptions{}, errors.New(
+			"Session soft limit must not exceed hard limit",
+		)
+	}
+	if options.MaxSessionStateBytes == 0 {
+		options.MaxSessionStateBytes = DefaultMaxSessionStateBytes
+	}
+	if options.MaxSessionStateBytes > MaxConfigurableSessionStateBytes {
+		return EngineOptions{}, errors.New(
+			"Session State byte limit must not exceed 24 MiB",
+		)
+	}
+	if options.MaxTransferBytes == 0 {
+		options.MaxTransferBytes = DefaultMaxTransferBytes
+	}
+	if options.MaxTransferBytes > 1<<40 {
+		return EngineOptions{}, errors.New(
+			"Transfer byte limit must not exceed 1 TiB",
+		)
+	}
+	if options.MaxTransferEvents == 0 {
+		options.MaxTransferEvents = DefaultMaxTransferEvents
+	}
+	if options.MaxTransferEvents > uint64(protocol.MaxJSONSafeInteger) {
+		return EngineOptions{}, errors.New("Transfer event limit must be JSON-safe")
+	}
+	if options.MaxConcurrentTransfers == 0 {
+		options.MaxConcurrentTransfers = DefaultMaxConcurrentTransfers
+	}
+	if options.MaxConcurrentTransfers < 1 ||
+		options.MaxConcurrentTransfers > 64 {
+		return EngineOptions{}, errors.New(
+			"concurrent Transfer limit must be between 1 and 64",
+		)
+	}
+	return options, nil
 }
 
 // VerifyAll eagerly loads and verifies every known Session. Open itself is

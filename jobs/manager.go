@@ -85,26 +85,9 @@ func New(engine *rinruntime.Engine, config Config) (*Manager, error) {
 	if engine == nil {
 		return nil, errors.New("job manager engine is required")
 	}
-	if config.Workers <= 0 {
-		config.Workers = 2
-	}
-	if config.Workers > 32 {
-		return nil, errors.New("job workers must not exceed 32")
-	}
-	if config.QueueSize <= 0 {
-		config.QueueSize = 64
-	}
-	if config.QueueSize > 4096 {
-		return nil, errors.New("job queue size must not exceed 4096")
-	}
-	if config.MaxJobs <= 0 {
-		config.MaxJobs = 512
-	}
-	if config.MaxJobs < config.QueueSize || config.MaxJobs > 16384 {
-		return nil, errors.New("max jobs must be between queue size and 16384")
-	}
-	if config.JobTTL <= 0 {
-		config.JobTTL = 30 * time.Minute
+	config, err := normalizeConfig(config)
+	if err != nil {
+		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	manager := &Manager{
@@ -121,6 +104,37 @@ func New(engine *rinruntime.Engine, config Config) (*Manager, error) {
 		close(manager.done)
 	}()
 	return manager, nil
+}
+
+// ValidateConfig applies the same limits as New without starting workers.
+func ValidateConfig(config Config) error {
+	_, err := normalizeConfig(config)
+	return err
+}
+
+func normalizeConfig(config Config) (Config, error) {
+	if config.Workers <= 0 {
+		config.Workers = 2
+	}
+	if config.Workers > 32 {
+		return Config{}, errors.New("job workers must not exceed 32")
+	}
+	if config.QueueSize <= 0 {
+		config.QueueSize = 64
+	}
+	if config.QueueSize > 4096 {
+		return Config{}, errors.New("job queue size must not exceed 4096")
+	}
+	if config.MaxJobs <= 0 {
+		config.MaxJobs = 512
+	}
+	if config.MaxJobs < config.QueueSize || config.MaxJobs > 16384 {
+		return Config{}, errors.New("max jobs must be between queue size and 16384")
+	}
+	if config.JobTTL <= 0 {
+		config.JobTTL = 30 * time.Minute
+	}
+	return config, nil
 }
 
 func (m *Manager) Submit(request protocol.ProposeRequest) (protocol.ProposalJobSubmission, error) {

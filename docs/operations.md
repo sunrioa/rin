@@ -105,7 +105,10 @@ are all present.
 
 Capacity, concurrency, timeout, and boolean environment variables fail fast
 when explicitly set to an invalid value; Rin does not silently replace a typo
-with a default. The same rule applies to explicit non-positive CLI limits.
+with a default. The same rule applies to explicit CLI limits. Runtime,
+Proposal Job, and Generation lower/upper bounds are all validated before Rin
+opens or performs recovery on the data directory, so a rejected configuration
+does not create or maintain Store files.
 
 The bundled Sidecar starts a checkpoint-independent event-log scrub
 immediately, then every 15 minutes. Each pass verifies at most 4,096 events and

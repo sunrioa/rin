@@ -160,6 +160,32 @@ Serve options:
 	if err := validateServeEnvironment(); err != nil {
 		return err
 	}
+	jobConfig := jobs.Config{
+		Workers:   envInt("RIN_JOB_WORKERS", 2),
+		QueueSize: envInt("RIN_JOB_QUEUE_SIZE", 64),
+		MaxJobs:   envInt("RIN_JOB_MAX_RETAINED", 512),
+		JobTTL:    envDuration("RIN_JOB_TTL", 30*time.Minute),
+	}
+	generationConfig := generation.Config{
+		Workers:      envInt("RIN_GENERATION_WORKERS", 2),
+		QueueSize:    envInt("RIN_GENERATION_QUEUE_SIZE", 64),
+		MaxJobs:      envInt("RIN_GENERATION_MAX_RETAINED", 512),
+		JobTTL:       envDuration("RIN_GENERATION_JOB_TTL", 30*time.Minute),
+		CacheEntries: envInt("RIN_GENERATION_CACHE_ENTRIES", 256),
+		CacheTTL:     envDuration("RIN_GENERATION_CACHE_TTL", 30*time.Minute),
+		MaxOutputBytes: envInt(
+			"RIN_GENERATION_MAX_OUTPUT_BYTES",
+			512*1024,
+		),
+		MaxRetainedBytes: envUint64(
+			"RIN_GENERATION_MAX_RETAINED_BYTES",
+			64<<20,
+		),
+		CleanupInterval: envDuration(
+			"RIN_GENERATION_CLEANUP_INTERVAL",
+			time.Minute,
+		),
+	}
 	if err := validateServeConfiguration(serveConfiguration{
 		maxBodyBytes:              *maxBody,
 		sessionSoftLimitBytes:     *sessionSoftLimit,
@@ -174,6 +200,8 @@ Serve options:
 		scrubInterval:             *scrubInterval,
 		scrubTimeout:              *scrubTimeout,
 		scrubMaxEvents:            *scrubMaxEvents,
+		jobConfig:                 jobConfig,
+		generationConfig:          generationConfig,
 	}); err != nil {
 		return err
 	}
@@ -217,29 +245,16 @@ Serve options:
 		defer cancel()
 		resultErr = errors.Join(resultErr, engine.Close(closeContext))
 	}()
-	jobManager, err := jobs.New(engine, jobs.Config{
-		Workers: envInt("RIN_JOB_WORKERS", 2), QueueSize: envInt("RIN_JOB_QUEUE_SIZE", 64),
-		MaxJobs: envInt("RIN_JOB_MAX_RETAINED", 512), JobTTL: envDuration("RIN_JOB_TTL", 30*time.Minute),
-	})
+	jobManager, err := jobs.New(engine, jobConfig)
 	if err != nil {
 		return err
 	}
 	var generationManager *generation.Manager
 	if modelRuntime.GenerationProvider != nil {
-		generationManager, err = generation.New(modelRuntime.GenerationProvider, generation.Config{
-			Workers: envInt("RIN_GENERATION_WORKERS", 2), QueueSize: envInt("RIN_GENERATION_QUEUE_SIZE", 64),
-			MaxJobs: envInt("RIN_GENERATION_MAX_RETAINED", 512), JobTTL: envDuration("RIN_GENERATION_JOB_TTL", 30*time.Minute),
-			CacheEntries: envInt("RIN_GENERATION_CACHE_ENTRIES", 256), CacheTTL: envDuration("RIN_GENERATION_CACHE_TTL", 30*time.Minute),
-			MaxOutputBytes: envInt("RIN_GENERATION_MAX_OUTPUT_BYTES", 512*1024),
-			MaxRetainedBytes: envUint64(
-				"RIN_GENERATION_MAX_RETAINED_BYTES",
-				64<<20,
-			),
-			CleanupInterval: envDuration(
-				"RIN_GENERATION_CLEANUP_INTERVAL",
-				time.Minute,
-			),
-		})
+		generationManager, err = generation.New(
+			modelRuntime.GenerationProvider,
+			generationConfig,
+		)
 		if err != nil {
 			closeContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()

@@ -348,6 +348,44 @@ func TestValidateServeConfigurationRejectsExplicitFallbackValues(
 				config.scrubMaxEvents = rinruntime.MaxScrubEventBudget + 1
 			},
 		},
+		{
+			name: "Session State upper bound",
+			mutate: func(config *serveConfiguration) {
+				config.maxSessionStateBytes =
+					rinruntime.MaxConfigurableSessionStateBytes + 1
+			},
+		},
+		{
+			name: "Transfer byte upper bound",
+			mutate: func(config *serveConfiguration) {
+				config.maxTransferBytes = (1 << 40) + 1
+			},
+		},
+		{
+			name: "Transfer event JSON ceiling",
+			mutate: func(config *serveConfiguration) {
+				config.maxTransferEvents =
+					uint64(protocol.MaxJSONSafeInteger) + 1
+			},
+		},
+		{
+			name: "Transfer concurrency upper bound",
+			mutate: func(config *serveConfiguration) {
+				config.maxConcurrentTransfers = 65
+			},
+		},
+		{
+			name: "Proposal Job workers",
+			mutate: func(config *serveConfiguration) {
+				config.jobConfig.Workers = 33
+			},
+		},
+		{
+			name: "Generation output",
+			mutate: func(config *serveConfiguration) {
+				config.generationConfig.MaxOutputBytes = 4*1024*1024 + 1
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -360,6 +398,89 @@ func TestValidateServeConfigurationRejectsExplicitFallbackValues(
 	}
 	if err := validateServeConfiguration(valid); err != nil {
 		t.Fatalf("valid configuration rejected: %v", err)
+	}
+}
+
+func TestInvalidServeLimitsDoNotTouchDataDirectory(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string
+		args []string
+	}{
+		{
+			name: "Session State",
+			args: []string{
+				"-session-state-max-bytes",
+				fmt.Sprint(rinruntime.MaxConfigurableSessionStateBytes + 1),
+			},
+		},
+		{
+			name: "Transfer bytes",
+			args: []string{"-transfer-max-bytes", fmt.Sprint((1 << 40) + 1)},
+		},
+		{
+			name: "Transfer concurrency",
+			args: []string{"-transfer-max-concurrent", "65"},
+		},
+		{
+			name: "Proposal Job workers",
+			env:  "RIN_JOB_WORKERS=33",
+		},
+		{
+			name: "Generation output",
+			env:  "RIN_GENERATION_MAX_OUTPUT_BYTES=4194305",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			clearServeEnvironment(t)
+			if test.env != "" {
+				key, value, _ := strings.Cut(test.env, "=")
+				t.Setenv(key, value)
+			}
+			parent := t.TempDir()
+			missing := filepath.Join(parent, "rin-data")
+			arguments := append(
+				[]string{"serve", "-data", missing},
+				test.args...,
+			)
+			if err := run(arguments); err == nil {
+				t.Fatal("invalid limits started the Sidecar")
+			}
+			if _, err := os.Stat(missing); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("invalid limits touched the data directory: %v", err)
+			}
+		})
+	}
+
+	clearServeEnvironment(t)
+	existing := t.TempDir()
+	sentinelPath := filepath.Join(existing, "operator-owned")
+	sentinel := []byte("must remain byte-identical")
+	if err := os.WriteFile(sentinelPath, sentinel, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{
+		"serve",
+		"-data", existing,
+		"-transfer-max-events",
+		fmt.Sprint(uint64(protocol.MaxJSONSafeInteger) + 1),
+	}); err == nil {
+		t.Fatal("invalid Transfer event limit started the Sidecar")
+	}
+	after, err := os.ReadFile(sentinelPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, sentinel) {
+		t.Fatal("invalid configuration changed existing operator data")
+	}
+	entries, err := os.ReadDir(existing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "operator-owned" {
+		t.Fatalf("invalid configuration changed existing directory: %v", entries)
 	}
 }
 

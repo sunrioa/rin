@@ -130,62 +130,10 @@ func New(
 	if generationProvider == nil {
 		return nil, errors.New("structured generation provider is required")
 	}
-	if config.Workers <= 0 {
-		config.Workers = 2
+	config, err := normalizeConfig(config)
+	if err != nil {
+		return nil, err
 	}
-	if config.Workers > 32 {
-		return nil, errors.New("generation workers must not exceed 32")
-	}
-	if config.QueueSize <= 0 {
-		config.QueueSize = 64
-	}
-	if config.QueueSize > 4096 {
-		return nil, errors.New("generation queue size must not exceed 4096")
-	}
-	if config.MaxJobs <= 0 {
-		config.MaxJobs = 512
-	}
-	if config.MaxJobs < config.QueueSize || config.MaxJobs > 16384 {
-		return nil, errors.New("generation max jobs must be between queue size and 16384")
-	}
-	if config.JobTTL <= 0 {
-		config.JobTTL = 30 * time.Minute
-	}
-	if config.CacheEntries <= 0 {
-		config.CacheEntries = 256
-	}
-	if config.CacheEntries > 16384 {
-		return nil, errors.New("generation cache entries must not exceed 16384")
-	}
-	if config.CacheTTL <= 0 {
-		config.CacheTTL = 30 * time.Minute
-	}
-	if config.MaxOutputBytes <= 0 {
-		config.MaxOutputBytes = 512 * 1024
-	}
-	if config.MaxOutputBytes < 1024 || config.MaxOutputBytes > 4*1024*1024 {
-		return nil, errors.New("generation output limit must be between 1 KiB and 4 MiB")
-	}
-	if config.MaxRetainedBytes == 0 {
-		config.MaxRetainedBytes = 64 << 20
-	}
-	minimumRetained := uint64(config.MaxOutputBytes)*2 + (64 << 10)
-	if config.MaxRetainedBytes < minimumRetained ||
-		config.MaxRetainedBytes > 1<<30 {
-		return nil, errors.New(
-			"generation retained-memory limit must fit two outputs plus 64 KiB and not exceed 1 GiB",
-		)
-	}
-	if config.CleanupInterval == 0 {
-		config.CleanupInterval = time.Minute
-	}
-	if config.CleanupInterval < 10*time.Millisecond ||
-		config.CleanupInterval > time.Hour {
-		return nil, errors.New(
-			"generation cleanup interval must be between 10 ms and 1 hour",
-		)
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 	manager := &Manager{
 		provider: generationProvider, config: config, ctx: ctx, cancel: cancel,
@@ -204,6 +152,73 @@ func New(
 		close(manager.done)
 	}()
 	return manager, nil
+}
+
+// ValidateConfig applies the same limits as New without starting workers.
+func ValidateConfig(config Config) error {
+	_, err := normalizeConfig(config)
+	return err
+}
+
+func normalizeConfig(config Config) (Config, error) {
+	if config.Workers <= 0 {
+		config.Workers = 2
+	}
+	if config.Workers > 32 {
+		return Config{}, errors.New("generation workers must not exceed 32")
+	}
+	if config.QueueSize <= 0 {
+		config.QueueSize = 64
+	}
+	if config.QueueSize > 4096 {
+		return Config{}, errors.New("generation queue size must not exceed 4096")
+	}
+	if config.MaxJobs <= 0 {
+		config.MaxJobs = 512
+	}
+	if config.MaxJobs < config.QueueSize || config.MaxJobs > 16384 {
+		return Config{}, errors.New("generation max jobs must be between queue size and 16384")
+	}
+	if config.JobTTL <= 0 {
+		config.JobTTL = 30 * time.Minute
+	}
+	if config.CacheEntries <= 0 {
+		config.CacheEntries = 256
+	}
+	if config.CacheEntries > 16384 {
+		return Config{}, errors.New("generation cache entries must not exceed 16384")
+	}
+	if config.CacheTTL <= 0 {
+		config.CacheTTL = 30 * time.Minute
+	}
+	if config.MaxOutputBytes <= 0 {
+		config.MaxOutputBytes = 512 * 1024
+	}
+	if config.MaxOutputBytes < 1024 || config.MaxOutputBytes > 4*1024*1024 {
+		return Config{}, errors.New(
+			"generation output limit must be between 1 KiB and 4 MiB",
+		)
+	}
+	if config.MaxRetainedBytes == 0 {
+		config.MaxRetainedBytes = 64 << 20
+	}
+	minimumRetained := uint64(config.MaxOutputBytes)*2 + (64 << 10)
+	if config.MaxRetainedBytes < minimumRetained ||
+		config.MaxRetainedBytes > 1<<30 {
+		return Config{}, errors.New(
+			"generation retained-memory limit must fit two outputs plus 64 KiB and not exceed 1 GiB",
+		)
+	}
+	if config.CleanupInterval == 0 {
+		config.CleanupInterval = time.Minute
+	}
+	if config.CleanupInterval < 10*time.Millisecond ||
+		config.CleanupInterval > time.Hour {
+		return Config{}, errors.New(
+			"generation cleanup interval must be between 10 ms and 1 hour",
+		)
+	}
+	return config, nil
 }
 
 func (m *Manager) Submit(request protocol.GenerationRequest) (protocol.GenerationJobSubmission, error) {

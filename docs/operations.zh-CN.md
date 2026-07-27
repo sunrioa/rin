@@ -95,7 +95,9 @@ rin serve -addr 10.0.0.12:7374 -allow-remote
 `-allow-remote`、Token 或该声明，会在打开数据目录前直接失败。
 
 容量、并发、Timeout 与 Boolean 环境变量一旦显式设置为非法值，Rin 会立即失败，
-不会把拼写错误静默替换成默认值；命令行显式设置的非正数 Limit 也遵循同一规则。
+不会把拼写错误静默替换成默认值；命令行显式 Limit 也遵循同一规则。Runtime、
+Proposal Job 与 Generation 的上下限全部在打开数据目录或执行恢复维护前完成校验，
+因此被拒绝的配置不会创建或维护 Store 文件。
 
 随附 Sidecar 会在启动后立即运行一次 checkpoint-independent Event Log Scrub，
 之后默认每 15 分钟运行一次。每个 Pass 最多校验 4,096 个事件，Deadline 为

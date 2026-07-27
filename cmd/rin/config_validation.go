@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sunrioa/rin/generation"
+	"github.com/sunrioa/rin/jobs"
 	rinruntime "github.com/sunrioa/rin/runtime"
 )
 
@@ -163,6 +165,8 @@ type serveConfiguration struct {
 	scrubInterval             time.Duration
 	scrubTimeout              time.Duration
 	scrubMaxEvents            int
+	jobConfig                 jobs.Config
+	generationConfig          generation.Config
 }
 
 func validateServeConfiguration(config serveConfiguration) error {
@@ -198,7 +202,22 @@ func validateServeConfiguration(config serveConfiguration) error {
 			"scrub-max-events must be between 1 and %d",
 			rinruntime.MaxScrubEventBudget,
 		)
-	default:
-		return nil
 	}
+	if err := rinruntime.ValidateEngineOptions(rinruntime.EngineOptions{
+		SessionSoftLimitBytes:  config.sessionSoftLimitBytes,
+		SessionHardLimitBytes:  config.sessionHardLimitBytes,
+		MaxSessionStateBytes:   config.maxSessionStateBytes,
+		MaxTransferBytes:       config.maxTransferBytes,
+		MaxTransferEvents:      config.maxTransferEvents,
+		MaxConcurrentTransfers: config.maxConcurrentTransfers,
+	}); err != nil {
+		return fmt.Errorf("invalid Runtime limits: %w", err)
+	}
+	if err := jobs.ValidateConfig(config.jobConfig); err != nil {
+		return fmt.Errorf("invalid Proposal Job limits: %w", err)
+	}
+	if err := generation.ValidateConfig(config.generationConfig); err != nil {
+		return fmt.Errorf("invalid Generation limits: %w", err)
+	}
+	return nil
 }
