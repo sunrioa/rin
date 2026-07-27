@@ -45,11 +45,18 @@ npm start
 `--mode baseline` 运行持久化规则树。默认 `--mode auto` 仅在启动健康检查证明尚未
 发生任何 Rin 变更时回退；进入操作后的传输不确定性会 Fail Closed，等待精确恢复。
 
-权威动作是故事存档中的 `shown_action_ids` 变更；该变更、Outcome Outbox Entry
+权威动作是故事存档中的 `applied_action_ids` 变更；该变更、Outcome Outbox Entry
 与清除 Proposal Attempt 会通过一次文件替换共同发布。`presentAction` 只允许
 执行非权威的终端/UI 呈现，并且仅在文件替换成功后运行；它不得修改世界状态。
 Store 使用 Copy-on-write：Write 或 Rename 失败时，内存 Document 与旧存档都
 保持不变，临时文件会被清理，Proposal Attempt 则保留用于精确重试。
+
+在 POSIX 上，发布会同步临时文件、每一层新建目录的 Entry，并在 Rename 后同步
+目标目录。Node.js 的可移植 API 不能在 Windows 上打开目录句柄执行
+`FlushFileBuffers`，因此 Windows 会同步临时文件，并重新打开、同步 Rename 后的
+目标文件。需要严格掉电事务的游戏必须把效果、Operation Marker 和 Outbox 放进
+自己的权威数据库/存档事务。Save Schema 2 会拒绝使用 `shown_action_ids` 的早期
+Preview 存档，因为旧字段错误地把持久游戏效果与稍后的 UI 呈现混为一谈。
 
 非交互运行：
 

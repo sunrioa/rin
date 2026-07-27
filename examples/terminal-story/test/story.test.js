@@ -25,7 +25,7 @@ test("fair rule-tree baseline persists and applies the preference", async () => 
   assert.equal(shown.id, "offer.tea");
   const reloaded = await new StoryWorkflowStore(store.path).load();
   assert.equal(reloaded.game.preference, "tea");
-  assert.deepEqual(reloaded.game.shown_action_ids, ["offer.tea"]);
+  assert.deepEqual(reloaded.game.applied_action_ids, ["offer.tea"]);
 });
 
 test("Proposal settlement publishes game effect and Outcome Outbox together", async () => {
@@ -48,7 +48,7 @@ test("Proposal settlement publishes game effect and Outcome Outbox together", as
   const persisted = JSON.parse(await readFile(store.path, "utf8"));
   assert.equal(persisted.attempt, null);
   assert.equal(persisted.game.pending_turn, null);
-  assert.deepEqual(persisted.game.shown_action_ids, ["offer.tea"]);
+  assert.deepEqual(persisted.game.applied_action_ids, ["offer.tea"]);
   assert.equal(persisted.outbox[0].key, "report.fixture");
 });
 
@@ -92,7 +92,7 @@ test("failed settlement publish leaves memory and disk at the retryable Attempt"
     report: { request_id: "report.fixture" },
     apply: async () => store.recordRinAction({ id: "offer.tea" }),
   });
-  assert.deepEqual(store.game.shown_action_ids, ["offer.tea"]);
+  assert.deepEqual(store.game.applied_action_ids, ["offer.tea"]);
   assert.equal(store.document.outbox.length, 1);
 });
 
@@ -108,85 +108,65 @@ test("failed file replacement keeps memory unchanged and removes its temporary f
   assert.deepEqual(await readdir(directory), ["save-target"]);
 });
 
+test("publication creates and reloads a nested save directory", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "rin-story-nested-test-"));
+  const store = await new StoryWorkflowStore(
+    join(directory, "slot", "chapter", "save.json"),
+  ).load();
+
+  await store.rememberPreference("coffee");
+
+  const reloaded = await new StoryWorkflowStore(store.path).load();
+  assert.equal(reloaded.game.preference, "coffee");
+});
+
 test("Rin presentation runs only after the authoritative settlement commits", async () => {
   const store = await temporaryStore();
-  let proposalRequest;
-  let reportCalls = 0;
-  const client = new RinClient("http://127.0.0.1:7374", {
-    fetch: async (target, options) => {
-      const path = new URL(target).pathname;
-      const request = options.body ? JSON.parse(options.body) : null;
-      if (path === "/health") {
-        return response(200, {
-          ok: true,
-          data: {
-            status: "ok",
-            protocol_version: "rin.protocol/v2",
-            features: [],
-            recommended_features: [],
-          },
-        });
-      }
-      if (path === "/v2/jobs/propose") {
-        proposalRequest = request;
-        return response(202, {
-          ok: true,
-          data: { job_id: "job.fixture", status: "queued", duplicate: false },
-        });
-      }
-      if (path === "/v2/jobs/job.fixture") {
-        return response(200, {
-          ok: true,
-          data: {
-            job_id: "job.fixture",
-            session_id: proposalRequest.session_id,
-            request_id: proposalRequest.request_id,
-            status: "succeeded",
-            proposal: {
-              id: "proposal.fixture",
-              session_id: proposalRequest.session_id,
-              request_id: proposalRequest.request_id,
-              actor_id: proposalRequest.actor_id,
-              tick: proposalRequest.tick,
-              decision_window: proposalRequest.decision_window,
-              action: proposalRequest.offers[0],
-              recalled_memory_ids: [],
-              policy_source: "deterministic",
-            },
-          },
-        });
-      }
-      if (path === "/v2/action/report") {
-        reportCalls++;
-        return response(200, {
-          ok: true,
-          data: { session_id: request.session_id, duplicate: false },
-        });
-      }
-      return response(200, {
-        ok: true,
-        data: { session_id: "session.fixture", duplicate: false },
-      });
-    },
-  });
+  const fixture = successfulStoryClient();
 
-  const result = await runRinStory(client, store, {
+  const result = await runRinStory(fixture.client, store, {
     sessionId: "session.fixture",
     preference: "tea",
     presentAction: async (action) => {
       const committed = await new StoryWorkflowStore(store.path).load();
-      assert.deepEqual(committed.game.shown_action_ids, [action.id]);
+      assert.deepEqual(committed.game.applied_action_ids, [action.id]);
       assert.equal(committed.document.attempt, null);
       assert.equal(committed.document.outbox.length, 1);
-      assert.equal(reportCalls, 0);
+      assert.equal(fixture.reportCalls(), 0);
     },
   });
 
   assert.equal(result.action.id, "offer.tea");
-  assert.equal(reportCalls, 1);
+  assert.equal(fixture.reportCalls(), 1);
   const completed = await new StoryWorkflowStore(store.path).load();
-  assert.deepEqual(completed.game.shown_action_ids, ["offer.tea"]);
+  assert.deepEqual(completed.game.applied_action_ids, ["offer.tea"]);
   assert.deepEqual(completed.document.outbox, []);
+});
+
+test("presentation failure leaves an honest durable result pending", async () => {
+  const store = await temporaryStore();
+  const fixture = successfulStoryClient();
+
+  await assert.rejects(
+    runRinStory(fixture.client, store, {
+      sessionId: "session.fixture",
+      preference: "tea",
+      presentAction: async () => {
+        throw new Error("injected presentation failure");
+      },
+    }),
+    /injected presentation failure/,
+  );
+
+  const reloaded = await new StoryWorkflowStore(store.path).load();
+  assert.deepEqual(reloaded.game.applied_action_ids, ["offer.tea"]);
+  assert.equal(reloaded.document.attempt, null);
+  assert.equal(reloaded.document.outbox.length, 1);
+  assert.equal(fixture.reportCalls(), 0);
+  const report = reloaded.document.outbox[0].report.report;
+  assert.equal(report.event_id, "session.fixture.1.applied");
+  assert.match(report.outcome.summary, /durably applied/);
+  assert.doesNotMatch(report.outcome.summary, /displayed/);
 });
 
 test("a restart reuses the durable Session and pending turn", async () => {
@@ -257,8 +237,71 @@ test("transport uncertainty after health never silently applies local", async ()
     }),
     (error) => error instanceof RinTransportError,
   );
-  assert.deepEqual(store.game.shown_action_ids, []);
+  assert.deepEqual(store.game.applied_action_ids, []);
 });
+
+function successfulStoryClient() {
+  let proposalRequest;
+  let reportCalls = 0;
+  const client = new RinClient("http://127.0.0.1:7374", {
+    fetch: async (target, options) => {
+      const path = new URL(target).pathname;
+      const request = options.body ? JSON.parse(options.body) : null;
+      if (path === "/health") {
+        return response(200, {
+          ok: true,
+          data: {
+            status: "ok",
+            protocol_version: "rin.protocol/v2",
+            features: [],
+            recommended_features: [],
+          },
+        });
+      }
+      if (path === "/v2/jobs/propose") {
+        proposalRequest = request;
+        return response(202, {
+          ok: true,
+          data: { job_id: "job.fixture", status: "queued", duplicate: false },
+        });
+      }
+      if (path === "/v2/jobs/job.fixture") {
+        return response(200, {
+          ok: true,
+          data: {
+            job_id: "job.fixture",
+            session_id: proposalRequest.session_id,
+            request_id: proposalRequest.request_id,
+            status: "succeeded",
+            proposal: {
+              id: "proposal.fixture",
+              session_id: proposalRequest.session_id,
+              request_id: proposalRequest.request_id,
+              actor_id: proposalRequest.actor_id,
+              tick: proposalRequest.tick,
+              decision_window: proposalRequest.decision_window,
+              action: proposalRequest.offers[0],
+              recalled_memory_ids: [],
+              policy_source: "deterministic",
+            },
+          },
+        });
+      }
+      if (path === "/v2/action/report") {
+        reportCalls++;
+        return response(200, {
+          ok: true,
+          data: { session_id: request.session_id, duplicate: false },
+        });
+      }
+      return response(200, {
+        ok: true,
+        data: { session_id: "session.fixture", duplicate: false },
+      });
+    },
+  });
+  return { client, reportCalls: () => reportCalls };
+}
 
 function response(status, envelope) {
   const bytes = new TextEncoder().encode(JSON.stringify(envelope));

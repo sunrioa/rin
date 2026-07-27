@@ -50,7 +50,7 @@ npm start
 it falls back only when the startup health check proves no Rin mutation began.
 Transport uncertainty after that point fails closed for exact recovery.
 
-The authoritative action is the `shown_action_ids` mutation in the story save.
+The authoritative action is the `applied_action_ids` mutation in the story save.
 That mutation, the Outcome Outbox entry, and clearing the Proposal Attempt are
 published by one file replacement. `presentAction` is deliberately limited to
 non-authoritative terminal/UI presentation and runs only after that replacement
@@ -58,6 +58,15 @@ succeeds; it must not perform world-state mutation.
 The Store uses copy-on-write: a failed write or rename leaves both its in-memory
 document and the previous save unchanged, removes its temporary file, and keeps
 the Proposal Attempt available for exact retry.
+
+On POSIX, publication syncs the temporary file, each newly created directory
+entry, and the target directory after rename. Portable Node.js cannot open a
+Windows directory handle for `FlushFileBuffers`, so Windows syncs the temporary
+file and reopens and syncs the renamed target. A game that requires a strict
+power-loss transaction must put the effect, operation marker, and Outbox in its
+authoritative database/save transaction. Save schema 2 intentionally rejects
+the earlier preview field `shown_action_ids`, which incorrectly conflated a
+durable game effect with later UI presentation.
 
 For a non-interactive run:
 

@@ -116,7 +116,7 @@ export async function runRinStory(client, store, {
     tick: decisionTick,
     report: {
       proposal_id: resolved.proposal.id,
-      event_id: `${prefix}.shown`,
+      event_id: `${prefix}.applied`,
       decision: "accepted",
       invocation: {
         operation_id: operationId,
@@ -141,12 +141,12 @@ export async function runRinStory(client, store, {
       outcome: {
         operation_id: operationId,
         status: "succeeded",
-        summary: "The game displayed the selected authored line.",
+        summary: "The game durably applied the selected authored action.",
         epoch,
         world_seq: observationSeq + 1,
         occurred_at: { clock: "event", value: decisionTick },
       },
-      summary: "The game displayed the selected authored line.",
+      summary: "The game durably applied the selected authored action.",
     },
   };
   await coordinator.settle(resolved.attempt, resolved.proposal, report, () => {

@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 
 const EMPTY_DOCUMENT = Object.freeze({
-  version: 1,
+  version: 2,
   attempt: null,
   outbox: [],
   game: {
@@ -11,7 +11,7 @@ const EMPTY_DOCUMENT = Object.freeze({
     next_sequence: 1,
     pending_turn: null,
     preference: "",
-    shown_action_ids: [],
+    applied_action_ids: [],
   },
 });
 
@@ -88,7 +88,7 @@ export class StoryWorkflowStore {
 
   async applyBaselineAction(action) {
     await this.commit((next) => {
-      next.game.shown_action_ids.push(action.id);
+      next.game.applied_action_ids.push(action.id);
     });
   }
 
@@ -136,7 +136,7 @@ export class StoryWorkflowStore {
     if (!this.settlementDraft) {
       throw new Error("Rin action must be recorded inside Proposal settlement");
     }
-    this.settlementDraft.game.shown_action_ids.push(action.id);
+    this.settlementDraft.game.applied_action_ids.push(action.id);
   }
 
   async listOutcomeReports() {
@@ -168,7 +168,11 @@ export class StoryWorkflowStore {
   }
 
   async publish(document) {
-    await mkdir(dirname(this.path), { recursive: true });
+    const directory = dirname(this.path);
+    const firstCreated = await mkdir(directory, { recursive: true });
+    if (firstCreated && process.platform !== "win32") {
+      await fenceCreatedDirectories(firstCreated, directory);
+    }
     const temporary = `${this.path}.${process.pid}.${randomUUID()}.tmp`;
     let created = false;
     try {
@@ -182,6 +186,7 @@ export class StoryWorkflowStore {
       }
       await rename(temporary, this.path);
       created = false;
+      await fencePublishedEntry(this.path);
     } finally {
       if (created) {
         await unlink(temporary).catch(() => {});
@@ -195,11 +200,49 @@ function clone(value) {
 }
 
 function validateDocument(value) {
-  if (!value || value.version !== 1 || !Array.isArray(value.outbox) ||
-      !value.game || !Array.isArray(value.game.shown_action_ids) ||
+  if (!value || value.version !== 2 || !Array.isArray(value.outbox) ||
+      !value.game || !Array.isArray(value.game.applied_action_ids) ||
       typeof value.game.session_id !== "string" ||
       !Number.isSafeInteger(value.game.next_sequence) ||
       value.game.next_sequence < 1) {
     throw new Error("story save is malformed");
+  }
+}
+
+async function fenceCreatedDirectories(firstCreated, targetDirectory) {
+  const first = resolve(firstCreated);
+  const target = resolve(targetDirectory);
+  const suffix = relative(first, target);
+  if (suffix.startsWith("..") || isAbsolute(suffix)) {
+    throw new Error("created story save directory is outside its target");
+  }
+  const parents = [];
+  let current = target;
+  while (true) {
+    parents.unshift(dirname(current));
+    if (current === first) break;
+    current = dirname(current);
+  }
+  for (const parent of parents) {
+    await syncPath(parent, "r");
+  }
+}
+
+async function fencePublishedEntry(path) {
+  if (process.platform === "win32") {
+    // Node cannot portably open a Windows directory for FlushFileBuffers.
+    // Reopen the renamed file with write access and flush that handle instead.
+    await syncPath(path, "r+");
+    return;
+  }
+  await syncPath(dirname(path), "r");
+}
+
+async function syncPath(path, flags) {
+  const handle = await open(path, flags);
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
   }
 }
