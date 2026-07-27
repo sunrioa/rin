@@ -278,7 +278,7 @@ test("Outcome Outbox acknowledges only confirmed exact Action Report success", a
       }),
   });
   const store = {
-    async listOutcomeReports() { return entries.slice(); },
+    async listOutcomeReports() { return entries; },
     async acknowledgeOutcome(entry, result) {
       assert.equal(result.duplicate, true);
       entries.splice(entries.indexOf(entry), 1);
@@ -315,7 +315,11 @@ test("Outcome Outbox acknowledges only confirmed exact Action Report success", a
   );
   assert.equal(entries.length, 1);
   entries[0].report.session_id = sessionId;
-  assert.equal(await outbox.drain(), 1);
+  entries.push({
+    key: "outcome.fixture.second",
+    report: rejectedReport("report.fixture.second", "event.fixture.second"),
+  });
+  assert.equal(await outbox.drain(), 2);
   assert.equal(entries.length, 0);
 });
 

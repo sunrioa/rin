@@ -878,6 +878,11 @@ function Workflow:drain_outbox(key, callback)
         finish(nil, list_error or workflow_error("invalid_outbox", "Outcome Outbox is invalid"))
         return
     end
+    local snapshot = {}
+    for entry_index, entry in ipairs(entries) do
+        snapshot[entry_index] = entry
+    end
+    entries = snapshot
     local index, acknowledged = 1, 0
     local function next_entry(err)
         if err then finish(nil, err); return end

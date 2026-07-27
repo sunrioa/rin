@@ -70,10 +70,17 @@ durable game effect with later UI presentation.
 
 If rename succeeds but its final durability fence fails, the Store adopts the
 published document in memory and rejects every later mutation until `load()`
-reconciles the file. It never continues from the stale pre-rename document.
+re-reads the file and successfully retries that fence. It never continues from
+the stale pre-rename document.
 Outcome acknowledgement also compares the complete durable entry, so a delayed
 ACK cannot remove a same-key report that changed while the request was in
 flight.
+
+Every mutation takes a short cross-process hard-link lease and re-reads the
+current file while holding it. This makes the complete-entry comparison a disk
+CAS instead of an in-memory check. A lock left by a dead process on the same
+host is recovered after confirming its PID is gone; an unreadable, foreign-host,
+or live lock fails closed as `story_save_busy`.
 
 For a non-interactive run:
 

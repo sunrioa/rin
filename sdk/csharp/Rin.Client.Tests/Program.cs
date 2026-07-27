@@ -410,7 +410,14 @@ using (var workflowClient = new RinClient(new RinClientOptions(), workflowHandle
         workflowStore.Outcomes.Count == 1,
         "malformed durable Outcome was removed");
     workflowStore.Outcomes[0] = validOutcome;
-    Require(await outbox.DrainAsync() == 1, "Outcome Outbox did not drain");
+    workflowStore.Outcomes.Add(new OutcomeOutboxEntry(
+        "outcome.workflow.second",
+        RejectedReport(
+            "session.workflow",
+            "report.workflow.second",
+            "proposal.workflow",
+            "event.workflow.second")));
+    Require(await outbox.DrainAsync() == 2, "live Outcome Outbox did not fully drain");
     Require(workflowStore.Outcomes.Count == 0, "acknowledged Outcome was retained");
 
     try
@@ -1338,7 +1345,7 @@ sealed class TestAuthoritativeStore : IWorkflowStore
 
     public ValueTask<IReadOnlyList<OutcomeOutboxEntry>> ListAsync(
         CancellationToken cancellationToken = default) =>
-        ValueTask.FromResult<IReadOnlyList<OutcomeOutboxEntry>>(Outcomes.ToArray());
+        ValueTask.FromResult<IReadOnlyList<OutcomeOutboxEntry>>(Outcomes);
 
     public ValueTask AcknowledgeAsync(
         OutcomeOutboxEntry entry,

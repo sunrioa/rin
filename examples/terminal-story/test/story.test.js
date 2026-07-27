@@ -108,7 +108,9 @@ test("post-rename fence failure adopts disk state and blocks stale writes", asyn
   };
   await store.createProposalAttempt(attempt);
   const fence = store.fencePublishedEntry.bind(store);
+  let fenceAttempts = 0;
   store.fencePublishedEntry = async () => {
+    fenceAttempts++;
     throw new Error("injected post-rename fence failure");
   };
 
@@ -129,9 +131,14 @@ test("post-rename fence failure adopts disk state and blocks stale writes", asyn
     store.rememberPreference("coffee"),
     /reload before another mutation/,
   );
+  assert.equal(fenceAttempts, 1);
 
-  store.fencePublishedEntry = fence;
+  store.fencePublishedEntry = async () => {
+    fenceAttempts++;
+    await fence();
+  };
   await store.load();
+  assert.equal(fenceAttempts, 2);
   await store.rememberPreference("coffee");
   assert.equal(store.game.preference, "coffee");
   assert.deepEqual(store.game.applied_action_ids, ["offer.tea"]);
@@ -139,34 +146,64 @@ test("post-rename fence failure adopts disk state and blocks stale writes", asyn
 });
 
 test("stale acknowledgement cannot delete a replaced Outbox report", async () => {
-  const store = await temporaryStore();
-  await store.ensureSessionId("session.fixture");
-  await store.beginRinTurn("tea", 1);
+  const writer = await temporaryStore();
+  await writer.ensureSessionId("session.fixture");
+  await writer.beginRinTurn("tea", 1);
   const attempt = {
     version: 1,
     operation_id: "operation.fixture",
     request: { request_id: "request.fixture", session_id: "session.fixture" },
     job_id: "job.fixture",
   };
-  await store.createProposalAttempt(attempt);
-  await store.settleProposalAttempt({
+  await writer.createProposalAttempt(attempt);
+  await writer.settleProposalAttempt({
     attempt,
     report: { request_id: "report.fixture", summary: "original" },
-    apply: async () => store.recordRinAction({ id: "offer.tea" }),
+    apply: async () => writer.recordRinAction({ id: "offer.tea" }),
   });
-  const stale = (await store.listOutcomeReports())[0];
-  await store.commit((next) => {
+  const drainer = await new StoryWorkflowStore(writer.path).load();
+  const stale = (await drainer.listOutcomeReports())[0];
+  await writer.commit((next) => {
     next.outbox[0].report.summary = "replacement";
   });
 
   await assert.rejects(
-    store.acknowledgeOutcome(stale),
+    drainer.acknowledgeOutcome(stale),
     /changed before acknowledgement/,
   );
 
-  const remaining = await store.listOutcomeReports();
+  const remaining = await drainer.listOutcomeReports();
   assert.equal(remaining.length, 1);
   assert.equal(remaining[0].report.summary, "replacement");
+});
+
+test("a second Store cannot mutate while the save lock is held", async () => {
+  const first = await temporaryStore();
+  const second = await new StoryWorkflowStore(first.path).load();
+  let enterMutation;
+  const entered = new Promise((resolve) => {
+    enterMutation = resolve;
+  });
+  let releaseMutation;
+  const released = new Promise((resolve) => {
+    releaseMutation = resolve;
+  });
+  const firstCommit = first.commit(async (next) => {
+    enterMutation();
+    await released;
+    next.game.preference = "tea";
+  });
+  await entered;
+
+  await assert.rejects(
+    second.rememberPreference("coffee"),
+    (error) => error.code === "story_save_busy",
+  );
+
+  releaseMutation();
+  await firstCommit;
+  await second.rememberPreference("coffee");
+  assert.equal(second.game.preference, "coffee");
 });
 
 test("failed file replacement keeps memory unchanged and removes its temporary file", async () => {

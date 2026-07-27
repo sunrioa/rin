@@ -1,5 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, open, readFile, rename, stat, unlink } from "node:fs/promises";
+import {
+  link,
+  mkdir,
+  open,
+  readFile,
+  rename,
+  stat,
+  unlink,
+} from "node:fs/promises";
+import { hostname } from "node:os";
 import { dirname, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
@@ -15,6 +24,7 @@ const EMPTY_DOCUMENT = Object.freeze({
     applied_action_ids: [],
   },
 });
+const NO_CHANGE = Symbol("no-change");
 
 export class StoryWorkflowStore {
   constructor(path) {
@@ -41,15 +51,11 @@ export class StoryWorkflowStore {
     if (this.committing) {
       throw new Error("cannot reload during a story save mutation");
     }
-    this.document = structuredClone(EMPTY_DOCUMENT);
-    try {
-      const parsed = JSON.parse(await readFile(this.path, "utf8"));
-      validateDocument(parsed);
-      this.document = parsed;
-    } catch (error) {
-      if (error?.code !== "ENOENT") throw error;
+    if (this.publicationUncertain) {
+      await this.reconcileUncertainPublication();
+      return this;
     }
-    this.publicationUncertain = false;
+    this.document = await readDocument(this.path);
     return this;
   }
 
@@ -63,34 +69,39 @@ export class StoryWorkflowStore {
   }
 
   async ensureSessionId(candidate) {
-    if (!this.document.game.session_id) {
-      await this.commit((next) => {
+    await this.commit((next) => {
+      if (!next.game.session_id) {
         next.game.session_id = candidate;
-      });
-    } else if (this.document.game.session_id !== candidate) {
-      throw new Error("story save is already bound to another Session");
-    }
+      } else if (next.game.session_id !== candidate) {
+        throw new Error("story save is already bound to another Session");
+      } else {
+        return NO_CHANGE;
+      }
+    });
     return this.document.game.session_id;
   }
 
   async beginRinTurn(preference, requestedSequence) {
-    if (this.document.game.pending_turn) {
-      return clone(this.document.game.pending_turn);
-    }
     if (preference !== "tea" && preference !== "coffee") {
       throw new Error("preference must be tea or coffee");
     }
-    const sequence = requestedSequence ?? this.document.game.next_sequence;
-    if (!Number.isSafeInteger(sequence) || sequence < 1 ||
-        sequence !== this.document.game.next_sequence) {
-      throw new Error("turn sequence does not match the durable game save");
-    }
+    let turn;
     await this.commit((next) => {
+      if (next.game.pending_turn) {
+        turn = clone(next.game.pending_turn);
+        return NO_CHANGE;
+      }
+      const sequence = requestedSequence ?? next.game.next_sequence;
+      if (!Number.isSafeInteger(sequence) || sequence < 1 ||
+          sequence !== next.game.next_sequence) {
+        throw new Error("turn sequence does not match the durable game save");
+      }
       next.game.preference = preference;
       next.game.pending_turn = { sequence, preference };
       next.game.next_sequence = sequence + 1;
+      turn = clone(next.game.pending_turn);
     });
-    return clone(this.document.game.pending_turn);
+    return turn;
   }
 
   async applyBaselineAction(action) {
@@ -104,11 +115,16 @@ export class StoryWorkflowStore {
   }
 
   async createProposalAttempt(attempt) {
-    if (this.document.attempt) return false;
+    let created = false;
     await this.commit((next) => {
-      next.attempt = clone(attempt);
+      if (!next.attempt) {
+        next.attempt = clone(attempt);
+        created = true;
+      } else {
+        return NO_CHANGE;
+      }
     });
-    return true;
+    return created;
   }
 
   async saveProposalAttempt(attempt) {
@@ -118,12 +134,12 @@ export class StoryWorkflowStore {
   }
 
   async settleProposalAttempt({ attempt, report, apply }) {
-    if (this.document.attempt?.operation_id !== attempt.operation_id) {
-      throw new Error("Proposal Attempt identity changed before settlement");
-    }
     // apply mutates only the draft through recordRinAction. The game effect,
     // Outbox entry, and cleared Attempt are then published by one replacement.
     await this.commit(async (next) => {
+      if (next.attempt?.operation_id !== attempt.operation_id) {
+        throw new Error("Proposal Attempt identity changed before settlement");
+      }
       this.settlementDraft = next;
       try {
         await apply();
@@ -151,9 +167,9 @@ export class StoryWorkflowStore {
   }
 
   async acknowledgeOutcome(entry) {
-    const index = this.document.outbox.findIndex((item) => item.key === entry.key);
-    if (index < 0) throw new Error("Outcome Outbox entry disappeared");
     await this.commit((next) => {
+      const index = next.outbox.findIndex((item) => item.key === entry.key);
+      if (index < 0) throw new Error("Outcome Outbox entry disappeared");
       if (!isDeepStrictEqual(next.outbox[index], entry)) {
         throw new Error("Outcome Outbox entry changed before acknowledgement");
       }
@@ -171,12 +187,20 @@ export class StoryWorkflowStore {
       throw new Error("concurrent story save mutation is not allowed");
     }
     this.committing = true;
+    let release;
     try {
+      await this.makeDirectoryTreeDurable(dirname(this.path));
+      release = await acquireStorySaveLock(this.path);
+      this.document = await readDocument(this.path);
       const next = clone(this.document);
-      await mutate(next);
+      const disposition = await mutate(next);
       validateDocument(next);
+      if (disposition === NO_CHANGE) {
+        this.document = next;
+        return;
+      }
       try {
-        await this.publish(next);
+        await this.publish(next, true);
       } catch (error) {
         if (error instanceof StoryPublicationUncertainError) {
           // Rename already made this the only defensible in-process view.
@@ -188,13 +212,19 @@ export class StoryWorkflowStore {
       }
       this.document = next;
     } finally {
-      this.committing = false;
+      try {
+        if (release) await release();
+      } finally {
+        this.committing = false;
+      }
     }
   }
 
-  async publish(document) {
+  async publish(document, directoryPrepared = false) {
     const directory = dirname(this.path);
-    await this.makeDirectoryTreeDurable(directory);
+    if (!directoryPrepared) {
+      await this.makeDirectoryTreeDurable(directory);
+    }
     const temporary = `${this.path}.${process.pid}.${randomUUID()}.tmp`;
     let created = false;
     try {
@@ -241,6 +271,23 @@ export class StoryWorkflowStore {
     }
     await this.syncDirectory(dirname(this.path));
   }
+
+  async reconcileUncertainPublication() {
+    await this.makeDirectoryTreeDurable(dirname(this.path));
+    const release = await acquireStorySaveLock(this.path);
+    try {
+      const document = await readDocument(this.path);
+      try {
+        await this.fencePublishedEntry();
+      } catch (error) {
+        throw new StoryPublicationUncertainError(error);
+      }
+      this.document = document;
+      this.publicationUncertain = false;
+    } finally {
+      await release();
+    }
+  }
 }
 
 function clone(value) {
@@ -254,6 +301,19 @@ function validateDocument(value) {
       !Number.isSafeInteger(value.game.next_sequence) ||
       value.game.next_sequence < 1) {
     throw new Error("story save is malformed");
+  }
+}
+
+async function readDocument(path) {
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf8"));
+    validateDocument(parsed);
+    return parsed;
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return structuredClone(EMPTY_DOCUMENT);
+    }
+    throw error;
   }
 }
 
@@ -301,6 +361,99 @@ async function syncPath(path, flags) {
   } finally {
     await handle.close();
   }
+}
+
+async function acquireStorySaveLock(path) {
+  const lockPath = `${path}.lock`;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const token = randomUUID();
+    const candidate = `${lockPath}.${process.pid}.${token}.candidate`;
+    const owner = {
+      version: 1,
+      host: hostname(),
+      pid: process.pid,
+      token,
+    };
+    try {
+      const handle = await open(candidate, "wx");
+      try {
+        await handle.writeFile(`${JSON.stringify(owner)}\n`, "utf8");
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+    } catch (error) {
+      await unlink(candidate).catch(() => {});
+      throw error;
+    }
+    try {
+      await link(candidate, lockPath);
+    } catch (error) {
+      await unlink(candidate).catch(() => {});
+      if (error?.code !== "EEXIST" ||
+          attempt > 0 ||
+          !await recoverDeadStorySaveLock(lockPath)) {
+        throw storySaveBusy(error);
+      }
+      continue;
+    }
+    await unlink(candidate).catch(() => {});
+    return async () => {
+      let current;
+      try {
+        current = JSON.parse(await readFile(lockPath, "utf8"));
+      } catch (error) {
+        throw storySaveBusy(error);
+      }
+      if (current?.token !== token) {
+        throw storySaveBusy(new Error("story save lock ownership changed"));
+      }
+      await unlink(lockPath);
+    };
+  }
+  throw storySaveBusy(new Error("story save lock could not be acquired"));
+}
+
+async function recoverDeadStorySaveLock(lockPath) {
+  let owner;
+  try {
+    owner = JSON.parse(await readFile(lockPath, "utf8"));
+  } catch (error) {
+    if (error?.code === "ENOENT") return true;
+    return false;
+  }
+  if (owner?.host !== hostname() ||
+      !Number.isSafeInteger(owner?.pid) ||
+      owner.pid < 1 ||
+      processExists(owner.pid)) {
+    return false;
+  }
+  const stale = `${lockPath}.${randomUUID()}.stale`;
+  try {
+    await rename(lockPath, stale);
+  } catch (error) {
+    return error?.code === "ENOENT";
+  }
+  await unlink(stale);
+  return true;
+}
+
+function processExists(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code !== "ESRCH";
+  }
+}
+
+function storySaveBusy(cause) {
+  const error = new Error(
+    "story save is busy or has an unrecoverable lock; do not run two writers",
+    { cause },
+  );
+  error.code = "story_save_busy";
+  return error;
 }
 
 class StoryPublicationUncertainError extends Error {

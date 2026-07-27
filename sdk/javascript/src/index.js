@@ -276,13 +276,14 @@ export class OutcomeOutbox {
     this.draining = true;
     let acknowledged = 0;
     try {
-      const entries = await this.store.listOutcomeReports();
-      if (!Array.isArray(entries)) {
+      const listed = await this.store.listOutcomeReports();
+      if (!Array.isArray(listed)) {
         throw new RinConfigurationError(
           "invalid_outbox",
           "Outcome Outbox must return an array",
         );
       }
+      const entries = listed.slice();
       for (const entry of entries) {
         if (!isObject(entry) || !isObject(entry.report)) {
           throw new RinConfigurationError(

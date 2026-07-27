@@ -356,10 +356,11 @@ public sealed class OutcomeOutbox
         try
         {
             var acknowledged = 0;
-            var entries = await store.ListAsync(cancellationToken).ConfigureAwait(false) ??
+            var listed = await store.ListAsync(cancellationToken).ConfigureAwait(false) ??
                 throw new RinConfigurationException(
                     "invalid_outbox",
                     "Outcome Outbox returned null");
+            var entries = new List<OutcomeOutboxEntry>(listed);
             foreach (var entry in entries)
             {
                 Guard.NotNull(entry, nameof(entry));

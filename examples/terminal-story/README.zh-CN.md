@@ -59,9 +59,14 @@ Store 使用 Copy-on-write：Write 或 Rename 失败时，内存 Document 与旧
 Preview 存档，因为旧字段错误地把持久游戏效果与稍后的 UI 呈现混为一谈。
 
 如果 Rename 已成功但最终持久化栅栏失败，Store 会在内存中采用已发布 Document，
-并拒绝后续所有变更，直到 `load()` 重新核对文件；它不会继续从 Rename 前的旧
-Document 写入。Outcome ACK 还会比较完整的持久化条目，因此迟到 ACK 不能删除
-请求在途期间发生变化的同 Key Report。
+并拒绝后续所有变更，直到 `load()` 重新读取文件并成功重试该栅栏；它不会继续从
+Rename 前的旧 Document 写入。Outcome ACK 还会比较完整的持久化条目，因此迟到
+ACK 不能删除请求在途期间发生变化的同 Key Report。
+
+每次变更都会取得一个短时、跨进程的 Hard-link Lease，并在持有期间重新读取当前
+文件，使完整条目比较成为磁盘 CAS，而不是内存检查。同一 Host 上进程遗留的 Lock
+只有在确认 PID 已退出后才会恢复；Lock 不可读、来自其他 Host 或仍被存活进程持有
+时会以 `story_save_busy` Fail Closed。
 
 非交互运行：
 

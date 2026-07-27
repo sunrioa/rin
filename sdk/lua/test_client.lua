@@ -436,11 +436,28 @@ workflow:drain_outbox("player.fixture", function(count, err)
 end)
 assert(#workflow_store.outcomes == 1, "malformed durable Outcome was removed")
 workflow_store.outcomes[1].request.session_id = valid_outcome_session
+table.insert(workflow_store.outcomes, {
+    key = "operation.workflow.second",
+    owner = "player.fixture",
+    kind = "report",
+    request = {
+        protocol_version = rin.PROTOCOL_VERSION,
+        session_id = "session.workflow",
+        request_id = "report.workflow.second",
+        tick = 3,
+        report = {
+            proposal_id = "proposal.workflow",
+            event_id = "event.workflow.second",
+            decision = "rejected",
+            summary = "host declined the second offer",
+        },
+    },
+})
 workflow_ack_session = "session.workflow"
 workflow:drain_outbox("player.fixture", function(count, err)
-    assert(count == 1 and not err)
+    assert(count == 2 and not err)
 end)
-assert(#workflow_store.outcomes == 0 and workflow_reports == 3)
+assert(#workflow_store.outcomes == 0 and workflow_reports == 4)
 
 workflow_store.attempt = workflow_resolution.attempt
 local accepted_request = rin.immediate_action_report({
@@ -477,7 +494,7 @@ assert(workflow_store.active == nil and #workflow_store.outcomes == 1)
 workflow:drain_outbox("player.fixture", function(count, err)
     assert(count == 1 and not err)
 end)
-assert(#workflow_store.outcomes == 0 and workflow_reports == 4)
+assert(#workflow_store.outcomes == 0 and workflow_reports == 5)
 
 assert(
     rin.proposal_freshness(
