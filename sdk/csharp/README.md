@@ -62,7 +62,9 @@ Session Transfer is available on the .NET 6+ target. It is intentionally
 excluded from the .NET Standard 2.0 compatibility build because legacy Unity
 stream APIs cannot provide the same bounded asynchronous contract.
 It uses caller-owned streams and never buffers the complete
-lineage:
+lineage. Transfer has an independent two-minute default deadline; configure
+`RinClientOptions.TransferTimeout` without weakening the ordinary five-second
+request deadline:
 
 ```csharp
 var request = new

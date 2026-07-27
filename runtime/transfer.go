@@ -4,11 +4,39 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"sync"
 
 	"github.com/sunrioa/rin/protocol"
 )
+
+const (
+	// DefaultMaxTransferBytes bounds one import or export without preventing
+	// large, explicitly streamed Sessions.
+	DefaultMaxTransferBytes       uint64 = 1 << 30
+	DefaultMaxTransferEvents      uint64 = 1_000_000
+	DefaultMaxConcurrentTransfers        = 4
+)
+
+type TransferLimits struct {
+	MaxBytes      uint64
+	MaxEvents     uint64
+	MaxConcurrent int
+	MaxPerSession int
+}
+
+// TransferLimits returns the immutable resource envelope enforced by Runtime.
+// HTTP adapters use this to apply the same byte budget to the original wire
+// representation before JSON whitespace is discarded.
+func (e *Engine) TransferLimits() TransferLimits {
+	return TransferLimits{
+		MaxBytes:      e.maxTransferBytes,
+		MaxEvents:     e.maxTransferEvents,
+		MaxConcurrent: e.maxConcurrentTransfers,
+		MaxPerSession: 1,
+	}
+}
 
 // TransferSink receives an ordered, bounded-memory export. Implementations
 // must consume each call before returning; Runtime reuses no frame buffers but
@@ -44,6 +72,11 @@ func (e *Engine) ExportTransfer(
 	if err := protocol.ValidateSessionRequest(request); err != nil {
 		return validationError(err)
 	}
+	releaseTransfer, err := e.beginTransfer(request.SessionID)
+	if err != nil {
+		return err
+	}
+	defer releaseTransfer()
 	ranged, ok := e.store.(RangeStore)
 	if !ok {
 		return NewError(
@@ -71,6 +104,9 @@ func (e *Engine) ExportTransfer(
 		HashAlgorithm:     protocol.TransferHashAlgorithm,
 	}
 	session.mu.Unlock()
+	if manifest.EventCount > e.maxTransferEvents {
+		return transferEventLimitError()
+	}
 	manifest.TransferID, err = newTransferID()
 	if err != nil {
 		return NewError(
@@ -85,6 +121,13 @@ func (e *Engine) ExportTransfer(
 			"captured transfer boundary is invalid",
 			err,
 		)
+	}
+	transferredBytes, err := transferFrameBytes(manifest)
+	if err != nil {
+		return NewError("transfer_failed", "could not size transfer manifest", err)
+	}
+	if transferredBytes > e.maxTransferBytes {
+		return transferByteLimitError()
 	}
 	hasher := protocol.NewTransferStreamHasher()
 	if err := hasher.WriteManifest(manifest); err != nil {
@@ -159,6 +202,21 @@ func (e *Engine) ExportTransfer(
 				Record:       event,
 				RecordSHA256: recordHash,
 			}
+			frameBytes, err := transferFrameBytes(frame)
+			if err != nil {
+				return NewError(
+					"transfer_failed",
+					"could not size transfer event frame",
+					err,
+				)
+			}
+			if exceedsTransferBytes(
+				transferredBytes,
+				frameBytes,
+				e.maxTransferBytes,
+			) {
+				return transferByteLimitError()
+			}
 			if err := hasher.WriteEvent(frame); err != nil {
 				return NewError(
 					"transfer_failed",
@@ -169,6 +227,7 @@ func (e *Engine) ExportTransfer(
 			if err := sink.WriteEvent(frame); err != nil {
 				return err
 			}
+			transferredBytes += frameBytes
 			previousRevision = event.Sequence
 			previousHash = event.Hash
 		}
@@ -202,13 +261,29 @@ func (e *Engine) ExportTransfer(
 			err,
 		)
 	}
-	return sink.WriteComplete(protocol.TransferComplete{
+	complete := protocol.TransferComplete{
 		Type:             protocol.TransferFrameComplete,
 		TerminalRevision: manifest.TerminalRevision,
 		TerminalHeadHash: manifest.TerminalHeadHash,
 		EventCount:       manifest.EventCount,
 		StreamSHA256:     streamHash,
-	})
+	}
+	completeBytes, err := transferFrameBytes(complete)
+	if err != nil {
+		return NewError(
+			"transfer_failed",
+			"could not size transfer completion frame",
+			err,
+		)
+	}
+	if exceedsTransferBytes(
+		transferredBytes,
+		completeBytes,
+		e.maxTransferBytes,
+	) {
+		return transferByteLimitError()
+	}
+	return sink.WriteComplete(complete)
 }
 
 // BeginTransferImport validates trusted metadata and creates a Runtime-owned
@@ -231,6 +306,20 @@ func (e *Engine) BeginTransferImport(
 	if err := protocol.ValidateTransferManifest(manifest); err != nil {
 		return nil, validationError(err)
 	}
+	if manifest.EventCount > e.maxTransferEvents {
+		return nil, transferEventLimitError()
+	}
+	manifestBytes, err := transferFrameBytes(manifest)
+	if err != nil {
+		return nil, NewError(
+			"transfer_failed",
+			"could not size transfer manifest",
+			err,
+		)
+	}
+	if manifestBytes > e.maxTransferBytes {
+		return nil, transferByteLimitError()
+	}
 	if err := protocol.ValidateBinding(expectedBinding); err != nil {
 		return nil, validationError(err)
 	}
@@ -250,6 +339,16 @@ func (e *Engine) BeginTransferImport(
 			ErrConflict,
 		)
 	}
+	releaseTransfer, err := e.beginTransfer(manifest.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	keepTransfer := false
+	defer func() {
+		if !keepTransfer {
+			releaseTransfer()
+		}
+	}()
 	unlockLifecycle := e.lockSessionLifecycle(manifest.SessionID)
 	release := true
 	defer func() {
@@ -292,15 +391,19 @@ func (e *Engine) BeginTransferImport(
 	}
 	release = false
 	releaseOperation = false
+	keepTransfer = true
 	return &runtimeTransferWriter{
-		engine:          e,
-		manifest:        manifest,
-		expectedBinding: expectedBinding,
-		staged:          staged,
-		identifiers:     newIdentifierHistory(true),
-		unlockLifecycle: unlockLifecycle,
-		hardLimitBytes:  e.sessionHardLimitBytes,
-		finishOperation: finish,
+		engine:           e,
+		manifest:         manifest,
+		expectedBinding:  expectedBinding,
+		staged:           staged,
+		identifiers:      newIdentifierHistory(true),
+		unlockLifecycle:  unlockLifecycle,
+		hardLimitBytes:   e.sessionHardLimitBytes,
+		maxTransferBytes: e.maxTransferBytes,
+		transferBytes:    manifestBytes,
+		finishOperation:  finish,
+		releaseTransfer:  releaseTransfer,
 	}, nil
 }
 
@@ -319,7 +422,10 @@ type runtimeTransferWriter struct {
 	failed            error
 	hardLimitBytes    uint64
 	managedBytes      uint64
+	maxTransferBytes  uint64
+	transferBytes     uint64
 	finishOperation   func()
+	releaseTransfer   func()
 }
 
 var _ TransferWriter = (*runtimeTransferWriter)(nil)
@@ -331,6 +437,21 @@ func (w *runtimeTransferWriter) WriteEvent(
 	defer w.mu.Unlock()
 	if err := w.ready(); err != nil {
 		return err
+	}
+	frameBytes, err := transferFrameBytes(frame)
+	if err != nil {
+		return w.fail(NewError(
+			"transfer_failed",
+			"could not size transfer event frame",
+			err,
+		))
+	}
+	if exceedsTransferBytes(
+		w.transferBytes,
+		frameBytes,
+		w.maxTransferBytes,
+	) {
+		return w.fail(transferByteLimitError())
 	}
 	additional := managedEventBytes(frame.Record)
 	if w.hardLimitBytes > 0 &&
@@ -376,6 +497,7 @@ func (w *runtimeTransferWriter) WriteEvent(
 		))
 	}
 	w.managedBytes += additional
+	w.transferBytes += frameBytes
 	applyIdentifierDelta(&w.identifiers, delta)
 	w.state = next
 	if frame.Record.Type == EventSessionRestored &&
@@ -392,6 +514,21 @@ func (w *runtimeTransferWriter) Publish(
 	defer w.mu.Unlock()
 	if err := w.ready(); err != nil {
 		return err
+	}
+	completeBytes, err := transferFrameBytes(complete)
+	if err != nil {
+		return w.fail(NewError(
+			"transfer_failed",
+			"could not size transfer completion frame",
+			err,
+		))
+	}
+	if exceedsTransferBytes(
+		w.transferBytes,
+		completeBytes,
+		w.maxTransferBytes,
+	) {
+		return w.fail(transferByteLimitError())
 	}
 	if w.state.SessionID != w.manifest.SessionID ||
 		w.state.Binding != w.expectedBinding ||
@@ -513,6 +650,68 @@ func (w *runtimeTransferWriter) finish() {
 		w.finishOperation()
 		w.finishOperation = nil
 	}
+	if w.releaseTransfer != nil {
+		w.releaseTransfer()
+		w.releaseTransfer = nil
+	}
+}
+
+func (e *Engine) beginTransfer(sessionID string) (func(), error) {
+	e.transferMu.Lock()
+	defer e.transferMu.Unlock()
+	if _, exists := e.activeTransferSessions[sessionID]; exists {
+		return nil, NewError(
+			"transfer_in_progress",
+			"a Transfer is already active for this Session",
+			ErrConflict,
+		)
+	}
+	if e.activeTransfers >= e.maxConcurrentTransfers {
+		return nil, NewError(
+			"transfer_capacity",
+			"the concurrent Transfer limit has been reached",
+			ErrConflict,
+		)
+	}
+	e.activeTransfers++
+	e.activeTransferSessions[sessionID] = struct{}{}
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			e.transferMu.Lock()
+			delete(e.activeTransferSessions, sessionID)
+			e.activeTransfers--
+			e.transferMu.Unlock()
+		})
+	}, nil
+}
+
+func transferFrameBytes(frame any) (uint64, error) {
+	encoded, err := json.Marshal(frame)
+	if err != nil {
+		return 0, err
+	}
+	return uint64(len(encoded) + 1), nil
+}
+
+func exceedsTransferBytes(current, additional, maximum uint64) bool {
+	return additional > maximum || current > maximum-additional
+}
+
+func transferByteLimitError() error {
+	return NewError(
+		"transfer_too_large",
+		"Transfer exceeds the configured byte limit",
+		ErrConflict,
+	)
+}
+
+func transferEventLimitError() error {
+	return NewError(
+		"transfer_event_limit",
+		"Transfer exceeds the configured event limit",
+		ErrConflict,
+	)
 }
 
 func newTransferID() (string, error) {

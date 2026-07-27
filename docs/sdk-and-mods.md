@@ -142,7 +142,10 @@ error envelope from an HTTP-200 terminal Job carrying `data.error`.
   compact JSON is capped at 16 MiB and is rejected with
   `413 snapshot_too_large`, never truncated. JavaScript and C# provide
   bounded Session Transfer streams for complete large-lineage migration;
-  the other packages remain JSON transport clients.
+  the other packages remain JSON transport clients. Transfer uses a separate
+  two-minute client timeout by default (`transferTimeoutMs` or
+  `RinClientOptions.TransferTimeout`) instead of the ordinary five-second
+  request timeout.
 - Restore callers source mandatory `expected_binding` from the running trusted
   content manifest, not from the imported Snapshot.
 - A Snapshot is trusted, opaque event-log-level state. Its SHA-256 canonical

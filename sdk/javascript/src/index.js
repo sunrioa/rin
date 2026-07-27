@@ -469,6 +469,7 @@ export class RinClient {
     const {
       token = "",
       timeoutMs = 5000,
+      transferTimeoutMs = 120000,
       maxResponseBytes = DEFAULT_MAX_RESPONSE_BYTES,
       fetch: fetchImplementation = globalThis.fetch,
       now = () => Date.now(),
@@ -480,6 +481,15 @@ export class RinClient {
     this.timeoutMs = Number(timeoutMs);
     if (!Number.isFinite(this.timeoutMs) || this.timeoutMs < 50 || this.timeoutMs > 120000) {
       throw new RinConfigurationError("invalid_timeout", "timeoutMs must be between 50 and 120000");
+    }
+    this.transferTimeoutMs = Number(transferTimeoutMs);
+    if (!Number.isFinite(this.transferTimeoutMs) ||
+        this.transferTimeoutMs < 1000 ||
+        this.transferTimeoutMs > 1800000) {
+      throw new RinConfigurationError(
+        "invalid_transfer_timeout",
+        "transferTimeoutMs must be between 1000 and 1800000",
+      );
     }
     this.maxResponseBytes = Number(maxResponseBytes);
     if (!Number.isSafeInteger(this.maxResponseBytes) || this.maxResponseBytes < 1024 || this.maxResponseBytes > 32 * 1024 * 1024) {
@@ -550,7 +560,7 @@ export class RinClient {
     const serialized = serializeRequest(payload);
     const target = transferSink(sink);
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timer = setTimeout(() => controller.abort(), this.transferTimeoutMs);
     try {
       const response = await this.fetch(`${this.baseUrl}/v2/session/export`, {
         method: "POST",
@@ -602,7 +612,7 @@ export class RinClient {
     const body = transferSource(source);
     const binding = validateTransferBinding(expectedBinding);
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timer = setTimeout(() => controller.abort(), this.transferTimeoutMs);
     try {
       const headers = this.headers("application/json", "application/x-ndjson");
       headers["Rin-Expected-Game-Id"] = binding.game_id;

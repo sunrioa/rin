@@ -621,6 +621,23 @@ test("remote endpoints require TLS and a token", () => {
   assert.equal(new RinClient("https://models.example", { token: "fixture", fetch: () => {} }).baseUrl, "https://models.example");
 });
 
+test("Session Transfer uses an independent long-running timeout budget", () => {
+  const client = new RinClient(undefined, {
+    timeoutMs: 50,
+    transferTimeoutMs: 120000,
+    fetch: () => {},
+  });
+  assert.equal(client.timeoutMs, 50);
+  assert.equal(client.transferTimeoutMs, 120000);
+  assert.throws(
+    () => new RinClient(undefined, {
+      transferTimeoutMs: 999,
+      fetch: () => {},
+    }),
+    (error) => error.code === "invalid_transfer_timeout",
+  );
+});
+
 test("invalid JSON numbers, cycles, and depth fail before transport", async () => {
   let transportCalls = 0;
   const client = new RinClient(undefined, {

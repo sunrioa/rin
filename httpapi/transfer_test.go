@@ -179,6 +179,66 @@ func TestHTTPTransferRejectsCompressedImport(t *testing.T) {
 	}
 }
 
+func TestHTTPTransferByteLimitCountsOriginalWireWhitespace(t *testing.T) {
+	source := transferHTTPServer(t)
+	create := apiCreateRequest()
+	create.SessionID = "session.http-transfer-wire-limit"
+	create.RequestID = "create.http-transfer-wire-limit"
+	if response := perform(
+		t,
+		source,
+		"/v2/session/create",
+		create,
+	); response.Code != http.StatusOK {
+		t.Fatalf("create: %d %s", response.Code, response.Body.String())
+	}
+	export := perform(t, source, "/v2/session/export", protocol.SessionRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       create.SessionID,
+	})
+	if export.Code != http.StatusOK {
+		t.Fatalf("export: %d %s", export.Code, export.Body.String())
+	}
+
+	fileStore, err := store.OpenFile(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fileStore.Close()
+	engine, err := rinruntime.OpenWithOptions(
+		fileStore,
+		policy.Deterministic{},
+		rinruntime.EngineOptions{
+			MaxTransferBytes: uint64(export.Body.Len()),
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := httpapi.New(engine, httpapi.Options{})
+	padded := bytes.ReplaceAll(export.Body.Bytes(), []byte{'\n'}, []byte(" \n"))
+	response := importTransfer(t, target, padded, create.Binding)
+	if response.Code != http.StatusRequestEntityTooLarge ||
+		!strings.Contains(response.Body.String(), `"code":"transfer_too_large"`) {
+		t.Fatalf(
+			"wire byte limit response: %d %s",
+			response.Code,
+			response.Body.String(),
+		)
+	}
+	state := perform(t, target, "/v2/session/get", protocol.SessionRequest{
+		ProtocolVersion: protocol.Version,
+		SessionID:       create.SessionID,
+	})
+	if state.Code != http.StatusNotFound {
+		t.Fatalf(
+			"wire-limit import exposed a Session: %d %s",
+			state.Code,
+			state.Body.String(),
+		)
+	}
+}
+
 func TestHTTPTransferCancellationAbortsInvisibleImport(t *testing.T) {
 	source := transferHTTPServer(t)
 	create := apiCreateRequest()

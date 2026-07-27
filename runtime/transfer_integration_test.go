@@ -2,6 +2,7 @@ package runtime_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
@@ -314,6 +315,203 @@ func TestTransferImportHardQuotaFailsBeforePublication(t *testing.T) {
 		SessionID:       sessionID,
 	}); !errors.Is(err, rinruntime.ErrNotFound) {
 		t.Fatalf("quota-rejected import became visible: %v", err)
+	}
+}
+
+func TestTransferLimitsRejectBeforeUnboundedWork(t *testing.T) {
+	source := transferEngine(t, store.NewMemory())
+	const sessionID = "session.transfer-limits"
+	createTransferSession(t, source, sessionID)
+	observeTransferSession(t, source, sessionID, 2)
+	sink := &collectingTransferSink{}
+	if err := source.ExportTransfer(
+		context.Background(),
+		protocol.SessionRequest{
+			ProtocolVersion: protocol.Version,
+			SessionID:       sessionID,
+		},
+		sink,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	eventLimitedStore, err := store.OpenFile(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eventLimitedStore.Close()
+	eventLimited, err := rinruntime.OpenWithOptions(
+		eventLimitedStore,
+		policy.Deterministic{},
+		rinruntime.EngineOptions{MaxTransferEvents: 1},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := eventLimited.BeginTransferImport(
+		sink.manifest,
+		sink.manifest.Binding,
+	); rinruntime.ErrorCode(err) != "transfer_event_limit" {
+		t.Fatalf("event limit error = %v", err)
+	}
+
+	manifestPayload, err := json.Marshal(sink.manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eventPayload, err := json.Marshal(sink.events[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	byteLimit := uint64(len(manifestPayload) + 1 + len(eventPayload))
+	byteLimitedStore, err := store.OpenFile(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer byteLimitedStore.Close()
+	byteLimited, err := rinruntime.OpenWithOptions(
+		byteLimitedStore,
+		policy.Deterministic{},
+		rinruntime.EngineOptions{MaxTransferBytes: byteLimit},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, err := byteLimited.BeginTransferImport(
+		sink.manifest,
+		sink.manifest.Binding,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.WriteEvent(sink.events[0]); rinruntime.ErrorCode(err) != "transfer_too_large" {
+		t.Fatalf("byte limit error = %v", err)
+	}
+	if err := writer.Abort(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTransferConcurrencyIsGlobalAndPerSession(t *testing.T) {
+	eventStore := store.NewMemory()
+	setup := transferEngine(t, eventStore)
+	const firstSession = "session.transfer-concurrency-a"
+	const secondSession = "session.transfer-concurrency-b"
+	createTransferSession(t, setup, firstSession)
+	createTransferSession(t, setup, secondSession)
+	engine, err := rinruntime.OpenWithOptions(
+		eventStore,
+		policy.Deterministic{},
+		rinruntime.EngineOptions{MaxConcurrentTransfers: 1},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	result := make(chan error, 1)
+	go func() {
+		result <- engine.ExportTransfer(
+			context.Background(),
+			protocol.SessionRequest{
+				ProtocolVersion: protocol.Version,
+				SessionID:       firstSession,
+			},
+			&collectingTransferSink{onManifest: func() error {
+				close(started)
+				<-release
+				return nil
+			}},
+		)
+	}()
+	<-started
+	if err := engine.ExportTransfer(
+		context.Background(),
+		protocol.SessionRequest{
+			ProtocolVersion: protocol.Version,
+			SessionID:       firstSession,
+		},
+		&collectingTransferSink{},
+	); rinruntime.ErrorCode(err) != "transfer_in_progress" {
+		t.Fatalf("same-Session concurrency error = %v", err)
+	}
+	if err := engine.ExportTransfer(
+		context.Background(),
+		protocol.SessionRequest{
+			ProtocolVersion: protocol.Version,
+			SessionID:       secondSession,
+		},
+		&collectingTransferSink{},
+	); rinruntime.ErrorCode(err) != "transfer_capacity" {
+		t.Fatalf("global concurrency error = %v", err)
+	}
+	close(release)
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.ExportTransfer(
+		context.Background(),
+		protocol.SessionRequest{
+			ProtocolVersion: protocol.Version,
+			SessionID:       secondSession,
+		},
+		&collectingTransferSink{},
+	); err != nil {
+		t.Fatalf("released Transfer capacity was not reusable: %v", err)
+	}
+}
+
+func TestTransferExportHonorsByteLimit(t *testing.T) {
+	eventStore := store.NewMemory()
+	setup := transferEngine(t, eventStore)
+	const sessionID = "session.transfer-export-limit"
+	createTransferSession(t, setup, sessionID)
+	sink := &collectingTransferSink{}
+	if err := setup.ExportTransfer(
+		context.Background(),
+		protocol.SessionRequest{
+			ProtocolVersion: protocol.Version,
+			SessionID:       sessionID,
+		},
+		sink,
+	); err != nil {
+		t.Fatal(err)
+	}
+	manifestPayload, err := json.Marshal(sink.manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eventPayload, err := json.Marshal(sink.events[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := rinruntime.OpenWithOptions(
+		eventStore,
+		policy.Deterministic{},
+		rinruntime.EngineOptions{
+			MaxTransferBytes: uint64(
+				len(manifestPayload) + 1 + len(eventPayload),
+			),
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	limitedSink := &collectingTransferSink{}
+	err = engine.ExportTransfer(
+		context.Background(),
+		protocol.SessionRequest{
+			ProtocolVersion: protocol.Version,
+			SessionID:       sessionID,
+		},
+		limitedSink,
+	)
+	if rinruntime.ErrorCode(err) != "transfer_too_large" {
+		t.Fatalf("export byte limit error = %v", err)
+	}
+	if len(limitedSink.events) != 0 || limitedSink.complete.Type != "" {
+		t.Fatal("byte-limited export wrote an Event or Complete frame")
 	}
 }
 

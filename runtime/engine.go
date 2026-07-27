@@ -43,25 +43,31 @@ type sessionLifecycleGate struct {
 }
 
 type Engine struct {
-	mu                    sync.RWMutex
-	sessions              map[string]*managedSession
-	pendingCreates        map[string]uncertainMutationAppend
-	lifecycleMu           sync.Mutex
-	lifecycleGates        map[string]*sessionLifecycleGate
-	store                 Store
-	decisionProvider      DecisionProvider
-	now                   func() time.Time
-	sessionSoftLimitBytes uint64
-	sessionHardLimitBytes uint64
-	allowLegacyCreation   bool
-	checkpointFailures    atomic.Uint64
-	checkpointQuotaSkips  atomic.Uint64
-	shutdownMu            sync.Mutex
-	shutdownDone          chan struct{}
-	shutdownSignaled      bool
-	closed                bool
-	activeOperations      int
-	checkpointWorkers     int
+	mu                     sync.RWMutex
+	sessions               map[string]*managedSession
+	pendingCreates         map[string]uncertainMutationAppend
+	lifecycleMu            sync.Mutex
+	lifecycleGates         map[string]*sessionLifecycleGate
+	store                  Store
+	decisionProvider       DecisionProvider
+	now                    func() time.Time
+	sessionSoftLimitBytes  uint64
+	sessionHardLimitBytes  uint64
+	maxTransferBytes       uint64
+	maxTransferEvents      uint64
+	maxConcurrentTransfers int
+	transferMu             sync.Mutex
+	activeTransfers        int
+	activeTransferSessions map[string]struct{}
+	allowLegacyCreation    bool
+	checkpointFailures     atomic.Uint64
+	checkpointQuotaSkips   atomic.Uint64
+	shutdownMu             sync.Mutex
+	shutdownDone           chan struct{}
+	shutdownSignaled       bool
+	closed                 bool
+	activeOperations       int
+	checkpointWorkers      int
 }
 
 func Open(store Store, decisionProvider DecisionProvider) (*Engine, error) {
@@ -69,8 +75,11 @@ func Open(store Store, decisionProvider DecisionProvider) (*Engine, error) {
 }
 
 type EngineOptions struct {
-	SessionSoftLimitBytes uint64
-	SessionHardLimitBytes uint64
+	SessionSoftLimitBytes  uint64
+	SessionHardLimitBytes  uint64
+	MaxTransferBytes       uint64
+	MaxTransferEvents      uint64
+	MaxConcurrentTransfers int
 	// AllowLegacySessionCreation is for controlled migration and compatibility
 	// verification. Normal Sidecars must leave it false.
 	AllowLegacySessionCreation bool
@@ -94,17 +103,40 @@ func OpenWithOptions(
 			return nil, errors.New("Session storage limits require Store stats support")
 		}
 	}
+	if options.MaxTransferBytes == 0 {
+		options.MaxTransferBytes = DefaultMaxTransferBytes
+	}
+	if options.MaxTransferBytes > 1<<40 {
+		return nil, errors.New("Transfer byte limit must not exceed 1 TiB")
+	}
+	if options.MaxTransferEvents == 0 {
+		options.MaxTransferEvents = DefaultMaxTransferEvents
+	}
+	if options.MaxTransferEvents > uint64(protocol.MaxJSONSafeInteger) {
+		return nil, errors.New("Transfer event limit must be JSON-safe")
+	}
+	if options.MaxConcurrentTransfers == 0 {
+		options.MaxConcurrentTransfers = DefaultMaxConcurrentTransfers
+	}
+	if options.MaxConcurrentTransfers < 1 ||
+		options.MaxConcurrentTransfers > 64 {
+		return nil, errors.New("concurrent Transfer limit must be between 1 and 64")
+	}
 	engine := &Engine{
-		sessions:              make(map[string]*managedSession),
-		pendingCreates:        make(map[string]uncertainMutationAppend),
-		lifecycleGates:        make(map[string]*sessionLifecycleGate),
-		store:                 store,
-		decisionProvider:      decisionProvider,
-		now:                   time.Now,
-		sessionSoftLimitBytes: options.SessionSoftLimitBytes,
-		sessionHardLimitBytes: options.SessionHardLimitBytes,
-		allowLegacyCreation:   options.AllowLegacySessionCreation,
-		shutdownDone:          make(chan struct{}),
+		sessions:               make(map[string]*managedSession),
+		pendingCreates:         make(map[string]uncertainMutationAppend),
+		lifecycleGates:         make(map[string]*sessionLifecycleGate),
+		store:                  store,
+		decisionProvider:       decisionProvider,
+		now:                    time.Now,
+		sessionSoftLimitBytes:  options.SessionSoftLimitBytes,
+		sessionHardLimitBytes:  options.SessionHardLimitBytes,
+		maxTransferBytes:       options.MaxTransferBytes,
+		maxTransferEvents:      options.MaxTransferEvents,
+		maxConcurrentTransfers: options.MaxConcurrentTransfers,
+		activeTransferSessions: make(map[string]struct{}),
+		allowLegacyCreation:    options.AllowLegacySessionCreation,
+		shutdownDone:           make(chan struct{}),
 	}
 	ids, err := store.ListSessions()
 	if err != nil {

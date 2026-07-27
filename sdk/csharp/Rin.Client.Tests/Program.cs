@@ -6,6 +6,13 @@ using Rin.Client;
 Require(
     new RinClientOptions().MaxResponseBytes == 32 * 1024 * 1024,
     "default response limit does not match the inline transport budget");
+Require(
+    new RinClientOptions().TransferTimeout == TimeSpan.FromMinutes(2),
+    "default Transfer timeout is not separate from ordinary requests");
+RequireThrows<RinConfigurationException>(() => new RinClient(new RinClientOptions
+{
+    TransferTimeout = TimeSpan.FromMilliseconds(999),
+}), "undersized Transfer timeout was accepted");
 Require(RinClient.ClientVersion == "0.7.0", "client version projection is stale");
 var stableId = RinIds.Create("report");
 Require(

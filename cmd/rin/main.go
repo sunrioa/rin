@@ -84,6 +84,42 @@ Serve options:
 		envUint64("RIN_SESSION_HARD_LIMIT_BYTES", 0),
 		"per-Session managed byte hard limit; 0 disables",
 	)
+	maxTransferBytes := flags.Uint64(
+		"transfer-max-bytes",
+		envUint64("RIN_TRANSFER_MAX_BYTES", rinruntime.DefaultMaxTransferBytes),
+		"maximum bytes in one Session Transfer",
+	)
+	maxTransferEvents := flags.Uint64(
+		"transfer-max-events",
+		envUint64("RIN_TRANSFER_MAX_EVENTS", rinruntime.DefaultMaxTransferEvents),
+		"maximum events in one Session Transfer",
+	)
+	maxConcurrentTransfers := flags.Int(
+		"transfer-max-concurrent",
+		envInt(
+			"RIN_TRANSFER_MAX_CONCURRENT",
+			rinruntime.DefaultMaxConcurrentTransfers,
+		),
+		"maximum concurrent Session Transfers",
+	)
+	requestTimeout := flags.Duration(
+		"request-timeout",
+		envDuration("RIN_REQUEST_TIMEOUT", httpapi.DefaultRequestTimeout),
+		"overall timeout for ordinary API requests",
+	)
+	transferTimeout := flags.Duration(
+		"transfer-timeout",
+		envDuration("RIN_TRANSFER_TIMEOUT", httpapi.DefaultTransferTimeout),
+		"overall timeout for Session Transfer requests",
+	)
+	transferInactivityTimeout := flags.Duration(
+		"transfer-inactivity-timeout",
+		envDuration(
+			"RIN_TRANSFER_INACTIVITY_TIMEOUT",
+			httpapi.DefaultTransferInactivityTimeout,
+		),
+		"rolling read/write inactivity timeout for Session Transfers",
+	)
 	if err := flags.Parse(arguments); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -113,8 +149,11 @@ Serve options:
 		fileStore,
 		modelRuntime.DecisionProvider,
 		rinruntime.EngineOptions{
-			SessionSoftLimitBytes: *sessionSoftLimit,
-			SessionHardLimitBytes: *sessionHardLimit,
+			SessionSoftLimitBytes:  *sessionSoftLimit,
+			SessionHardLimitBytes:  *sessionHardLimit,
+			MaxTransferBytes:       *maxTransferBytes,
+			MaxTransferEvents:      *maxTransferEvents,
+			MaxConcurrentTransfers: *maxConcurrentTransfers,
 		},
 	)
 	if err != nil {
@@ -150,16 +189,10 @@ Serve options:
 	api := httpapi.New(engine, httpapi.Options{
 		Token: token, MaxBodyBytes: *maxBody, Logger: logger, Jobs: jobManager,
 		Generation: generationManager, PolicyMode: modelRuntime.Mode,
+		RequestTimeout: *requestTimeout, TransferTimeout: *transferTimeout,
+		TransferInactivityTimeout: *transferInactivityTimeout,
 	})
-	server := &http.Server{
-		Addr:              *address,
-		Handler:           api,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       60 * time.Second,
-		MaxHeaderBytes:    32 * 1024,
-	}
+	server := httpapi.NewProductionServer(*address, api)
 	listener, err := net.Listen("tcp", *address)
 	if err != nil {
 		closeContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -178,6 +211,12 @@ Serve options:
 		"structured_generation", generationManager != nil,
 		"session_soft_limit_bytes", *sessionSoftLimit,
 		"session_hard_limit_bytes", *sessionHardLimit,
+		"transfer_max_bytes", *maxTransferBytes,
+		"transfer_max_events", *maxTransferEvents,
+		"transfer_max_concurrent", *maxConcurrentTransfers,
+		"request_timeout", *requestTimeout,
+		"transfer_timeout", *transferTimeout,
+		"transfer_inactivity_timeout", *transferInactivityTimeout,
 	}
 	if modelRuntime.Mode == "model-with-fallback" {
 		logFields = append(logFields, "model_config", describeModelConfig())

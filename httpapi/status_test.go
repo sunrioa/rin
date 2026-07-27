@@ -3,10 +3,12 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/sunrioa/rin/protocol"
@@ -91,6 +93,152 @@ func TestSessionQuotaMapsToInsufficientStorage(t *testing.T) {
 			http.StatusInsufficientStorage,
 		)
 	}
+}
+
+func TestTransferResourceErrorsMapToBoundedStatuses(t *testing.T) {
+	tests := []struct {
+		code   string
+		status int
+	}{
+		{code: "transfer_too_large", status: http.StatusRequestEntityTooLarge},
+		{code: "transfer_event_limit", status: http.StatusRequestEntityTooLarge},
+		{code: "transfer_capacity", status: http.StatusTooManyRequests},
+		{code: "transfer_in_progress", status: http.StatusConflict},
+	}
+	for _, test := range tests {
+		t.Run(test.code, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			server := &Server{}
+			server.respond(
+				response,
+				nil,
+				nil,
+				rinruntime.NewError(
+					test.code,
+					"Transfer resource limit reached",
+					rinruntime.ErrConflict,
+				),
+			)
+			if response.Code != test.status {
+				t.Fatalf(
+					"status = %d, want %d",
+					response.Code,
+					test.status,
+				)
+			}
+		})
+	}
+}
+
+func TestTransferAndOrdinaryRequestsUseSeparateDeadlines(t *testing.T) {
+	server := &Server{
+		requestTimeout:            2 * time.Second,
+		transferTimeout:           9 * time.Second,
+		transferInactivityTimeout: time.Second,
+	}
+	tests := []struct {
+		path string
+		want time.Duration
+	}{
+		{path: "/v2/session/get", want: server.requestTimeout},
+		{path: "/v2/session/export", want: server.transferTimeout},
+		{path: "/v2/session/import", want: server.transferTimeout},
+	}
+	for _, test := range tests {
+		t.Run(test.path, func(t *testing.T) {
+			var remaining time.Duration
+			handler := server.withDeadlines(http.HandlerFunc(func(
+				_ http.ResponseWriter,
+				request *http.Request,
+			) {
+				deadline, ok := request.Context().Deadline()
+				if !ok {
+					t.Fatal("request context has no deadline")
+				}
+				remaining = time.Until(deadline)
+			}))
+			handler.ServeHTTP(
+				httptest.NewRecorder(),
+				httptest.NewRequest(http.MethodPost, test.path, nil),
+			)
+			if remaining < test.want-250*time.Millisecond ||
+				remaining > test.want {
+				t.Fatalf(
+					"deadline remaining = %s, want approximately %s",
+					remaining,
+					test.want,
+				)
+			}
+		})
+	}
+}
+
+func TestTransferDeadlinesRefreshAroundBodyAndResponseIO(t *testing.T) {
+	server := &Server{
+		requestTimeout:            2 * time.Second,
+		transferTimeout:           9 * time.Second,
+		transferInactivityTimeout: time.Second,
+	}
+	recorder := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+	handler := server.withDeadlines(http.HandlerFunc(func(
+		response http.ResponseWriter,
+		request *http.Request,
+	) {
+		if _, err := io.ReadAll(request.Body); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = response.Write([]byte("ok"))
+	}))
+	handler.ServeHTTP(
+		recorder,
+		httptest.NewRequest(
+			http.MethodPost,
+			"/v2/session/import",
+			strings.NewReader("frame\n"),
+		),
+	)
+	if len(recorder.readDeadlines) < 2 {
+		t.Fatalf(
+			"read deadline updates = %d, want initial plus Body.Read",
+			len(recorder.readDeadlines),
+		)
+	}
+	if len(recorder.writeDeadlines) < 2 {
+		t.Fatalf(
+			"write deadline updates = %d, want initial plus response Write",
+			len(recorder.writeDeadlines),
+		)
+	}
+	for _, deadline := range append(
+		append([]time.Time(nil), recorder.readDeadlines...),
+		recorder.writeDeadlines...,
+	) {
+		remaining := time.Until(deadline)
+		if remaining < 750*time.Millisecond ||
+			remaining > server.transferInactivityTimeout {
+			t.Fatalf(
+				"rolling deadline remaining = %s, want approximately %s",
+				remaining,
+				server.transferInactivityTimeout,
+			)
+		}
+	}
+}
+
+type deadlineRecorder struct {
+	*httptest.ResponseRecorder
+	readDeadlines  []time.Time
+	writeDeadlines []time.Time
+}
+
+func (r *deadlineRecorder) SetReadDeadline(deadline time.Time) error {
+	r.readDeadlines = append(r.readDeadlines, deadline)
+	return nil
+}
+
+func (r *deadlineRecorder) SetWriteDeadline(deadline time.Time) error {
+	r.writeDeadlines = append(r.writeDeadlines, deadline)
+	return nil
 }
 
 func TestClosedRuntimeMapsToServiceUnavailable(t *testing.T) {

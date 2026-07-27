@@ -31,6 +31,7 @@ export type GoalStatus = "active" | "completed" | "released";
 export interface RinClientOptions {
   token?: string;
   timeoutMs?: number;
+  transferTimeoutMs?: number;
   maxResponseBytes?: number;
   fetch?: FetchImplementation;
   now?: () => number;

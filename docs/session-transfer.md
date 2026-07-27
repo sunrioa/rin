@@ -19,10 +19,10 @@ postpones the failure while preserving unbounded allocations, proxy limits, and
 full retransmission after an error.
 
 Session Transfer must provide a bounded-memory, verifiable, recoverable
-export/import path for every valid lineage while preserving game authority,
-original Event Records and their hash chain, complete Identifier History, the
-trusted Binding boundary, permanent identifier semantics, and inline Snapshot
-compatibility.
+export/import path for every lineage inside an operator-configured resource
+envelope while preserving game authority, original Event Records and their
+hash chain, complete Identifier History, the trusted Binding boundary,
+permanent identifier semantics, and inline Snapshot compatibility.
 
 ## Decision
 
@@ -78,9 +78,18 @@ Runtime replay; transport checksums do not replace it.
   large string.
 - Import accepts a stream/file source instead of a complete byte array.
 
-Total transfer size is not subject to the inline 16 MiB Snapshot ceiling, but a
-deployment may enforce total deadlines, byte quotas, and Session storage quotas.
-A limit failure cannot publish a partial Session.
+Total transfer size is not subject to the inline 16 MiB Snapshot ceiling.
+Runtime nevertheless defaults to a 1 GiB total wire-byte limit, 1,000,000
+events, four concurrent Transfers globally, and one active Transfer per
+Session. Configure these with `-transfer-max-bytes`,
+`-transfer-max-events`, and `-transfer-max-concurrent`, or the corresponding
+`RIN_TRANSFER_MAX_BYTES`, `RIN_TRANSFER_MAX_EVENTS`, and
+`RIN_TRANSFER_MAX_CONCURRENT` environment variables. `transfer_too_large` and
+`transfer_event_limit` map to HTTP 413, global `transfer_capacity` maps to 429,
+and same-Session `transfer_in_progress` maps to 409. The byte budget includes
+manifest, Event, LF, and complete framing. Import checks it before staging the
+offending Event; Export checks it before sending the offending frame. A limit
+failure cannot publish a partial Session.
 
 ### 3. Export an immutable boundary
 
@@ -157,6 +166,19 @@ and error frames are at most 32 KiB. Event frames are bounded by the Store's
 contain valid UTF-8 JSON, use its expected closed object shape, and appear in
 the declared order. Data is consumed with backpressure and request cancellation
 is checked between frames.
+
+Ordinary API requests and Transfer streams have independent server budgets:
+`-request-timeout` / `RIN_REQUEST_TIMEOUT` defaults to 30 seconds, while
+`-transfer-timeout` / `RIN_TRANSFER_TIMEOUT` defaults to 30 minutes. The
+production `http.Server` therefore does not impose its former 15-second read
+or 30-second write ceiling over the route-aware budget. A rolling 30-second
+read/write inactivity deadline is separately configurable with
+`-transfer-inactivity-timeout` / `RIN_TRANSFER_INACTIVITY_TIMEOUT`, so active
+large streams keep progressing without letting a stalled stream occupy
+capacity until the overall deadline. JavaScript and C# clients separately
+default Transfer operations to two minutes; set `transferTimeoutMs` or
+`RinClientOptions.TransferTimeout` for larger deployments. Caller cancellation
+remains authoritative.
 
 Once an export response has begun, a failure writes one terminal `error` frame
 containing the normal bounded `ErrorDetail`; it can never write `complete`.

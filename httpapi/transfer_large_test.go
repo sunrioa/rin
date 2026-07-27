@@ -61,7 +61,9 @@ func TestHTTPTransferRoundTripsLineageLargerThanInlineSnapshotLimit(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	sourceServer := httptest.NewServer(httpapi.New(sourceEngine, httpapi.Options{}))
+	sourceServer := newProductionTestServer(
+		httpapi.New(sourceEngine, httpapi.Options{}),
+	)
 	defer sourceServer.Close()
 
 	requestBody, err := json.Marshal(protocol.SessionRequest{
@@ -123,7 +125,9 @@ func TestHTTPTransferRoundTripsLineageLargerThanInlineSnapshotLimit(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	targetServer := httptest.NewServer(httpapi.New(targetEngine, httpapi.Options{}))
+	targetServer := newProductionTestServer(
+		httpapi.New(targetEngine, httpapi.Options{}),
+	)
 	defer targetServer.Close()
 	importFile, err := os.Open(transferPath)
 	if err != nil {
@@ -193,6 +197,16 @@ func TestHTTPTransferRoundTripsLineageLargerThanInlineSnapshotLimit(t *testing.T
 	if resumed.Revision != 2 {
 		t.Fatalf("resumed revision = %d, want 2", resumed.Revision)
 	}
+}
+
+func newProductionTestServer(handler http.Handler) *httptest.Server {
+	server := httptest.NewUnstartedServer(handler)
+	server.Config = httpapi.NewProductionServer(
+		server.Listener.Addr().String(),
+		handler,
+	)
+	server.Start()
+	return server
 }
 
 func addTransferPadding(

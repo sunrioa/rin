@@ -16,10 +16,10 @@ Snapshot 通过单个 JSON Object 传输，并具有 16 MiB compact JSON 上限�
 Session 最终会无法通过现有 HTTP API Snapshot、Replay 或 Restore。简单提高正文
 上限只会推迟问题，并会重新引入无界内存、代理限制和失败后全量重传。
 
-Session Transfer 必须为任意合法长度的 lineage 提供有界内存、可验证、可恢复的
-导出与导入，同时保持游戏世界权威、Event Record 原始字节与 hash chain、完整
-Identifier History、Restore Binding 信任边界、永久 ID 身份以及 inline Snapshot
-兼容性。
+Session Transfer 必须在运维方配置的资源边界内，为 lineage 提供有界内存、
+可验证、可恢复的导出与导入，同时保持游戏世界权威、Event Record 原始字节与
+hash chain、完整 Identifier History、Restore Binding 信任边界、永久 ID 身份
+以及 inline Snapshot 兼容性。
 
 ## 决策
 
@@ -67,8 +67,16 @@ sequence gap、断裂的 `prev_hash`、多余 event，以及与 manifest 或最�
 - SDK 写入调用方提供的 stream/file sink，不返回巨大字符串。
 - 导入接受 stream/file source，不要求完整 byte array。
 
-正文总长度不受 16 MiB inline Snapshot 上限限制，但部署仍可设置总 deadline、
-字节配额和 Session 容量配额。达到限制时不能发布部分 Session。
+正文总长度不受 16 MiB inline Snapshot 上限限制，但 Runtime 默认仍限制单次
+Transfer wire bytes 为 1 GiB、事件数为 1,000,000、全局并发为 4，并限制同一
+Session 同时只能有一个 Transfer。可通过 `-transfer-max-bytes`、
+`-transfer-max-events`、`-transfer-max-concurrent` 或对应的
+`RIN_TRANSFER_MAX_BYTES`、`RIN_TRANSFER_MAX_EVENTS`、
+`RIN_TRANSFER_MAX_CONCURRENT` 环境变量配置。`transfer_too_large` 与
+`transfer_event_limit` 映射为 HTTP 413，全局 `transfer_capacity` 映射为
+429，同 Session `transfer_in_progress` 映射为 409。字节预算包含 manifest、
+Event、LF 与 complete framing；Import 会在写入违规 Event 前拒绝，Export 会在
+发送违规 frame 前拒绝。达到限制时不能发布部分 Session。
 
 ### 3. 导出固定 immutable boundary
 
@@ -133,6 +141,17 @@ Export 接受 `application/json` 并返回 `application/x-ndjson`；Import 要�
 event frame 上限为 Store 的 64 MiB EventRecord 限制加 32 KiB framing。每个
 frame 必须以 LF 结束、是有效 UTF-8 JSON、符合预期 closed object shape，并严格
 按声明顺序出现。服务端按 backpressure 消费数据，并在 frame 之间检查请求取消。
+
+普通 API 与 Transfer stream 使用独立服务端预算：
+`-request-timeout` / `RIN_REQUEST_TIMEOUT` 默认 30 秒，
+`-transfer-timeout` / `RIN_TRANSFER_TIMEOUT` 默认 30 分钟。生产
+`http.Server` 不再用原来的 15 秒 ReadTimeout / 30 秒 WriteTimeout 截断
+Transfer，而由 route-aware deadline 控制。独立的 rolling 30 秒读写 inactivity
+deadline 可通过 `-transfer-inactivity-timeout` /
+`RIN_TRANSFER_INACTIVITY_TIMEOUT` 配置；持续传输会刷新 deadline，停滞连接不会
+一直占用并发容量。JavaScript 与 C# 客户端的 Transfer 操作独立默认 2 分钟；
+较大部署分别配置 `transferTimeoutMs` 或 `RinClientOptions.TransferTimeout`。
+调用方 cancellation 始终优先。
 
 Export response 一旦开始，后续失败只写一个包含普通有界 `ErrorDetail` 的终止
 `error` frame，绝不能再写 `complete`。Import 只有验证 `complete` 且随后读到

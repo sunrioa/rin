@@ -57,7 +57,9 @@ Unity 和 BepInEx 调用方必须在渲染循环外 `await`，验证结果后再
 
 Session Transfer 只在 .NET 6+ Target 提供。.NET Standard 2.0 兼容构建会
 明确排除该功能，因为旧 Unity Stream API 无法提供相同的有界异步契约。
-它使用调用方拥有的 stream，不会缓冲完整 lineage：
+它使用调用方拥有的 stream，不会缓冲完整 lineage。Transfer 独立默认 2 分钟
+deadline；可配置 `RinClientOptions.TransferTimeout`，无需放宽普通请求的 5 秒
+deadline：
 
 ```csharp
 var request = new

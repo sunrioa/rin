@@ -123,7 +123,9 @@ Request Schema 的权威，会拒绝封闭 Request Object 中的未知 Member；
 - 随附客户端默认响应上限为 32 MiB。完整 inline Snapshot compact JSON 上限
   为 16 MiB，超限返回 `413 snapshot_too_large` 且绝不截断。JavaScript 与 C#
   提供完整大 lineage 迁移的有界 Session Transfer stream；其他 package 仍是
-  JSON transport client。
+  JSON transport client。Transfer 默认使用独立的 2 分钟客户端超时
+  （`transferTimeoutMs` 或 `RinClientOptions.TransferTimeout`），不会沿用普通
+  请求的 5 秒超时。
 - Restore 调用方必须从运行中的可信内容 manifest 取得必填
   `expected_binding`，不能从导入 Snapshot 读取。
 - Snapshot 是按事件日志保护的可信、不透明状态；其 SHA-256 canonical checksum

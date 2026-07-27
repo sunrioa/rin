@@ -74,12 +74,17 @@ func (s *Server) importSession(response http.ResponseWriter, request *http.Reque
 	}
 
 	reader := bufio.NewReaderSize(request.Body, 64*1024)
-	manifestLine, err := readTransferLine(
+	manifestLine, manifestBytes, err := readTransferLine(
 		reader,
 		protocol.TransferControlFrameMaxBytes,
 	)
 	if err != nil {
 		s.respondTransferReadError(response, request, err, "manifest")
+		return
+	}
+	transferredBytes := manifestBytes
+	if transferredBytes > s.maxTransferBytes {
+		s.respond(response, request, nil, transferTooLargeError())
 		return
 	}
 	var manifest protocol.TransferManifest
@@ -121,11 +126,23 @@ func (s *Server) importSession(response http.ResponseWriter, request *http.Reque
 			)
 			return
 		}
-		line, err := readTransferLine(reader, protocol.TransferEventFrameMaxBytes)
+		line, lineBytes, err := readTransferLine(
+			reader,
+			protocol.TransferEventFrameMaxBytes,
+		)
 		if err != nil {
 			s.respondTransferReadError(response, request, err, "event")
 			return
 		}
+		if exceedsTransferWireBytes(
+			transferredBytes,
+			lineBytes,
+			s.maxTransferBytes,
+		) {
+			s.respond(response, request, nil, transferTooLargeError())
+			return
+		}
+		transferredBytes += lineBytes
 		var frame protocol.TransferEvent
 		if err := decodeTransferFrame(line, protocol.TransferFrameEvent, &frame); err != nil {
 			s.respondTransferReadError(response, request, err, "event")
@@ -141,7 +158,7 @@ func (s *Server) importSession(response http.ResponseWriter, request *http.Reque
 		}
 	}
 
-	completeLine, err := readTransferLine(
+	completeLine, completeBytes, err := readTransferLine(
 		reader,
 		protocol.TransferControlFrameMaxBytes,
 	)
@@ -149,6 +166,15 @@ func (s *Server) importSession(response http.ResponseWriter, request *http.Reque
 		s.respondTransferReadError(response, request, err, "complete")
 		return
 	}
+	if exceedsTransferWireBytes(
+		transferredBytes,
+		completeBytes,
+		s.maxTransferBytes,
+	) {
+		s.respond(response, request, nil, transferTooLargeError())
+		return
+	}
+	transferredBytes += completeBytes
 	var complete protocol.TransferComplete
 	if err := decodeTransferFrame(completeLine, protocol.TransferFrameComplete, &complete); err != nil {
 		s.respondTransferReadError(response, request, err, "complete")
@@ -158,7 +184,18 @@ func (s *Server) importSession(response http.ResponseWriter, request *http.Reque
 		s.respondTransferValidation(response, err)
 		return
 	}
-	if trailing, err := readTransferLine(reader, protocol.TransferControlFrameMaxBytes); err != io.EOF {
+	if trailing, trailingBytes, err := readTransferLine(
+		reader,
+		protocol.TransferControlFrameMaxBytes,
+	); err != io.EOF {
+		if exceedsTransferWireBytes(
+			transferredBytes,
+			trailingBytes,
+			s.maxTransferBytes,
+		) {
+			s.respond(response, request, nil, transferTooLargeError())
+			return
+		}
 		if err == nil && len(trailing) > 0 {
 			err = errors.New("transfer contains a frame after complete")
 		}
@@ -225,12 +262,21 @@ func (s *Server) respondTransferReadError(
 	)
 }
 
-func readTransferLine(reader *bufio.Reader, limit int) ([]byte, error) {
+func readTransferLine(
+	reader *bufio.Reader,
+	limit int,
+) ([]byte, uint64, error) {
 	var line []byte
+	var consumed uint64
 	for {
 		fragment, err := reader.ReadSlice('\n')
+		consumed += uint64(len(fragment))
 		if len(line)+len(fragment) > limit+1 {
-			return nil, fmt.Errorf("%w: maximum is %d bytes", errTransferFrameTooLarge, limit)
+			return nil, consumed, fmt.Errorf(
+				"%w: maximum is %d bytes",
+				errTransferFrameTooLarge,
+				limit,
+			)
 		}
 		line = append(line, fragment...)
 		switch {
@@ -240,19 +286,37 @@ func readTransferLine(reader *bufio.Reader, limit int) ([]byte, error) {
 				line = line[:len(line)-1]
 			}
 			if len(line) == 0 {
-				return nil, errors.New("transfer frame must not be empty")
+				return nil, consumed, errors.New(
+					"transfer frame must not be empty",
+				)
 			}
-			return line, nil
+			return line, consumed, nil
 		case errors.Is(err, bufio.ErrBufferFull):
 			continue
 		case errors.Is(err, io.EOF) && len(line) == 0:
-			return nil, io.EOF
+			return nil, consumed, io.EOF
 		case errors.Is(err, io.EOF):
-			return nil, errors.New("transfer frame must end with LF")
+			return nil, consumed, errors.New(
+				"transfer frame must end with LF",
+			)
 		default:
-			return nil, err
+			return nil, consumed, err
 		}
 	}
+}
+
+func exceedsTransferWireBytes(current, additional, maximum uint64) bool {
+	return maximum == 0 ||
+		additional > maximum ||
+		current > maximum-additional
+}
+
+func transferTooLargeError() error {
+	return rinruntime.NewError(
+		"transfer_too_large",
+		"Transfer exceeds the configured byte limit",
+		rinruntime.ErrConflict,
+	)
 }
 
 func decodeTransferFrame(line []byte, expectedType string, target any) error {

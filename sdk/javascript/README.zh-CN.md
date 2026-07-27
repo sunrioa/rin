@@ -45,7 +45,8 @@ cd sdk/javascript && npm test
 才能应用引擎状态。
 
 Session Transfer 全程使用 streaming，不会以一个大字符串返回。Source/sink
-归调用方所有，并由调用方决定何时关闭：
+归调用方所有，并由调用方决定何时关闭。Transfer 独立默认 2 分钟 deadline；
+可配置 `transferTimeoutMs`，无需放宽普通请求的 5 秒 deadline：
 
 ```js
 import { createReadStream, createWriteStream } from "node:fs";

@@ -25,27 +25,39 @@ import (
 	rinruntime "github.com/sunrioa/rin/runtime"
 )
 
-const DefaultMaxBodyBytes int64 = 32 << 20
+const (
+	DefaultMaxBodyBytes              int64 = 32 << 20
+	DefaultRequestTimeout                  = 30 * time.Second
+	DefaultTransferTimeout                 = 30 * time.Minute
+	DefaultTransferInactivityTimeout       = 30 * time.Second
+)
 
 type Options struct {
-	Token        string
-	MaxBodyBytes int64
-	Logger       *slog.Logger
-	Jobs         *jobs.Manager
-	Generation   *generation.Manager
-	PolicyMode   string
+	Token                     string
+	MaxBodyBytes              int64
+	RequestTimeout            time.Duration
+	TransferTimeout           time.Duration
+	TransferInactivityTimeout time.Duration
+	Logger                    *slog.Logger
+	Jobs                      *jobs.Manager
+	Generation                *generation.Manager
+	PolicyMode                string
 }
 
 type Server struct {
-	engine       *rinruntime.Engine
-	token        string
-	maxBodyBytes int64
-	logger       *slog.Logger
-	jobs         *jobs.Manager
-	generation   *generation.Manager
-	policyMode   string
-	handler      http.Handler
-	requests     requestMetrics
+	engine                    *rinruntime.Engine
+	token                     string
+	maxBodyBytes              int64
+	maxTransferBytes          uint64
+	requestTimeout            time.Duration
+	transferTimeout           time.Duration
+	transferInactivityTimeout time.Duration
+	logger                    *slog.Logger
+	jobs                      *jobs.Manager
+	generation                *generation.Manager
+	policyMode                string
+	handler                   http.Handler
+	requests                  requestMetrics
 }
 
 type requestMetrics struct {
@@ -78,6 +90,18 @@ func New(engine *rinruntime.Engine, options Options) *Server {
 	if maximum <= 0 {
 		maximum = DefaultMaxBodyBytes
 	}
+	requestTimeout := options.RequestTimeout
+	if requestTimeout <= 0 {
+		requestTimeout = DefaultRequestTimeout
+	}
+	transferTimeout := options.TransferTimeout
+	if transferTimeout <= 0 {
+		transferTimeout = DefaultTransferTimeout
+	}
+	transferInactivityTimeout := options.TransferInactivityTimeout
+	if transferInactivityTimeout <= 0 {
+		transferInactivityTimeout = DefaultTransferInactivityTimeout
+	}
 	logger := options.Logger
 	if logger == nil {
 		logger = slog.Default()
@@ -87,13 +111,137 @@ func New(engine *rinruntime.Engine, options Options) *Server {
 		policyMode = "deterministic"
 	}
 	server := &Server{
-		engine: engine, token: options.Token, maxBodyBytes: maximum, logger: logger,
-		jobs: options.Jobs, generation: options.Generation, policyMode: policyMode,
+		engine: engine, token: options.Token, maxBodyBytes: maximum,
+		requestTimeout: requestTimeout, transferTimeout: transferTimeout,
+		transferInactivityTimeout: transferInactivityTimeout,
+		logger:                    logger, jobs: options.Jobs, generation: options.Generation,
+		policyMode: policyMode,
+	}
+	if engine != nil {
+		server.maxTransferBytes = engine.TransferLimits().MaxBytes
 	}
 	mux := http.NewServeMux()
 	server.registerContractRoutes(mux)
-	server.handler = server.secure(server.instrument(server.authenticate(mux)))
+	server.handler = server.secure(
+		server.withDeadlines(server.instrument(server.authenticate(mux))),
+	)
 	return server
+}
+
+// NewProductionServer applies connection-level limits that do not conflict
+// with Server's route-aware request and Transfer deadlines.
+func NewProductionServer(address string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              address,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    32 * 1024,
+	}
+}
+
+func (s *Server) withDeadlines(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(
+		response http.ResponseWriter,
+		request *http.Request,
+	) {
+		transfer := isTransferPath(request.URL.Path)
+		timeout := s.requestTimeout
+		if transfer {
+			timeout = s.transferTimeout
+		}
+		ctx, cancel := context.WithTimeout(request.Context(), timeout)
+		defer cancel()
+
+		controller := http.NewResponseController(response)
+		deadline, hasDeadline := ctx.Deadline()
+		if transfer {
+			response = &activityDeadlineResponseWriter{
+				ResponseWriter: response,
+				controller:     controller,
+				inactivity:     s.transferInactivityTimeout,
+				overall:        deadline,
+			}
+			if request.Body != nil {
+				request.Body = &activityDeadlineBody{
+					ReadCloser: request.Body,
+					controller: controller,
+					inactivity: s.transferInactivityTimeout,
+					overall:    deadline,
+				}
+			}
+			_ = controller.SetReadDeadline(
+				activityDeadline(s.transferInactivityTimeout, deadline),
+			)
+			_ = controller.SetWriteDeadline(
+				activityDeadline(s.transferInactivityTimeout, deadline),
+			)
+		} else if hasDeadline {
+			_ = controller.SetReadDeadline(deadline)
+			_ = controller.SetWriteDeadline(deadline)
+		}
+		next.ServeHTTP(response, request.WithContext(ctx))
+	})
+}
+
+type activityDeadlineBody struct {
+	io.ReadCloser
+	controller *http.ResponseController
+	inactivity time.Duration
+	overall    time.Time
+}
+
+func (b *activityDeadlineBody) Read(payload []byte) (int, error) {
+	_ = b.controller.SetReadDeadline(
+		activityDeadline(b.inactivity, b.overall),
+	)
+	return b.ReadCloser.Read(payload)
+}
+
+type activityDeadlineResponseWriter struct {
+	http.ResponseWriter
+	controller *http.ResponseController
+	inactivity time.Duration
+	overall    time.Time
+}
+
+func (w *activityDeadlineResponseWriter) WriteHeader(status int) {
+	_ = w.controller.SetWriteDeadline(
+		activityDeadline(w.inactivity, w.overall),
+	)
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *activityDeadlineResponseWriter) Write(payload []byte) (int, error) {
+	_ = w.controller.SetWriteDeadline(
+		activityDeadline(w.inactivity, w.overall),
+	)
+	return w.ResponseWriter.Write(payload)
+}
+
+func (w *activityDeadlineResponseWriter) Flush() {
+	_ = w.controller.SetWriteDeadline(
+		activityDeadline(w.inactivity, w.overall),
+	)
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func (w *activityDeadlineResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
+func activityDeadline(inactivity time.Duration, overall time.Time) time.Time {
+	deadline := time.Now().Add(inactivity)
+	if !overall.IsZero() && overall.Before(deadline) {
+		return overall
+	}
+	return deadline
+}
+
+func isTransferPath(path string) bool {
+	return path == "/v2/session/export" || path == "/v2/session/import"
 }
 
 func (s *Server) ServeHTTP(response http.ResponseWriter, request *http.Request) {
@@ -577,6 +725,10 @@ func (s *Server) respond(response http.ResponseWriter, request *http.Request, da
 		status = http.StatusInternalServerError
 	case code == "snapshot_too_large":
 		status = http.StatusRequestEntityTooLarge
+	case code == "transfer_too_large", code == "transfer_event_limit":
+		status = http.StatusRequestEntityTooLarge
+	case code == "transfer_capacity":
+		status = http.StatusTooManyRequests
 	case code == "session_quota_exceeded":
 		status = http.StatusInsufficientStorage
 	case protocol.IsValidationError(err),

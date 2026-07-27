@@ -27,6 +27,7 @@ public sealed class RinClient : IDisposable
     private readonly string baseUrl;
     private readonly string token;
     private readonly TimeSpan timeout;
+    private readonly TimeSpan transferTimeout;
     private readonly int maxResponseBytes;
 
     public RinClient(RinClientOptions? options = null)
@@ -43,6 +44,14 @@ public sealed class RinClient : IDisposable
         if (timeout < TimeSpan.FromMilliseconds(50) || timeout > TimeSpan.FromSeconds(120))
         {
             throw new RinConfigurationException("invalid_timeout", "Timeout must be between 50 ms and 120 seconds");
+        }
+        transferTimeout = options.TransferTimeout;
+        if (transferTimeout < TimeSpan.FromSeconds(1) ||
+            transferTimeout > TimeSpan.FromMinutes(30))
+        {
+            throw new RinConfigurationException(
+                "invalid_transfer_timeout",
+                "TransferTimeout must be between 1 second and 30 minutes");
         }
         maxResponseBytes = options.MaxResponseBytes;
         if (maxResponseBytes < 1024 || maxResponseBytes > 32 * 1024 * 1024)
@@ -204,7 +213,7 @@ public sealed class RinClient : IDisposable
 
         using var deadline =
             CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(timeout);
+        deadline.CancelAfter(transferTimeout);
         using var response = await SendAsync(request, deadline.Token, cancellationToken)
             .ConfigureAwait(false);
         if (response.StatusCode != HttpStatusCode.OK)
@@ -283,7 +292,7 @@ public sealed class RinClient : IDisposable
 
         using var deadline =
             CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(timeout);
+        deadline.CancelAfter(transferTimeout);
         using var response = await SendAsync(request, deadline.Token, cancellationToken)
             .ConfigureAwait(false);
         byte[] raw;

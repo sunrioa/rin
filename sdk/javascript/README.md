@@ -48,7 +48,9 @@ Calls are Promise-based. Apply engine state only after returning to the
 engine's main thread and validating the proposal against a local allowlist.
 
 Session Transfer is streamed and never returned as one large string. The
-caller owns the source/sink and decides when to close it:
+caller owns the source/sink and decides when to close it. Transfer has an
+independent two-minute default deadline; configure `transferTimeoutMs` without
+weakening the ordinary five-second request deadline:
 
 ```js
 import { createReadStream, createWriteStream } from "node:fs";
