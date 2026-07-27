@@ -45,6 +45,10 @@ All clients follow these rules:
   `summary`/`rationale` through the player-text gate;
 - `event_exists` is a conflict from another request, not a duplicate
   acknowledgement;
+- an Outcome Outbox entry is removed only after a complete `MutationResult`
+  for the expected Session: positive JSON-safe `revision`, lowercase SHA-256
+  `head_hash`, and an explicit boolean `duplicate`. A partial HTTP-200 body is
+  not an acknowledgement;
 - proposals remain advisory until the game accepts or rejects them and reports
   the typed Invocation, Run, and Outcome; reporting is not authorization.
 - use proposal `summary` and `rationale` as the player-facing copy: Rin

@@ -27,8 +27,10 @@ console.log(capabilities.release_version);
 `applyAndEnqueueOutcome` 和 `drainOutbox`。接入方提供 Workflow Store 与已
 校验的 `HostDurability`。幂等 Apply 会收到稳定 Operation ID；只有
 `transactional-action` 才把 `settleProposalAttempt` 当作原子游戏事务调用。
-Outbox 只有在 Rin 为同一 Session 返回普通成功或明确 duplicate 成功后才删除
-项目；缺失或串线的 Session ACK 会在调用 Store 前 fail closed。SDK
+Outbox 只有在 Rin 为同一 Session 返回完整 `MutationResult` 后才删除项目：
+Revision 必须为正的 JSON-safe 整数，Head 必须为小写 SHA-256，且 Duplicate
+必须显式为布尔值；缺失、不完整或串线的 Session ACK 会在调用 Store 前
+fail closed。SDK
 不提供会误用于生产的内存默认实现。参见
 [宿主持久保证分级](../../docs/host-durability.zh-CN.md)。
 

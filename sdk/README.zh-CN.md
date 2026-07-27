@@ -38,6 +38,9 @@ SDK Workflow Helper 会校验接入声明的
   Session State。对于 `rin.reducer-projection/v2` 之前的 Proposal，Rin 保留
   这些坐标和结构字段，但会通过玩家文本门禁升级 `summary`/`rationale`；
 - `event_exists` 是其他请求造成的冲突，不是 duplicate 确认；
+- Outcome Outbox 只有收到目标 Session 的完整 `MutationResult` 后才能删除：
+  `revision` 必须为正的 JSON-safe 整数，`head_hash` 必须为小写 SHA-256，
+  `duplicate` 必须显式为布尔值；字段不完整的 HTTP 200 不是 ACK；
 - Proposal 始终是建议；游戏接受或拒绝后回报类型化 Invocation、Run 与
   Outcome，Report 不是执行授权。
 - 应把 Proposal 的 `summary` 与 `rationale` 用作玩家文案：Rin 由游戏编写的

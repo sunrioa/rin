@@ -7,14 +7,15 @@ export async function runRuleTree(store, preference, presentAction) {
     throw new TypeError("presentAction must be a function");
   }
   if (store.hasPendingRinWork()) {
-    throw new Error("pending Rin work must be reconciled before rule-tree play");
+    throw new Error(
+      "Rin work or history must be reconciled before rule-tree play",
+    );
   }
-  await store.rememberPreference(preference);
-  const savedPreference = store.game.preference;
+  const savedPreference = preference;
   const action = savedPreference
     ? preferredAction(savedPreference)
     : actionById("offer.water");
-  await store.applyBaselineAction(action);
+  await store.applyBaselineTurn(preference, action);
   await presentAction(action);
   return {
     mode: "baseline",

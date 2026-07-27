@@ -85,6 +85,12 @@ func TestCoordinatorPersistsBeforeNetworkAndRetriesExactOutbox(t *testing.T) {
 	}
 	firstAttempt := fixture.transport.reports[0]
 	fixture.transport.reportError = nil
+	fixture.transport.reportResult = protocol.NewMutationResult(
+		fixture.request.SessionID,
+		0,
+		"",
+		false,
+	)
 	restarted, err := NewCoordinator(
 		fixture.transport,
 		fixture.dispatcher,
@@ -96,6 +102,20 @@ func TestCoordinatorPersistsBeforeNetworkAndRetriesExactOutbox(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if count, err := restarted.DrainOutbox(context.Background()); err == nil ||
+		count != 0 {
+		t.Fatalf("malformed Outbox ACK = %d, %v; want retained error", count, err)
+	}
+	retained, _ = fixture.store.Load(context.Background())
+	if len(retained.Outbox) != 1 {
+		t.Fatal("malformed Outbox ACK removed the durable report")
+	}
+	fixture.transport.reportResult = protocol.NewMutationResult(
+		fixture.request.SessionID,
+		3,
+		strings.Repeat("a", 64),
+		false,
+	)
 	if count, err := restarted.DrainOutbox(context.Background()); err != nil ||
 		count != 1 {
 		t.Fatalf("DrainOutbox = %d, %v", count, err)
@@ -806,6 +826,12 @@ func newFixture(t *testing.T, executionStatus host.ActionRunStatus) *testFixture
 			SessionID: request.SessionID, RequestID: request.RequestID,
 			Status: "succeeded", Proposal: &proposal,
 		},
+		reportResult: protocol.NewMutationResult(
+			request.SessionID,
+			3,
+			strings.Repeat("a", 64),
+			false,
+		),
 	}
 	dispatcher := &fakeDispatcher{}
 	identity := &fakeIdentity{
@@ -1087,6 +1113,7 @@ func (store *memoryStore) CommitEffect(
 type fakeTransport struct {
 	submission        protocol.ProposalJobSubmission
 	job               protocol.ProposalJob
+	reportResult      protocol.MutationResult
 	beforeSubmit      func() error
 	reportError       error
 	pollErrors        []error
@@ -1131,7 +1158,7 @@ func (transport *fakeTransport) ReportAction(
 	if transport.reportError != nil {
 		return protocol.MutationResult{}, transport.reportError
 	}
-	return protocol.MutationResult{SessionID: request.SessionID}, nil
+	return transport.reportResult, nil
 }
 
 type fakeDispatcher struct {

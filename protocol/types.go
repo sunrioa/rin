@@ -415,6 +415,52 @@ type MutationResult struct {
 	Revision  uint64 `json:"revision"`
 	HeadHash  string `json:"head_hash"`
 	Duplicate bool   `json:"duplicate"`
+
+	duplicatePresent bool
+}
+
+// NewMutationResult constructs a complete mutation result. Hosts normally
+// receive this value through JSON decoding; the constructor is for transports
+// and tests that produce typed results directly.
+func NewMutationResult(
+	sessionID string,
+	revision uint64,
+	headHash string,
+	duplicate bool,
+) MutationResult {
+	return MutationResult{
+		SessionID:        sessionID,
+		Revision:         revision,
+		HeadHash:         headHash,
+		Duplicate:        duplicate,
+		duplicatePresent: true,
+	}
+}
+
+// UnmarshalJSON records whether the required duplicate member was present.
+// A plain bool cannot otherwise distinguish an explicit false from omission.
+func (result *MutationResult) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		SessionID string `json:"session_id"`
+		Revision  uint64 `json:"revision"`
+		HeadHash  string `json:"head_hash"`
+		Duplicate *bool  `json:"duplicate"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	result.SessionID = wire.SessionID
+	result.Revision = wire.Revision
+	result.HeadHash = wire.HeadHash
+	result.Duplicate = wire.Duplicate != nil && *wire.Duplicate
+	result.duplicatePresent = wire.Duplicate != nil
+	return nil
+}
+
+// HasDuplicateField reports whether duplicate was explicitly supplied by the
+// mutation response or by NewMutationResult.
+func (result MutationResult) HasDuplicateField() bool {
+	return result.duplicatePresent
 }
 
 type ProposalResult struct {

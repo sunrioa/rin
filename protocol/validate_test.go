@@ -22,6 +22,43 @@ func TestCreateValidationRejectsUnsafeAndDuplicateActors(t *testing.T) {
 	}
 }
 
+func TestMutationResultValidationRequiresDurableHead(t *testing.T) {
+	valid := protocol.NewMutationResult(
+		"session.test",
+		3,
+		strings.Repeat("a", 64),
+		true,
+	)
+	if err := protocol.ValidateMutationResult(valid); err != nil {
+		t.Fatalf("valid mutation result failed: %v", err)
+	}
+	for _, mutate := range []func(*protocol.MutationResult){
+		func(result *protocol.MutationResult) { result.SessionID = "" },
+		func(result *protocol.MutationResult) { result.Revision = 0 },
+		func(result *protocol.MutationResult) {
+			result.Revision = uint64(protocol.MaxJSONSafeInteger) + 1
+		},
+		func(result *protocol.MutationResult) { result.HeadHash = "" },
+	} {
+		result := valid
+		mutate(&result)
+		if err := protocol.ValidateMutationResult(result); err == nil {
+			t.Fatalf("invalid mutation result passed: %+v", result)
+		}
+	}
+	var missingDuplicate protocol.MutationResult
+	if err := json.Unmarshal(
+		[]byte(`{"session_id":"session.test","revision":3,"head_hash":"`+
+			strings.Repeat("a", 64)+`"}`),
+		&missingDuplicate,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := protocol.ValidateMutationResult(missingDuplicate); err == nil {
+		t.Fatal("mutation result without duplicate passed")
+	}
+}
+
 func TestCreateValidationRejectsInvalidBoundaryAndProtocol(t *testing.T) {
 	request := validCreate()
 	request.ProtocolVersion = "rin.protocol/v1"

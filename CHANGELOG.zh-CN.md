@@ -74,6 +74,11 @@
 
 - Event Replay 与 Transfer Import 现在会在 Reduce 前校验每个类型化 Payload；
   自洽哈希的恶意 Event 会返回损坏日志错误，不再解引用缺失的动作生命周期记录。
+- 所有 Workflow SDK 只有收到结构完整、字段合法且属于目标 Session 的
+  `MutationResult` 后才删除 Outcome Outbox；字段不完整的 HTTP 200 ACK 会继续
+  持久保留以供重试。
+- Terminal Story Rule-tree Fallback 会在持有跨进程 Lease 时重新读取磁盘；
+  另一进程开始 Rin 工作后，旧进程不能再应用本地动作。
 - Epoch 现在与外层 Session 绑定；Host Sequence 字段统一要求正数且 JSON-safe；
   Wire 与持久化 JSON 统一拒绝重复 Object Member Name。
 - Archive/Delete Exact Retry 现在会重新 Fence 已可见 Marker，并完成 Rename

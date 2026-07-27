@@ -86,6 +86,11 @@ across every future minor release.
 - Event replay and Transfer import now validate each typed payload before
   reduction, so a self-consistent malicious event returns a corrupt-log error
   instead of dereferencing missing action lifecycle records.
+- All workflow SDKs require a complete, well-formed same-Session
+  `MutationResult` before deleting an Outcome Outbox entry; partial HTTP-200
+  acknowledgements remain durable for retry.
+- Terminal Story rule-tree fallback rechecks the disk save while holding the
+  cross-process lease and cannot apply after another process starts Rin work.
 - Epochs are bound to their containing Session, host sequence fields enforce
   positive JSON-safe integers, and wire/persisted JSON rejects duplicate
   object member names consistently.

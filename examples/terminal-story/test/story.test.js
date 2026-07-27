@@ -231,6 +231,26 @@ test("a second Store cannot mutate while the save lock is held", async () => {
   assert.equal(second.game.preference, "coffee");
 });
 
+test("a stale Store cannot apply local fallback after another writer starts Rin", async () => {
+  const staleLocal = await temporaryStore();
+  const rinWriter = await new StoryWorkflowStore(staleLocal.path).load();
+  await rinWriter.ensureSessionId("session.fixture");
+  await rinWriter.beginRinTurn("tea", 1);
+
+  await assert.rejects(
+    runRuleTree(staleLocal, "coffee", async () => {}),
+    /Rin work or history/,
+  );
+
+  const persisted = await new StoryWorkflowStore(staleLocal.path).load();
+  assert.equal(persisted.game.preference, "tea");
+  assert.deepEqual(persisted.game.applied_action_ids, []);
+  assert.deepEqual(
+    persisted.game.pending_turn,
+    { sequence: 1, preference: "tea" },
+  );
+});
+
 test("an orphaned lock fails closed until an operator removes it", async () => {
   const store = await temporaryStore();
   const lockPath = `${store.path}.lock`;
@@ -524,7 +544,12 @@ function successfulStoryClient() {
         reportCalls++;
         return response(200, {
           ok: true,
-          data: { session_id: request.session_id, duplicate: false },
+          data: {
+            session_id: request.session_id,
+            revision: 3,
+            head_hash: "a".repeat(64),
+            duplicate: false,
+          },
         });
       }
       return response(200, {

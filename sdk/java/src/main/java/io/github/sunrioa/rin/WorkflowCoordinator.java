@@ -178,18 +178,32 @@ public final class WorkflowCoordinator {
         }
         return client.reportAction(request)
                 .thenCompose(result -> {
-                    if (result == null ||
-                            !Objects.equals(
-                                    result.get("session_id"),
-                                    request.get("session_id"))) {
+                    if (!validMutationAcknowledgement(
+                            result,
+                            request.get("session_id"))) {
                         return CompletableFuture.failedFuture(
                                 new RinConfigurationException(
                                         "invalid_outbox_ack",
-                                        "Rin acknowledged the Outcome for another or missing Session"));
+                                        "Rin returned a malformed or wrong-Session Outcome acknowledgement"));
                     }
                     return store.acknowledgeOutcome(entry, result);
                 })
                 .thenCompose(ignored -> drainEntries(entries, index + 1));
+    }
+
+    private static boolean validMutationAcknowledgement(
+            Map<String, Object> result,
+            Object expectedSessionId) {
+        if (result == null ||
+                !Objects.equals(result.get("session_id"), expectedSessionId) ||
+                !RinClient.isProtocolIdentifier(result.get("session_id")) ||
+                !RinClient.isNonnegativeJsonSafeInteger(result.get("revision")) ||
+                ((Number) result.get("revision")).doubleValue() < 1 ||
+                !RinClient.isLowerSha256(result.get("head_hash")) ||
+                !(result.get("duplicate") instanceof Boolean)) {
+            return false;
+        }
+        return true;
     }
 
     private CompletionStage<ResolvedPendingTurn> resolve(

@@ -2253,7 +2253,12 @@ func eventsLogicallyEqual(left, right protocol.EventRecord) bool {
 }
 
 func mutationResult(state protocol.SessionState, duplicate bool) protocol.MutationResult {
-	return protocol.MutationResult{SessionID: state.SessionID, Revision: state.Revision, HeadHash: state.HeadHash, Duplicate: duplicate}
+	return protocol.NewMutationResult(
+		state.SessionID,
+		state.Revision,
+		state.HeadHash,
+		duplicate,
+	)
 }
 
 func validationError(err error) error {

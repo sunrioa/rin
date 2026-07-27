@@ -105,9 +105,11 @@ codec changes the concrete `Number` type. A transactional settlement
 hook must apply the game effect, persist the applied marker and exact Action Report,
 and remove the Pending Turn atomically. Idempotent hosts instead receive the
 stable operation ID before the Store completes the report transaction. Outbox
-drain acknowledges only a normal success or Rin's explicit exact-duplicate
-success. All errors leave the exact Action Report entry intact; reports are
-never converted into Observations.
+drain accepts only a complete `MutationResult` for the expected Session: the
+revision is a positive JSON-safe integer, the head is a lowercase SHA-256 hash,
+and duplicate is an explicit boolean. Normal and exact-duplicate success both
+satisfy that shape. All errors and partial success bodies leave the exact
+Action Report entry intact; reports are never converted into Observations.
 `ProposalFreshness` centralizes the final pending/revision check.
 
 Provider failure inside Rin may use its deterministic Policy before a Proposal

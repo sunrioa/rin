@@ -38,9 +38,11 @@ additive response fields through `AdditiveFields`.
 `IWorkflowStore` and validated `HostDurability`. An idempotent apply receives
 the stable operation ID; only `transactional-action` calls
 `IProposalAttemptStore.SettleAsync` as one game transaction. Entries are
-acknowledged only after normal or explicit duplicate report success. Errors
-retain the exact report; a missing or crossed Session ACK fails closed before
-the Store callback. Reports are never converted into Observations. The SDK
+acknowledged only after a complete same-Session `MutationResult` with a
+positive JSON-safe revision, lowercase SHA-256 head and explicit boolean
+duplicate flag. Errors retain the exact report; a missing, partial or crossed
+Session ACK fails closed before the Store callback. Reports are never converted
+into Observations. The SDK
 does not ship an in-memory production default. See
 [Host durability profiles](../../docs/host-durability.md).
 

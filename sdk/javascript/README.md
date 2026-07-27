@@ -28,9 +28,10 @@ Response types deliberately tolerate additive fields.
 `applyAndEnqueueOutcome`, and `drainOutbox`. Supply a Workflow Store and a
 validated `HostDurability`. An idempotent apply receives the stable operation
 ID; only `transactional-action` invokes `settleProposalAttempt` as an atomic
-game transaction. Outbox draining deletes nothing until Rin returns normal or
-explicit duplicate success for the same Session; a missing or crossed Session
-ACK fails closed before the Store callback. The SDK intentionally supplies no unsafe
+game transaction. Outbox draining deletes nothing until Rin returns a complete
+`MutationResult` for the same Session, including a positive JSON-safe revision,
+lowercase SHA-256 head and explicit boolean duplicate flag. A missing, partial
+or crossed-Session ACK fails closed before the Store callback. The SDK intentionally supplies no unsafe
 in-memory production default. See
 [Host durability profiles](../../docs/host-durability.md).
 

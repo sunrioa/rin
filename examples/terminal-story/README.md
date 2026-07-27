@@ -86,6 +86,11 @@ that save. If lock release itself is uncertain, the committing call keeps its
 successful result and freezes later writes until `load()` reacquires the lease
 and refreshes the save.
 
+Rule-tree fallback performs the same lock-held disk re-read while atomically
+persisting the preference and action. Once any Rin Session or pending Rin work
+exists in the save, fallback fails closed; a stale process therefore cannot
+append a local action over another process's Rin turn.
+
 For a non-interactive run:
 
 ```bash

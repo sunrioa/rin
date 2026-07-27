@@ -42,8 +42,10 @@ coordinator. The Store supplies `load_attempt`, `create_attempt`,
 `acknowledge_outcome`. The coordinator persists before network submission,
 resumes or safely resubmits a missing Job, verifies Job/Proposal identity,
 serializes settle/drain operations per key, and retries the exact Action Report
-until a same-Session acknowledgement. A missing or crossed Session ACK fails
-closed before the Store callback. Use
+until a complete same-Session `MutationResult` with a positive JSON-safe
+revision, lowercase SHA-256 head and explicit boolean duplicate flag. A
+missing, partial or crossed Session ACK fails closed before the Store callback.
+Use
 `rin.proposal_freshness(state, proposal)` immediately before game apply.
 
 The SDK defines ordering and validation, not host durability. Lua hosts differ

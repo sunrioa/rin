@@ -570,8 +570,11 @@ func (coordinator *Coordinator) drainOutbox(ctx context.Context) (int, error) {
 		if err != nil {
 			return acknowledged, err
 		}
-		if result.SessionID != entry.Request.SessionID {
-			return acknowledged, errors.New("Rin acknowledged an Outbox report for another Session")
+		if err := protocol.ValidateMutationResult(result); err != nil ||
+			result.SessionID != entry.Request.SessionID {
+			return acknowledged, errors.New(
+				"Rin returned a malformed or wrong-Session Outbox acknowledgement",
+			)
 		}
 		next, err := state.Clone()
 		if err != nil {

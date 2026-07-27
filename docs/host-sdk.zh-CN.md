@@ -41,9 +41,11 @@ DTO，不实现游戏引擎、导航、物理、存档系统、模型 Provider �
 5. `ReconcileEpoch` 删除尚未提交的陈旧 Decision，并取消陈旧的活动动作。如果
    Capability 不支持取消或已被动态移除，结果变为 `outcome-unknown`，框架不会
    虚构已成功回滚。
-6. `DrainOutbox` 只有在 Rin 确认精确 `ReportActionRequest` 后才删除条目。
-   Transport 失败会保留内容等价的 DTO 与稳定 ID 供重试；Terminal Action 的
-   最后一条 Report 被确认后，HostKit 同时删除其完整 Action Record。
+6. `DrainOutbox` 只有在 Rin 为精确 `ReportActionRequest` 与目标 Session 返回
+   完整 `MutationResult` 后才删除条目：Revision 是正的 JSON-safe 整数、Head
+   是小写 SHA-256、Duplicate 是显式布尔值。Transport 失败或字段不完整的成功
+   响应会保留内容等价的 DTO 与稳定 ID 供重试；Terminal Action 的最后一条
+   Report 被确认后，HostKit 同时删除其完整 Action Record。
 
 `WorkflowState` v2 只保留 Active Action 与仍有未确认 Report 的 Terminal
 Action；Actions 和 Outbox 上限均为 1024。因而一万个已确认 Immediate Action

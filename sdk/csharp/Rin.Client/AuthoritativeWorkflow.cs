@@ -374,15 +374,11 @@ public sealed class OutcomeOutbox
                 }
                 var result = await client.ReportActionAsync(report, cancellationToken)
                     .ConfigureAwait(false);
-                if (result is null ||
-                    !string.Equals(
-                        result.SessionId,
-                        report.SessionId,
-                        StringComparison.Ordinal))
+                if (!ValidMutationAcknowledgement(result, report.SessionId))
                 {
                     throw new RinConfigurationException(
                         "invalid_outbox_ack",
-                        "Rin acknowledged the Outcome for another or missing Session");
+                        "Rin returned a malformed or wrong-Session Outcome acknowledgement");
                 }
                 await store.AcknowledgeAsync(entry, result, cancellationToken)
                     .ConfigureAwait(false);
@@ -394,6 +390,36 @@ public sealed class OutcomeOutbox
         {
             Volatile.Write(ref draining, 0);
         }
+    }
+
+    private static bool ValidMutationAcknowledgement(
+        MutationResult? result,
+        string expectedSessionId)
+    {
+        if (result is null ||
+            !string.Equals(
+                result.SessionId,
+                expectedSessionId,
+                StringComparison.Ordinal) ||
+            !RinIds.IsValid(result.SessionId) ||
+            result.Revision < 1 ||
+            result.Revision > 9_007_199_254_740_991L ||
+            result.HeadHash is null ||
+            result.HeadHash.Length != 64 ||
+            !result.DuplicateValue.HasValue)
+        {
+            return false;
+        }
+        foreach (var character in result.HeadHash)
+        {
+            var digit = character >= '0' && character <= '9';
+            var lowerHex = character >= 'a' && character <= 'f';
+            if (!digit && !lowerHex)
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static RinConfigurationException InvalidOutbox() =>

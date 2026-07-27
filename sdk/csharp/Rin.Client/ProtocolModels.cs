@@ -305,12 +305,45 @@ public sealed record DeleteSessionResult(
     [property: JsonPropertyName("deleted_at")] string DeletedAt,
     [property: JsonPropertyName("duplicate")] bool Duplicate);
 
-public sealed record MutationResult(
-    [property: JsonPropertyName("session_id")] string SessionId,
-    [property: JsonPropertyName("revision")] long Revision,
-    [property: JsonPropertyName("head_hash")] string HeadHash,
-    [property: JsonPropertyName("duplicate")] bool Duplicate)
+public sealed record MutationResult
 {
+    public MutationResult(
+        string sessionId,
+        long revision,
+        string headHash,
+        bool duplicate)
+        : this(sessionId, revision, headHash, (bool?)duplicate)
+    {
+    }
+
+    [JsonConstructor]
+    public MutationResult(
+        string sessionId,
+        long revision,
+        string headHash,
+        bool? duplicateValue)
+    {
+        SessionId = sessionId;
+        Revision = revision;
+        HeadHash = headHash;
+        DuplicateValue = duplicateValue;
+    }
+
+    [JsonPropertyName("session_id")]
+    public string SessionId { get; init; }
+
+    [JsonPropertyName("revision")]
+    public long Revision { get; init; }
+
+    [JsonPropertyName("head_hash")]
+    public string HeadHash { get; init; }
+
+    [JsonPropertyName("duplicate")]
+    public bool? DuplicateValue { get; init; }
+
+    [JsonIgnore]
+    public bool Duplicate => DuplicateValue == true;
+
     [JsonExtensionData]
     public IDictionary<string, JsonElement>? AdditiveFields { get; init; }
 }

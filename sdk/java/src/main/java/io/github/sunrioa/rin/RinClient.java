@@ -352,7 +352,7 @@ public final class RinClient {
                 value >= '0' && value <= '9';
     }
 
-    private static boolean isNonnegativeJsonSafeInteger(Object value) {
+    static boolean isNonnegativeJsonSafeInteger(Object value) {
         if (value instanceof Byte || value instanceof Short || value instanceof Integer || value instanceof Long) {
             long number = ((Number) value).longValue();
             return number >= 0 && number <= MAX_SAFE_DOUBLE_INTEGER;
@@ -383,6 +383,17 @@ public final class RinClient {
                     number == Math.rint(number);
         }
         return false;
+    }
+
+    static boolean isLowerSha256(Object value) {
+        if (!(value instanceof String text) || text.length() != 64) return false;
+        for (int index = 0; index < text.length(); index++) {
+            char character = text.charAt(index);
+            boolean digit = character >= '0' && character <= '9';
+            boolean lowerHex = character >= 'a' && character <= 'f';
+            if (!digit && !lowerHex) return false;
+        }
+        return true;
     }
 
     private static boolean validGenerationContent(String content) {

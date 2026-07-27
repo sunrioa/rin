@@ -275,7 +275,16 @@ final class WorkflowCoordinatorTest {
                     if (json.equals("missing-session")) {
                         return Map.of(
                                 "ok", true,
-                                "data", Map.of("duplicate", false));
+                                "data", Map.of(
+                                        "revision", 3,
+                                        "head_hash", "a".repeat(64),
+                                        "duplicate", false));
+                    }
+                    if (json.equals("malformed-ack")) {
+                        return Map.of(
+                                "ok", true,
+                                "data", Map.of(
+                                        "session_id", "session.workflow"));
                     }
                     return Map.of(
                             "ok", true,
@@ -284,6 +293,8 @@ final class WorkflowCoordinatorTest {
                                     json.equals("wrong-session")
                                             ? "session.other"
                                             : "session.workflow",
+                                    "revision", 3,
+                                    "head_hash", "a".repeat(64),
                                     "duplicate", false));
                 }
             };
@@ -337,6 +348,20 @@ final class WorkflowCoordinatorTest {
             require(
                     store.outcomes.size() == 1,
                     "missing-Session ACK removed the durable Outcome");
+            reportBody.set("malformed-ack");
+            try {
+                new WorkflowCoordinator(client, store).drainOutbox().join();
+                throw new AssertionError("malformed ACK was accepted");
+            } catch (java.util.concurrent.CompletionException expected) {
+                require(
+                        expected.getCause() instanceof RinConfigurationException &&
+                                ((RinConfigurationException) expected.getCause())
+                                        .code().equals("invalid_outbox_ack"),
+                        "malformed ACK returned the wrong error");
+            }
+            require(
+                    store.outcomes.size() == 1,
+                    "malformed ACK removed the durable Outcome");
             OutcomeOutboxEntry validOutcome = store.outcomes.get(0);
             Map<String, Object> missingSession =
                     new LinkedHashMap<>(validOutcome.report());

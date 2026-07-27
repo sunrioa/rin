@@ -92,8 +92,10 @@ Action 按 JSON 语义匹配到持久化 Request 的原始 Offer，不能只凭 
 同一值比较。
 Transactional Settlement Hook 必须原子应用游戏效果、持久化 Applied Marker
 与完整 Action Report，并删除 Pending Turn。幂等宿主会先收到稳定 Operation ID，再由
-Store 完成 Report 事务。Outbox Drain 只确认普通成功或 Rin 明确返回的
-exact-duplicate 成功。所有错误都保留原 Action Report Entry，Report 永远不会
+Store 完成 Report 事务。Outbox Drain 只接受目标 Session 的完整
+`MutationResult`：Revision 是正的 JSON-safe 整数、Head 是小写 SHA-256，
+Duplicate 是显式布尔值；普通成功和 exact-duplicate 成功均需满足该结构。
+所有错误和字段不完整的成功响应都保留原 Action Report Entry，Report 永远不会
 转换为 Observation。`ProposalFreshness` 统一负责应用前的 Pending/Revision 校验。
 
 Rin 内部的 Provider 失败可以在 Proposal 产生前使用 Deterministic Policy。

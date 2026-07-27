@@ -263,7 +263,9 @@ test("Outcome Outbox acknowledges only confirmed exact Action Report success", a
       })
       : response(200, {
         ok: true,
-        data: {
+        data: acknowledgment === "malformed"
+          ? { session_id: "session.fixture" }
+          : {
           ...(acknowledgment === "missing"
             ? {}
             : {
@@ -274,7 +276,7 @@ test("Outcome Outbox acknowledges only confirmed exact Action Report success", a
           revision: 3,
           head_hash: "a".repeat(64),
           duplicate: true,
-        },
+          },
       }),
   });
   const store = {
@@ -299,6 +301,13 @@ test("Outcome Outbox acknowledges only confirmed exact Action Report success", a
   );
   assert.equal(entries.length, 1);
   acknowledgment = "missing";
+  await assert.rejects(
+    outbox.drain(),
+    (error) => error instanceof RinConfigurationError &&
+      error.code === "invalid_outbox_ack",
+  );
+  assert.equal(entries.length, 1);
+  acknowledgment = "malformed";
   await assert.rejects(
     outbox.drain(),
     (error) => error instanceof RinConfigurationError &&

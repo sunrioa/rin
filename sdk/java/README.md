@@ -33,8 +33,11 @@ and Outcome Outbox state machine. Supply a persistent `WorkflowStore` and a
 validated `HostDurability` value. `idempotent-action` apply callbacks receive
 the stable operation ID; `transactional-action` delegates apply and enqueue to
 one host transaction. Every error preserves the exact Action Report; it is
-never converted into an Observation. A missing or crossed-Session acknowledgement
-fails closed before the Store callback. `ProposalFreshness.evaluate` performs the shared final
+never converted into an Observation. Only a complete same-Session
+`MutationResult` with a positive JSON-safe revision, lowercase SHA-256 head and
+explicit boolean duplicate flag is accepted; a missing, partial or
+crossed-Session acknowledgement fails closed before the Store callback.
+`ProposalFreshness.evaluate` performs the shared final
 pending/revision check. An `advisory` host cannot offer actions that require
 either stronger profile. See
 [Host durability profiles](../../docs/host-durability.md).

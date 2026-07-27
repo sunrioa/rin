@@ -25,6 +25,7 @@ export const HOST_DURABILITY_PROFILES = Object.freeze({
 
 const MAX_GENERATION_CONTENT_BYTES = 4 * 1024 * 1024;
 const PROTOCOL_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/;
+const LOWER_SHA256 = /^[0-9a-f]{64}$/;
 const TERMINAL_JOB_STATES = new Set(["succeeded", "failed", "stale", "canceled"]);
 
 export class RinError extends Error {
@@ -296,10 +297,10 @@ export class OutcomeOutbox {
         requireOutboxIdentifier("request_id", report.request_id);
         requireOutboxIdentifier("event_id", report.report?.event_id);
         const result = await this.client.reportAction(report);
-        if (!isObject(result) || result.session_id !== report.session_id) {
+        if (!validMutationAcknowledgement(result, report.session_id)) {
           throw new RinConfigurationError(
             "invalid_outbox_ack",
-            "Rin acknowledged the Outcome for another or missing Session",
+            "Rin returned a malformed or wrong-Session Outcome acknowledgement",
           );
         }
         await this.store.acknowledgeOutcome(entry, result);
@@ -310,6 +311,17 @@ export class OutcomeOutbox {
       this.draining = false;
     }
   }
+}
+
+function validMutationAcknowledgement(result, sessionId) {
+  return isObject(result) &&
+    result.session_id === sessionId &&
+    PROTOCOL_IDENTIFIER.test(result.session_id) &&
+    Number.isSafeInteger(result.revision) &&
+    result.revision > 0 &&
+    typeof result.head_hash === "string" &&
+    LOWER_SHA256.test(result.head_hash) &&
+    typeof result.duplicate === "boolean";
 }
 
 export class WorkflowCoordinator {

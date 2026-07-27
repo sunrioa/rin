@@ -222,6 +222,7 @@ using (var typedProposalClient = new RinClient(
 }
 
 var workflowAckSession = "session.workflow";
+var workflowAckMalformed = false;
 var workflowHandler = new RecordingHandler
 {
     ResponseBodyFactory = request =>
@@ -259,6 +260,10 @@ var workflowHandler = new RecordingHandler
         {
             return "{\"ok\":true,\"data\":{\"revision\":3,\"head_hash\":\"" +
                 new string('a', 64) + "\",\"duplicate\":true}}";
+        }
+        if (workflowAckMalformed)
+        {
+            return "{\"ok\":true,\"data\":{\"session_id\":\"session.workflow\"}}";
         }
         return "{\"ok\":true,\"data\":{\"session_id\":\"" +
             workflowAckSession + "\"," +
@@ -390,6 +395,22 @@ using (var workflowClient = new RinClient(new RinClientOptions(), workflowHandle
         workflowStore.Outcomes.Count == 1,
         "missing-Session ACK removed the durable Outcome");
     workflowAckSession = "session.workflow";
+    workflowAckMalformed = true;
+    try
+    {
+        await outbox.DrainAsync();
+        throw new InvalidOperationException("malformed ACK removed an Outcome");
+    }
+    catch (RinConfigurationException exception)
+    {
+        Require(
+            exception.Code == "invalid_outbox_ack",
+            "malformed ACK returned the wrong error");
+    }
+    Require(
+        workflowStore.Outcomes.Count == 1,
+        "malformed ACK removed the durable Outcome");
+    workflowAckMalformed = false;
     var validOutcome = workflowStore.Outcomes[0];
     workflowStore.Outcomes[0] = validOutcome with
     {

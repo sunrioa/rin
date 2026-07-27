@@ -321,6 +321,7 @@ local workflow_offer = rin.action_offer({
 local workflow_requests = 0
 local workflow_reports = 0
 local workflow_ack_session = "session.workflow"
+local workflow_ack_malformed = false
 local workflow_client = assert(rin.new({
     http_fetch = function(request, callback)
         workflow_requests = workflow_requests + 1
@@ -359,6 +360,12 @@ local workflow_client = assert(rin.new({
                         action = workflow_offer,
                     },
                 },
+            }
+        end
+        if workflow_ack_malformed then
+            return {
+                ok = true,
+                data = { session_id = "session.workflow" },
             }
         end
         return {
@@ -429,6 +436,13 @@ workflow:drain_outbox("player.fixture", function(count, err)
     assert(not count and err and err.code == "invalid_outbox_ack")
 end)
 assert(#workflow_store.outcomes == 1, "missing-Session ACK removed the Outcome")
+workflow_ack_session = "session.workflow"
+workflow_ack_malformed = true
+workflow:drain_outbox("player.fixture", function(count, err)
+    assert(not count and err and err.code == "invalid_outbox_ack")
+end)
+assert(#workflow_store.outcomes == 1, "malformed ACK removed the Outcome")
+workflow_ack_malformed = false
 local valid_outcome_session = workflow_store.outcomes[1].request.session_id
 workflow_store.outcomes[1].request.session_id = nil
 workflow:drain_outbox("player.fixture", function(count, err)
@@ -457,7 +471,7 @@ workflow_ack_session = "session.workflow"
 workflow:drain_outbox("player.fixture", function(count, err)
     assert(count == 2 and not err)
 end)
-assert(#workflow_store.outcomes == 0 and workflow_reports == 4)
+assert(#workflow_store.outcomes == 0 and workflow_reports == 5)
 
 workflow_store.attempt = workflow_resolution.attempt
 local accepted_request = rin.immediate_action_report({
@@ -494,7 +508,7 @@ assert(workflow_store.active == nil and #workflow_store.outcomes == 1)
 workflow:drain_outbox("player.fixture", function(count, err)
     assert(count == 1 and not err)
 end)
-assert(#workflow_store.outcomes == 0 and workflow_reports == 5)
+assert(#workflow_store.outcomes == 0 and workflow_reports == 6)
 
 assert(
     rin.proposal_freshness(

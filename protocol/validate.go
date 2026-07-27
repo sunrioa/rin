@@ -784,6 +784,34 @@ func ValidateDueAgents(request DueAgentsRequest) error {
 	return validateTags("region_ids", request.RegionIDs, 32)
 }
 
+// ValidateMutationResult checks the identity and durable head carried by a
+// successful mutation response before a Host discards exact-retry state.
+func ValidateMutationResult(result MutationResult) error {
+	if err := validateID("session_id", result.SessionID); err != nil {
+		return err
+	}
+	if result.Revision == 0 ||
+		result.Revision > uint64(MaxJSONSafeInteger) {
+		return &ValidationError{
+			Field:   "revision",
+			Message: "must be a positive JSON-safe integer",
+		}
+	}
+	if !hashPattern.MatchString(result.HeadHash) {
+		return &ValidationError{
+			Field:   "head_hash",
+			Message: "must be a lowercase SHA-256 hash",
+		}
+	}
+	if !result.HasDuplicateField() {
+		return &ValidationError{
+			Field:   "duplicate",
+			Message: "must be present and boolean",
+		}
+	}
+	return nil
+}
+
 func ValidateRestore(request RestoreRequest) error {
 	if err := validateVersion(request.ProtocolVersion); err != nil {
 		return err

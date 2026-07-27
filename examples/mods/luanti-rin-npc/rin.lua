@@ -162,6 +162,17 @@ local function is_nonnegative_json_safe_integer(value)
     return value <= max_safe_float_integer and value == math.floor(value)
 end
 
+local function is_lower_sha256(value)
+    if type(value) ~= "string" or #value ~= 64 then return false end
+    for index = 1, #value do
+        local byte = value:byte(index)
+        local digit = byte >= 48 and byte <= 57
+        local lower_hex = byte >= 97 and byte <= 102
+        if not digit and not lower_hex then return false end
+    end
+    return true
+end
+
 local function resolve_job(job, result_kind, expected_job_id)
     if type(job) ~= "table" then
         return nil, failure("invalid_job", "Rin returned an invalid job"), true
@@ -900,10 +911,14 @@ function Workflow:drain_outbox(key, callback)
             end
             if type(result) ~= "table" or
                 not is_protocol_identifier(result.session_id) or
-                result.session_id ~= entry.request.session_id then
+                result.session_id ~= entry.request.session_id or
+                not is_nonnegative_json_safe_integer(result.revision) or
+                result.revision < 1 or
+                not is_lower_sha256(result.head_hash) or
+                type(result.duplicate) ~= "boolean" then
                 next_entry(workflow_error(
                     "invalid_outbox_ack",
-                    "Rin acknowledged the Outcome for another or missing Session"))
+                    "Rin returned a malformed or wrong-Session Outcome acknowledgement"))
                 return
             end
             local removed, remove_error = self.store:acknowledge_outcome(key, entry)

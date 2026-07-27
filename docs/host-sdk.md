@@ -49,10 +49,12 @@ unbounded binary data must not enter `WorkflowState`.
    actions. If a capability cannot be cancelled or was dynamically removed, the
    result becomes `outcome-unknown`; the framework never invents successful
    rollback.
-6. `DrainOutbox` removes an entry only after Rin acknowledges its exact
-   `ReportActionRequest`. Transport failure retains equivalent DTO content and
-   stable IDs for retry. Once the last report for a terminal action is
-   acknowledged, HostKit removes that full Action record.
+6. `DrainOutbox` removes an entry only after Rin returns a complete
+   `MutationResult` for the exact `ReportActionRequest` and expected Session:
+   positive JSON-safe revision, lowercase SHA-256 head and explicit boolean
+   duplicate. Transport failure or a partial success body retains equivalent
+   DTO content and stable IDs for retry. Once the last report for a terminal
+   action is acknowledged, HostKit removes that full Action record.
 
 `WorkflowState` version 2 retains only active actions and terminal actions with
 unacknowledged reports. Both Actions and Outbox are capped at 1024 entries.

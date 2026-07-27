@@ -509,12 +509,12 @@ func mutationResultFromIdentity(
 	identity protocol.RequestIdentity,
 	duplicate bool,
 ) protocol.MutationResult {
-	return protocol.MutationResult{
-		SessionID: sessionID,
-		Revision:  identity.ResultRevision,
-		HeadHash:  identity.ResultHeadHash,
-		Duplicate: duplicate,
-	}
+	return protocol.NewMutationResult(
+		sessionID,
+		identity.ResultRevision,
+		identity.ResultHeadHash,
+		duplicate,
+	)
 }
 
 func proposalFromIdentity(identity protocol.RequestIdentity) (protocol.ActionProposal, error) {

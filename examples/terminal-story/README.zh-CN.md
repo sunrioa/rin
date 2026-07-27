@@ -71,6 +71,10 @@ ACK 不能删除请求在途期间发生变化的同 Key Report。
 已成功的提交仍按成功返回，但后续写入会被冻结，直到 `load()` 重新取得 Lease 并
 刷新存档。
 
+Rule-tree Fallback 也会在同一 Lease 内重新读取磁盘，并原子保存偏好与动作。一旦
+存档中出现任何 Rin Session 或未完成 Rin 工作，Fallback 就会 Fail Closed；旧
+进程不能覆盖另一进程刚开始的 Rin Turn。
+
 非交互运行：
 
 ```bash

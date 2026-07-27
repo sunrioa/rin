@@ -41,11 +41,7 @@ export class StoryWorkflowStore {
   }
 
   hasPendingRinWork() {
-    return Boolean(
-      this.document.attempt ||
-      this.document.game.pending_turn ||
-      this.document.outbox.length,
-    );
+    return documentHasRinWork(this.document);
   }
 
   async load() {
@@ -109,8 +105,17 @@ export class StoryWorkflowStore {
     return turn;
   }
 
-  async applyBaselineAction(action) {
+  async applyBaselineTurn(preference, action) {
+    if (preference !== "tea" && preference !== "coffee") {
+      throw new Error("preference must be tea or coffee");
+    }
     await this.commit((next) => {
+      if (documentHasRinWork(next)) {
+        throw new Error(
+          "Rin work or history must be reconciled before rule-tree play",
+        );
+      }
+      next.game.preference = preference;
       next.game.applied_action_ids.push(action.id);
     });
   }
@@ -363,6 +368,15 @@ export class StoryWorkflowStore {
 
 function clone(value) {
   return value == null ? value : structuredClone(value);
+}
+
+function documentHasRinWork(document) {
+  return Boolean(
+    document.game.session_id ||
+    document.attempt ||
+    document.game.pending_turn ||
+    document.outbox.length,
+  );
 }
 
 function validateDocument(value) {
