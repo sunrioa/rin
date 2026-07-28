@@ -15,7 +15,7 @@ import net.minecraft.world.level.storage.ValueOutput;
 
 import java.util.UUID;
 
-final class CompanionEntity extends PathfinderMob {
+public final class CompanionEntity extends PathfinderMob {
     private static final EntityDataAccessor<String> OWNER_ID = SynchedEntityData.defineId(
             CompanionEntity.class, EntityDataSerializers.STRING);
     private static final EntityDataAccessor<String> MODE = SynchedEntityData.defineId(
@@ -45,7 +45,7 @@ final class CompanionEntity extends PathfinderMob {
         builder.define(MODE, Mode.STOPPED.name());
     }
 
-    UUID ownerId() {
+    public UUID ownerId() {
         String value = entityData.get(OWNER_ID);
         return value.isBlank() ? null : UUID.fromString(value);
     }
