@@ -12,6 +12,8 @@ import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 import java.nio.file.Path;
 
@@ -24,6 +26,7 @@ final class CompanionRuntime {
     private CompanionModelConfig modelConfig;
     private final Map<UUID, CompanionEntity> liveCompanions = new HashMap<>();
     private final Map<UUID, CompanionEntity> ownerCompanions = new HashMap<>();
+    private final Set<UUID> activeTurns = ConcurrentHashMap.newKeySet();
     private boolean closed;
 
     private CompanionRuntime(MinecraftServer server) {
@@ -121,7 +124,26 @@ final class CompanionRuntime {
             player.sendSystemMessage(Component.translatable("rin_ai_companion.chat.missing"));
             return;
         }
-        player.sendSystemMessage(Component.literal("伙伴：收到，" + message));
+        if (!activeTurns.add(entity.getUUID())) {
+            player.sendSystemMessage(Component.literal("伙伴：我正在想上一件事。"));
+            return;
+        }
+        long requestSequence = ++state.sequence;
+        state.setDirty();
+        CompletableFuture.runAsync(() -> {
+            try {
+                sidecar.start();
+                CompanionDialogue.generate(sidecar.client(), "generate." + requestSequence, message,
+                        "dialogue.reply", entity.mode().name(), "玩家在当前世界与伙伴对话。")
+                        .thenAccept(line -> server.execute(() ->
+                                player.sendSystemMessage(Component.literal("伙伴：" + line))))
+                        .whenComplete((ignored, failure) -> activeTurns.remove(entity.getUUID()));
+            } catch (RuntimeException unavailable) {
+                activeTurns.remove(entity.getUUID());
+                server.execute(() -> player.sendSystemMessage(
+                        Component.literal("伙伴：" + CompanionDialogue.fallback("dialogue.reply"))));
+            }
+        });
     }
 
     CompanionModelConfig modelConfig() {

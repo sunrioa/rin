@@ -152,6 +152,18 @@ public final class CompanionCoreTest {
                 CompanionModelConfig.defaults(), key -> null, failedFactory, (uri, token) -> false);
         requireRejected(failedSidecar::start);
         require(failedFactory.stops == 1, "failed readiness left the child running");
+
+        require(CompanionDialogue.parse("{\"line\":\"我们沿着河边走。\"}").equals("我们沿着河边走。"),
+                "valid Chinese dialogue was rejected");
+        requireRejected(() -> CompanionDialogue.parse("[]"));
+        requireRejected(() -> CompanionDialogue.parse("{}"));
+        requireRejected(() -> CompanionDialogue.parse("{\"line\":1}"));
+        requireRejected(() -> CompanionDialogue.parse("{\"line\":\"\"}"));
+        requireRejected(() -> CompanionDialogue.parse("{\"line\":\"a\\u0000b\"}"));
+        requireRejected(() -> CompanionDialogue.parse("{\"line\":\"" + "好".repeat(301) + "\"}"));
+        requireRejected(() -> CompanionDialogue.parse("{\"line\":\"好\",\"extra\":true}"));
+        require(CompanionDialogue.fallback("movement.follow_owner").equals("好，我跟着你。"),
+                "dialogue fallback changed");
     }
 
     private static void require(boolean condition, String message) {
