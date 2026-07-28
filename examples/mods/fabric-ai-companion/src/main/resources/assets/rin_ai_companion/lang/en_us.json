@@ -1,3 +1,12 @@
 {
-  "entity.rin_ai_companion.companion": "AI Companion"
+  "entity.rin_ai_companion.companion": "AI Companion",
+  "rin_ai_companion.chat.missing": "Create a companion with /companion spawn first.",
+  "rin_ai_companion.command.spawned": "Your companion has arrived.",
+  "rin_ai_companion.command.exists": "You already have a companion.",
+  "rin_ai_companion.command.recalled": "Your companion returned to you.",
+  "rin_ai_companion.command.missing": "Your companion was not found.",
+  "rin_ai_companion.command.mode": "Companion mode updated.",
+  "rin_ai_companion.command.status": "Companion status: %s",
+  "rin_ai_companion.command.skin": "Companion skin name saved.",
+  "rin_ai_companion.command.skin_invalid": "Invalid skin name, or no companion exists."
 }

@@ -3,6 +3,7 @@ package io.github.sunrioa.rin.companion;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.permissions.PermissionSet;
 import net.minecraft.util.ProblemReporter;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.player.Player;
@@ -48,6 +49,19 @@ public final class CompanionGameTest {
         helper.assertTrue(!runtime.spawn(duplicate), "duplicate companion identity was accepted");
         restored.setMode(CompanionEntity.Mode.STOPPED);
         helper.assertTrue(!restored.getNavigation().isInProgress(), "stop mode left navigation active");
+        UUID commandOwner = UUID.fromString("00000000-0000-0000-0000-000000000021");
+        helper.assertTrue(runtime.spawnFor(commandOwner, level, new Vec3(3, 2, 3)),
+                "owner could not spawn a companion");
+        helper.assertTrue(!runtime.spawnFor(commandOwner, level, new Vec3(4, 2, 4)),
+                "owner spawned a second companion");
+        helper.assertTrue(!runtime.setMode(UUID.randomUUID(), CompanionEntity.Mode.FOLLOW),
+                "non-owner changed companion mode");
+        helper.assertTrue(runtime.setMode(commandOwner, CompanionEntity.Mode.FOLLOW),
+                "owner could not resume companion");
+        helper.assertTrue(!CompanionCommands.canConfigure(PermissionSet.NO_PERMISSIONS),
+                "model configuration accepted a non-admin");
+        helper.assertTrue(CompanionCommands.canConfigure(PermissionSet.ALL_PERMISSIONS),
+                "model configuration rejected an administrator");
         helper.succeed();
     }
 }

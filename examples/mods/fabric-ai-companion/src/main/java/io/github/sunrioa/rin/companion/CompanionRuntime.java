@@ -1,6 +1,11 @@
 package io.github.sunrioa.rin.companion;
 
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.entity.EntitySpawnReason;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.HashMap;
 import java.util.IdentityHashMap;
@@ -14,6 +19,7 @@ final class CompanionRuntime {
     private final MinecraftServer server;
     private final CompanionSavedState state;
     private final Map<UUID, CompanionEntity> liveCompanions = new HashMap<>();
+    private final Map<UUID, CompanionEntity> ownerCompanions = new HashMap<>();
     private boolean closed;
 
     private CompanionRuntime(MinecraftServer server) {
@@ -41,7 +47,79 @@ final class CompanionRuntime {
     boolean spawn(CompanionEntity entity) {
         if (closed || entity == null || liveCompanions.containsKey(entity.getUUID())) return false;
         liveCompanions.put(entity.getUUID(), entity);
+        if (entity.ownerId() != null) ownerCompanions.put(entity.ownerId(), entity);
         entity.level().addFreshEntity(entity);
         return true;
+    }
+
+    boolean spawnFor(UUID ownerId, ServerLevel level, Vec3 position) {
+        CompanionEntity existing = ownerCompanions.get(ownerId);
+        if (existing != null && !existing.isRemoved()) return false;
+        CompanionEntity entity = CompanionEntities.TYPE.create(level, EntitySpawnReason.COMMAND);
+        if (entity == null) return false;
+        entity.setUUID(UUID.randomUUID());
+        entity.setOwnerId(ownerId);
+        entity.setMode(CompanionEntity.Mode.STOPPED);
+        entity.setCustomName(Component.translatable("entity.rin_ai_companion.companion"));
+        entity.setCustomNameVisible(true);
+        entity.setPos(position);
+        if (!spawn(entity)) return false;
+        CompanionSessionState session = CompanionSessionState.create(state.worldId, ownerId, entity.getUUID(),
+                "伙伴", "", entity.mode().name(), Map.of("owner_id", ownerId.toString()));
+        state.sessions.put(session.sessionId, session);
+        state.setDirty();
+        return true;
+    }
+
+    boolean setMode(UUID ownerId, CompanionEntity.Mode mode) {
+        CompanionEntity entity = owned(ownerId);
+        if (entity == null) return false;
+        entity.setMode(mode);
+        session(entity).mode = mode.name();
+        state.setDirty();
+        return true;
+    }
+
+    boolean recall(UUID ownerId, ServerLevel level, Vec3 position) {
+        CompanionEntity entity = owned(ownerId);
+        if (entity == null || entity.level() != level) return false;
+        entity.setPos(position);
+        entity.getNavigation().stop();
+        return true;
+    }
+
+    String status(UUID ownerId) {
+        CompanionEntity entity = owned(ownerId);
+        return entity == null ? "missing" : entity.mode().name().toLowerCase();
+    }
+
+    boolean setSkin(UUID ownerId, String profile) {
+        if (!profile.matches("[A-Za-z0-9_]{3,16}")) return false;
+        CompanionEntity entity = owned(ownerId);
+        if (entity == null) return false;
+        session(entity).skinProfile = profile;
+        state.setDirty();
+        return true;
+    }
+
+    void handleChat(ServerPlayer player, String message) {
+        CompanionEntity entity = owned(player.getUUID());
+        if (entity == null) {
+            player.sendSystemMessage(Component.translatable("rin_ai_companion.chat.missing"));
+            return;
+        }
+        player.sendSystemMessage(Component.literal("伙伴：收到，" + message));
+    }
+
+    private CompanionEntity owned(UUID ownerId) {
+        CompanionEntity entity = ownerCompanions.get(ownerId);
+        return entity == null || entity.isRemoved() ? null : entity;
+    }
+
+    private CompanionSessionState session(CompanionEntity entity) {
+        String id = CompanionSessionState.stableSessionId(state.worldId, entity.ownerId(), entity.getUUID());
+        CompanionSessionState session = state.sessions.get(id);
+        if (session == null) throw new IllegalStateException("companion session is missing");
+        return session;
     }
 }
