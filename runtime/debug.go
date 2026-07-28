@@ -394,10 +394,3 @@ func timelineEntry(event protocol.EventRecord) (protocol.TimelineEntry, error) {
 	entry.ActorIDs = uniqueSorted(entry.ActorIDs)
 	return entry, nil
 }
-
-func acceptedStatus(accepted bool) string {
-	if accepted {
-		return "accepted"
-	}
-	return "rejected"
-}

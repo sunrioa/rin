@@ -725,19 +725,6 @@ func readEventFile(path string) ([]protocol.EventRecord, error) {
 	return events, nil
 }
 
-func readLastEvent(path string) (protocol.EventRecord, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return protocol.EventRecord{}, rinruntime.ErrNotFound
-		}
-		return protocol.EventRecord{}, err
-	}
-	defer file.Close()
-	event, _, err := readLastEventFromFile(file)
-	return event, err
-}
-
 func readLastEventFromFile(file *os.File) (protocol.EventRecord, os.FileInfo, error) {
 	info, err := file.Stat()
 	if err != nil {

@@ -405,3 +405,57 @@ git status --short
 ```
 
 Expected: only the design/plan, P1/P3 implementation and tests, plus the two root READMEs. No dependency files, generated caches, test output, or unrelated source changes.
+
+### Task 6: Remove proven-dead Go helpers without changing public behavior
+
+**Files:**
+- Modify: `generation/manager.go`
+- Modify: `internal/hostscaffold/render.go`
+- Modify: `runtime/debug.go`
+- Modify: `runtime/engine.go`
+- Modify: `runtime/reducer.go`
+- Modify: `store/file.go`
+- Modify: `compat/host_contract_test_helpers_test.go`
+
+- [x] **Step 1: Establish the package-test baseline**
+
+Run:
+
+```powershell
+go test ./generation ./internal/hostscaffold ./runtime ./store ./compat -count=1
+```
+
+Expected: all five affected packages pass before cleanup.
+
+- [x] **Step 2: Remove only zero-reference or identity helpers**
+
+Replace each `cloneResult(value)` call with `value`, then delete `cloneResult`.
+Delete the unused internal `Plan.ID` and `Plan.Version` methods. Delete these
+unexported zero-reference functions reported by whole-program static analysis:
+`acceptedStatus`, `duplicateGoalUpdate`, `mutationResult`, `duplicateReceipt`,
+`applyLegacyGoalProgress`, and `readLastEvent`. Delete the unused test helper
+`compatObserve`. Do not remove exported API or interface-conformance fixtures.
+
+- [x] **Step 3: Format and re-run only affected package tests**
+
+Run:
+
+```powershell
+gofmt -w generation/manager.go internal/hostscaffold/render.go runtime/debug.go runtime/engine.go runtime/reducer.go store/file.go compat/host_contract_test_helpers_test.go
+go test ./generation ./internal/hostscaffold ./runtime ./store ./compat -count=1
+```
+
+Expected: formatting makes no unrelated edits and all five packages pass.
+
+- [x] **Step 4: Re-run the dead-code audit and inspect scope**
+
+Run:
+
+```powershell
+go run golang.org/x/tools/cmd/deadcode@v0.36.0 -test ./...
+git diff --check
+git diff --stat
+```
+
+Expected: the removed functions no longer appear. Remaining findings are only
+public compatibility API or methods required by compile-time interface checks.

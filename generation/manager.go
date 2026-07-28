@@ -263,7 +263,7 @@ func (m *Manager) Submit(request protocol.GenerationRequest) (protocol.Generatio
 		requestBytes: requestBytes + generationJobTransitionReserve,
 	}
 	if cached, ok := m.cache[semanticHash]; ok && now.Sub(cached.createdAt) < m.config.CacheTTL {
-		result := cloneResult(cached.result)
+		result := cached.result
 		result.CacheHit = true
 		state.public.Status = "succeeded"
 		state.public.StartedAt = state.public.SubmittedAt
@@ -697,7 +697,7 @@ func (m *Manager) replaceSuccessfulJob(
 	m.putCache(
 		state.semanticHash,
 		cacheEntry{
-			result:        cloneResult(result),
+			result:        result,
 			createdAt:     now,
 			retainedBytes: cacheBytes,
 		},
@@ -839,7 +839,7 @@ func terminal(status string) bool {
 
 func cloneJob(job protocol.GenerationJob) protocol.GenerationJob {
 	if job.Result != nil {
-		result := cloneResult(*job.Result)
+		result := *job.Result
 		job.Result = &result
 	}
 	if job.Error != nil {
@@ -848,8 +848,6 @@ func cloneJob(job protocol.GenerationJob) protocol.GenerationJob {
 	}
 	return job
 }
-
-func cloneResult(result protocol.GenerationResult) protocol.GenerationResult { return result }
 
 func validationField(err error) string {
 	var validation *protocol.ValidationError

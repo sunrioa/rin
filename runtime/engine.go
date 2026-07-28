@@ -1730,17 +1730,6 @@ func uniqueSorted(values []string) []string {
 	return result
 }
 
-func duplicateGoalUpdate(updates []protocol.GoalUpdate) bool {
-	seen := make(map[string]struct{}, len(updates))
-	for _, update := range updates {
-		if _, exists := seen[update.GoalID]; exists {
-			return true
-		}
-		seen[update.GoalID] = struct{}{}
-	}
-	return false
-}
-
 func (e *Engine) session(id string) (*managedSession, error) {
 	e.mu.RLock()
 	session, exists := e.sessions[id]
@@ -2264,15 +2253,6 @@ func eventsLogicallyEqual(left, right protocol.EventRecord) bool {
 		bytes.Equal(left.Data, right.Data)
 }
 
-func mutationResult(state protocol.SessionState, duplicate bool) protocol.MutationResult {
-	return protocol.NewMutationResult(
-		state.SessionID,
-		state.Revision,
-		state.HeadHash,
-		duplicate,
-	)
-}
-
 func validationError(err error) error {
 	var validation *protocol.ValidationError
 	if errors.As(err, &validation) {
@@ -2283,11 +2263,6 @@ func validationError(err error) error {
 
 func requestConflict(requestID string) error {
 	return NewFieldError("request_id_conflict", "request id was already used for another operation", "request_id", fmt.Errorf("%w: %s", ErrConflict, requestID))
-}
-
-func duplicateReceipt(state protocol.SessionState, requestID, kind string) bool {
-	receipt, exists := state.Receipts[requestID]
-	return exists && receipt.Kind == kind
 }
 
 func eventIDExists(state protocol.SessionState, eventID string) bool {

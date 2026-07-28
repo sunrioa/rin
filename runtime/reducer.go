@@ -747,31 +747,6 @@ func shouldReplaceGoalStatus(goal protocol.Goal, tick int64, eventID string) boo
 	return tick == goal.StatusUpdatedTick && eventID > goal.StatusSourceEventID
 }
 
-func applyLegacyGoalProgress(actor *protocol.ActorState, goalID string, delta int, status string) {
-	if goalID == "" {
-		return
-	}
-	for index := range actor.Goals {
-		goal := &actor.Goals[index]
-		if goal.ID != goalID {
-			continue
-		}
-		goal.Progress += delta
-		if goal.Progress < 0 {
-			goal.Progress = 0
-		}
-		if goal.Progress > goal.TargetProgress {
-			goal.Progress = goal.TargetProgress
-		}
-		if status != "" {
-			goal.Status = status
-		} else if goal.Progress >= goal.TargetProgress {
-			goal.Status = "completed"
-		}
-		return
-	}
-}
-
 func markRecalled(actor *protocol.ActorState, ids []string, tick int64) {
 	selected := make(map[string]struct{}, len(ids))
 	for _, id := range ids {

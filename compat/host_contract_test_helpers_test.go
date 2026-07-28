@@ -19,27 +19,6 @@ func compatEpoch(sessionID string) protocol.Epoch {
 	}
 }
 
-func compatObserve(
-	sessionID, requestID, eventID string,
-	tick int64,
-	observerIDs []string,
-) protocol.ObserveRequest {
-	return protocol.ObserveRequest{
-		ProtocolVersion: protocol.Version,
-		SessionID:       sessionID,
-		RequestID:       requestID,
-		EventID:         eventID,
-		Tick:            tick,
-		ObserverIDs:     append([]string(nil), observerIDs...),
-		Source:          "game",
-		Kind:            "world",
-		Summary:         "Authoritative compatibility observation.",
-		Importance:      1,
-		Epoch:           compatEpoch(sessionID),
-		ObservationSeq:  uint64(tick) + 1,
-	}
-}
-
 func compatPropose(
 	sessionID, requestID, actorID string,
 	tick int64,

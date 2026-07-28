@@ -128,19 +128,9 @@ func (plan *Plan) Host() HostDescriptor {
 	return cloneHost(plan.options.HostDescriptor)
 }
 
-// ID returns the validated machine identifier.
-func (plan *Plan) ID() string {
-	return plan.options.ID
-}
-
 // Name returns the validated display name.
 func (plan *Plan) Name() string {
 	return plan.options.Name
-}
-
-// Version returns the generated Host project's version, distinct from the Rin version.
-func (plan *Plan) Version() string {
-	return plan.options.Version
 }
 
 // Output returns the requested relative output path.
