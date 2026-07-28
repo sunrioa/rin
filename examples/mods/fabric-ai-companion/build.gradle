@@ -53,6 +53,10 @@ tasks.register("coreTest", JavaExec) {
     mainClass = "io.github.sunrioa.rin.companion.CompanionCoreTest"
 }
 
+tasks.named("test") {
+    failOnNoDiscoveredTests = false
+}
+
 check {
     dependsOn coreTest
 }
