@@ -13,11 +13,15 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
+import java.nio.file.Path;
 
 final class CompanionRuntime {
     private static final Map<MinecraftServer, CompanionRuntime> INSTANCES = new IdentityHashMap<>();
     private final MinecraftServer server;
     private final CompanionSavedState state;
+    private final CompanionConfigStore configStore;
+    private final ManagedRinSidecar sidecar;
+    private CompanionModelConfig modelConfig;
     private final Map<UUID, CompanionEntity> liveCompanions = new HashMap<>();
     private final Map<UUID, CompanionEntity> ownerCompanions = new HashMap<>();
     private boolean closed;
@@ -25,6 +29,12 @@ final class CompanionRuntime {
     private CompanionRuntime(MinecraftServer server) {
         this.server = server;
         this.state = server.overworld().getDataStorage().computeIfAbsent(CompanionSavedState.TYPE);
+        Path serverDirectory = server.getServerDirectory();
+        this.configStore = new CompanionConfigStore(serverDirectory.resolve("config/rin-ai-companion.properties"));
+        this.modelConfig = configStore.load();
+        this.sidecar = new ManagedRinSidecar(serverDirectory.resolve("rin/rin.exe"),
+                serverDirectory.resolve("rin/data"), 7374, modelConfig, System::getenv,
+                ManagedRinSidecar.systemProcessFactory(), ManagedRinSidecar.httpReadinessProbe());
         state.hostGeneration++;
         state.timelineGeneration++;
         state.setDirty();
@@ -36,7 +46,10 @@ final class CompanionRuntime {
 
     static synchronized void close(MinecraftServer server) {
         CompanionRuntime runtime = INSTANCES.remove(server);
-        if (runtime != null) runtime.closed = true;
+        if (runtime != null) {
+            runtime.closed = true;
+            runtime.sidecar.close();
+        }
     }
 
     <T> CompletableFuture<T> call(Supplier<T> work) {
@@ -109,6 +122,39 @@ final class CompanionRuntime {
             return;
         }
         player.sendSystemMessage(Component.literal("伙伴：收到，" + message));
+    }
+
+    CompanionModelConfig modelConfig() {
+        return modelConfig;
+    }
+
+    boolean setBaseUrl(String value) {
+        try {
+            modelConfig = CompanionModelConfig.create(value, modelConfig.model());
+            configStore.save(modelConfig);
+            return true;
+        } catch (RuntimeException invalid) {
+            return false;
+        }
+    }
+
+    boolean setModel(String value) {
+        try {
+            modelConfig = CompanionModelConfig.create(modelConfig.baseUrl().toString(), value);
+            configStore.save(modelConfig);
+            return true;
+        } catch (RuntimeException invalid) {
+            return false;
+        }
+    }
+
+    boolean applyModelConfig() {
+        try {
+            sidecar.applyConfig(modelConfig);
+            return true;
+        } catch (RuntimeException unavailable) {
+            return false;
+        }
     }
 
     private CompanionEntity owned(UUID ownerId) {

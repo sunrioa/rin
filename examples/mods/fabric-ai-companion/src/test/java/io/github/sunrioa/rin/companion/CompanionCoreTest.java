@@ -129,6 +129,29 @@ public final class CompanionCoreTest {
                 Map.of("session_id", workflowSession.sessionId)).toCompletableFuture().join();
         require(workflowStore.listOutcomeReports().toCompletableFuture().join().isEmpty(),
                 "valid acknowledgement retained the outbox entry");
+
+        FakeSidecarFactory sidecarFactory = new FakeSidecarFactory();
+        ManagedRinSidecar sidecar = new ManagedRinSidecar(Path.of("rin.exe"), Path.of("rin-data"), 7374,
+                CompanionModelConfig.defaults(), key -> "RIN_MODEL_API_KEY".equals(key) ? "secret" : null,
+                sidecarFactory, (uri, token) -> true);
+        sidecar.start();
+        require(sidecarFactory.starts == 1, "sidecar was not started");
+        require(sidecarFactory.environment.get("RIN_MODEL").equals("deepseek-chat"),
+                "model was not passed to the sidecar");
+        require(sidecarFactory.environment.get("RIN_MODEL_API_KEY").equals("secret"),
+                "API key was not inherited by the child");
+        sidecar.applyConfig(CompanionModelConfig.create("https://example.com/v1", "deepseek-reasoner"));
+        require(sidecarFactory.starts == 2 && sidecarFactory.stops == 1,
+                "config apply did not restart the owned sidecar");
+        sidecar.close();
+        sidecar.close();
+        require(sidecarFactory.stops == 2, "sidecar shutdown was not idempotent");
+
+        FakeSidecarFactory failedFactory = new FakeSidecarFactory();
+        ManagedRinSidecar failedSidecar = new ManagedRinSidecar(Path.of("rin.exe"), Path.of("rin-data"), 7374,
+                CompanionModelConfig.defaults(), key -> null, failedFactory, (uri, token) -> false);
+        requireRejected(failedSidecar::start);
+        require(failedFactory.stops == 1, "failed readiness left the child running");
     }
 
     private static void require(boolean condition, String message) {
@@ -158,5 +181,19 @@ public final class CompanionCoreTest {
     @FunctionalInterface
     private interface ThrowingRunnable {
         void run() throws Exception;
+    }
+
+    private static final class FakeSidecarFactory implements ManagedRinSidecar.ProcessFactory {
+        int starts;
+        int stops;
+        Map<String, String> environment = Map.of();
+
+        @Override
+        public ManagedRinSidecar.SidecarProcess start(List<String> command, Map<String, String> environment,
+                                                       Path workingDirectory) {
+            starts++;
+            this.environment = Map.copyOf(environment);
+            return () -> stops++;
+        }
     }
 }

@@ -23,7 +23,17 @@ final class CompanionCommands {
                         .then(Commands.literal("resume").executes(command -> mode(command, CompanionEntity.Mode.FOLLOW)))
                         .then(Commands.literal("status").executes(CompanionCommands::status))
                         .then(Commands.literal("skin").then(Commands.argument("player", StringArgumentType.word())
-                                .executes(CompanionCommands::skin)))));
+                                .executes(CompanionCommands::skin)))
+                        .then(Commands.literal("model")
+                                .requires(source -> canConfigure(source.permissions()))
+                                .then(Commands.literal("show").executes(CompanionCommands::modelShow))
+                                .then(Commands.literal("baseurl")
+                                        .then(Commands.argument("url", StringArgumentType.word())
+                                                .executes(CompanionCommands::modelBaseUrl)))
+                                .then(Commands.literal("name")
+                                        .then(Commands.argument("model", StringArgumentType.word())
+                                                .executes(CompanionCommands::modelName)))
+                                .then(Commands.literal("apply").executes(CompanionCommands::modelApply)))));
     }
 
     static boolean canConfigure(PermissionSet permissions) {
@@ -67,6 +77,33 @@ final class CompanionCommands {
 
     private static CompanionRuntime runtime(ServerPlayer player) {
         return CompanionRuntime.forServer(player.level().getServer());
+    }
+
+    private static int modelShow(CommandContext<CommandSourceStack> context) {
+        CompanionModelConfig config = CompanionRuntime.forServer(context.getSource().getServer()).modelConfig();
+        context.getSource().sendSuccess(() -> Component.translatable("rin_ai_companion.command.model_show",
+                config.baseUrl(), config.model()), false);
+        return 1;
+    }
+
+    private static int modelBaseUrl(CommandContext<CommandSourceStack> context) {
+        boolean changed = CompanionRuntime.forServer(context.getSource().getServer())
+                .setBaseUrl(StringArgumentType.getString(context, "url"));
+        reply(context, changed, "rin_ai_companion.command.model_saved", "rin_ai_companion.command.model_invalid");
+        return changed ? 1 : 0;
+    }
+
+    private static int modelName(CommandContext<CommandSourceStack> context) {
+        boolean changed = CompanionRuntime.forServer(context.getSource().getServer())
+                .setModel(StringArgumentType.getString(context, "model"));
+        reply(context, changed, "rin_ai_companion.command.model_saved", "rin_ai_companion.command.model_invalid");
+        return changed ? 1 : 0;
+    }
+
+    private static int modelApply(CommandContext<CommandSourceStack> context) {
+        boolean applied = CompanionRuntime.forServer(context.getSource().getServer()).applyModelConfig();
+        reply(context, applied, "rin_ai_companion.command.model_applied", "rin_ai_companion.command.model_unavailable");
+        return applied ? 1 : 0;
     }
 
     private static void reply(CommandContext<CommandSourceStack> context, boolean success, String ok, String failure) {
