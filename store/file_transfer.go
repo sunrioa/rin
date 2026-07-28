@@ -238,7 +238,7 @@ func (s *File) confirmTransferLocked(
 	if err := s.rejectDurabilityUncertainty(manifest.SessionID); err != nil {
 		return err
 	}
-	file, err := openEventFile(directory, os.O_RDONLY)
+	file, err := openEventFile(directory)
 	if err != nil {
 		return err
 	}

@@ -80,7 +80,7 @@ func (s *File) Stats(
 	if err := s.ensureSessionDurability(sessionID, directory); err != nil {
 		return rinruntime.StoreSessionStats{}, err
 	}
-	file, err := openEventFile(directory, os.O_RDONLY)
+	file, err := openEventFile(directory)
 	if err != nil {
 		return rinruntime.StoreSessionStats{}, err
 	}
@@ -235,7 +235,7 @@ func (s *File) sessionAnchorLocked(
 	sessionID string,
 	directory string,
 ) (rinruntime.EventAnchor, error) {
-	file, err := openEventFile(directory, os.O_RDONLY)
+	file, err := openEventFile(directory)
 	if err != nil {
 		return rinruntime.EventAnchor{}, err
 	}

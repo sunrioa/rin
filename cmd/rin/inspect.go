@@ -153,7 +153,6 @@ func inspectTimeline(engine *rintime.Engine, sessionID string, revision uint64, 
 			if len(entries) > limit {
 				entries = append([]protocol.TimelineEntry(nil), entries[len(entries)-limit:]...)
 			}
-			after = entry.Sequence
 			if entry.Sequence == revision {
 				reachedTarget = true
 				break

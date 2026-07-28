@@ -79,7 +79,7 @@ func (s *Server) importSession(response http.ResponseWriter, request *http.Reque
 		protocol.TransferControlFrameMaxBytes,
 	)
 	if err != nil {
-		s.respondTransferReadError(response, request, err, "manifest")
+		s.respondTransferReadError(response, err, "manifest")
 		return
 	}
 	transferredBytes := manifestBytes
@@ -89,7 +89,7 @@ func (s *Server) importSession(response http.ResponseWriter, request *http.Reque
 	}
 	var manifest protocol.TransferManifest
 	if err := decodeTransferFrame(manifestLine, protocol.TransferFrameManifest, &manifest); err != nil {
-		s.respondTransferReadError(response, request, err, "manifest")
+		s.respondTransferReadError(response, err, "manifest")
 		return
 	}
 	if err := protocol.ValidateTransferManifest(manifest); err != nil {
@@ -131,7 +131,7 @@ func (s *Server) importSession(response http.ResponseWriter, request *http.Reque
 			protocol.TransferEventFrameMaxBytes,
 		)
 		if err != nil {
-			s.respondTransferReadError(response, request, err, "event")
+			s.respondTransferReadError(response, err, "event")
 			return
 		}
 		if exceedsTransferWireBytes(
@@ -145,7 +145,7 @@ func (s *Server) importSession(response http.ResponseWriter, request *http.Reque
 		transferredBytes += lineBytes
 		var frame protocol.TransferEvent
 		if err := decodeTransferFrame(line, protocol.TransferFrameEvent, &frame); err != nil {
-			s.respondTransferReadError(response, request, err, "event")
+			s.respondTransferReadError(response, err, "event")
 			return
 		}
 		if err := hasher.WriteEvent(frame); err != nil {
@@ -163,7 +163,7 @@ func (s *Server) importSession(response http.ResponseWriter, request *http.Reque
 		protocol.TransferControlFrameMaxBytes,
 	)
 	if err != nil {
-		s.respondTransferReadError(response, request, err, "complete")
+		s.respondTransferReadError(response, err, "complete")
 		return
 	}
 	if exceedsTransferWireBytes(
@@ -177,7 +177,7 @@ func (s *Server) importSession(response http.ResponseWriter, request *http.Reque
 	transferredBytes += completeBytes
 	var complete protocol.TransferComplete
 	if err := decodeTransferFrame(completeLine, protocol.TransferFrameComplete, &complete); err != nil {
-		s.respondTransferReadError(response, request, err, "complete")
+		s.respondTransferReadError(response, err, "complete")
 		return
 	}
 	if err := hasher.VerifyComplete(complete, manifest); err != nil {
@@ -199,7 +199,7 @@ func (s *Server) importSession(response http.ResponseWriter, request *http.Reque
 		if err == nil && len(trailing) > 0 {
 			err = errors.New("transfer contains a frame after complete")
 		}
-		s.respondTransferReadError(response, request, err, "complete")
+		s.respondTransferReadError(response, err, "complete")
 		return
 	}
 	if err := writer.Publish(complete); err != nil {
@@ -239,7 +239,6 @@ func (s *Server) respondTransferValidation(
 
 func (s *Server) respondTransferReadError(
 	response http.ResponseWriter,
-	request *http.Request,
 	err error,
 	field string,
 ) {

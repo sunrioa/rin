@@ -82,7 +82,7 @@ func applyEvent(state protocol.SessionState, event protocol.EventRecord) (protoc
 	case EventActivityUpdated:
 		err = applyActivityUpdated(&state, event, payload.(activityUpdatedPayload))
 	case EventArbitrated:
-		err = applyArbitrated(&state, event, payload.(arbitratedPayload))
+		applyArbitrated(&state, event, payload.(arbitratedPayload))
 	case EventSessionRestored:
 		state, err = applyRestored(state, event, payload.(restoredPayload))
 	default:
@@ -418,7 +418,7 @@ func applyArbitrated(
 	state *protocol.SessionState,
 	event protocol.EventRecord,
 	payload arbitratedPayload,
-) error {
+) {
 	state.Arbitrations = append(state.Arbitrations, payload.Record)
 	if len(state.Arbitrations) > maxArbitrations {
 		state.Arbitrations = append([]protocol.ArbitrationRecord(nil), state.Arbitrations[len(state.Arbitrations)-maxArbitrations:]...)
@@ -427,7 +427,6 @@ func applyArbitrated(
 		Kind: EventArbitrated, EntityID: payload.Record.ID, Revision: event.Sequence,
 		RequestHash: payload.RequestHash,
 	}
-	return nil
 }
 
 func applyRestored(

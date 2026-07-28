@@ -12,20 +12,7 @@ import (
 )
 
 func (s *File) beginSession(sessionID string) (string, func(), error) {
-	directory, err := s.sessionDir(sessionID)
-	if err != nil {
-		return "", nil, err
-	}
-	s.lifecycle.RLock()
-	if s.closed {
-		s.lifecycle.RUnlock()
-		return "", nil, ErrFileClosed
-	}
-	unlockSession := s.lockSession(sessionID)
-	return directory, func() {
-		unlockSession()
-		s.lifecycle.RUnlock()
-	}, nil
+	return s.beginKeyedOperation(sessionID, s.lockSession)
 }
 
 func (s *File) lockSession(sessionID string) func() {
@@ -63,22 +50,30 @@ func lockKey(
 }
 
 func (s *File) beginArtifact(sessionID string) (string, func(), error) {
+	// Artifact serialization deliberately uses a separate keyed lock, so it
+	// never holds the event lock while waiting.
+	return s.beginKeyedOperation(sessionID, s.lockArtifact)
+}
+
+func (s *File) beginKeyedOperation(
+	sessionID string,
+	lock func(string) func(),
+) (string, func(), error) {
 	directory, err := s.sessionDir(sessionID)
 	if err != nil {
 		return "", nil, err
 	}
-	// Count the call as in-flight before it queues for the artifact lock. Close
+	// Count the call as in-flight before it queues for the keyed lock. Close
 	// therefore waits for operations that have already entered the Store, while
 	// later calls block behind the lifecycle writer and observe ErrFileClosed.
-	// No event lock is held while waiting for artifact serialization.
 	s.lifecycle.RLock()
 	if s.closed {
 		s.lifecycle.RUnlock()
 		return "", nil, ErrFileClosed
 	}
-	unlockArtifact := s.lockArtifact(sessionID)
+	unlock := lock(sessionID)
 	return directory, func() {
-		unlockArtifact()
+		unlock()
 		s.lifecycle.RUnlock()
 	}, nil
 }

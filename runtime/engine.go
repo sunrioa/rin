@@ -301,42 +301,14 @@ func (e *Engine) CreateSession(request protocol.CreateSessionRequest) (protocol.
 	existing, exists := e.sessions[request.SessionID]
 	e.mu.RUnlock()
 	if uncertainFound {
-		if uncertain.event.Type != EventSessionCreated ||
-			uncertain.event.RequestID != request.RequestID ||
-			uncertain.requestHash != requestHash {
-			if uncertain.event.RequestID == request.RequestID {
-				return protocol.MutationResult{}, requestConflict(request.RequestID)
-			}
-			return protocol.MutationResult{}, unresolvedCreateError(request.SessionID)
-		}
-		state, identifiers, confirmErr := e.createAndConfirm(request.SessionID, uncertain.event)
-		if confirmErr != nil {
-			return protocol.MutationResult{}, confirmErr
-		}
-		managed, err := newLoadedManagedSession(
+		return e.resumePendingSessionCreation(
 			request.SessionID,
-			state,
-			identifiers,
-			0,
-		)
-		if err != nil {
-			return protocol.MutationResult{}, err
-		}
-		managed.mu.Lock()
-		e.queueCheckpointLocked(managed)
-		managed.mu.Unlock()
-		e.mu.Lock()
-		delete(e.pendingCreates, request.SessionID)
-		e.sessions[request.SessionID] = managed
-		e.mu.Unlock()
-		identity, err := retainedRequestIdentity(
-			managed.identifiers,
 			request.RequestID,
+			requestHash,
+			EventSessionCreated,
+			0,
+			uncertain,
 		)
-		if err != nil {
-			return protocol.MutationResult{}, err
-		}
-		return mutationResultFromIdentity(state.SessionID, identity, false), nil
 	}
 	if exists {
 		if err := e.ensureLoaded(existing); err != nil {
@@ -377,29 +349,13 @@ func (e *Engine) CreateSession(request protocol.CreateSessionRequest) (protocol.
 		}
 		return protocol.MutationResult{}, err
 	}
-	managed, err := newLoadedManagedSession(
+	return e.registerCreatedSession(
 		request.SessionID,
+		request.RequestID,
 		state,
 		identifiers,
 		0,
 	)
-	if err != nil {
-		return protocol.MutationResult{}, err
-	}
-	managed.mu.Lock()
-	e.queueCheckpointLocked(managed)
-	managed.mu.Unlock()
-	e.mu.Lock()
-	e.sessions[request.SessionID] = managed
-	e.mu.Unlock()
-	identity, err := retainedRequestIdentity(
-		managed.identifiers,
-		request.RequestID,
-	)
-	if err != nil {
-		return protocol.MutationResult{}, err
-	}
-	return mutationResultFromIdentity(state.SessionID, identity, false), nil
 }
 
 func (e *Engine) Observe(request protocol.ObserveRequest) (protocol.MutationResult, error) {
@@ -1435,46 +1391,14 @@ func (e *Engine) Restore(request protocol.RestoreRequest) (protocol.MutationResu
 	session, exists := e.sessions[request.SessionID]
 	e.mu.RUnlock()
 	if uncertainFound {
-		if uncertain.event.Type != EventSessionRestored ||
-			uncertain.event.RequestID != request.RequestID ||
-			uncertain.requestHash != requestHash {
-			if uncertain.event.RequestID == request.RequestID {
-				return protocol.MutationResult{}, requestConflict(request.RequestID)
-			}
-			return protocol.MutationResult{}, unresolvedCreateError(request.SessionID)
-		}
-		state, identifiers, confirmErr := e.createAndConfirm(request.SessionID, uncertain.event)
-		if confirmErr != nil {
-			return protocol.MutationResult{}, confirmErr
-		}
-		managed, err := newLoadedManagedSession(
+		return e.resumePendingSessionCreation(
 			request.SessionID,
-			state,
-			identifiers,
-			1,
-		)
-		if err != nil {
-			return protocol.MutationResult{}, err
-		}
-		managed.mu.Lock()
-		e.queueCheckpointLocked(managed)
-		managed.mu.Unlock()
-		e.mu.Lock()
-		delete(e.pendingCreates, request.SessionID)
-		e.sessions[request.SessionID] = managed
-		e.mu.Unlock()
-		identity, err := retainedRequestIdentity(
-			managed.identifiers,
 			request.RequestID,
+			requestHash,
+			EventSessionRestored,
+			1,
+			uncertain,
 		)
-		if err != nil {
-			return protocol.MutationResult{}, err
-		}
-		return mutationResultFromIdentity(
-			state.SessionID,
-			identity,
-			false,
-		), nil
 	}
 	if !exists {
 		event, err := newEvent(
@@ -1505,33 +1429,13 @@ func (e *Engine) Restore(request protocol.RestoreRequest) (protocol.MutationResu
 			}
 			return protocol.MutationResult{}, err
 		}
-		managed, err := newLoadedManagedSession(
+		return e.registerCreatedSession(
 			request.SessionID,
+			request.RequestID,
 			state,
 			identifiers,
 			1,
 		)
-		if err != nil {
-			return protocol.MutationResult{}, err
-		}
-		managed.mu.Lock()
-		e.queueCheckpointLocked(managed)
-		managed.mu.Unlock()
-		e.mu.Lock()
-		e.sessions[request.SessionID] = managed
-		e.mu.Unlock()
-		identity, err := retainedRequestIdentity(
-			managed.identifiers,
-			request.RequestID,
-		)
-		if err != nil {
-			return protocol.MutationResult{}, err
-		}
-		return mutationResultFromIdentity(
-			state.SessionID,
-			identity,
-			false,
-		), nil
 	}
 	if err := e.ensureLoaded(session); err != nil {
 		return protocol.MutationResult{}, err
@@ -2059,6 +1963,65 @@ func unresolvedCreateError(sessionID string) error {
 		"session_id",
 		fmt.Errorf("%w: %s", ErrConflict, sessionID),
 	)
+}
+
+func (e *Engine) resumePendingSessionCreation(
+	sessionID string,
+	requestID string,
+	requestHash string,
+	expectedEventType string,
+	lineageEpoch uint64,
+	uncertain uncertainMutationAppend,
+) (protocol.MutationResult, error) {
+	if uncertain.event.Type != expectedEventType ||
+		uncertain.event.RequestID != requestID ||
+		uncertain.requestHash != requestHash {
+		if uncertain.event.RequestID == requestID {
+			return protocol.MutationResult{}, requestConflict(requestID)
+		}
+		return protocol.MutationResult{}, unresolvedCreateError(sessionID)
+	}
+	state, identifiers, err := e.createAndConfirm(sessionID, uncertain.event)
+	if err != nil {
+		return protocol.MutationResult{}, err
+	}
+	return e.registerCreatedSession(
+		sessionID,
+		requestID,
+		state,
+		identifiers,
+		lineageEpoch,
+	)
+}
+
+func (e *Engine) registerCreatedSession(
+	sessionID string,
+	requestID string,
+	state protocol.SessionState,
+	identifiers protocol.IdentifierHistory,
+	lineageEpoch uint64,
+) (protocol.MutationResult, error) {
+	managed, err := newLoadedManagedSession(
+		sessionID,
+		state,
+		identifiers,
+		lineageEpoch,
+	)
+	if err != nil {
+		return protocol.MutationResult{}, err
+	}
+	managed.mu.Lock()
+	e.queueCheckpointLocked(managed)
+	managed.mu.Unlock()
+	e.mu.Lock()
+	delete(e.pendingCreates, sessionID)
+	e.sessions[sessionID] = managed
+	e.mu.Unlock()
+	identity, err := retainedRequestIdentity(managed.identifiers, requestID)
+	if err != nil {
+		return protocol.MutationResult{}, err
+	}
+	return mutationResultFromIdentity(state.SessionID, identity, false), nil
 }
 
 func logMatchesStateTail(events []protocol.EventRecord, state protocol.SessionState) bool {

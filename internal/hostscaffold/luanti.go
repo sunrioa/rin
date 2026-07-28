@@ -23,10 +23,7 @@ func renderLuanti(options normalizedOptions) ([]renderedFile, error) {
 			return nil, fmt.Errorf("read Luanti template %s: %w", name, readErr)
 		}
 		relative := strings.TrimPrefix(name, luantiTemplateRoot+"/")
-		payload, err = renderLuantiFile(relative, payload, options)
-		if err != nil {
-			return nil, err
-		}
+		payload = renderLuantiFile(relative, payload, options)
 		files = append(files, renderedFile{
 			Path: relative, Mode: 0o644, Data: payload, Role: "host-template",
 		})
@@ -45,7 +42,7 @@ func renderLuantiFile(
 	relative string,
 	payload []byte,
 	options normalizedOptions,
-) ([]byte, error) {
+) []byte {
 	if relative == "mod.conf" {
 		var author string
 		if options.Author != "" {
@@ -56,7 +53,7 @@ func renderLuantiFile(
 				"title = " + options.Name + "\n" +
 				"description = Server-side Rin advisory integration scaffold.\n" +
 				author,
-		), nil
+		)
 	}
 	text := string(payload)
 	switch relative {
@@ -84,7 +81,7 @@ func renderLuantiFile(
 			"# Rin local origin. This scaffold intentionally rejects remote origins and tokens.",
 		)
 	}
-	return []byte(text), nil
+	return []byte(text)
 }
 
 func luaString(value string) string {

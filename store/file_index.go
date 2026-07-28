@@ -44,7 +44,7 @@ func (s *File) Head(sessionID string) (rinruntime.EventAnchor, error) {
 	if err := s.rejectDurabilityUncertainty(sessionID); err != nil {
 		return rinruntime.EventAnchor{}, err
 	}
-	file, err := openEventFile(directory, os.O_RDONLY)
+	file, err := openEventFile(directory)
 	if err != nil {
 		return rinruntime.EventAnchor{}, err
 	}
@@ -93,7 +93,7 @@ func (s *File) LoadRange(
 	if limit <= 0 {
 		return rinruntime.EventPage{}, errors.New("event range limit must be positive")
 	}
-	file, err := openEventFile(directory, os.O_RDONLY)
+	file, err := openEventFile(directory)
 	if err != nil {
 		return rinruntime.EventPage{}, err
 	}
@@ -118,8 +118,8 @@ func (s *File) LoadRange(
 	return readIndexedRange(file, index, afterRevision, throughRevision, limit)
 }
 
-func openEventFile(directory string, flags int) (*os.File, error) {
-	file, err := os.OpenFile(filepath.Join(directory, "events.jsonl"), flags, 0o600)
+func openEventFile(directory string) (*os.File, error) {
+	file, err := os.Open(filepath.Join(directory, "events.jsonl"))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, rinruntime.ErrNotFound

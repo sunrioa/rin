@@ -255,8 +255,7 @@ func TestBepInExRenderSelectsExactlyOneBackend(t *testing.T) {
 				coreProject, `../Rin.Client/Rin.Client.csproj`) {
 				t.Fatal("Core project does not reference the vendored SDK")
 			}
-			pluginPath := strings.TrimSuffix(test.selected, ".csproj") + "Plugin.cs"
-			pluginPath = strings.Replace(pluginPath, "/GuideNpc", "/", 1)
+			var pluginPath string
 			if test.host == HostBepInExMono {
 				pluginPath = "GuideNpc.Mono/Plugin.cs"
 			} else {
@@ -270,8 +269,7 @@ func TestBepInExRenderSelectsExactlyOneBackend(t *testing.T) {
 				!strings.Contains(plugin, `"Example", "EnableF8Demo", false,`) {
 				t.Error("Mono demo must default to disabled")
 			}
-			lockPath := strings.TrimSuffix(test.selected, ".csproj") + "packages.lock.json"
-			lockPath = strings.Replace(lockPath, "/GuideNpc", "/", 1)
+			var lockPath string
 			if test.host == HostBepInExMono {
 				lockPath = "GuideNpc.Mono/packages.lock.json"
 			} else {
