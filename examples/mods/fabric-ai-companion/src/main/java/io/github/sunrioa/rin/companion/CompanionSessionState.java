@@ -2,6 +2,9 @@ package io.github.sunrioa.rin.companion;
 
 import io.github.sunrioa.rin.OutcomeOutboxEntry;
 import io.github.sunrioa.rin.PendingTurn;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -39,7 +42,14 @@ final class CompanionSessionState {
     }
 
     static String stableSessionId(UUID worldId, UUID ownerId, UUID companionId) {
-        return "fabric." + compact(worldId) + "." + compact(ownerId) + "." + compact(companionId);
+        String identity = worldId + "\0" + ownerId + "\0" + companionId;
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(identity.getBytes(StandardCharsets.UTF_8));
+            return "fabric." + java.util.HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 is unavailable", impossible);
+        }
     }
 
     Map<String, Object> toJson() {
@@ -78,7 +88,6 @@ final class CompanionSessionState {
         return session;
     }
 
-    private static String compact(UUID id) { return id.toString().replace("-", ""); }
     private static Map<String, Object> copy(Map<String, Object> value) { return PendingTurn.copyJsonObject(value); }
     @SuppressWarnings("unchecked") private static Map<String, Object> object(Object value, String field) { if (!(value instanceof Map<?, ?> map)) throw invalid(field); return (Map<String, Object>) map; }
     private static UUID uuid(Object value, String field) { try { return UUID.fromString(text(value, field)); } catch (IllegalArgumentException exception) { throw invalid(field); } }

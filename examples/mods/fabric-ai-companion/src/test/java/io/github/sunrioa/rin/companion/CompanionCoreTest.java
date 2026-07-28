@@ -8,6 +8,8 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public final class CompanionCoreTest {
     private CompanionCoreTest() {
@@ -62,6 +64,7 @@ public final class CompanionCoreTest {
         require(restoredSession.outcomes.get(outcome.key()).equals(outcome), "outbox changed");
         require(CompanionSessionState.stableSessionId(worldId, ownerId, companionId)
                         .equals(session.sessionId), "stable session id changed");
+        require(session.sessionId.length() <= 96, "stable session id exceeds Rin protocol limits");
         requireRejected(() -> CompanionSavedState.fromJson("{}"));
         requireRejected(() -> CompanionSavedState.fromJson("{\"version\":1,\"world_id\":\"bad\",\"host_generation\":1,\"timeline_generation\":1,\"sequence\":0,\"sessions\":{}}"));
         requireRejected(() -> CompanionSavedState.fromJson(state.toJson().replace("\"sessions\":{", "\"unknown\":1,\"sessions\":{")));
@@ -90,6 +93,42 @@ public final class CompanionCoreTest {
         requireRejected(tooManyOutcomes::toJson);
         requireRejected(() -> CompanionSavedState.fromJson(" ".repeat(CompanionSavedState.MAX_JSON_CHARS + 1)));
         requireRejected(() -> CompanionSavedState.fromJson("[1,2,3]"));
+
+        CompanionHostEpoch epoch = new CompanionHostEpoch(worldId, 4, 2);
+        List<Map<String, Object>> offers = CompanionRequests.offers(epoch.wire(session.sessionId), 7);
+        Set<String> capabilities = offers.stream()
+                .map(offer -> (Map<?, ?>) offer.get("capability"))
+                .map(capability -> (String) capability.get("id"))
+                .collect(Collectors.toSet());
+        require(capabilities.equals(Set.of("dialogue.reply", "movement.follow_owner", "movement.stop",
+                "activity.wait", "safety.refuse")), "unexpected Phase 1 offers");
+        requireRejected(() -> CompanionActions.requireAllowed("world.break_block"));
+
+        CompanionSessionState workflowSession = CompanionSessionState.create(worldId, ownerId,
+                UUID.fromString("00000000-0000-0000-0000-000000000004"), "伙伴", "", "STOPPED",
+                Map.of("request_id", "create.workflow"));
+        CompanionWorkflowStore workflowStore = new CompanionWorkflowStore(state, workflowSession);
+        PendingTurn workflowTurn = PendingTurn.create("operation.8", Map.of(
+                "request_id", "propose.8", "session_id", workflowSession.sessionId));
+        require(workflowStore.createPendingTurn(workflowTurn).toCompletableFuture().join(),
+                "pending turn was not created");
+        require(!workflowStore.createPendingTurn(workflowTurn).toCompletableFuture().join(),
+                "second pending turn was accepted");
+        PendingTurn assigned = workflowTurn.withJobId("job.8");
+        workflowStore.savePendingTurn(assigned).toCompletableFuture().join();
+        workflowStore.completePendingTurn(assigned, Map.of("id", "proposal.8"),
+                Map.of("session_id", workflowSession.sessionId, "request_id", "report.8"))
+                .toCompletableFuture().join();
+        OutcomeOutboxEntry pendingOutcome = workflowStore.listOutcomeReports()
+                .toCompletableFuture().join().getFirst();
+        requireRejected(() -> workflowStore.acknowledgeOutcome(pendingOutcome,
+                Map.of("session_id", "wrong.session")).toCompletableFuture().join());
+        require(workflowStore.listOutcomeReports().toCompletableFuture().join().size() == 1,
+                "invalid acknowledgement removed the outbox entry");
+        workflowStore.acknowledgeOutcome(pendingOutcome,
+                Map.of("session_id", workflowSession.sessionId)).toCompletableFuture().join();
+        require(workflowStore.listOutcomeReports().toCompletableFuture().join().isEmpty(),
+                "valid acknowledgement retained the outbox entry");
     }
 
     private static void require(boolean condition, String message) {
