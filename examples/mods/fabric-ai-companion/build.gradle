@@ -27,6 +27,13 @@ dependencies {
 
 sourceSets.main.java.srcDir "../../../sdk/java/src/main/java"
 
+processResources {
+    inputs.property "version", project.version
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}
+
 fabricApi {
     configureTests {
         createSourceSet = true
