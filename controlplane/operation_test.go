@@ -76,6 +76,12 @@ func TestMessageOperationIsIdempotentAndReportsHostOutcome(t *testing.T) {
 	if err := service.AcknowledgeHost("test.host", lease.LeaseID, ack); err != nil {
 		t.Fatalf("idempotent AcknowledgeHost: %v", err)
 	}
+	acceptedRedelivery := pollHost(t, service, lease, 8)
+	if len(acceptedRedelivery.Requests) != 1 ||
+		acceptedRedelivery.Requests[0].Request.OperationID != operation.OperationID ||
+		acceptedRedelivery.Requests[0].DeliveryAttempt != 3 {
+		t.Fatalf("accepted redelivery = %#v", acceptedRedelivery)
+	}
 	if err := service.ReportHostRun(
 		"test.host",
 		lease.LeaseID,
@@ -141,7 +147,7 @@ func TestMessageOperationIsIdempotentAndReportsHostOutcome(t *testing.T) {
 	view, err := service.GetOperation(principal, operation.OperationID)
 	if err != nil ||
 		view.Status != OperationSucceeded ||
-		view.DeliveryAttempts != 2 ||
+		view.DeliveryAttempts != 3 ||
 		view.Run == nil ||
 		view.Run.Status != host.ActionRunning ||
 		view.Outcome == nil ||

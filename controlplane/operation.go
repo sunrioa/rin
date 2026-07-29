@@ -607,8 +607,12 @@ func (service *Service) collectHostWorkLocked(
 		if len(batch.Requests)+len(batch.Cancellations) >= limit {
 			break
 		}
+		if operation.cancel {
+			continue
+		}
 		if operation.status != OperationQueued &&
-			operation.status != OperationDelivered {
+			operation.status != OperationDelivered &&
+			operation.status != OperationAccepted {
 			continue
 		}
 		if operation.attempts < math.MaxUint32 {
