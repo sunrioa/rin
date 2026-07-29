@@ -18,7 +18,7 @@ type Gateway struct {
 	server    *mcp.Server
 }
 
-// New creates a scope-bounded MCP 2026-07-28 gateway.
+// New creates a scope-bounded MCP gateway.
 func New(
 	service *controlplane.Service,
 	principal host.Principal,
@@ -67,9 +67,9 @@ func (gateway *Gateway) Server() *mcp.Server {
 	return gateway.server
 }
 
-// Run serves MCP over one transport while advertising only 2026-07-28.
+// Run serves MCP using the official SDK's protocol negotiation.
 func (gateway *Gateway) Run(ctx context.Context, transport mcp.Transport) error {
-	return gateway.server.Run(ctx, StrictTransport{Base: transport})
+	return gateway.server.Run(ctx, transport)
 }
 
 func (gateway *Gateway) addReadTools() {

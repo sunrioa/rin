@@ -142,13 +142,15 @@ tool for every gameplay capability:
 `send_actor_directive` is the default write surface. `execute_actor_offer` is a
 stronger permission, but accepts only an exact, currently published bound offer.
 
-The MCP wire supports only `2026-07-28` and does not negotiate down to an older
-protocol. Pin the official Go MCP SDK `v1.7.0-pre.3` until a stable release with
-0728 support passes regression. Both stdio and Streamable HTTP use
-`server/discover` and standard per-request `_meta`; HTTP uses the 0728 stateless
-mode, binds only to loopback, validates `Origin`, requires a random bearer
-token, and limits body size, concurrency, and idle duration. The MCP SDK stays
-in `mcpbridge` and `cmd/rin-mcp`; Rin Core and `host` do not import it.
+The MCP wire uses the official SDK's default version negotiation, preferring
+`2026-07-28` while remaining compatible with legacy revisions supported by the
+SDK. Pin the official Go MCP SDK `v1.7.0-pre.3` until a stable release with 0728
+support passes regression. The 0728 revision uses `server/discover` and
+standard per-request `_meta`; legacy revisions retain the `initialize`
+handshake. HTTP uses the 0728 stateless mode, binds only to loopback, validates
+`Origin`, requires a random bearer token, and limits body size, concurrency,
+and idle duration. The MCP SDK stays in `mcpbridge` and `cmd/rin-mcp`; Rin Core
+and `host` do not import it.
 
 Recommended scopes are `actor.read`, `actor.converse`, `actor.direct`,
 `actor.execute`, `operation.cancel`, and `host.admin`. Pairing binds a client to

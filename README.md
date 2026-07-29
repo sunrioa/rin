@@ -41,7 +41,7 @@ go run ./examples/basic
 
 该示例只演示 Session 创建和 Observe。带有 Proposal Attempt、崩溃恢复和 Outcome Outbox 的完整切片在 [`examples/terminal-story`](examples/terminal-story/README.zh-CN.md)。
 
-构建 MCP 2026-07-28 Gateway：
+构建 MCP Gateway（默认优先协商 `2026-07-28`）：
 
 ```bash
 go build -o bin/rin-mcp ./cmd/rin-mcp
@@ -78,7 +78,7 @@ go run ./cmd/rin init host --engine fabric --id guide_npc --name "Guide NPC" --n
 - [文档索引](docs/README.zh-CN.md) / [English](docs/README.md)
 - [Protocol v2](docs/protocol-v2.zh-CN.md)：字段、错误和重试语义
 - [动作生命周期](docs/action-lifecycle.zh-CN.md)：Proposal、执行、Outbox 和恢复
-- [MCP 快速接入](docs/mcp-control-plane.zh-CN.md)：0728 STDIO、Host 发布和权限
+- [MCP 快速接入](docs/mcp-control-plane.zh-CN.md)：官方版本协商、Host 发布和权限
 - [部署与监控](docs/operations.zh-CN.md)：Token、TLS、存储和运行限制
 - [发布指南](docs/release-guide.zh-CN.md)与[路线图](ROADMAP.md)
 - [安全说明](SECURITY.md)、[变更日志](CHANGELOG.zh-CN.md)和[第三方许可](THIRD-PARTY-NOTICES.md)
@@ -89,7 +89,7 @@ go run ./cmd/rin init host --engine fabric --id guide_npc --name "Guide NPC" --n
 
 ```text
 cmd/rin/       Sidecar 命令行程序
-cmd/rin-mcp/   MCP 2026-07-28 Gateway
+cmd/rin-mcp/   MCP Gateway
 api/           OpenAPI 3.1 契约
 protocol/      跨语言 v2 数据类型
 runtime/       事件状态机、提案验证、快照和调度

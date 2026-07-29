@@ -163,9 +163,11 @@ submitted -> queued -> delivered -> accepted -> running -> succeeded
 
 ### Transport
 
-- MCP Wire 只支持 `2026-07-28`，不协商降级到旧版协议。
+- MCP Wire 使用官方 SDK 的默认版本协商，优先选择 `2026-07-28`，并兼容 SDK
+  支持的旧版协议。
 - 使用官方 Go MCP SDK `v1.7.0-pre.3`，直到支持 0728 的稳定版发布并通过回归。
-- STDIO 与 Streamable HTTP 都使用 `server/discover` 和每请求标准 `_meta`。
+- 0728 使用 `server/discover` 和每请求标准 `_meta`；旧版继续使用
+  `initialize` 会话握手。
 - Streamable HTTP 使用 0728 无状态模式，只绑定 `127.0.0.1`/`::1`。
 - HTTP 必须验证 `Origin`、要求随机 Bearer Token，并限制请求体、并发和空闲时间。
 - 使用官方 Go MCP SDK；MCP SDK 类型只能存在于 `mcpbridge` 和 `cmd/rin-mcp`。

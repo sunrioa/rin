@@ -1,11 +1,11 @@
-# MCP 2026-07-28 快速接入
+# MCP Gateway 快速接入
 
 [English](mcp-control-plane.md) | [简体中文](mcp-control-plane.zh-CN.md)
 
 `rin-mcp` 是 Rin 的可选外部控制 Gateway。当前版本实现：
 
 - 使用官方 Go MCP SDK `v1.7.0-pre.3`；
-- 仅接受 MCP `2026-07-28`，使用 `server/discover`，不降级到旧协议；
+- 使用 SDK 默认版本协商，优先选择 `2026-07-28`，并兼容 SDK 支持的旧协议；
 - MCP Client 使用 STDIO；
 - 游戏 Host 使用带 Bearer Token 的回环 HTTP 发布状态；
 - MCP 与 Host 共享一个进程内 Control Plane；
@@ -59,6 +59,10 @@ Host 发布 Actor 时，`owner_principal_id` 必须与该 Principal 一致；否
 ```
 
 进程的标准输出只承载 MCP Wire。诊断信息写入标准错误。
+
+版本协商完全交给官方 SDK：支持新协议的 Client 使用 `server/discover` 和每请求
+`_meta`；旧 Client 可以直接使用旧版 `initialize` 握手。Rin 不再额外锁定或模拟
+协议版本。
 
 ## 已实现 Tool
 

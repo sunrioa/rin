@@ -1,12 +1,12 @@
-# MCP 2026-07-28 Quick Start
+# MCP Gateway Quick Start
 
 [English](mcp-control-plane.md) | [简体中文](mcp-control-plane.zh-CN.md)
 
 `rin-mcp` is Rin's optional external-control gateway. The current release:
 
 - it uses the official Go MCP SDK `v1.7.0-pre.3`;
-- it accepts only MCP `2026-07-28`, uses `server/discover`, and does not
-  negotiate down to an older protocol;
+- it uses the SDK's default version negotiation, preferring `2026-07-28` while
+  remaining compatible with legacy revisions supported by the SDK;
 - MCP clients connect over STDIO;
 - game hosts publish state through token-authenticated loopback HTTP;
 - MCP and Host traffic share one in-process Control Plane;
@@ -64,6 +64,11 @@ file locations differ, but the server entry follows this shape:
 ```
 
 Standard output is reserved for the MCP wire. Diagnostics go to standard error.
+
+Protocol negotiation is delegated entirely to the official SDK. Modern clients
+use `server/discover` and per-request `_meta`; legacy clients can use the
+legacy `initialize` handshake directly. Rin does not pin or emulate a protocol
+revision.
 
 ## Available tools
 

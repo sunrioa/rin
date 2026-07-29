@@ -9,22 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
 )
-
-func TestStrictTransportSupportsOnlyCurrentProtocol(t *testing.T) {
-	transport := StrictTransport{}
-	if !transport.SupportsProtocolVersion(ProtocolVersion) {
-		t.Fatalf("%s must be supported", ProtocolVersion)
-	}
-	for _, version := range []string{"2025-11-25", "2025-06-18", ""} {
-		if transport.SupportsProtocolVersion(version) {
-			t.Fatalf("legacy protocol %q was accepted", version)
-		}
-	}
-}
 
 func TestGatewayNegotiatesCurrentProtocolAndReadsPublishedState(t *testing.T) {
 	service := publishedService(t)
@@ -103,6 +92,76 @@ func TestGatewayNegotiatesCurrentProtocolAndReadsPublishedState(t *testing.T) {
 		offers.Offers[0].OfferID != "offer.follow" ||
 		offers.Offers[0].Arguments["distance"] != json.Number("2") {
 		t.Fatalf("list_actor_offers = %#v", offers)
+	}
+}
+
+func TestGatewayAcceptsLegacyProtocolThroughOfficialSDK(t *testing.T) {
+	const legacyProtocolVersion = "2025-11-25"
+
+	service := publishedService(t)
+	gateway, err := New(service, host.Principal{
+		ID:            "player.one",
+		GrantedScopes: []string{controlplane.ScopeActorRead},
+	})
+	if err != nil {
+		t.Fatalf("New gateway: %v", err)
+	}
+
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	serverSession, err := gateway.Server().Connect(
+		testContext(t),
+		serverTransport,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("connect server: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = serverSession.Close()
+	})
+
+	connection, err := clientTransport.Connect(testContext(t))
+	if err != nil {
+		t.Fatalf("connect client: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = connection.Close()
+	})
+
+	payload := callLegacyMCP(t, connection, 1, "initialize", &mcp.InitializeParams{
+		ProtocolVersion: legacyProtocolVersion,
+		Capabilities:    &mcp.ClientCapabilities{},
+		ClientInfo: &mcp.Implementation{
+			Name:    "rin-legacy-test",
+			Version: "1.0.0",
+		},
+	})
+	var initialized mcp.InitializeResult
+	if err := json.Unmarshal(payload, &initialized); err != nil {
+		t.Fatalf("decode initialize result: %v", err)
+	}
+	if initialized.ProtocolVersion != legacyProtocolVersion {
+		t.Fatalf("legacy negotiation result = %#v", initialized)
+	}
+
+	params, err := json.Marshal(&mcp.InitializedParams{})
+	if err != nil {
+		t.Fatalf("marshal initialized notification: %v", err)
+	}
+	if err := connection.Write(testContext(t), &jsonrpc.Request{
+		Method: "notifications/initialized",
+		Params: params,
+	}); err != nil {
+		t.Fatalf("send initialized notification: %v", err)
+	}
+
+	payload = callLegacyMCP(t, connection, 2, "tools/list", &mcp.ListToolsParams{})
+	var tools mcp.ListToolsResult
+	if err := json.Unmarshal(payload, &tools); err != nil {
+		t.Fatalf("decode tools result: %v", err)
+	}
+	if len(tools.Tools) == 0 {
+		t.Fatal("legacy tools/list returned no tools")
 	}
 }
 
@@ -242,7 +301,7 @@ func connectClient(
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
 	serverSession, err := gateway.Server().Connect(
 		testContext(t),
-		StrictTransport{Base: serverTransport},
+		serverTransport,
 		nil,
 	)
 	if err != nil {
@@ -293,6 +352,43 @@ func callTool(
 	if err := decoder.Decode(output); err != nil {
 		t.Fatalf("decode %s output: %v", name, err)
 	}
+}
+
+func callLegacyMCP(
+	t *testing.T,
+	connection mcp.Connection,
+	idValue int64,
+	method string,
+	params any,
+) json.RawMessage {
+	t.Helper()
+	payload, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal %s params: %v", method, err)
+	}
+	id, err := jsonrpc.MakeID(float64(idValue))
+	if err != nil {
+		t.Fatalf("make %s request ID: %v", method, err)
+	}
+	if err := connection.Write(testContext(t), &jsonrpc.Request{
+		ID:     id,
+		Method: method,
+		Params: payload,
+	}); err != nil {
+		t.Fatalf("write %s request: %v", method, err)
+	}
+	message, err := connection.Read(testContext(t))
+	if err != nil {
+		t.Fatalf("read %s response: %v", method, err)
+	}
+	response, ok := message.(*jsonrpc.Response)
+	if !ok {
+		t.Fatalf("%s response type = %T", method, message)
+	}
+	if response.Error != nil {
+		t.Fatalf("%s response error: %v", method, response.Error)
+	}
+	return response.Result
 }
 
 func publishedService(t *testing.T) *controlplane.Service {

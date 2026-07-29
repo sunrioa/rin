@@ -41,7 +41,7 @@ go run ./examples/basic
 
 It covers Session creation and Observe only. The complete vertical slice with Proposal Attempt persistence, crash recovery, and an Outcome Outbox is [`examples/terminal-story`](examples/terminal-story/README.md).
 
-Build the MCP 2026-07-28 gateway:
+Build the MCP gateway (prefers `2026-07-28` by default):
 
 ```bash
 go build -o bin/rin-mcp ./cmd/rin-mcp
@@ -80,7 +80,7 @@ See [game adapters](docs/game-adapters.md) for installation, thread boundaries, 
 - [Documentation index](docs/README.md) / [简体中文](docs/README.zh-CN.md)
 - [Protocol v2](docs/protocol-v2.md): fields, errors, and retry semantics
 - [Action lifecycle](docs/action-lifecycle.md): proposals, execution, Outbox, and recovery
-- [MCP quick start](docs/mcp-control-plane.md): 0728 STDIO, Host publication, and authority
+- [MCP quick start](docs/mcp-control-plane.md): official version negotiation, Host publication, and authority
 - [Deployment and monitoring](docs/operations.md): tokens, TLS, storage, and runtime limits
 - [Release guide](docs/release-guide.md) and [roadmap](ROADMAP.en.md)
 - [Security](SECURITY.en.md), [changelog](CHANGELOG.md), and [third-party notices](THIRD-PARTY-NOTICES.md)
@@ -91,7 +91,7 @@ See [game adapters](docs/game-adapters.md) for installation, thread boundaries, 
 
 ```text
 cmd/rin/       Sidecar command-line program
-cmd/rin-mcp/   MCP 2026-07-28 gateway
+cmd/rin-mcp/   MCP gateway
 api/           OpenAPI 3.1 contract
 protocol/      Cross-language v2 types
 runtime/       Event state machine, proposal validation, snapshots, scheduling

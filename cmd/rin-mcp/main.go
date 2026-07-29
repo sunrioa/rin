@@ -96,7 +96,7 @@ func run(
 
 	fmt.Fprintf(
 		stderr,
-		"rin-mcp: Host Control listening on %s; MCP protocol %s over stdio\n",
+		"rin-mcp: Host Control listening on %s; MCP protocol up to %s over stdio with SDK negotiation\n",
 		listener.Addr(),
 		mcpbridge.ProtocolVersion,
 	)
