@@ -7,6 +7,7 @@ const (
 	FeatureBeliefConflicts = "belief-conflicts-v1"
 	FeatureGoalCandidates  = "goal-candidates-v1"
 	FeatureActorActivity   = "actor-activity-v1"
+	FeatureActorAgency     = "actor-agency-v1"
 	FeatureArbitration     = "arbitration-v1"
 )
 
@@ -15,6 +16,7 @@ var supportedFeatures = map[string]struct{}{
 	FeatureBeliefConflicts: {},
 	FeatureGoalCandidates:  {},
 	FeatureActorActivity:   {},
+	FeatureActorAgency:     {},
 	FeatureArbitration:     {},
 }
 

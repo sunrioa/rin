@@ -42,6 +42,7 @@ func ValidateSessionState(state SessionState) error {
 		return &ValidationError{Field: "state.head_hash", Message: "must be a lowercase SHA-256 hash"}
 	}
 	beliefConflicts := HasFeature(state.Features, FeatureBeliefConflicts)
+	actorAgency := HasFeature(state.Features, FeatureActorAgency)
 	if len(state.Actors) == 0 || len(state.Actors) > 128 {
 		return &ValidationError{Field: "state.actors", Message: "must contain 1-128 actors"}
 	}
@@ -54,6 +55,19 @@ func ValidateSessionState(state SessionState) error {
 		}
 		if err := validateActor(base, actor.ActorSeed); err != nil {
 			return err
+		}
+		if actorAgency {
+			if actor.Agency == nil {
+				return &ValidationError{Field: base + ".agency", Message: "is required by actor-agency-v1"}
+			}
+			if actor.AgencyState == nil {
+				return &ValidationError{Field: base + ".agency_state", Message: "is required by actor-agency-v1"}
+			}
+			if err := validateAgencyState(base+".agency_state", *actor.AgencyState, state); err != nil {
+				return err
+			}
+		} else if actor.Agency != nil || actor.AgencyState != nil {
+			return &ValidationError{Field: base + ".agency", Message: "requires actor-agency-v1"}
 		}
 		goalIDs := make(map[string]struct{}, len(actor.Goals))
 		for index, goal := range actor.Goals {
@@ -692,6 +706,22 @@ func validateProposal(field string, state SessionState, actor ActorState, propos
 	}
 	if err := validateDecisionWindow(field+".decision_window", proposal.DecisionWindow, state.SessionID); err != nil {
 		return err
+	}
+	if HasFeature(state.Features, FeatureActorAgency) {
+		if proposal.Agency == nil {
+			return &ValidationError{Field: field + ".agency", Message: "is required by actor-agency-v1"}
+		}
+		if err := validateAgencyDecision(field+".agency", *proposal.Agency); err != nil {
+			return err
+		}
+		if proposal.Agency.Directive &&
+			proposal.Agency.Effective.Obedience == ObedienceObey &&
+			len(proposal.Agency.DirectiveOfferIDs) > 0 &&
+			!containsString(proposal.Agency.DirectiveOfferIDs, proposal.Action.OfferID) {
+			return &ValidationError{Field: field + ".action.offer_id", Message: "must satisfy the bound directive"}
+		}
+	} else if proposal.Agency != nil {
+		return &ValidationError{Field: field + ".agency", Message: "requires actor-agency-v1"}
 	}
 	if proposal.Action.DecisionWindowID != proposal.DecisionWindow.ID ||
 		proposal.Action.ExpectedEpoch != proposal.DecisionWindow.Epoch ||

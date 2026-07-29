@@ -163,6 +163,11 @@ func validateActor(field string, actor ActorSeed) error {
 	if actor.ThinkEveryTicks < 1 || actor.ThinkEveryTicks > 1_000_000 {
 		return &ValidationError{Field: field + ".think_every_ticks", Message: "must be between 1 and 1000000"}
 	}
+	if actor.Agency != nil {
+		if err := ValidateAgencyPolicy(field+".agency", *actor.Agency); err != nil {
+			return err
+		}
+	}
 	if len(actor.Boundaries) > 24 {
 		return &ValidationError{Field: field + ".boundaries", Message: "must contain at most 24 values"}
 	}
@@ -239,6 +244,13 @@ func ValidateCreateSession(request CreateSessionRequest) error {
 	for index, actor := range request.Actors {
 		if err := validateActor(fmt.Sprintf("actors[%d]", index), actor); err != nil {
 			return err
+		}
+		hasAgency := HasFeature(request.Features, FeatureActorAgency)
+		if hasAgency && actor.Agency == nil {
+			return &ValidationError{Field: fmt.Sprintf("actors[%d].agency", index), Message: "is required by actor-agency-v1"}
+		}
+		if !hasAgency && actor.Agency != nil {
+			return &ValidationError{Field: fmt.Sprintf("actors[%d].agency", index), Message: "requires actor-agency-v1"}
 		}
 		for goalIndex, goal := range actor.Goals {
 			if goal.UpdatedTick != 0 ||
@@ -428,6 +440,11 @@ func ValidatePropose(request ProposeRequest) error {
 			return &ValidationError{Field: "offers", Message: "offer ids must be unique"}
 		}
 		seen[offer.OfferID] = struct{}{}
+	}
+	if request.Agency != nil {
+		if err := validateAgencyTurn("agency", *request.Agency, seen); err != nil {
+			return err
+		}
 	}
 	if request.DecisionWindow.Mode == host.DecisionSequential &&
 		len(request.DecisionWindow.ActorIDs) != 1 {

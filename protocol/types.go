@@ -57,6 +57,7 @@ type ActorSeed struct {
 	Metadata        map[string]string `json:"metadata,omitempty"`
 	ThinkEveryTicks int64             `json:"think_every_ticks"`
 	Enabled         bool              `json:"enabled"`
+	Agency          *AgencyPolicy     `json:"agency,omitempty"`
 }
 
 type Fact struct {
@@ -182,6 +183,7 @@ type ActionProposal struct {
 	BasedOnWorldRevision uint64            `json:"based_on_world_revision,omitempty"`
 	CreatedRevision      uint64            `json:"created_revision"`
 	DecisionWindow       DecisionWindow    `json:"decision_window"`
+	Agency               *AgencyDecision   `json:"agency,omitempty"`
 	Action               ActionOffer       `json:"action"`
 	Stance               string            `json:"stance"`
 	Summary              string            `json:"summary"`
@@ -208,6 +210,7 @@ type ActorState struct {
 	RecentActions   []ActionProposal     `json:"recent_actions,omitempty"`
 	NextThinkTick   int64                `json:"next_think_tick"`
 	Activity        *ActorActivity       `json:"activity,omitempty"`
+	AgencyState     *AgencyState         `json:"agency_state,omitempty"`
 }
 
 type RequestReceipt struct {
@@ -273,6 +276,7 @@ type ProposeRequest struct {
 	Tags            []string       `json:"tags,omitempty"`
 	DecisionWindow  DecisionWindow `json:"decision_window"`
 	Offers          []ActionOffer  `json:"offers"`
+	Agency          *AgencyTurn    `json:"agency,omitempty"`
 	CandidateGoals  []Goal         `json:"candidate_goals,omitempty"`
 	Urgent          bool           `json:"urgent,omitempty"`
 }

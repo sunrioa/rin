@@ -63,6 +63,24 @@ func validateSessionStateJSONIntegers(state SessionState) error {
 				return err
 			}
 		}
+		if actor.Agency != nil {
+			if err := validateJSONSafeTick(base+".agency.message_cooldown_ticks", actor.Agency.MessageCooldownTicks); err != nil {
+				return err
+			}
+		}
+		if actor.AgencyState != nil {
+			if err := validateJSONSafeTick(base+".agency_state.updated_tick", actor.AgencyState.UpdatedTick); err != nil {
+				return err
+			}
+			if err := validateJSONSafeUnsigned(base+".agency_state.updated_revision", actor.AgencyState.UpdatedRevision); err != nil {
+				return err
+			}
+			if actor.AgencyState.LastProactiveDialogueTick != nil {
+				if err := validateJSONSafeTick(base+".agency_state.last_proactive_dialogue_tick", *actor.AgencyState.LastProactiveDialogueTick); err != nil {
+					return err
+				}
+			}
+		}
 		for index, goal := range actor.Goals {
 			if err := validateGoalJSONIntegers(fmt.Sprintf("%s.goals[%d]", base, index), goal); err != nil {
 				return err
@@ -164,6 +182,18 @@ func validateProposalJSONIntegers(field string, proposal ActionProposal) error {
 	}
 	if err := validateJSONSafeTick(field+".last_report_tick", proposal.LastReportTick); err != nil {
 		return err
+	}
+	if proposal.Agency != nil {
+		for name, policy := range map[string]AgencyPolicy{
+			"host_ceiling":  proposal.Agency.HostCeiling,
+			"server_policy": proposal.Agency.ServerPolicy,
+			"actor_policy":  proposal.Agency.ActorPolicy,
+			"effective":     proposal.Agency.Effective,
+		} {
+			if err := validateJSONSafeTick(field+".agency."+name+".message_cooldown_ticks", policy.MessageCooldownTicks); err != nil {
+				return err
+			}
+		}
 	}
 	if proposal.ProposedGoal != nil {
 		return validateGoalJSONIntegers(field+".proposed_goal", *proposal.ProposedGoal)
