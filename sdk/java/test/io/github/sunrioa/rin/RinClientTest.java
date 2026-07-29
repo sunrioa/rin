@@ -272,6 +272,7 @@ public final class RinClientTest {
                 new RequestCase("report_action", () -> client.reportAction(payload), "POST", "/v2/action/report"),
                 new RequestCase("report_action_batch", () -> client.reportActionBatch(payload), "POST", "/v2/action/report-batch"),
                 new RequestCase("set_actor_activity", () -> client.setActorActivity(payload), "POST", "/v2/session/activity"),
+                new RequestCase("set_actor_agency", () -> client.setActorAgency(payload), "POST", "/v2/session/agency"),
                 new RequestCase("arbitrate", () -> client.arbitrate(payload), "POST", "/v2/world/arbitrate"),
                 new RequestCase("state", () -> client.state(payload), "POST", "/v2/session/get"),
                 new RequestCase("session_stats", () -> client.sessionStats(payload), "POST", "/v2/session/stats"),

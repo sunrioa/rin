@@ -32,8 +32,8 @@ func TestContractMetadataAndRoutesMatchGeneratedRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtimeRoutes := httpapi.ContractRoutes()
-	if len(openAPIRoutes) != 28 || len(runtimeRoutes) != len(openAPIRoutes) {
-		t.Fatalf("route count: OpenAPI=%d runtime=%d, want 28", len(openAPIRoutes), len(runtimeRoutes))
+	if len(openAPIRoutes) != 29 || len(runtimeRoutes) != len(openAPIRoutes) {
+		t.Fatalf("route count: OpenAPI=%d runtime=%d, want 29", len(openAPIRoutes), len(runtimeRoutes))
 	}
 	runtimeByKey := make(map[string]httpapi.ContractRoute, len(runtimeRoutes))
 	for _, route := range runtimeRoutes {
@@ -94,6 +94,7 @@ func TestOpenAPIReferencesInputsAndResponseEvolutionRules(t *testing.T) {
 	closedInputs := []string{
 		"Binding", "BoundaryInput", "GoalSeedInput", "ActorSeedInput", "FactInput",
 		"ActionOfferInput", "CreateSessionRequest", "ObserveRequest", "ProposeRequest",
+		"AgencyPolicyInput", "AgencyTurnInput", "ActorAgencyUpdateInput", "SetActorAgencyRequest",
 		"GoalUpdateInput", "ReportActionRequest", "ActionReportInput", "BatchActionReportRequest",
 		"ActorActivityUpdateInput", "SetActorActivityRequest", "ArbitrateRequest",
 		"SessionRequest", "ArchiveSessionRequest", "DeleteSessionRequest",
@@ -118,6 +119,7 @@ func TestOpenAPIReferencesInputsAndResponseEvolutionRules(t *testing.T) {
 		"ReportActionRequest":      {"tick"},
 		"BatchActionReportRequest": {"tick"},
 		"SetActorActivityRequest":  {"tick"},
+		"SetActorAgencyRequest":    {"tick"},
 		"ArbitrateRequest":         {"tick"},
 		"DueAgentsRequest":         {"tick"},
 		"GenerationRequest":        {"temperature"},
@@ -207,6 +209,12 @@ func TestContractExamplesStrictGoRoundTripAndPresence(t *testing.T) {
 			newValue: func() any { return &protocol.ProposeRequest{} },
 			validate: func(value any) error {
 				return protocol.ValidatePropose(*value.(*protocol.ProposeRequest))
+			},
+		},
+		"SetActorAgencyRequest": {
+			newValue: func() any { return &protocol.SetActorAgencyRequest{} },
+			validate: func(value any) error {
+				return protocol.ValidateSetActorAgency(*value.(*protocol.SetActorAgencyRequest))
 			},
 		},
 		"ReportActionRequest": {

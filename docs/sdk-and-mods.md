@@ -28,7 +28,7 @@ This document describes Rin `0.7.0` Preview. The authoritative wire schema is
 | Java | 17 | `transport` | `CompletableFuture` | Fabric, JVM servers |
 | Lua | 5.1 | `transport` | callback | Luanti, embedded Lua engines |
 
-Every implementation exposes the 28-route inventory generated into
+Every implementation exposes the 29-route inventory generated into
 [`sdk/conformance/routes.json`](../sdk/conformance/routes.json) from OpenAPI.
 Each entry also carries the route's generated `request_schema`; the HTTP
 decoder consumes that same metadata, so there is no separate handwritten

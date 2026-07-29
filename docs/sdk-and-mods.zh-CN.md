@@ -27,7 +27,7 @@ Identity 与有界恢复状态，但其存储无法与任意游戏世界效果�
 | Lua | 5.1 | `transport` | Callback | Luanti、嵌入式 Lua 引擎 |
 
 每套实现暴露由 OpenAPI 生成到
-[`sdk/conformance/routes.json`](../sdk/conformance/routes.json) 的 28 Route
+[`sdk/conformance/routes.json`](../sdk/conformance/routes.json) 的 29 Route
 Inventory。每项还包含生成的 `request_schema`；HTTP Decoder 使用同一份元数据，
 不再维护另一份手写 Go Type 到 Schema Switch。该清单核对覆盖与归属，但不是
 第二份 Wire Contract，也不是行为证明。

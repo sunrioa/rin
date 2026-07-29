@@ -126,6 +126,23 @@
     ],
     "urgent": false
   },
+  "SetActorAgencyRequest": {
+    "protocol_version": "rin.protocol/v2",
+    "session_id": "session.example",
+    "request_id": "request.agency.example",
+    "tick": 10,
+    "updates": [
+      {
+        "actor_id": "actor.mira",
+        "policy": {
+          "initiative": "dialogue",
+          "obedience": "negotiate",
+          "message_cooldown_ticks": 1200,
+          "max_consecutive_turns": 2
+        }
+      }
+    ]
+  },
   "ReportActionRequest": {
     "protocol_version": "rin.protocol/v2",
     "session_id": "session.example",

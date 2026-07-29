@@ -117,6 +117,14 @@
       "request_schema": "SetActorActivityRequest"
     },
     {
+      "name": "set_actor_agency",
+      "method": "POST",
+      "path": "/v2/session/agency",
+      "status": 200,
+      "profile": "transport",
+      "request_schema": "SetActorAgencyRequest"
+    },
+    {
       "name": "arbitrate",
       "method": "POST",
       "path": "/v2/world/arbitrate",

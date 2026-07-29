@@ -124,6 +124,10 @@ public final class RinClient {
         return post("/v2/session/activity", payload, 200);
     }
 
+    public CompletableFuture<Map<String, Object>> setActorAgency(Map<String, ?> payload) {
+        return post("/v2/session/agency", payload, 200);
+    }
+
     public CompletableFuture<Map<String, Object>> arbitrate(Map<String, ?> payload) {
         return post("/v2/world/arbitrate", payload, 200);
     }

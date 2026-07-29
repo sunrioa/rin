@@ -414,6 +414,43 @@
         }
       }
     },
+    "/v2/session/agency": {
+      "post": {
+        "operationId": "set_actor_agency",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/SetActorAgency"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/MutationResult"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "507": {
+            "$ref": "#/components/responses/InsufficientStorage"
+          }
+        }
+      }
+    },
     "/v2/world/arbitrate": {
       "post": {
         "operationId": "arbitrate",
@@ -1002,6 +1039,16 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/SetActorActivityRequest"
+            }
+          }
+        }
+      },
+      "SetActorAgency": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SetActorAgencyRequest"
             }
           }
         }
@@ -1792,6 +1839,9 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "agency": {
+            "$ref": "#/components/schemas/AgencyPolicyInput"
           }
         }
       },
@@ -1868,7 +1918,7 @@
             "description": "Optional, explicitly negotiated session features.",
             "type": "array",
             "uniqueItems": true,
-            "maxItems": 5,
+            "maxItems": 6,
             "items": {
               "type": "string",
               "enum": [
@@ -1876,6 +1926,7 @@
                 "belief-conflicts-v1",
                 "goal-candidates-v1",
                 "actor-activity-v1",
+                "actor-agency-v1",
                 "arbitration-v1"
               ]
             }
@@ -2058,6 +2109,9 @@
             "items": {
               "$ref": "#/components/schemas/ActionOfferInput"
             }
+          },
+          "agency": {
+            "$ref": "#/components/schemas/AgencyTurnInput"
           }
         }
       },
@@ -2083,6 +2137,131 @@
               "completed",
               "released"
             ]
+          }
+        }
+      },
+      "AgencyPolicyInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "initiative",
+          "obedience",
+          "message_cooldown_ticks",
+          "max_consecutive_turns"
+        ],
+        "properties": {
+          "initiative": {
+            "type": "string",
+            "enum": [
+              "passive",
+              "dialogue",
+              "actions"
+            ]
+          },
+          "obedience": {
+            "type": "string",
+            "enum": [
+              "obey",
+              "negotiate",
+              "independent"
+            ]
+          },
+          "message_cooldown_ticks": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "max_consecutive_turns": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8
+          }
+        }
+      },
+      "AgencyTurnInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "directive",
+          "host_ceiling",
+          "server_policy"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "responsive",
+              "proactive-dialogue",
+              "proactive-action"
+            ]
+          },
+          "directive": {
+            "type": "boolean"
+          },
+          "directive_offer_ids": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/IdentifierArray"
+              },
+              {
+                "maxItems": 32
+              }
+            ]
+          },
+          "host_ceiling": {
+            "$ref": "#/components/schemas/AgencyPolicyInput"
+          },
+          "server_policy": {
+            "$ref": "#/components/schemas/AgencyPolicyInput"
+          }
+        }
+      },
+      "ActorAgencyUpdateInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "actor_id",
+          "policy"
+        ],
+        "properties": {
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/AgencyPolicyInput"
+          }
+        }
+      },
+      "SetActorAgencyRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "protocol_version",
+          "session_id",
+          "request_id",
+          "updates"
+        ],
+        "properties": {
+          "protocol_version": {
+            "$ref": "#/components/schemas/ProtocolVersion"
+          },
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "updates": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 128,
+            "items": {
+              "$ref": "#/components/schemas/ActorAgencyUpdateInput"
+            }
           }
         }
       },
@@ -2946,6 +3125,113 @@
           }
         }
       },
+      "AgencyPolicyState": {
+        "type": "object",
+        "required": [
+          "initiative",
+          "obedience",
+          "message_cooldown_ticks",
+          "max_consecutive_turns"
+        ],
+        "properties": {
+          "initiative": {
+            "type": "string",
+            "enum": [
+              "passive",
+              "dialogue",
+              "actions"
+            ]
+          },
+          "obedience": {
+            "type": "string",
+            "enum": [
+              "obey",
+              "negotiate",
+              "independent"
+            ]
+          },
+          "message_cooldown_ticks": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "max_consecutive_turns": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8
+          }
+        }
+      },
+      "AgencyState": {
+        "type": "object",
+        "required": [
+          "updated_tick",
+          "updated_revision",
+          "consecutive_proactive_turns"
+        ],
+        "properties": {
+          "updated_tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "updated_revision": {
+            "$ref": "#/components/schemas/JSONSafePositiveInteger"
+          },
+          "last_proactive_dialogue_tick": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "consecutive_proactive_turns": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          }
+        }
+      },
+      "AgencyDecisionState": {
+        "type": "object",
+        "required": [
+          "kind",
+          "directive",
+          "host_ceiling",
+          "server_policy",
+          "actor_policy",
+          "effective"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "responsive",
+              "proactive-dialogue",
+              "proactive-action"
+            ]
+          },
+          "directive": {
+            "type": "boolean"
+          },
+          "directive_offer_ids": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/IdentifierArray"
+              },
+              {
+                "maxItems": 32
+              }
+            ]
+          },
+          "host_ceiling": {
+            "$ref": "#/components/schemas/AgencyPolicyState"
+          },
+          "server_policy": {
+            "$ref": "#/components/schemas/AgencyPolicyState"
+          },
+          "actor_policy": {
+            "$ref": "#/components/schemas/AgencyPolicyState"
+          },
+          "effective": {
+            "$ref": "#/components/schemas/AgencyPolicyState"
+          }
+        }
+      },
       "ActorActivityState": {
         "type": "object",
         "required": [
@@ -3028,6 +3314,9 @@
           },
           "created_revision": {
             "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "agency": {
+            "$ref": "#/components/schemas/AgencyDecisionState"
           },
           "action": {
             "$ref": "#/components/schemas/ActionOfferState"
@@ -3140,6 +3429,9 @@
           "enabled": {
             "type": "boolean"
           },
+          "agency": {
+            "$ref": "#/components/schemas/AgencyPolicyState"
+          },
           "memories": {
             "type": "array",
             "maxItems": 128,
@@ -3180,6 +3472,9 @@
           },
           "activity": {
             "$ref": "#/components/schemas/ActorActivityState"
+          },
+          "agency_state": {
+            "$ref": "#/components/schemas/AgencyState"
           }
         }
       },

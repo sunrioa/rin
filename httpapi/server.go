@@ -491,6 +491,15 @@ func (s *Server) setActorActivity(response http.ResponseWriter, request *http.Re
 	s.respond(response, request, result, err)
 }
 
+func (s *Server) setActorAgency(response http.ResponseWriter, request *http.Request) {
+	var input protocol.SetActorAgencyRequest
+	if !s.decode(response, request, &input) {
+		return
+	}
+	result, err := s.engine.SetActorAgency(input)
+	s.respond(response, request, result, err)
+}
+
 func (s *Server) arbitrate(response http.ResponseWriter, request *http.Request) {
 	var input protocol.ArbitrateRequest
 	if !s.decode(response, request, &input) {
