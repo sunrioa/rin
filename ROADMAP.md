@@ -104,6 +104,20 @@
 - [x] 加速一年 File Store 回归，覆盖 1,460 次 Observation、365 次每日动作、
   月度 Snapshot、重启、历史检索、容量统计与 Archive
 
+## 里程碑 0.8 - MCP 外部控制
+
+详细顺序、权限边界和验收标准见
+[MCP 外部控制与 Host Control Plane 实施计划](docs/mcp-control-plane-plan.zh-CN.md)。
+
+- [ ] Host 注册、租约、Actor/Offer Read Model 与持久查询
+- [ ] 独立 `rin-mcp` STDIO 与回环 Streamable HTTP Gateway
+- [ ] 对话、可拒绝 Directive、精确 Offer 执行与 Operation 查询
+- [ ] 配对、Scope、撤销、高风险确认、幂等与重启对账
+- [ ] 一个真实服务端游戏证明 MCP 与游戏内入口共用同一执行服务
+- [ ] 跨语言 Host Control Client、互操作、安全和故障注入验收
+
+该里程碑不允许 MCP 绕过 Host-authored Offer、Epoch、TOCTOU、引擎线程或游戏权限。
+
 ## Preview 发布门禁
 
 发布 Preview Tag 前：

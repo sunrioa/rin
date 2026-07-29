@@ -118,6 +118,22 @@ unchecked item is not a supported feature.
   365 daily actions, monthly snapshots, restart, history retrieval, byte
   accounting, and archive
 
+## Milestone 0.8 - MCP external control
+
+See the
+[MCP external control and Host Control Plane plan](docs/mcp-control-plane-plan.md)
+for ordering, authorization boundaries, and acceptance criteria.
+
+- [ ] Host registration, leases, actor/offer read models, and persistent queries
+- [ ] Separate `rin-mcp` stdio and loopback Streamable HTTP gateway
+- [ ] Conversation, rejectable directives, exact offer execution, and operation queries
+- [ ] Pairing, scopes, revocation, high-risk confirmation, idempotency, and restart reconciliation
+- [ ] One real server game proving MCP and in-game entry points share one execution service
+- [ ] Cross-language Host Control clients, interoperability, security, and fault-injection acceptance
+
+This milestone never permits MCP to bypass host-authored offers, epochs, TOCTOU
+checks, engine threading, or game authorization.
+
 ## Preview release gates
 
 Before publishing a Preview tag:
