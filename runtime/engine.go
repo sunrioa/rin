@@ -648,7 +648,7 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 	if err := ctx.Err(); err != nil {
 		return protocol.ActionProposal{}, false, NewError("proposal_canceled", "proposal request was canceled", err)
 	}
-	selected, proposedGoal, boundaryID, err := validateDraft(requestSnapshot, validationActor, draft)
+	selected, proposedGoal, boundaryID, err := validateDraft(requestSnapshot, validationActor, agencyDecision, draft)
 	if err != nil {
 		return protocol.ActionProposal{}, false, err
 	}
@@ -2529,7 +2529,12 @@ func eventEncodeError(err error, message string) error {
 	return NewError("event_encode_failed", message, err)
 }
 
-func validateDraft(request protocol.ProposeRequest, actor protocol.ActorState, draft DecisionDraft) (protocol.ActionOffer, *protocol.Goal, string, error) {
+func validateDraft(
+	request protocol.ProposeRequest,
+	actor protocol.ActorState,
+	agency *protocol.AgencyDecision,
+	draft DecisionDraft,
+) (protocol.ActionOffer, *protocol.Goal, string, error) {
 	var selected protocol.ActionOffer
 	found := false
 	for _, action := range request.Offers {
@@ -2585,6 +2590,13 @@ func validateDraft(request protocol.ProposeRequest, actor protocol.ActorState, d
 	if !boundaryTriggered {
 		if draft.BoundaryID != "" {
 			return protocol.ActionOffer{}, nil, "", NewFieldError("invalid_policy_output", "policy referenced a boundary that was not triggered", "boundary_id", ErrConflict)
+		}
+		if agency != nil &&
+			agency.Directive &&
+			agency.Effective.Obedience == protocol.ObedienceObey &&
+			len(agency.DirectiveOfferIDs) > 0 &&
+			!contains(agency.DirectiveOfferIDs, selected.OfferID) {
+			return protocol.ActionOffer{}, nil, "", NewFieldError("invalid_policy_output", "policy selected an offer outside the bound directive", "offer_id", ErrConflict)
 		}
 		return selected, proposedGoal, "", nil
 	}

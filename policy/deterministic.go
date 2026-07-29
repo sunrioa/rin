@@ -49,6 +49,26 @@ func (p Deterministic) Propose(ctx context.Context, input rinruntime.DecisionCon
 		if !found {
 			return rinruntime.DecisionDraft{}, rinruntime.ErrNoSafeAction
 		}
+	} else if input.Agency != nil &&
+		input.Agency.Directive &&
+		input.Agency.Effective.Obedience == protocol.ObedienceObey &&
+		len(input.Agency.DirectiveOfferIDs) > 0 {
+		found := false
+		for _, offerID := range input.Agency.DirectiveOfferIDs {
+			for _, action := range input.Request.Offers {
+				if action.OfferID == offerID {
+					selected = action
+					found = true
+					break
+				}
+			}
+			if found {
+				break
+			}
+		}
+		if !found {
+			return rinruntime.DecisionDraft{}, rinruntime.ErrNoSafeAction
+		}
 	} else {
 		selected = selectAction(input, goal, memories)
 	}

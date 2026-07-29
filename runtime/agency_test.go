@@ -319,6 +319,24 @@ func TestAgencyConcurrentTurnsCannotExceedActorBudget(t *testing.T) {
 	}
 }
 
+func TestAgencyObeyRejectsPolicyOutsideDirective(t *testing.T) {
+	selectedPolicy := &agencyCountingPolicy{}
+	engine := newEngine(t, store.NewMemory(), selectedPolicy)
+	create := agencyCreateRequest("session.agency-obey")
+	actorPolicy := agencyPolicy(protocol.InitiativePassive, 0, 2)
+	actorPolicy.Obedience = protocol.ObedienceObey
+	create.Actors[0].Agency = &actorPolicy
+	if _, err := engine.CreateSession(create); err != nil {
+		t.Fatal(err)
+	}
+	request := agencyProposeRequest(create.SessionID, "propose.agency-obey", 1, protocol.TurnResponsive)
+	request.Agency.Directive = true
+	request.Agency.DirectiveOfferIDs = []string{"wait"}
+	if _, _, err := engine.Propose(context.Background(), request); rinruntime.ErrorCode(err) != "invalid_policy_output" {
+		t.Fatalf("policy escaped obey directive: %v", err)
+	}
+}
+
 func agencyCreateRequest(sessionID string) protocol.CreateSessionRequest {
 	request := createRequest(sessionID)
 	request.Features = append(request.Features, protocol.FeatureActorAgency)

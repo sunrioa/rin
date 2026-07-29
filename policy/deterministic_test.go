@@ -124,6 +124,28 @@ func TestDeterministicPolicyProtectsBoundary(t *testing.T) {
 	}
 }
 
+func TestDeterministicPolicyObeysBoundDirectiveOffer(t *testing.T) {
+	input := policyInput()
+	input.Agency = obeyDirective("wait")
+	draft, err := (policy.Deterministic{}).Propose(context.Background(), input)
+	if err != nil || draft.OfferID != "wait" {
+		t.Fatalf("directive was not obeyed: %+v err=%v", draft, err)
+	}
+}
+
+func TestDeterministicPolicyKeepsBoundaryAheadOfDirective(t *testing.T) {
+	input := policyInput()
+	input.Request.Tags = []string{"private"}
+	input.Agency = obeyDirective("talk")
+	draft, err := (policy.Deterministic{}).Propose(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if draft.OfferID != "refuse" || draft.BoundaryID != "boundary.private" {
+		t.Fatalf("directive bypassed actor boundary: %+v", draft)
+	}
+}
+
 func TestDeterministicDraftKeepsOnlyStructuredPrivateAuditEvidence(t *testing.T) {
 	const canary = "PRIVATE_DECISION_CANARY_31B9"
 	input := policyInput()
@@ -186,5 +208,19 @@ func policyOffer(id, capability, description string) protocol.ActionOffer {
 			Version: "1.0.0",
 		},
 		Description: description,
+	}
+}
+
+func obeyDirective(offerIDs ...string) *protocol.AgencyDecision {
+	return &protocol.AgencyDecision{
+		Kind:              protocol.TurnResponsive,
+		Directive:         true,
+		DirectiveOfferIDs: append([]string(nil), offerIDs...),
+		Effective: protocol.AgencyPolicy{
+			Initiative:           protocol.InitiativePassive,
+			Obedience:            protocol.ObedienceObey,
+			MessageCooldownTicks: 1200,
+			MaxConsecutiveTurns:  2,
+		},
 	}
 }

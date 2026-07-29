@@ -72,6 +72,45 @@ func TestModelPolicyUsesIsolatedDataPacket(t *testing.T) {
 	}
 }
 
+func TestModelPolicyUsesTrustedAgencyContract(t *testing.T) {
+	client := &completionClient{response: validModelJSON()}
+	input := modelInput()
+	input.Agency = &protocol.AgencyDecision{
+		Kind:              protocol.TurnResponsive,
+		Directive:         true,
+		DirectiveOfferIDs: []string{"talk"},
+		Effective: protocol.AgencyPolicy{
+			Initiative:           protocol.InitiativePassive,
+			Obedience:            protocol.ObedienceObey,
+			MessageCooldownTicks: 1200,
+			MaxConsecutiveTurns:  2,
+		},
+	}
+	if _, err := (policy.Model{GenerationProvider: client}).Propose(context.Background(), input); err != nil {
+		t.Fatal(err)
+	}
+	client.mu.Lock()
+	request := client.request
+	client.mu.Unlock()
+	var packet map[string]any
+	if err := json.Unmarshal([]byte(request.Messages[1].Content), &packet); err != nil {
+		t.Fatal(err)
+	}
+	contract := packet["contract"].(map[string]any)
+	if _, exists := contract["agency"]; !exists {
+		t.Fatal("trusted contract omitted agency")
+	}
+	untrusted := packet["untrusted_game_data"].(map[string]any)
+	if _, exists := untrusted["agency"]; exists {
+		t.Fatal("agency was exposed as untrusted game data")
+	}
+
+	client.response = strings.Replace(validModelJSON(), `"offer_id":"talk"`, `"offer_id":"wait"`, 1)
+	if _, err := (policy.Model{GenerationProvider: client}).Propose(context.Background(), input); err == nil {
+		t.Fatal("model escaped an obey directive")
+	}
+}
+
 func TestModelPolicyReceivesOnlyActorConflictSets(t *testing.T) {
 	client := &completionClient{response: validModelJSON()}
 	input := modelInput()
