@@ -11,6 +11,7 @@ const (
 	identifierHistoryReportKind      = "action.reported"
 	identifierHistoryBatchReportKind = "action.batch-reported"
 	identifierHistoryActivityKind    = "actor.activity-updated"
+	identifierHistoryAgencyKind      = "actor.agency-updated"
 	identifierHistoryArbitrationKind = "world.arbitrated"
 	identifierHistoryRestoreKind     = "session.restored"
 )
@@ -247,6 +248,7 @@ func validIdentifierRequestKind(kind string) bool {
 		identifierHistoryReportKind,
 		identifierHistoryBatchReportKind,
 		identifierHistoryActivityKind,
+		identifierHistoryAgencyKind,
 		identifierHistoryArbitrationKind,
 		identifierHistoryRestoreKind:
 		return true

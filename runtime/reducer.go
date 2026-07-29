@@ -49,6 +49,11 @@ type activityUpdatedPayload struct {
 	RequestHash string                           `json:"request_hash,omitempty"`
 }
 
+type agencyUpdatedPayload struct {
+	Request     protocol.SetActorAgencyRequest `json:"request"`
+	RequestHash string                         `json:"request_hash,omitempty"`
+}
+
 type arbitratedPayload struct {
 	Record      protocol.ArbitrationRecord `json:"record"`
 	RequestHash string                     `json:"request_hash,omitempty"`
@@ -81,6 +86,8 @@ func applyEvent(state protocol.SessionState, event protocol.EventRecord) (protoc
 		err = applyActionBatchReported(&state, event, payload.(actionBatchReportedPayload))
 	case EventActivityUpdated:
 		err = applyActivityUpdated(&state, event, payload.(activityUpdatedPayload))
+	case EventAgencyUpdated:
+		err = applyAgencyUpdated(&state, event, payload.(agencyUpdatedPayload))
 	case EventArbitrated:
 		applyArbitrated(&state, event, payload.(arbitratedPayload))
 	case EventSessionRestored:
@@ -121,11 +128,15 @@ func applyCreated(
 			seed.Goals[index].ProgressAccumulator = int64(seed.Goals[index].Progress)
 			seed.Goals[index].StatusExplicit = seed.Goals[index].Status != "active"
 		}
-		actors[seed.ID] = protocol.ActorState{
+		actor := protocol.ActorState{
 			ActorSeed:     seed,
 			Beliefs:       make(map[string]protocol.Fact),
 			NextThinkTick: 0,
 		}
+		if protocol.HasFeature(request.Features, protocol.FeatureActorAgency) {
+			actor.AgencyState = &protocol.AgencyState{UpdatedRevision: event.Sequence}
+		}
+		actors[seed.ID] = actor
 	}
 	created := protocol.SessionState{
 		ProtocolVersion: protocol.Version,
@@ -144,7 +155,7 @@ func applyCreated(
 			},
 		},
 	}
-	if protocol.HasFeature(request.Features, protocol.FeatureArbitration) {
+	if worldRevisionEnabled(request.Features) {
 		created.WorldRevision = 1
 	}
 	return created, nil
@@ -414,6 +425,34 @@ func applyActivityUpdated(
 	return advanceWorldRevision(state)
 }
 
+func applyAgencyUpdated(
+	state *protocol.SessionState,
+	event protocol.EventRecord,
+	payload agencyUpdatedPayload,
+) error {
+	for _, update := range payload.Request.Updates {
+		actor, exists := state.Actors[update.ActorID]
+		if !exists || actor.AgencyState == nil {
+			return fmt.Errorf("%w: agency actor is unknown or uninitialized", ErrCorruptLog)
+		}
+		policy := update.Policy
+		agencyState := *actor.AgencyState
+		agencyState.UpdatedTick = payload.Request.Tick
+		agencyState.UpdatedRevision = event.Sequence
+		actor.Agency = &policy
+		actor.AgencyState = &agencyState
+		state.Actors[update.ActorID] = actor
+	}
+	if payload.Request.Tick > state.Tick {
+		state.Tick = payload.Request.Tick
+	}
+	state.Receipts[payload.Request.RequestID] = protocol.RequestReceipt{
+		Kind: EventAgencyUpdated, EntityID: payload.Request.SessionID, Revision: event.Sequence,
+		RequestHash: payload.RequestHash,
+	}
+	return advanceWorldRevision(state)
+}
+
 func applyArbitrated(
 	state *protocol.SessionState,
 	event protocol.EventRecord,
@@ -508,6 +547,11 @@ func rebaseRestoredRevisions(
 			activity.UpdatedRevision = createdRevision
 			actor.Activity = &activity
 		}
+		if actor.AgencyState != nil {
+			agency := *actor.AgencyState
+			agency.UpdatedRevision = createdRevision
+			actor.AgencyState = &agency
+		}
 		state.Actors[actorID] = actor
 	}
 	for proposalID, proposal := range state.Proposals {
@@ -529,7 +573,7 @@ func rebaseProposal(
 	proposal.BasedOnRevision = basedOnRevision
 	proposal.BasedOnHeadHash = basedOnHeadHash
 	proposal.CreatedRevision = createdRevision
-	if protocol.HasFeature(state.Features, protocol.FeatureArbitration) {
+	if worldRevisionEnabled(state.Features) {
 		proposal.BasedOnWorldRevision = state.WorldRevision
 	} else {
 		proposal.BasedOnWorldRevision = 0
@@ -537,7 +581,7 @@ func rebaseProposal(
 }
 
 func advanceWorldRevision(state *protocol.SessionState) error {
-	if !protocol.HasFeature(state.Features, protocol.FeatureArbitration) {
+	if !worldRevisionEnabled(state.Features) {
 		return nil
 	}
 	if state.WorldRevision >= uint64(protocol.MaxJSONSafeInteger) {
@@ -548,7 +592,7 @@ func advanceWorldRevision(state *protocol.SessionState) error {
 }
 
 func advanceRestoredWorldRevision(state *protocol.SessionState) {
-	if !protocol.HasFeature(state.Features, protocol.FeatureArbitration) {
+	if !worldRevisionEnabled(state.Features) {
 		return
 	}
 	// A successfully exported Snapshot remains restorable at the public JSON
@@ -557,6 +601,11 @@ func advanceRestoredWorldRevision(state *protocol.SessionState) {
 	if state.WorldRevision < uint64(protocol.MaxJSONSafeInteger) {
 		state.WorldRevision++
 	}
+}
+
+func worldRevisionEnabled(features []string) bool {
+	return protocol.HasFeature(features, protocol.FeatureArbitration) ||
+		protocol.HasFeature(features, protocol.FeatureActorAgency)
 }
 
 func applyFacts(

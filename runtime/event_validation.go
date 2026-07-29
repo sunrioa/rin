@@ -111,6 +111,19 @@ func decodeAndValidateEventPayload(
 		}
 		return payload, nil
 
+	case EventAgencyUpdated:
+		var payload agencyUpdatedPayload
+		if err := decodeEventPayload(event.Data, &payload); err != nil {
+			return nil, corruptEvent("decode agency payload", err)
+		}
+		if err := protocol.ValidateSetActorAgency(payload.Request); err != nil {
+			return nil, corruptEvent("invalid agency payload", err)
+		}
+		if err := validateMutationEvent(state, event, payload.Request.SessionID, payload.Request.RequestID); err != nil {
+			return nil, err
+		}
+		return payload, nil
+
 	case EventArbitrated:
 		var payload arbitratedPayload
 		if err := decodeEventPayload(event.Data, &payload); err != nil {

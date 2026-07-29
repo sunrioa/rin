@@ -32,11 +32,12 @@ func ValidateSessionState(state SessionState) error {
 		return &ValidationError{Field: "state.revision", Message: "must be greater than zero"}
 	}
 	arbitration := HasFeature(state.Features, FeatureArbitration)
-	if arbitration && state.WorldRevision == 0 {
-		return &ValidationError{Field: "state.world_revision", Message: "must be greater than zero when arbitration is enabled"}
+	worldRevisioned := arbitration || HasFeature(state.Features, FeatureActorAgency)
+	if worldRevisioned && state.WorldRevision == 0 {
+		return &ValidationError{Field: "state.world_revision", Message: "must be greater than zero when world revisions are enabled"}
 	}
-	if !arbitration && state.WorldRevision != 0 {
-		return &ValidationError{Field: "state.world_revision", Message: "must be zero when arbitration is disabled"}
+	if !worldRevisioned && state.WorldRevision != 0 {
+		return &ValidationError{Field: "state.world_revision", Message: "must be zero when world revisions are disabled"}
 	}
 	if !hashPattern.MatchString(state.HeadHash) {
 		return &ValidationError{Field: "state.head_hash", Message: "must be a lowercase SHA-256 hash"}
@@ -694,12 +695,12 @@ func validateProposal(field string, state SessionState, actor ActorState, propos
 			return &ValidationError{Field: field + ".last_report_tick", Message: "must be between proposal tick and session tick"}
 		}
 	}
-	if HasFeature(state.Features, FeatureArbitration) {
+	if HasFeature(state.Features, FeatureArbitration) || HasFeature(state.Features, FeatureActorAgency) {
 		if proposal.BasedOnWorldRevision == 0 || proposal.BasedOnWorldRevision > state.WorldRevision {
 			return &ValidationError{Field: field + ".based_on_world_revision", Message: "must reference an existing world revision"}
 		}
 	} else if proposal.BasedOnWorldRevision != 0 {
-		return &ValidationError{Field: field + ".based_on_world_revision", Message: "must be zero when arbitration is disabled"}
+		return &ValidationError{Field: field + ".based_on_world_revision", Message: "must be zero when world revisions are disabled"}
 	}
 	if err := validateProtocolOffer(field+".action", proposal.Action); err != nil {
 		return err

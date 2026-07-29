@@ -26,6 +26,7 @@ const (
 	EventActionReported      = "action.reported"
 	EventActionBatchReported = "action.batch-reported"
 	EventActivityUpdated     = "actor.activity-updated"
+	EventAgencyUpdated       = "actor.agency-updated"
 	EventArbitrated          = "world.arbitrated"
 	EventSessionRestored     = "session.restored"
 

@@ -110,7 +110,7 @@ func (p invariantPolicy) Propose(ctx context.Context, input DecisionContext) (De
 }
 
 func invariantCreate(sessionID string, features []string, goals []protocol.Goal) protocol.CreateSessionRequest {
-	return protocol.CreateSessionRequest{
+	request := protocol.CreateSessionRequest{
 		ProtocolVersion: protocol.Version,
 		RequestID:       "create." + sessionID,
 		SessionID:       sessionID,
@@ -131,6 +131,16 @@ func invariantCreate(sessionID string, features []string, goals []protocol.Goal)
 			Enabled:         true,
 		}},
 	}
+	if protocol.HasFeature(features, protocol.FeatureActorAgency) {
+		policy := protocol.AgencyPolicy{
+			Initiative:           protocol.InitiativePassive,
+			Obedience:            protocol.ObedienceObey,
+			MessageCooldownTicks: 1200,
+			MaxConsecutiveTurns:  2,
+		}
+		request.Actors[0].Agency = &policy
+	}
+	return request
 }
 
 func invariantEngine(

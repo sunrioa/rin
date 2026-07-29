@@ -233,6 +233,14 @@ func requestIdentityFromEvent(event protocol.EventRecord) (protocol.RequestIdent
 		if err == nil {
 			hash, err = checkedRequestDigest(payload.RequestHash, payload.Request)
 		}
+	case EventAgencyUpdated:
+		var payload agencyUpdatedPayload
+		if err = json.Unmarshal(event.Data, &payload); err == nil {
+			err = requireEventRequestID(event, payload.Request.RequestID)
+		}
+		if err == nil {
+			hash, err = checkedRequestDigest(payload.RequestHash, payload.Request)
+		}
 	case EventArbitrated:
 		var payload arbitratedPayload
 		if err = json.Unmarshal(event.Data, &payload); err == nil {

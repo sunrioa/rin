@@ -1179,6 +1179,71 @@ func (e *Engine) SetActorActivity(request protocol.SetActorActivityRequest) (pro
 	), nil
 }
 
+func (e *Engine) SetActorAgency(request protocol.SetActorAgencyRequest) (protocol.MutationResult, error) {
+	finish, err := e.beginOperation()
+	if err != nil {
+		return protocol.MutationResult{}, err
+	}
+	defer finish()
+	if err := protocol.ValidateSetActorAgency(request); err != nil {
+		return protocol.MutationResult{}, validationError(err)
+	}
+	requestHash, err := requestDigest(request)
+	if err != nil {
+		return protocol.MutationResult{}, NewError("request_encode_failed", "could not identify agency request", err)
+	}
+	session, err := e.mutationSession(request.SessionID)
+	if err != nil {
+		return protocol.MutationResult{}, err
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	identity, handled, duplicate, err := e.resolveMutationRetry(
+		session,
+		request.RequestID,
+		EventAgencyUpdated,
+		requestHash,
+	)
+	if err != nil {
+		return protocol.MutationResult{}, err
+	}
+	if handled {
+		return mutationResultFromIdentity(session.state.SessionID, identity, duplicate), nil
+	}
+	if !protocol.HasFeature(session.state.Features, protocol.FeatureActorAgency) {
+		return protocol.MutationResult{}, NewError("feature_not_enabled", "actor agency requires actor-agency-v1", ErrConflict)
+	}
+	if err := worldRevisionAdvanceError(session.state); err != nil {
+		return protocol.MutationResult{}, err
+	}
+	if request.Tick < session.state.Tick {
+		return protocol.MutationResult{}, NewFieldError("tick_regressed", "agency tick is older than session state", "tick", ErrConflict)
+	}
+	for index, update := range request.Updates {
+		if _, exists := session.state.Actors[update.ActorID]; !exists {
+			return protocol.MutationResult{}, NewFieldError("unknown_actor", "agency update references an unknown actor", fmt.Sprintf("updates[%d].actor_id", index), ErrNotFound)
+		}
+	}
+	event, err := newEvent(
+		session.state,
+		EventAgencyUpdated,
+		request.RequestID,
+		agencyUpdatedPayload{Request: request, RequestHash: requestHash},
+		e.now(),
+	)
+	if err != nil {
+		return protocol.MutationResult{}, eventEncodeError(err, "could not encode actor agency")
+	}
+	if err := e.appendAndApply(session, event); err != nil {
+		return protocol.MutationResult{}, err
+	}
+	identity, err = retainedRequestIdentity(session.identifiers, request.RequestID)
+	if err != nil {
+		return protocol.MutationResult{}, err
+	}
+	return mutationResultFromIdentity(session.state.SessionID, identity, false), nil
+}
+
 func (e *Engine) Arbitrate(request protocol.ArbitrateRequest) (protocol.ArbitrationRecord, bool, error) {
 	finish, err := e.beginOperation()
 	if err != nil {
@@ -2293,7 +2358,7 @@ func validateFactVisibility(state protocol.SessionState, facts []protocol.Fact, 
 }
 
 func worldRevisionAdvanceError(state protocol.SessionState) error {
-	if protocol.HasFeature(state.Features, protocol.FeatureArbitration) &&
+	if worldRevisionEnabled(state.Features) &&
 		state.WorldRevision >= uint64(protocol.MaxJSONSafeInteger) {
 		return NewFieldError(
 			"world_revision_overflow",

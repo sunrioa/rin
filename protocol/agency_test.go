@@ -113,6 +113,7 @@ func TestValidateSetActorAgencyRequiresUniqueBoundedUpdates(t *testing.T) {
 
 func TestSessionStateGatesAgencyStateAndProposal(t *testing.T) {
 	state := invariantTestState(FeatureActorAgency)
+	state.WorldRevision = 1
 	actor := state.Actors["npc.test"]
 	policy := testAgencyPolicy()
 	actor.Agency = &policy

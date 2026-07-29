@@ -369,6 +369,15 @@ func timelineEntry(event protocol.EventRecord) (protocol.TimelineEntry, error) {
 			entry.ActorIDs = append(entry.ActorIDs, update.ActorID)
 		}
 		entry.Status = "updated"
+	case EventAgencyUpdated:
+		var payload agencyUpdatedPayload
+		if err := json.Unmarshal(event.Data, &payload); err != nil {
+			return protocol.TimelineEntry{}, err
+		}
+		for _, update := range payload.Request.Updates {
+			entry.ActorIDs = append(entry.ActorIDs, update.ActorID)
+		}
+		entry.Status = "updated"
 	case EventArbitrated:
 		var payload arbitratedPayload
 		if err := json.Unmarshal(event.Data, &payload); err != nil {
