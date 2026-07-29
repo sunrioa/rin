@@ -20,7 +20,7 @@ Rin 可以作为 Sidecar 运行，也可以作为 Go 包嵌入工具链。它不
 
 ## 快速开始
 
-要求 Go 1.24 或更高版本。启动本地 Sidecar：
+要求 Go 1.25 或更高版本。启动本地 Sidecar：
 
 ```bash
 make test
@@ -40,6 +40,18 @@ go run ./examples/basic
 ```
 
 该示例只演示 Session 创建和 Observe。带有 Proposal Attempt、崩溃恢复和 Outcome Outbox 的完整切片在 [`examples/terminal-story`](examples/terminal-story/README.zh-CN.md)。
+
+构建只读 MCP 2026-07-28 Gateway：
+
+```bash
+go build -o bin/rin-mcp ./cmd/rin-mcp
+export RIN_CONTROL_TOKEN="$(openssl rand -hex 32)"
+export RIN_CONTROL_PRINCIPAL="player.one"
+```
+
+`rin-mcp` 由 MCP Client 通过 STDIO 启动，并在 `127.0.0.1:7375` 接收游戏
+Host 发布的只读状态。当前工具不能修改世界；配置、权限和 Host 端点见
+[MCP 快速接入](docs/mcp-control-plane.zh-CN.md)。
 
 生成 Host 或 Mod 起始项目：
 
@@ -64,6 +76,7 @@ go run ./cmd/rin init host --engine fabric --id guide_npc --name "Guide NPC" --n
 - [文档索引](docs/README.zh-CN.md) / [English](docs/README.md)
 - [Protocol v2](docs/protocol-v2.zh-CN.md)：字段、错误和重试语义
 - [动作生命周期](docs/action-lifecycle.zh-CN.md)：Proposal、执行、Outbox 和恢复
+- [MCP 快速接入](docs/mcp-control-plane.zh-CN.md)：0728 STDIO、Host 发布和权限
 - [部署与监控](docs/operations.zh-CN.md)：Token、TLS、存储和运行限制
 - [发布指南](docs/release-guide.zh-CN.md)与[路线图](ROADMAP.md)
 - [安全说明](SECURITY.md)、[变更日志](CHANGELOG.zh-CN.md)和[第三方许可](THIRD-PARTY-NOTICES.md)
@@ -74,11 +87,14 @@ go run ./cmd/rin init host --engine fabric --id guide_npc --name "Guide NPC" --n
 
 ```text
 cmd/rin/       Sidecar 命令行程序
+cmd/rin-mcp/   MCP 2026-07-28 Gateway
 api/           OpenAPI 3.1 契约
 protocol/      跨语言 v2 数据类型
 runtime/       事件状态机、提案验证、快照和调度
 store/         JSONL 文件存储与内存存储
 httpapi/       HTTP、鉴权和请求大小限制
+controlplane/  Host 租约与主体隔离的控制面
+mcpbridge/     官方 MCP SDK 与控制面的转换
 sdk/           Python、JavaScript、C#、Java、Lua SDK
 adapters/      Ren'Py 客户端与桥接
 tools/         契约投影和验证工具

@@ -20,7 +20,7 @@ Rin can run as a sidecar or be embedded as a Go package. It does not depend on a
 
 ## Quick start
 
-Rin requires Go 1.24 or later. Start a local sidecar:
+Rin requires Go 1.25 or later. Start a local sidecar:
 
 ```bash
 make test
@@ -40,6 +40,19 @@ go run ./examples/basic
 ```
 
 It covers Session creation and Observe only. The complete vertical slice with Proposal Attempt persistence, crash recovery, and an Outcome Outbox is [`examples/terminal-story`](examples/terminal-story/README.md).
+
+Build the read-only MCP 2026-07-28 gateway:
+
+```bash
+go build -o bin/rin-mcp ./cmd/rin-mcp
+export RIN_CONTROL_TOKEN="$(openssl rand -hex 32)"
+export RIN_CONTROL_PRINCIPAL="player.one"
+```
+
+An MCP client launches `rin-mcp` over STDIO. The process accepts read-model
+publications from game hosts on `127.0.0.1:7375`. Its current tools cannot
+mutate a world. See the [MCP quick start](docs/mcp-control-plane.md) for client
+configuration, scopes, and Host endpoints.
 
 Generate a Host or Mod starter project:
 
@@ -64,6 +77,7 @@ See [game adapters](docs/game-adapters.md) for installation, thread boundaries, 
 - [Documentation index](docs/README.md) / [简体中文](docs/README.zh-CN.md)
 - [Protocol v2](docs/protocol-v2.md): fields, errors, and retry semantics
 - [Action lifecycle](docs/action-lifecycle.md): proposals, execution, Outbox, and recovery
+- [MCP quick start](docs/mcp-control-plane.md): 0728 STDIO, Host publication, and authority
 - [Deployment and monitoring](docs/operations.md): tokens, TLS, storage, and runtime limits
 - [Release guide](docs/release-guide.md) and [roadmap](ROADMAP.en.md)
 - [Security](SECURITY.en.md), [changelog](CHANGELOG.md), and [third-party notices](THIRD-PARTY-NOTICES.md)
@@ -74,11 +88,14 @@ See [game adapters](docs/game-adapters.md) for installation, thread boundaries, 
 
 ```text
 cmd/rin/       Sidecar command-line program
+cmd/rin-mcp/   MCP 2026-07-28 gateway
 api/           OpenAPI 3.1 contract
 protocol/      Cross-language v2 types
 runtime/       Event state machine, proposal validation, snapshots, scheduling
 store/         JSONL file store and in-memory store
 httpapi/       HTTP, authentication, and request-size limits
+controlplane/  Host leases and principal-isolated control state
+mcpbridge/     Official MCP SDK to Control Plane bridge
 sdk/           Python, JavaScript, C#, Java, and Lua SDKs
 adapters/      Ren'Py client and bridge
 tools/         Contract projection and verification tools
