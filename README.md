@@ -41,7 +41,7 @@ go run ./examples/basic
 
 该示例只演示 Session 创建和 Observe。带有 Proposal Attempt、崩溃恢复和 Outcome Outbox 的完整切片在 [`examples/terminal-story`](examples/terminal-story/README.zh-CN.md)。
 
-构建只读 MCP 2026-07-28 Gateway：
+构建 MCP 2026-07-28 Gateway：
 
 ```bash
 go build -o bin/rin-mcp ./cmd/rin-mcp
@@ -50,7 +50,8 @@ export RIN_CONTROL_PRINCIPAL="player.one"
 ```
 
 `rin-mcp` 由 MCP Client 通过 STDIO 启动，并在 `127.0.0.1:7375` 接收游戏
-Host 发布的只读状态。当前工具不能修改世界；配置、权限和 Host 端点见
+Host 发布的状态。默认 Scope 只有 `actor.read`；写工具必须显式授权，并且所有
+世界修改仍由游戏 Host 最终校验和执行。配置、权限和 Host 端点见
 [MCP 快速接入](docs/mcp-control-plane.zh-CN.md)。
 
 生成 Host 或 Mod 起始项目：

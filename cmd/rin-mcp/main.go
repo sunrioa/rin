@@ -72,8 +72,8 @@ func run(
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
-		IdleTimeout:       30 * time.Second,
+		WriteTimeout:      35 * time.Second,
+		IdleTimeout:       45 * time.Second,
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -181,10 +181,9 @@ func parseConfiguration(
 	if err := host.ValidatePrincipal(principal); err != nil {
 		return configuration{}, fmt.Errorf("invalid Control Plane principal: %w", err)
 	}
-	if !containsScope(scopes, controlplane.ScopeActorRead) &&
-		!containsScope(scopes, controlplane.ScopeHostAdmin) {
+	if !containsAnyControlScope(scopes) {
 		return configuration{}, errors.New(
-			"RIN_CONTROL_SCOPES requires actor.read or host.admin",
+			"RIN_CONTROL_SCOPES requires at least one Control Plane scope",
 		)
 	}
 	return configuration{
@@ -195,21 +194,13 @@ func parseConfiguration(
 }
 
 func parseScopes(value string) ([]string, error) {
-	allowed := map[string]struct{}{
-		controlplane.ScopeActorRead:       {},
-		controlplane.ScopeActorConverse:   {},
-		controlplane.ScopeActorDirect:     {},
-		controlplane.ScopeActorExecute:    {},
-		controlplane.ScopeOperationCancel: {},
-		controlplane.ScopeHostAdmin:       {},
-	}
 	parts := strings.Split(value, ",")
 	scopes := make([]string, 0, len(parts))
 	seen := make(map[string]struct{}, len(parts))
 	for _, part := range parts {
 		scope := strings.TrimSpace(part)
-		if _, exists := allowed[scope]; !exists {
-			return nil, fmt.Errorf("unsupported Control Plane scope %q", scope)
+		if scope == "" {
+			return nil, errors.New("Control Plane scopes must not be empty")
 		}
 		if _, exists := seen[scope]; exists {
 			return nil, fmt.Errorf("duplicate Control Plane scope %q", scope)
@@ -242,6 +233,22 @@ func validateLoopbackAddress(address string) error {
 func containsScope(scopes []string, expected string) bool {
 	for _, scope := range scopes {
 		if scope == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func containsAnyControlScope(scopes []string) bool {
+	for _, scope := range []string{
+		controlplane.ScopeActorRead,
+		controlplane.ScopeActorConverse,
+		controlplane.ScopeActorDirect,
+		controlplane.ScopeActorExecute,
+		controlplane.ScopeOperationCancel,
+		controlplane.ScopeHostAdmin,
+	} {
+		if containsScope(scopes, scope) {
 			return true
 		}
 	}

@@ -41,7 +41,7 @@ go run ./examples/basic
 
 It covers Session creation and Observe only. The complete vertical slice with Proposal Attempt persistence, crash recovery, and an Outcome Outbox is [`examples/terminal-story`](examples/terminal-story/README.md).
 
-Build the read-only MCP 2026-07-28 gateway:
+Build the MCP 2026-07-28 gateway:
 
 ```bash
 go build -o bin/rin-mcp ./cmd/rin-mcp
@@ -50,9 +50,11 @@ export RIN_CONTROL_PRINCIPAL="player.one"
 ```
 
 An MCP client launches `rin-mcp` over STDIO. The process accepts read-model
-publications from game hosts on `127.0.0.1:7375`. Its current tools cannot
-mutate a world. See the [MCP quick start](docs/mcp-control-plane.md) for client
-configuration, scopes, and Host endpoints.
+publications from game hosts on `127.0.0.1:7375`. The default scope is
+`actor.read`; write tools require explicit grants, and the game Host still
+validates and applies every world mutation. See the
+[MCP quick start](docs/mcp-control-plane.md) for client configuration, scopes,
+and Host endpoints.
 
 Generate a Host or Mod starter project:
 

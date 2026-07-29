@@ -1,6 +1,7 @@
 package mcpbridge
 
 import (
+	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
 )
 
@@ -72,4 +73,40 @@ type Offer struct {
 	ExpectedEpoch    host.Epoch         `json:"expected_epoch"`
 	ObservationSeq   uint64             `json:"observation_seq"`
 	Deadline         host.Timepoint     `json:"deadline"`
+}
+
+type SendActorMessageInput struct {
+	RequestID string `json:"request_id" jsonschema:"stable idempotency identifier chosen by the caller"`
+	HostID    string `json:"host_id" jsonschema:"host identifier returned by list_worlds"`
+	WorldID   string `json:"world_id" jsonschema:"world identifier returned by list_worlds"`
+	ActorID   string `json:"actor_id" jsonschema:"actor identifier returned by list_actors"`
+	Text      string `json:"text" jsonschema:"plain message for the actor"`
+}
+
+type SendActorDirectiveInput struct {
+	RequestID string `json:"request_id" jsonschema:"stable idempotency identifier chosen by the caller"`
+	HostID    string `json:"host_id" jsonschema:"host identifier returned by list_worlds"`
+	WorldID   string `json:"world_id" jsonschema:"world identifier returned by list_worlds"`
+	ActorID   string `json:"actor_id" jsonschema:"actor identifier returned by list_actors"`
+	Text      string `json:"text" jsonschema:"negotiable goal that the actor may refuse"`
+}
+
+type ExecuteActorOfferInput struct {
+	RequestID string `json:"request_id" jsonschema:"stable idempotency identifier chosen by the caller"`
+	HostID    string `json:"host_id" jsonschema:"host identifier returned by list_worlds"`
+	WorldID   string `json:"world_id" jsonschema:"world identifier returned by list_worlds"`
+	ActorID   string `json:"actor_id" jsonschema:"actor identifier returned by list_actors"`
+	OfferID   string `json:"offer_id" jsonschema:"exact identifier returned by list_actor_offers"`
+}
+
+type GetOperationInput struct {
+	OperationID string `json:"operation_id" jsonschema:"operation identifier returned by a write tool"`
+}
+
+type CancelOperationInput struct {
+	OperationID string `json:"operation_id" jsonschema:"operation identifier returned by a write tool"`
+}
+
+type OperationOutput struct {
+	Operation controlplane.OperationView `json:"operation"`
 }

@@ -51,7 +51,7 @@ func TestParseConfigurationRejectsMissingCredentials(t *testing.T) {
 	}
 }
 
-func TestParseConfigurationRejectsRemoteAddressAndUnknownScope(t *testing.T) {
+func TestParseConfigurationRejectsRemoteAddressAndMalformedScope(t *testing.T) {
 	environment := testEnvironment(map[string]string{
 		"RIN_CONTROL_TOKEN":     "0123456789abcdef0123456789abcdef",
 		"RIN_CONTROL_PRINCIPAL": "player.one",
@@ -64,11 +64,29 @@ func TestParseConfigurationRejectsRemoteAddressAndUnknownScope(t *testing.T) {
 		t.Fatal("remote address was accepted")
 	}
 	if _, err := parseConfiguration(
-		[]string{"-scopes", "actor.read,world.arbitrary"},
+		[]string{"-scopes", "actor.read,bad scope"},
 		environment,
 		io.Discard,
 	); err == nil {
-		t.Fatal("unknown scope was accepted")
+		t.Fatal("malformed scope was accepted")
+	}
+}
+
+func TestParseConfigurationAllowsGameSpecificCapabilityScopes(t *testing.T) {
+	config, err := parseConfiguration(
+		[]string{"-scopes", "actor.execute,minecraft.inventory"},
+		testEnvironment(map[string]string{
+			"RIN_CONTROL_TOKEN":     "0123456789abcdef0123456789abcdef",
+			"RIN_CONTROL_PRINCIPAL": "player.one",
+		}),
+		io.Discard,
+	)
+	if err != nil {
+		t.Fatalf("parseConfiguration: %v", err)
+	}
+	if len(config.principal.GrantedScopes) != 2 ||
+		config.principal.GrantedScopes[1] != "minecraft.inventory" {
+		t.Fatalf("scopes = %#v", config.principal.GrantedScopes)
 	}
 }
 

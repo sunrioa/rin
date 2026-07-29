@@ -18,7 +18,7 @@ type Gateway struct {
 	server    *mcp.Server
 }
 
-// New creates a strict MCP 2026-07-28 read gateway.
+// New creates a scope-bounded MCP 2026-07-28 gateway.
 func New(
 	service *controlplane.Service,
 	principal host.Principal,
@@ -29,9 +29,8 @@ func New(
 	if err := host.ValidatePrincipal(principal); err != nil {
 		return nil, errorsInvalid("principal: " + err.Error())
 	}
-	if !scopeGranted(principal, controlplane.ScopeActorRead) &&
-		!scopeGranted(principal, controlplane.ScopeHostAdmin) {
-		return nil, errorsInvalid("principal requires actor.read or host.admin")
+	if !hasControlScope(principal) {
+		return nil, errorsInvalid("principal has no Control Plane scope")
 	}
 	gateway := &Gateway{
 		service:   service,
@@ -40,11 +39,26 @@ func New(
 	gateway.server = mcp.NewServer(
 		&mcp.Implementation{Name: "rin", Version: "0.7.0"},
 		&mcp.ServerOptions{
-			Instructions: "Inspect only host-published actor state and currently bound action offers.",
+			Instructions: "Inspect Host-published state and submit only the bounded operations allowed by the configured principal scopes.",
 			Capabilities: &mcp.ServerCapabilities{},
 		},
 	)
-	gateway.addReadTools()
+	if gateway.granted(controlplane.ScopeActorRead) {
+		gateway.addReadTools()
+	}
+	gateway.addOperationTools()
+	if gateway.granted(controlplane.ScopeActorConverse) {
+		gateway.addMessageTool()
+	}
+	if gateway.granted(controlplane.ScopeActorDirect) {
+		gateway.addDirectiveTool()
+	}
+	if gateway.granted(controlplane.ScopeActorExecute) {
+		gateway.addExecuteOfferTool()
+	}
+	if gateway.granted(controlplane.ScopeOperationCancel) {
+		gateway.addCancelTool()
+	}
 	return gateway, nil
 }
 
@@ -83,6 +97,46 @@ func (gateway *Gateway) addReadTools() {
 		Description: "List exact unexpired action offers currently published for an actor.",
 		Annotations: annotations,
 	}, gateway.listActorOffers)
+}
+
+func (gateway *Gateway) addOperationTools() {
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name:        "get_operation",
+		Description: "Read the current state and authoritative Host outcome of one submitted operation.",
+		Annotations: readAnnotations(),
+	}, gateway.getOperation)
+}
+
+func (gateway *Gateway) addMessageTool() {
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name:        "send_actor_message",
+		Description: "Send plain conversation to an actor without directly authorizing a world mutation.",
+		Annotations: writeAnnotations(false),
+	}, gateway.sendActorMessage)
+}
+
+func (gateway *Gateway) addDirectiveTool() {
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name:        "send_actor_directive",
+		Description: "Submit a negotiable goal that the actor and game Host may refuse.",
+		Annotations: writeAnnotations(true),
+	}, gateway.sendActorDirective)
+}
+
+func (gateway *Gateway) addExecuteOfferTool() {
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name:        "execute_actor_offer",
+		Description: "Select one exact currently published offer without supplying new action arguments.",
+		Annotations: writeAnnotations(true),
+	}, gateway.executeActorOffer)
+}
+
+func (gateway *Gateway) addCancelTool() {
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name:        "cancel_operation",
+		Description: "Request cancellation of one operation; cancellation does not imply rollback.",
+		Annotations: writeAnnotations(false),
+	}, gateway.cancelOperation)
 }
 
 func (gateway *Gateway) listWorlds(
@@ -181,6 +235,84 @@ func (gateway *Gateway) listActorOffers(
 	return nil, output, nil
 }
 
+func (gateway *Gateway) sendActorMessage(
+	_ context.Context,
+	_ *mcp.CallToolRequest,
+	input SendActorMessageInput,
+) (*mcp.CallToolResult, OperationOutput, error) {
+	operation, err := gateway.service.SendActorMessage(
+		gateway.principal,
+		controlplane.ActorTextInput{
+			RequestID: input.RequestID,
+			HostID:    input.HostID,
+			WorldID:   input.WorldID,
+			ActorID:   input.ActorID,
+			Text:      input.Text,
+		},
+	)
+	return nil, OperationOutput{Operation: operation}, err
+}
+
+func (gateway *Gateway) sendActorDirective(
+	_ context.Context,
+	_ *mcp.CallToolRequest,
+	input SendActorDirectiveInput,
+) (*mcp.CallToolResult, OperationOutput, error) {
+	operation, err := gateway.service.SendActorDirective(
+		gateway.principal,
+		controlplane.ActorTextInput{
+			RequestID: input.RequestID,
+			HostID:    input.HostID,
+			WorldID:   input.WorldID,
+			ActorID:   input.ActorID,
+			Text:      input.Text,
+		},
+	)
+	return nil, OperationOutput{Operation: operation}, err
+}
+
+func (gateway *Gateway) executeActorOffer(
+	_ context.Context,
+	_ *mcp.CallToolRequest,
+	input ExecuteActorOfferInput,
+) (*mcp.CallToolResult, OperationOutput, error) {
+	operation, err := gateway.service.ExecuteActorOffer(
+		gateway.principal,
+		controlplane.ExecuteOfferInput{
+			RequestID: input.RequestID,
+			HostID:    input.HostID,
+			WorldID:   input.WorldID,
+			ActorID:   input.ActorID,
+			OfferID:   input.OfferID,
+		},
+	)
+	return nil, OperationOutput{Operation: operation}, err
+}
+
+func (gateway *Gateway) getOperation(
+	_ context.Context,
+	_ *mcp.CallToolRequest,
+	input GetOperationInput,
+) (*mcp.CallToolResult, OperationOutput, error) {
+	operation, err := gateway.service.GetOperation(
+		gateway.principal,
+		input.OperationID,
+	)
+	return nil, OperationOutput{Operation: operation}, err
+}
+
+func (gateway *Gateway) cancelOperation(
+	_ context.Context,
+	_ *mcp.CallToolRequest,
+	input CancelOperationInput,
+) (*mcp.CallToolResult, OperationOutput, error) {
+	operation, err := gateway.service.CancelOperation(
+		gateway.principal,
+		input.OperationID,
+	)
+	return nil, OperationOutput{Operation: operation}, err
+}
+
 func convertActor(view controlplane.ActorView) (Actor, error) {
 	state, err := decodeObject(view.State)
 	if err != nil {
@@ -221,6 +353,46 @@ func scopeGranted(principal host.Principal, scope string) bool {
 		}
 	}
 	return false
+}
+
+func (gateway *Gateway) granted(scope string) bool {
+	return scopeGranted(gateway.principal, scope) ||
+		scopeGranted(gateway.principal, controlplane.ScopeHostAdmin)
+}
+
+func hasControlScope(principal host.Principal) bool {
+	for _, scope := range []string{
+		controlplane.ScopeActorRead,
+		controlplane.ScopeActorConverse,
+		controlplane.ScopeActorDirect,
+		controlplane.ScopeActorExecute,
+		controlplane.ScopeOperationCancel,
+		controlplane.ScopeHostAdmin,
+	} {
+		if scopeGranted(principal, scope) {
+			return true
+		}
+	}
+	return false
+}
+
+func readAnnotations() *mcp.ToolAnnotations {
+	closedWorld := false
+	return &mcp.ToolAnnotations{
+		ReadOnlyHint:   true,
+		IdempotentHint: true,
+		OpenWorldHint:  &closedWorld,
+	}
+}
+
+func writeAnnotations(destructive bool) *mcp.ToolAnnotations {
+	closedWorld := false
+	return &mcp.ToolAnnotations{
+		DestructiveHint: &destructive,
+		IdempotentHint:  true,
+		OpenWorldHint:   &closedWorld,
+		ReadOnlyHint:    false,
+	}
 }
 
 func errorsInvalid(message string) error {

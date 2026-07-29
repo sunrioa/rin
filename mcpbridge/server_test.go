@@ -54,6 +54,7 @@ func TestGatewayNegotiatesCurrentProtocolAndReadsPublishedState(t *testing.T) {
 	slices.Sort(names)
 	expectedNames := []string{
 		"get_actor_state",
+		"get_operation",
 		"list_actor_offers",
 		"list_actors",
 		"list_worlds",
@@ -115,6 +116,116 @@ func TestGatewayDoesNotRevealAnotherPrincipalsWorlds(t *testing.T) {
 	callTool(t, session, "list_worlds", map[string]any{}, &worlds)
 	if len(worlds.Worlds) != 0 {
 		t.Fatalf("visible worlds = %#v", worlds.Worlds)
+	}
+}
+
+func TestGatewayRegistersScopedWriteToolsAndQueuesOperations(t *testing.T) {
+	service := publishedService(t)
+	principal := host.Principal{
+		ID: "player.one",
+		GrantedScopes: []string{
+			controlplane.ScopeActorRead,
+			controlplane.ScopeActorConverse,
+			controlplane.ScopeActorDirect,
+			controlplane.ScopeActorExecute,
+			controlplane.ScopeOperationCancel,
+		},
+	}
+	session := connectClient(t, service, principal)
+	tools, err := session.ListTools(testContext(t), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	names := make([]string, len(tools.Tools))
+	for index, tool := range tools.Tools {
+		names[index] = tool.Name
+	}
+	slices.Sort(names)
+	expected := []string{
+		"cancel_operation",
+		"execute_actor_offer",
+		"get_actor_state",
+		"get_operation",
+		"list_actor_offers",
+		"list_actors",
+		"list_worlds",
+		"send_actor_directive",
+		"send_actor_message",
+	}
+	if !slices.Equal(names, expected) {
+		t.Fatalf("scoped tool names = %#v", names)
+	}
+
+	messageInput := map[string]any{
+		"request_id": "request.mcp.message",
+		"host_id":    "test.host",
+		"world_id":   "world.one",
+		"actor_id":   "actor.one",
+		"text":       "Can you hear me?",
+	}
+	var message OperationOutput
+	callTool(t, session, "send_actor_message", messageInput, &message)
+	if message.Operation.Status != controlplane.OperationQueued ||
+		message.Operation.Kind != controlplane.ControlMessage {
+		t.Fatalf("message operation = %#v", message.Operation)
+	}
+	var retry OperationOutput
+	callTool(t, session, "send_actor_message", messageInput, &retry)
+	if retry.Operation.OperationID != message.Operation.OperationID {
+		t.Fatalf("message retry = %#v", retry.Operation)
+	}
+
+	var directive OperationOutput
+	callTool(t, session, "send_actor_directive", map[string]any{
+		"request_id": "request.mcp.directive",
+		"host_id":    "test.host",
+		"world_id":   "world.one",
+		"actor_id":   "actor.one",
+		"text":       "Wait near the entrance.",
+	}, &directive)
+	if directive.Operation.Kind != controlplane.ControlDirective {
+		t.Fatalf("directive operation = %#v", directive.Operation)
+	}
+
+	var offered OperationOutput
+	callTool(t, session, "execute_actor_offer", map[string]any{
+		"request_id": "request.mcp.offer",
+		"host_id":    "test.host",
+		"world_id":   "world.one",
+		"actor_id":   "actor.one",
+		"offer_id":   "offer.follow",
+	}, &offered)
+	if offered.Operation.Kind != controlplane.ControlOffer {
+		t.Fatalf("offer operation = %#v", offered.Operation)
+	}
+
+	var fetched OperationOutput
+	callTool(t, session, "get_operation", map[string]any{
+		"operation_id": message.Operation.OperationID,
+	}, &fetched)
+	if fetched.Operation.OperationID != message.Operation.OperationID {
+		t.Fatalf("get_operation = %#v", fetched.Operation)
+	}
+
+	var cancelled OperationOutput
+	callTool(t, session, "cancel_operation", map[string]any{
+		"operation_id": directive.Operation.OperationID,
+	}, &cancelled)
+	if cancelled.Operation.Status != controlplane.OperationCancelled {
+		t.Fatalf("cancel_operation = %#v", cancelled.Operation)
+	}
+
+	changed := mapsClone(messageInput)
+	changed["text"] = "Different retry payload."
+	result, err := session.CallTool(testContext(t), &mcp.CallToolParams{
+		Name:      "send_actor_message",
+		Arguments: changed,
+	})
+	if err != nil {
+		t.Fatalf("changed retry CallTool: %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("changed retry result = %#v", result)
 	}
 }
 
@@ -186,9 +297,13 @@ func callTool(
 
 func publishedService(t *testing.T) *controlplane.Service {
 	t.Helper()
+	random := make([]byte, 4_096)
+	for index := range random {
+		random[index] = byte(index)
+	}
 	service := controlplane.New(controlplane.Options{
 		Now:    func() time.Time { return time.UnixMilli(1_000_000) },
-		Random: bytes.NewReader(bytes.Repeat([]byte{7}, 64)),
+		Random: bytes.NewReader(random),
 	})
 	manifest := host.HostManifest{
 		ContractVersion:     host.ContractVersion,
@@ -273,4 +388,12 @@ func testContext(t *testing.T) context.Context {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	t.Cleanup(cancel)
 	return ctx
+}
+
+func mapsClone(value map[string]any) map[string]any {
+	cloned := make(map[string]any, len(value))
+	for key, item := range value {
+		cloned[key] = item
+	}
+	return cloned
 }

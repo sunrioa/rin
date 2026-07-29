@@ -16,8 +16,10 @@ import (
 
 // Options contains deterministic seams used by tests and embedders.
 type Options struct {
-	Now    func() time.Time
-	Random io.Reader
+	Now           func() time.Time
+	Random        io.Reader
+	MaxOperations int
+	OperationTTL  time.Duration
 }
 
 // Service owns host leases and principal-filtered read models.
@@ -26,6 +28,12 @@ type Service struct {
 	now    func() time.Time
 	random io.Reader
 	hosts  map[string]*hostState
+
+	maxOperations int
+	operationTTL  time.Duration
+	operations    map[string]*operationState
+	requests      map[string]string
+	changed       chan struct{}
 }
 
 type hostState struct {
@@ -44,10 +52,26 @@ func New(options Options) *Service {
 	if random == nil {
 		random = rand.Reader
 	}
+	maxOperations := options.MaxOperations
+	if maxOperations <= 0 {
+		maxOperations = defaultMaxOperations
+	}
+	if maxOperations > hardMaxOperations {
+		maxOperations = hardMaxOperations
+	}
+	operationTTL := options.OperationTTL
+	if operationTTL <= 0 {
+		operationTTL = defaultOperationTTL
+	}
 	return &Service{
-		now:    now,
-		random: random,
-		hosts:  make(map[string]*hostState),
+		now:           now,
+		random:        random,
+		hosts:         make(map[string]*hostState),
+		maxOperations: maxOperations,
+		operationTTL:  operationTTL,
+		operations:    make(map[string]*operationState),
+		requests:      make(map[string]string),
+		changed:       make(chan struct{}),
 	}
 }
 
@@ -77,6 +101,7 @@ func (service *Service) RegisterHost(request HostRegistration) (HostLease, error
 				now + int64(request.LeaseTTLMillis)
 			return current.lease, nil
 		}
+		service.expireHostOperationsLocked(request.HostID, now)
 	}
 
 	leaseID, err := service.newID("lease")
@@ -119,6 +144,10 @@ func (service *Service) UnregisterHost(hostID, leaseID string) error {
 		return err
 	}
 	current.lease.ExpiresAtUnixMillis = service.now().UnixMilli()
+	service.expireHostOperationsLocked(
+		hostID,
+		current.lease.ExpiresAtUnixMillis,
+	)
 	return nil
 }
 

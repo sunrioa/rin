@@ -91,6 +91,118 @@ func TestHTTPHandlerRequiresTokenAndStrictJSON(t *testing.T) {
 	}
 }
 
+func TestHTTPHandlerDeliversAndRecordsOperationLifecycle(t *testing.T) {
+	service := New(Options{
+		Now:    func() time.Time { return time.UnixMilli(1_000_000) },
+		Random: bytes.NewReader(sequenceBytes(256)),
+	})
+	handler, err := NewHTTPHandler(service, HTTPOptions{Token: testControlToken})
+	if err != nil {
+		t.Fatalf("NewHTTPHandler: %v", err)
+	}
+
+	lease := HostLease{}
+	response := requestJSON(
+		t,
+		handler,
+		"/control/v1/register",
+		registration("instance.operation.http"),
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("register status = %d, body = %s", response.Code, response.Body)
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &lease); err != nil {
+		t.Fatalf("decode lease: %v", err)
+	}
+	response = requestJSON(t, handler, "/control/v1/publish", publishRequest{
+		HostID:      "test.host",
+		LeaseID:     lease.LeaseID,
+		Publication: worldPublication(1, "ready"),
+	})
+	if response.Code != http.StatusOK {
+		t.Fatalf("publish status = %d, body = %s", response.Code, response.Body)
+	}
+
+	principal := operationPrincipal(ScopeActorConverse)
+	operation, err := service.SendActorMessage(principal, ActorTextInput{
+		RequestID: "request.http.message",
+		HostID:    "test.host",
+		WorldID:   "world.one",
+		ActorID:   "actor.one",
+		Text:      "Hello over Host Control.",
+	})
+	if err != nil {
+		t.Fatalf("SendActorMessage: %v", err)
+	}
+	response = requestJSON(t, handler, "/control/v1/poll", pollRequest{
+		HostID:     "test.host",
+		LeaseID:    lease.LeaseID,
+		Limit:      8,
+		WaitMillis: 0,
+	})
+	if response.Code != http.StatusOK {
+		t.Fatalf("poll status = %d, body = %s", response.Code, response.Body)
+	}
+	var batch HostControlBatch
+	if err := json.Unmarshal(response.Body.Bytes(), &batch); err != nil {
+		t.Fatalf("decode poll: %v", err)
+	}
+	if len(batch.Requests) != 1 ||
+		batch.Requests[0].Request.OperationID != operation.OperationID {
+		t.Fatalf("poll batch = %#v", batch)
+	}
+
+	response = requestJSON(
+		t,
+		handler,
+		"/control/v1/ack",
+		acknowledgementRequest{
+			HostID:  "test.host",
+			LeaseID: lease.LeaseID,
+			Acknowledgement: HostAcknowledgement{
+				OperationID: operation.OperationID,
+				Accepted:    true,
+			},
+		},
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("ack status = %d, body = %s", response.Code, response.Body)
+	}
+	response = requestJSON(t, handler, "/control/v1/run", runRequest{
+		HostID:  "test.host",
+		LeaseID: lease.LeaseID,
+		Run: host.ActionRun{
+			OperationID: operation.OperationID,
+			Status:      host.ActionRunning,
+			ProgressSeq: 1,
+			Progress:    50,
+			UpdatedAt:   host.Timepoint{Clock: host.ClockStep, Value: 2},
+		},
+	})
+	if response.Code != http.StatusOK {
+		t.Fatalf("run status = %d, body = %s", response.Code, response.Body)
+	}
+	response = requestJSON(t, handler, "/control/v1/outcome", outcomeRequest{
+		HostID:  "test.host",
+		LeaseID: lease.LeaseID,
+		Outcome: host.ActionOutcome{
+			OperationID: operation.OperationID,
+			Status:      host.ActionSucceeded,
+			Summary:     "The actor replied.",
+			Epoch:       testEpoch(),
+			WorldSeq:    2,
+			OccurredAt:  host.Timepoint{Clock: host.ClockStep, Value: 3},
+		},
+	})
+	if response.Code != http.StatusOK {
+		t.Fatalf("outcome status = %d, body = %s", response.Code, response.Body)
+	}
+	view, err := service.GetOperation(principal, operation.OperationID)
+	if err != nil || view.Status != OperationSucceeded {
+		t.Fatalf("GetOperation = %#v, %v", view, err)
+	}
+}
+
 func requestJSON(
 	t *testing.T,
 	handler http.Handler,
@@ -115,4 +227,12 @@ func readPrincipal() host.Principal {
 		ID:            "player.one",
 		GrantedScopes: []string{ScopeActorRead},
 	}
+}
+
+func sequenceBytes(size int) []byte {
+	value := make([]byte, size)
+	for index := range value {
+		value[index] = byte(index)
+	}
+	return value
 }

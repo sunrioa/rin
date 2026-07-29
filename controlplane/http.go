@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"bytes"
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -10,7 +11,9 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/internal/jsonwire"
 )
 
@@ -38,6 +41,31 @@ type publishRequest struct {
 	HostID      string           `json:"host_id"`
 	LeaseID     string           `json:"lease_id"`
 	Publication WorldPublication `json:"publication"`
+}
+
+type pollRequest struct {
+	HostID     string `json:"host_id"`
+	LeaseID    string `json:"lease_id"`
+	Limit      int    `json:"limit"`
+	WaitMillis uint32 `json:"wait_millis"`
+}
+
+type acknowledgementRequest struct {
+	HostID          string              `json:"host_id"`
+	LeaseID         string              `json:"lease_id"`
+	Acknowledgement HostAcknowledgement `json:"acknowledgement"`
+}
+
+type runRequest struct {
+	HostID  string         `json:"host_id"`
+	LeaseID string         `json:"lease_id"`
+	Run     host.ActionRun `json:"run"`
+}
+
+type outcomeRequest struct {
+	HostID  string             `json:"host_id"`
+	LeaseID string             `json:"lease_id"`
+	Outcome host.ActionOutcome `json:"outcome"`
 }
 
 type errorResponse struct {
@@ -70,6 +98,10 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 	mux.HandleFunc("POST /control/v1/renew", server.renew)
 	mux.HandleFunc("POST /control/v1/unregister", server.unregister)
 	mux.HandleFunc("POST /control/v1/publish", server.publish)
+	mux.HandleFunc("POST /control/v1/poll", server.poll)
+	mux.HandleFunc("POST /control/v1/ack", server.acknowledge)
+	mux.HandleFunc("POST /control/v1/run", server.reportRun)
+	mux.HandleFunc("POST /control/v1/outcome", server.reportOutcome)
 	server.handler = server.secure(mux)
 	return server, nil
 }
@@ -180,6 +212,111 @@ func (server *hostHTTPHandler) publish(
 	writeJSON(response, http.StatusOK, map[string]string{"status": "published"})
 }
 
+func (server *hostHTTPHandler) poll(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input pollRequest
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	if input.WaitMillis > 25_000 {
+		writeHTTPError(
+			response,
+			http.StatusBadRequest,
+			"wait_millis must not exceed 25000",
+		)
+		return
+	}
+	ctx, cancel := context.WithTimeout(
+		request.Context(),
+		time.Duration(input.WaitMillis)*time.Millisecond,
+	)
+	defer cancel()
+	batch, err := server.service.PollHost(
+		ctx,
+		input.HostID,
+		input.LeaseID,
+		input.Limit,
+	)
+	if errors.Is(err, context.DeadlineExceeded) {
+		writeJSON(response, http.StatusOK, HostControlBatch{
+			Requests:      []HostControlDelivery{},
+			Cancellations: []string{},
+		})
+		return
+	}
+	if errors.Is(err, context.Canceled) {
+		return
+	}
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, batch)
+}
+
+func (server *hostHTTPHandler) acknowledge(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input acknowledgementRequest
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := server.service.AcknowledgeHost(
+		input.HostID,
+		input.LeaseID,
+		input.Acknowledgement,
+	); err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]string{"status": "acknowledged"})
+}
+
+func (server *hostHTTPHandler) reportRun(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input runRequest
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := server.service.ReportHostRun(
+		input.HostID,
+		input.LeaseID,
+		input.Run,
+	); err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]string{"status": "recorded"})
+}
+
+func (server *hostHTTPHandler) reportOutcome(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input outcomeRequest
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := server.service.ReportHostOutcome(
+		input.HostID,
+		input.LeaseID,
+		input.Outcome,
+	); err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]string{"status": "recorded"})
+}
+
 func (server *hostHTTPHandler) decode(
 	response http.ResponseWriter,
 	request *http.Request,
@@ -221,6 +358,10 @@ func writeServiceError(response http.ResponseWriter, err error) {
 		writeHTTPError(response, http.StatusGone, err.Error())
 	case errors.Is(err, ErrLeaseConflict), errors.Is(err, ErrStale):
 		writeHTTPError(response, http.StatusConflict, err.Error())
+	case errors.Is(err, ErrConflict):
+		writeHTTPError(response, http.StatusConflict, err.Error())
+	case errors.Is(err, ErrCapacity):
+		writeHTTPError(response, http.StatusTooManyRequests, err.Error())
 	default:
 		writeHTTPError(response, http.StatusInternalServerError, "internal error")
 	}
