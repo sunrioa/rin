@@ -129,26 +129,29 @@ tool for every gameplay capability:
 
 | Tool | Minimum scope | Meaning |
 | --- | --- | --- |
-| `list_worlds` | `actor:read` | List visible online worlds |
-| `list_actors` | `actor:read` | List visible actors in a world |
-| `get_actor_state` | `actor:read` | Read a redacted snapshot and active operations |
-| `list_actor_offers` | `actor:read` | Read current unexpired offers |
-| `send_actor_message` | `actor:converse` | Converse without direct world effects |
-| `send_actor_directive` | `actor:direct` | Submit a rejectable or negotiable objective |
-| `execute_actor_offer` | `actor:execute` | Select an exact current `offer_id` |
+| `list_worlds` | `actor.read` | List visible online worlds |
+| `list_actors` | `actor.read` | List visible actors in a world |
+| `get_actor_state` | `actor.read` | Read a redacted snapshot and active operations |
+| `list_actor_offers` | `actor.read` | Read current unexpired offers |
+| `send_actor_message` | `actor.converse` | Converse without direct world effects |
+| `send_actor_directive` | `actor.direct` | Submit a rejectable or negotiable objective |
+| `execute_actor_offer` | `actor.execute` | Select an exact current `offer_id` |
 | `get_operation` | matching action scope | Read status and structured result |
 | `cancel_operation` | matching action scope | Request cancellation |
 
 `send_actor_directive` is the default write surface. `execute_actor_offer` is a
 stronger permission, but accepts only an exact, currently published bound offer.
 
-Implement stdio first, then loopback-only Streamable HTTP. HTTP validates
-`Origin`, requires a random bearer token, and limits body size, concurrency, and
-idle duration. The official Go MCP SDK stays in `mcpbridge` and `cmd/rin-mcp`;
-Rin Core and `host` do not import it.
+The MCP wire supports only `2026-07-28` and does not negotiate down to an older
+protocol. Pin the official Go MCP SDK `v1.7.0-pre.3` until a stable release with
+0728 support passes regression. Both stdio and Streamable HTTP use
+`server/discover` and standard per-request `_meta`; HTTP uses the 0728 stateless
+mode, binds only to loopback, validates `Origin`, requires a random bearer
+token, and limits body size, concurrency, and idle duration. The MCP SDK stays
+in `mcpbridge` and `cmd/rin-mcp`; Rin Core and `host` do not import it.
 
-Recommended scopes are `actor:read`, `actor:converse`, `actor:direct`,
-`actor:execute`, `operation:cancel`, and `host:admin`. Pairing binds a client to
+Recommended scopes are `actor.read`, `actor.converse`, `actor.direct`,
+`actor.execute`, `operation.cancel`, and `host.admin`. Pairing binds a client to
 allowed hosts, worlds, actors, scopes, and expiry. High-risk offers may require
 in-game confirmation bound to operation and epoch. Audit stores opaque IDs,
 tool, scope, state, time, and latency, not prompts, secrets, full dialogue, or

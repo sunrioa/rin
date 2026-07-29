@@ -1,0 +1,383 @@
+package controlplane
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"reflect"
+	"slices"
+	"sync"
+	"time"
+
+	"github.com/sunrioa/rin/host"
+)
+
+// Options contains deterministic seams used by tests and embedders.
+type Options struct {
+	Now    func() time.Time
+	Random io.Reader
+}
+
+// Service owns host leases and principal-filtered read models.
+type Service struct {
+	mu     sync.RWMutex
+	now    func() time.Time
+	random io.Reader
+	hosts  map[string]*hostState
+}
+
+type hostState struct {
+	registration HostRegistration
+	lease        HostLease
+	worlds       map[string]WorldPublication
+}
+
+// New creates an in-memory Control Plane service.
+func New(options Options) *Service {
+	now := options.Now
+	if now == nil {
+		now = time.Now
+	}
+	random := options.Random
+	if random == nil {
+		random = rand.Reader
+	}
+	return &Service{
+		now:    now,
+		random: random,
+		hosts:  make(map[string]*hostState),
+	}
+}
+
+// RegisterHost acquires a host publication lease. Re-registering the same live
+// instance is idempotent and renews its existing lease.
+func (service *Service) RegisterHost(request HostRegistration) (HostLease, error) {
+	if err := validateRegistration(request); err != nil {
+		return HostLease{}, err
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+
+	now := service.now().UnixMilli()
+	if current, exists := service.hosts[request.HostID]; exists {
+		live := current.lease.ExpiresAtUnixMillis > now
+		if live && current.registration.InstanceID != request.InstanceID {
+			return HostLease{}, fmt.Errorf("%w: host %s is already live",
+				ErrLeaseConflict, request.HostID)
+		}
+		if live {
+			if !reflect.DeepEqual(current.registration.Manifest, request.Manifest) {
+				return HostLease{}, fmt.Errorf("%w: live host manifest changed",
+					ErrLeaseConflict)
+			}
+			current.registration.LeaseTTLMillis = request.LeaseTTLMillis
+			current.lease.ExpiresAtUnixMillis =
+				now + int64(request.LeaseTTLMillis)
+			return current.lease, nil
+		}
+	}
+
+	leaseID, err := service.newID("lease")
+	if err != nil {
+		return HostLease{}, err
+	}
+	lease := HostLease{
+		HostID:              request.HostID,
+		InstanceID:          request.InstanceID,
+		LeaseID:             leaseID,
+		ExpiresAtUnixMillis: now + int64(request.LeaseTTLMillis),
+	}
+	service.hosts[request.HostID] = &hostState{
+		registration: cloneRegistration(request),
+		lease:        lease,
+		worlds:       make(map[string]WorldPublication),
+	}
+	return lease, nil
+}
+
+// RenewHost extends a current lease by its registered duration.
+func (service *Service) RenewHost(hostID, leaseID string) (HostLease, error) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	current, err := service.requireLeaseLocked(hostID, leaseID)
+	if err != nil {
+		return HostLease{}, err
+	}
+	current.lease.ExpiresAtUnixMillis = service.now().UnixMilli() +
+		int64(current.registration.LeaseTTLMillis)
+	return current.lease, nil
+}
+
+// UnregisterHost releases a current lease while retaining an offline read model.
+func (service *Service) UnregisterHost(hostID, leaseID string) error {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	current, err := service.requireLeaseLocked(hostID, leaseID)
+	if err != nil {
+		return err
+	}
+	current.lease.ExpiresAtUnixMillis = service.now().UnixMilli()
+	return nil
+}
+
+// PublishWorld atomically replaces one world's actor and offer read model.
+func (service *Service) PublishWorld(
+	hostID, leaseID string,
+	publication WorldPublication,
+) error {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	current, err := service.requireLeaseLocked(hostID, leaseID)
+	if err != nil {
+		return err
+	}
+	if err := validatePublication(publication, current.registration.Manifest); err != nil {
+		return err
+	}
+	if existing, exists := current.worlds[publication.WorldID]; exists {
+		if publication.Sequence < existing.Sequence {
+			return fmt.Errorf("%w: publication sequence moved backwards", ErrStale)
+		}
+		if publication.Sequence == existing.Sequence {
+			if reflect.DeepEqual(existing, publication) {
+				return nil
+			}
+			return fmt.Errorf("%w: publication changed without a new sequence", ErrStale)
+		}
+	} else if len(current.worlds) >= maxWorldsPerHost {
+		return invalid("world_id", "host already contains 64 worlds")
+	}
+	current.worlds[publication.WorldID] = clonePublication(publication)
+	return nil
+}
+
+// ListWorlds returns deterministic principal-visible world views, including
+// retained offline worlds.
+func (service *Service) ListWorlds(principal host.Principal) ([]WorldView, error) {
+	if err := host.ValidatePrincipal(principal); err != nil {
+		return nil, fmt.Errorf("%w: principal: %v", ErrInvalid, err)
+	}
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	now := service.now().UnixMilli()
+	result := make([]WorldView, 0)
+	for hostID, current := range service.hosts {
+		online := current.lease.ExpiresAtUnixMillis > now
+		for _, world := range current.worlds {
+			if !hasScope(principal, ScopeHostAdmin) &&
+				!publicationVisible(principal, world) {
+				continue
+			}
+			result = append(result, WorldView{
+				HostID:               hostID,
+				WorldID:              world.WorldID,
+				DisplayName:          world.DisplayName,
+				Sequence:             world.Sequence,
+				Online:               online,
+				LeaseExpiresAtMillis: current.lease.ExpiresAtUnixMillis,
+			})
+		}
+	}
+	slices.SortFunc(result, func(left, right WorldView) int {
+		if left.HostID != right.HostID {
+			return compare(left.HostID, right.HostID)
+		}
+		return compare(left.WorldID, right.WorldID)
+	})
+	return result, nil
+}
+
+// ListActors returns deterministic principal-visible actors in one world.
+func (service *Service) ListActors(
+	principal host.Principal,
+	hostID, worldID string,
+) ([]ActorView, error) {
+	if err := host.ValidatePrincipal(principal); err != nil {
+		return nil, fmt.Errorf("%w: principal: %v", ErrInvalid, err)
+	}
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	current, world, err := service.findWorldLocked(hostID, worldID)
+	if err != nil {
+		return nil, err
+	}
+	online := current.lease.ExpiresAtUnixMillis > service.now().UnixMilli()
+	result := make([]ActorView, 0, len(world.Actors))
+	for _, actor := range world.Actors {
+		if canRead(principal, actor.OwnerPrincipalID) {
+			result = append(result, actorView(
+				hostID, worldID, current.lease, online, actor,
+			))
+		}
+	}
+	slices.SortFunc(result, func(left, right ActorView) int {
+		return compare(left.ActorID, right.ActorID)
+	})
+	return result, nil
+}
+
+// GetActor returns one actor or a non-enumerating forbidden error.
+func (service *Service) GetActor(
+	principal host.Principal,
+	hostID, worldID, actorID string,
+) (ActorView, error) {
+	if err := host.ValidatePrincipal(principal); err != nil {
+		return ActorView{}, fmt.Errorf("%w: principal: %v", ErrInvalid, err)
+	}
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	current, world, err := service.findWorldLocked(hostID, worldID)
+	if err != nil {
+		return ActorView{}, err
+	}
+	for _, actor := range world.Actors {
+		if actor.ActorID != actorID {
+			continue
+		}
+		if !canRead(principal, actor.OwnerPrincipalID) {
+			return ActorView{}, ErrForbidden
+		}
+		online := current.lease.ExpiresAtUnixMillis > service.now().UnixMilli()
+		return actorView(hostID, worldID, current.lease, online, actor), nil
+	}
+	return ActorView{}, ErrNotFound
+}
+
+// ListActorOffers returns current bound offers only while the host is online.
+func (service *Service) ListActorOffers(
+	principal host.Principal,
+	hostID, worldID, actorID string,
+) ([]host.ActionOffer, error) {
+	if err := host.ValidatePrincipal(principal); err != nil {
+		return nil, fmt.Errorf("%w: principal: %v", ErrInvalid, err)
+	}
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	current, world, err := service.findWorldLocked(hostID, worldID)
+	if err != nil {
+		return nil, err
+	}
+	if current.lease.ExpiresAtUnixMillis <= service.now().UnixMilli() {
+		return nil, ErrUnavailable
+	}
+	for _, actor := range world.Actors {
+		if actor.ActorID != actorID {
+			continue
+		}
+		if !canRead(principal, actor.OwnerPrincipalID) {
+			return nil, ErrForbidden
+		}
+		return cloneOffers(actor.Offers), nil
+	}
+	return nil, ErrNotFound
+}
+
+func (service *Service) requireLeaseLocked(
+	hostID, leaseID string,
+) (*hostState, error) {
+	current, exists := service.hosts[hostID]
+	if !exists || current.lease.LeaseID != leaseID {
+		return nil, ErrNotFound
+	}
+	if current.lease.ExpiresAtUnixMillis <= service.now().UnixMilli() {
+		return nil, ErrLeaseExpired
+	}
+	return current, nil
+}
+
+func (service *Service) findWorldLocked(
+	hostID, worldID string,
+) (*hostState, WorldPublication, error) {
+	current, exists := service.hosts[hostID]
+	if !exists {
+		return nil, WorldPublication{}, ErrNotFound
+	}
+	world, exists := current.worlds[worldID]
+	if !exists {
+		return nil, WorldPublication{}, ErrNotFound
+	}
+	return current, world, nil
+}
+
+func (service *Service) newID(prefix string) (string, error) {
+	value := make([]byte, 16)
+	if _, err := io.ReadFull(service.random, value); err != nil {
+		return "", fmt.Errorf("create control plane identifier: %w", err)
+	}
+	return prefix + "." + hex.EncodeToString(value), nil
+}
+
+func cloneRegistration(value HostRegistration) HostRegistration {
+	cloned := value
+	cloned.Manifest.ClockModes =
+		append([]host.ClockMode(nil), value.Manifest.ClockModes...)
+	cloned.Manifest.DecisionModes =
+		append([]host.DecisionMode(nil), value.Manifest.DecisionModes...)
+	return cloned
+}
+
+func clonePublication(value WorldPublication) WorldPublication {
+	cloned := value
+	cloned.Actors = make([]ActorPublication, len(value.Actors))
+	for index, actor := range value.Actors {
+		cloned.Actors[index] = actor
+		cloned.Actors[index].State =
+			append(json.RawMessage(nil), actor.State...)
+		cloned.Actors[index].Offers = cloneOffers(actor.Offers)
+	}
+	return cloned
+}
+
+func cloneOffers(values []host.ActionOffer) []host.ActionOffer {
+	cloned := make([]host.ActionOffer, len(values))
+	for index, offer := range values {
+		cloned[index] = offer
+		cloned[index].Arguments =
+			append(json.RawMessage(nil), offer.Arguments...)
+		cloned[index].Targets =
+			append([]host.HostRef(nil), offer.Targets...)
+	}
+	return cloned
+}
+
+func actorView(
+	hostID, worldID string,
+	lease HostLease,
+	online bool,
+	actor ActorPublication,
+) ActorView {
+	return ActorView{
+		HostID:               hostID,
+		WorldID:              worldID,
+		ActorID:              actor.ActorID,
+		OwnerPrincipalID:     actor.OwnerPrincipalID,
+		DisplayName:          actor.DisplayName,
+		ObservationSeq:       actor.ObservationSeq,
+		Epoch:                actor.Epoch,
+		State:                append(json.RawMessage(nil), actor.State...),
+		Online:               online,
+		LeaseExpiresAtMillis: lease.ExpiresAtUnixMillis,
+	}
+}
+
+func publicationVisible(principal host.Principal, world WorldPublication) bool {
+	for _, actor := range world.Actors {
+		if canRead(principal, actor.OwnerPrincipalID) {
+			return true
+		}
+	}
+	return false
+}
+
+func compare(left, right string) int {
+	switch {
+	case left < right:
+		return -1
+	case left > right:
+		return 1
+	default:
+		return 0
+	}
+}

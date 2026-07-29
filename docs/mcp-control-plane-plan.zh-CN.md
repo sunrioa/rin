@@ -147,13 +147,13 @@ submitted -> queued -> delivered -> accepted -> running -> succeeded
 
 | Tool | 最低 Scope | 语义 |
 | --- | --- | --- |
-| `list_worlds` | `actor:read` | 列出 Principal 可见的在线 World |
-| `list_actors` | `actor:read` | 按 World 列出可见 Actor |
-| `get_actor_state` | `actor:read` | 读取脱敏 Snapshot 和活跃 Operation |
-| `list_actor_offers` | `actor:read` | 读取当前未过期 Offer |
-| `send_actor_message` | `actor:converse` | 发送对话，不直接产生世界效果 |
-| `send_actor_directive` | `actor:direct` | 提交可拒绝、可协商的目标 |
-| `execute_actor_offer` | `actor:execute` | 选择精确的当前 `offer_id` |
+| `list_worlds` | `actor.read` | 列出 Principal 可见的在线 World |
+| `list_actors` | `actor.read` | 按 World 列出可见 Actor |
+| `get_actor_state` | `actor.read` | 读取脱敏 Snapshot 和活跃 Operation |
+| `list_actor_offers` | `actor.read` | 读取当前未过期 Offer |
+| `send_actor_message` | `actor.converse` | 发送对话，不直接产生世界效果 |
+| `send_actor_directive` | `actor.direct` | 提交可拒绝、可协商的目标 |
+| `execute_actor_offer` | `actor.execute` | 选择精确的当前 `offer_id` |
 | `get_operation` | 对应操作 Scope | 查询状态和结构化结果 |
 | `cancel_operation` | 对应操作 Scope | 请求取消可取消的 Operation |
 
@@ -163,8 +163,10 @@ submitted -> queued -> delivered -> accepted -> running -> succeeded
 
 ### Transport
 
-- 首先支持 STDIO，便于本地 Codex、Claude Code 和其他桌面 Client 使用。
-- 随后支持只绑定 `127.0.0.1`/`::1` 的 Streamable HTTP。
+- MCP Wire 只支持 `2026-07-28`，不协商降级到旧版协议。
+- 使用官方 Go MCP SDK `v1.7.0-pre.3`，直到支持 0728 的稳定版发布并通过回归。
+- STDIO 与 Streamable HTTP 都使用 `server/discover` 和每请求标准 `_meta`。
+- Streamable HTTP 使用 0728 无状态模式，只绑定 `127.0.0.1`/`::1`。
 - HTTP 必须验证 `Origin`、要求随机 Bearer Token，并限制请求体、并发和空闲时间。
 - 使用官方 Go MCP SDK；MCP SDK 类型只能存在于 `mcpbridge` 和 `cmd/rin-mcp`。
 - Rin Core 和 `host` 包不能导入 MCP SDK。
@@ -173,12 +175,12 @@ submitted -> queued -> delivered -> accepted -> running -> succeeded
 
 建议 Scope：
 
-- `actor:read`
-- `actor:converse`
-- `actor:direct`
-- `actor:execute`
-- `operation:cancel`
-- `host:admin`
+- `actor.read`
+- `actor.converse`
+- `actor.direct`
+- `actor.execute`
+- `operation.cancel`
+- `host.admin`
 
 首次连接使用本地一次性配对码或显式配置文件授权。授权记录绑定 Client、允许的
 Host/World/Actor、Scope 和过期时间。高风险 Offer 可以额外要求游戏内确认；
