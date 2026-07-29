@@ -193,12 +193,18 @@ func TestHTTPHandlerDeliversAndRecordsOperationLifecycle(t *testing.T) {
 			WorldSeq:    2,
 			OccurredAt:  host.Timepoint{Clock: host.ClockStep, Value: 3},
 		},
+		Output: json.RawMessage(
+			`{"type":"actor_turn","reply":"Ready.","capability":"activity.wait"}`,
+		),
 	})
 	if response.Code != http.StatusOK {
 		t.Fatalf("outcome status = %d, body = %s", response.Code, response.Body)
 	}
 	view, err := service.GetOperation(principal, operation.OperationID)
-	if err != nil || view.Status != OperationSucceeded {
+	if err != nil ||
+		view.Status != OperationSucceeded ||
+		view.Output["reply"] != "Ready." ||
+		view.Output["capability"] != "activity.wait" {
 		t.Fatalf("GetOperation = %#v, %v", view, err)
 	}
 }

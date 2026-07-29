@@ -179,7 +179,7 @@ func TestGatewayDoesNotRevealAnotherPrincipalsWorlds(t *testing.T) {
 }
 
 func TestGatewayRegistersScopedWriteToolsAndQueuesOperations(t *testing.T) {
-	service := publishedService(t)
+	service, lease := publishedServiceWithLease(t)
 	principal := host.Principal{
 		ID: "player.one",
 		GrantedScopes: []string{
@@ -233,6 +233,49 @@ func TestGatewayRegistersScopedWriteToolsAndQueuesOperations(t *testing.T) {
 	if retry.Operation.OperationID != message.Operation.OperationID {
 		t.Fatalf("message retry = %#v", retry.Operation)
 	}
+	batch, err := service.PollHost(
+		testContext(t),
+		"test.host",
+		lease.LeaseID,
+		1,
+	)
+	if err != nil || len(batch.Requests) != 1 {
+		t.Fatalf("PollHost = %#v, %v", batch, err)
+	}
+	if err := service.AcknowledgeHost(
+		"test.host",
+		lease.LeaseID,
+		controlplane.HostAcknowledgement{
+			OperationID: message.Operation.OperationID,
+			Accepted:    true,
+		},
+	); err != nil {
+		t.Fatalf("AcknowledgeHost: %v", err)
+	}
+	output := json.RawMessage(
+		`{"type":"actor_turn","reply":"I heard you.","capability":"activity.wait"}`,
+	)
+	if err := service.ReportHostResult(
+		"test.host",
+		lease.LeaseID,
+		host.ActionOutcome{
+			OperationID: message.Operation.OperationID,
+			Status:      host.ActionSucceeded,
+			Summary:     "The actor completed the turn.",
+			Epoch: host.Epoch{
+				SessionID: "session.one",
+				WorldID:   "world.one",
+				Host:      1,
+				World:     1,
+				Timeline:  1,
+			},
+			WorldSeq:   2,
+			OccurredAt: host.Timepoint{Clock: host.ClockStep, Value: 2},
+		},
+		output,
+	); err != nil {
+		t.Fatalf("ReportHostResult: %v", err)
+	}
 
 	var directive OperationOutput
 	callTool(t, session, "send_actor_directive", map[string]any{
@@ -264,6 +307,10 @@ func TestGatewayRegistersScopedWriteToolsAndQueuesOperations(t *testing.T) {
 	}, &fetched)
 	if fetched.Operation.OperationID != message.Operation.OperationID {
 		t.Fatalf("get_operation = %#v", fetched.Operation)
+	}
+	if fetched.Operation.Output["reply"] != "I heard you." ||
+		fetched.Operation.Output["capability"] != "activity.wait" {
+		t.Fatalf("get_operation output = %#v", fetched.Operation.Output)
 	}
 
 	var cancelled OperationOutput
@@ -392,6 +439,13 @@ func callLegacyMCP(
 }
 
 func publishedService(t *testing.T) *controlplane.Service {
+	service, _ := publishedServiceWithLease(t)
+	return service
+}
+
+func publishedServiceWithLease(
+	t *testing.T,
+) (*controlplane.Service, controlplane.HostLease) {
 	t.Helper()
 	random := make([]byte, 4_096)
 	for index := range random {
@@ -476,7 +530,7 @@ func publishedService(t *testing.T) *controlplane.Service {
 	if err != nil {
 		t.Fatalf("PublishWorld: %v", err)
 	}
-	return service
+	return service, lease
 }
 
 func testContext(t *testing.T) context.Context {

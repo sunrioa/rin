@@ -83,7 +83,7 @@ Host 发布 Actor 时，`owner_principal_id` 必须与该 Principal 一致；否
 | `send_actor_message` | `actor.converse` | 发送对话，不直接授权世界修改 |
 | `send_actor_directive` | `actor.direct` | 提交 Actor 与 Host 可拒绝的目标 |
 | `execute_actor_offer` | `actor.execute` | 选择精确的当前 `offer_id` |
-| `get_operation` | 任一 Control Scope | 查询投递、进度和 Outcome |
+| `get_operation` | 任一 Control Scope | 查询投递、进度、Outcome 和 Host 结构化输出 |
 | `cancel_operation` | `operation.cancel` | 请求取消，不表示回滚 |
 
 例如：
@@ -105,8 +105,8 @@ Descriptor、Deadline、Principal 和游戏规则。游戏自定义 Capability S
 32 MiB，为进度与 Outcome 预留空间。
 
 状态文件保存继续投递所必需的消息、Directive、Invocation、Principal Scope 和
-Outcome，不保存 Bearer Token 或模型 API Key。该目录只允许一个 `rin-mcp`
-进程写入。
+Outcome；Host 可随终态保存一个最多 64 KiB 的严格 JSON 对象 `output`。状态文件
+不保存 Bearer Token 或模型 API Key。该目录只允许一个 `rin-mcp` 进程写入。
 
 重启后：
 
@@ -137,12 +137,17 @@ Content-Type: application/json
 | `POST /control/v1/poll` | 长轮询领取请求和取消通知 |
 | `POST /control/v1/ack` | 接受或拒绝已投递请求 |
 | `POST /control/v1/run` | 上报单调进度 |
-| `POST /control/v1/outcome` | 上报权威终态与有限证据 |
+| `POST /control/v1/outcome` | 上报权威终态、有限证据与可选结构化 `output` |
 | `POST /control/v1/unregister` | 主动离线并保留最后 Read Model |
 
 请求体默认不超过 1 MiB，拒绝未知字段和重复 JSON Property。Host 必须按
 `register -> publish -> renew -> unregister` 生命周期调用。世界修改仍由游戏的
 权威线程负责，Control Plane 不保存或解析引擎对象。
+
+`output` 是 `/control/v1/outcome` 请求中与 `outcome` 并列的可选 JSON 对象，
+用于返回对白、所选 Offer 或其他 Host 定义的结果。Rin 对它执行严格 JSON、对象类型
+和 64 KiB 限制，持久化后由 `get_operation` 作为结构化对象返回。不得把 API Key、
+完整 Prompt、未脱敏世界状态或引擎对象放入其中。
 
 ## 权限边界
 

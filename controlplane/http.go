@@ -66,6 +66,7 @@ type outcomeRequest struct {
 	HostID  string             `json:"host_id"`
 	LeaseID string             `json:"lease_id"`
 	Outcome host.ActionOutcome `json:"outcome"`
+	Output  json.RawMessage    `json:"output,omitempty"`
 }
 
 type errorResponse struct {
@@ -306,10 +307,11 @@ func (server *hostHTTPHandler) reportOutcome(
 		writeHTTPError(response, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := server.service.ReportHostOutcome(
+	if err := server.service.ReportHostResult(
 		input.HostID,
 		input.LeaseID,
 		input.Outcome,
+		input.Output,
 	); err != nil {
 		writeServiceError(response, err)
 		return

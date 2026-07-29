@@ -172,6 +172,7 @@ type OperationView struct {
 	DeliveryAttempts uint32              `json:"delivery_attempts"`
 	Run              *host.ActionRun     `json:"run,omitempty"`
 	Outcome          *host.ActionOutcome `json:"outcome,omitempty"`
+	Output           map[string]any      `json:"output,omitempty"`
 	RejectionCode    string              `json:"rejection_code,omitempty"`
 	RejectionMessage string              `json:"rejection_message,omitempty"`
 	CreatedAt        int64               `json:"created_at_unix_millis"`

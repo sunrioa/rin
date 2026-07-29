@@ -91,7 +91,7 @@ Explicit grants register these additional tools:
 | `send_actor_message` | `actor.converse` | Send conversation without directly authorizing world mutation |
 | `send_actor_directive` | `actor.direct` | Submit a goal that the Actor and Host may refuse |
 | `execute_actor_offer` | `actor.execute` | Select one exact current `offer_id` |
-| `get_operation` | any Control scope | Read delivery, progress, and outcome state |
+| `get_operation` | any Control scope | Read delivery, progress, Outcome, and structured Host output |
 | `cancel_operation` | `operation.cancel` | Request cancellation without implying rollback |
 
 For example:
@@ -117,9 +117,10 @@ atomic replacement. The file is limited to 64 MiB; new requests use only a
 32 MiB budget so progress and outcomes retain headroom.
 
 The state file contains the messages, directives, invocations, principal
-scopes, and outcomes needed for delivery and reconciliation. It does not
-contain the bearer token or model API keys. Only one `rin-mcp` process may write
-the directory.
+scopes, and outcomes needed for delivery and reconciliation. A Host may attach
+one strict JSON object of at most 64 KiB as terminal `output`. The state file
+does not contain the bearer token or model API keys. Only one `rin-mcp` process
+may write the directory.
 
 After restart:
 
@@ -151,7 +152,7 @@ Current endpoints:
 | `POST /control/v1/poll` | Long-poll for requests and cancellation notices |
 | `POST /control/v1/ack` | Accept or reject a delivered request |
 | `POST /control/v1/run` | Report monotonic progress |
-| `POST /control/v1/outcome` | Report the authoritative terminal result and bounded evidence |
+| `POST /control/v1/outcome` | Report the terminal result, bounded evidence, and optional structured `output` |
 | `POST /control/v1/unregister` | Go offline while retaining the last Read Model |
 
 Request bodies are limited to 1 MiB by default. Unknown fields and duplicate
@@ -159,6 +160,13 @@ JSON properties are rejected. Hosts follow
 `register -> publish -> renew -> unregister`. World mutation remains on the
 game's authority thread; the Control Plane neither stores nor resolves engine
 objects.
+
+`output` is an optional JSON object beside `outcome` in the
+`/control/v1/outcome` request. It can carry dialogue, a selected Offer, or
+another Host-defined result. Rin validates strict JSON, object shape, and the
+64 KiB limit, persists it, and returns it as structured data from
+`get_operation`. It must not contain API keys, full prompts, unredacted world
+state, or engine objects.
 
 ## Authority boundary
 

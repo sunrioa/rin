@@ -18,6 +18,7 @@ const (
 	maxActorsPerWorld  = 4_096
 	maxOffersPerActor  = 64
 	maxActorStateBytes = 64 << 10
+	maxOperationOutput = 64 << 10
 	maxJSONSafeInteger = 9_007_199_254_740_991
 )
 
@@ -152,6 +153,13 @@ func validateJSONObject(field string, raw json.RawMessage, maximum int) error {
 		return invalid(field, "must be a JSON object")
 	}
 	return nil
+}
+
+func validateOperationOutput(output json.RawMessage) error {
+	if len(output) == 0 {
+		return nil
+	}
+	return validateJSONObject("output", output, maxOperationOutput)
 }
 
 func invalid(field, message string) error {

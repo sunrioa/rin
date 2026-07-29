@@ -3,6 +3,7 @@ package controlplane
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -76,12 +77,16 @@ func TestOperationFileRecoversUnknownWorkAndTerminalOutcome(t *testing.T) {
 		WorldSeq:    2,
 		OccurredAt:  host.Timepoint{Clock: host.ClockStep, Value: 3},
 	}
-	if err := recovered.ReportHostOutcome(
+	output := json.RawMessage(
+		`{"type":"actor_turn","reply":"Recovered reply.","capability":"activity.wait"}`,
+	)
+	if err := recovered.ReportHostResult(
 		"test.host",
 		recoveryLease.LeaseID,
 		outcome,
+		output,
 	); err != nil {
-		t.Fatalf("ReportHostOutcome after restart: %v", err)
+		t.Fatalf("ReportHostResult after restart: %v", err)
 	}
 
 	reopened, err := OpenFile(root, fileTestOptions(&now, 128))
@@ -92,7 +97,9 @@ func TestOperationFileRecoversUnknownWorkAndTerminalOutcome(t *testing.T) {
 	if err != nil ||
 		view.Status != OperationSucceeded ||
 		view.Outcome == nil ||
-		view.Outcome.Summary != outcome.Summary {
+		view.Outcome.Summary != outcome.Summary ||
+		view.Output["reply"] != "Recovered reply." ||
+		view.Output["capability"] != "activity.wait" {
 		t.Fatalf("reopened operation = %#v, %v", view, err)
 	}
 

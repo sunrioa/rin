@@ -1,7 +1,9 @@
 package controlplane
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -28,6 +30,7 @@ type operationState struct {
 	ack         *HostAcknowledgement
 	run         *host.ActionRun
 	outcome     *host.ActionOutcome
+	output      json.RawMessage
 	rejection   HostAcknowledgement
 	idempotency string
 	createdAt   int64
@@ -339,8 +342,21 @@ func (service *Service) ReportHostOutcome(
 	hostID, leaseID string,
 	outcome host.ActionOutcome,
 ) error {
+	return service.ReportHostResult(hostID, leaseID, outcome, nil)
+}
+
+// ReportHostResult persists one authoritative terminal effect and an optional
+// bounded structured output supplied by the Host.
+func (service *Service) ReportHostResult(
+	hostID, leaseID string,
+	outcome host.ActionOutcome,
+	output json.RawMessage,
+) error {
 	if err := host.ValidateActionOutcome(outcome); err != nil {
 		return fmt.Errorf("%w: outcome: %v", ErrInvalid, err)
+	}
+	if err := validateOperationOutput(output); err != nil {
+		return err
 	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
@@ -355,10 +371,11 @@ func (service *Service) ReportHostOutcome(
 		return err
 	}
 	if operation.outcome != nil {
-		if reflect.DeepEqual(*operation.outcome, outcome) {
+		if reflect.DeepEqual(*operation.outcome, outcome) &&
+			bytes.Equal(operation.output, output) {
 			return service.persistOperationsLocked()
 		}
-		return fmt.Errorf("%w: terminal outcome changed", ErrConflict)
+		return fmt.Errorf("%w: terminal result changed", ErrConflict)
 	}
 	if operation.ack == nil || !operation.ack.Accepted {
 		return fmt.Errorf("%w: operation was not accepted", ErrConflict)
@@ -373,6 +390,7 @@ func (service *Service) ReportHostOutcome(
 	}
 	cloned := cloneOutcome(outcome)
 	operation.outcome = &cloned
+	operation.output = append(json.RawMessage(nil), output...)
 	operation.status = expected
 	operation.updatedAt = service.now().UnixMilli()
 	service.markOperationsDirtyLocked()
@@ -726,7 +744,21 @@ func operationView(operation *operationState) OperationView {
 		cloned := cloneOutcome(*operation.outcome)
 		view.Outcome = &cloned
 	}
+	view.Output = operationOutputView(operation.output)
 	return view
+}
+
+func operationOutputView(output json.RawMessage) map[string]any {
+	if len(output) == 0 {
+		return nil
+	}
+	decoder := json.NewDecoder(bytes.NewReader(output))
+	decoder.UseNumber()
+	var value map[string]any
+	if err := decoder.Decode(&value); err != nil {
+		return nil
+	}
+	return value
 }
 
 func invocationFromOffer(

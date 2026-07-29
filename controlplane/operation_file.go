@@ -41,6 +41,7 @@ type persistedOperation struct {
 	Ack       *HostAcknowledgement `json:"ack,omitempty"`
 	Run       *host.ActionRun      `json:"run,omitempty"`
 	Outcome   *host.ActionOutcome  `json:"outcome,omitempty"`
+	Output    json.RawMessage      `json:"output,omitempty"`
 	CreatedAt int64                `json:"created_at_unix_millis"`
 	UpdatedAt int64                `json:"updated_at_unix_millis"`
 }
@@ -291,6 +292,9 @@ func restoreOperation(
 			return nil, errors.New("outcome operation_id does not match request")
 		}
 	}
+	if err := validateOperationOutput(value.Output); err != nil {
+		return nil, err
+	}
 	if err := validatePersistedOperationRelations(value); err != nil {
 		return nil, err
 	}
@@ -304,6 +308,7 @@ func restoreOperation(
 		ack:      cloneAcknowledgement(value.Ack),
 		run:      cloneRunPointer(value.Run),
 		outcome:  cloneOutcomePointer(value.Outcome),
+		output:   append(json.RawMessage(nil), value.Output...),
 		idempotency: operationRequestKey(
 			request.Principal.ID,
 			request.RequestID,
@@ -396,7 +401,8 @@ func validatePersistedOperationRelations(value persistedOperation) error {
 	if value.Ack != nil && !value.Ack.Accepted {
 		if value.Status != OperationRejected ||
 			value.Run != nil ||
-			value.Outcome != nil {
+			value.Outcome != nil ||
+			len(value.Output) != 0 {
 			return errors.New("rejected operation has inconsistent execution state")
 		}
 		return nil
@@ -418,6 +424,9 @@ func validatePersistedOperationRelations(value persistedOperation) error {
 		if value.Ack == nil || !value.Ack.Accepted {
 			return errors.New("Host execution state requires an accepted acknowledgement")
 		}
+	}
+	if len(value.Output) != 0 && value.Outcome == nil {
+		return errors.New("operation output requires a terminal outcome")
 	}
 	if value.Outcome != nil &&
 		value.Status != operationStatusFromRun(value.Outcome.Status) {
@@ -465,6 +474,7 @@ func (service *Service) persistedOperationsLocked() persistedOperations {
 			Ack:       cloneAcknowledgement(operation.ack),
 			Run:       cloneRunPointer(operation.run),
 			Outcome:   cloneOutcomePointer(operation.outcome),
+			Output:    append(json.RawMessage(nil), operation.output...),
 			CreatedAt: operation.createdAt,
 			UpdatedAt: operation.updatedAt,
 		}

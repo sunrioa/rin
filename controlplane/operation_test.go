@@ -3,6 +3,7 @@ package controlplane
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"testing"
@@ -129,19 +130,39 @@ func TestMessageOperationIsIdempotentAndReportsHostOutcome(t *testing.T) {
 		WorldSeq:    2,
 		OccurredAt:  host.Timepoint{Clock: host.ClockStep, Value: 4},
 	}
-	if err := service.ReportHostOutcome(
+	output := json.RawMessage(
+		`{"type":"actor_turn","reply":"I am ready.","selected_offer_id":"offer.wait"}`,
+	)
+	if err := service.ReportHostResult(
 		"test.host",
 		lease.LeaseID,
 		outcome,
+		json.RawMessage(`{"reply":"first","reply":"second"}`),
+	); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("invalid ReportHostResult error = %v", err)
+	}
+	if err := service.ReportHostResult(
+		"test.host",
+		lease.LeaseID,
+		outcome,
+		output,
 	); err != nil {
-		t.Fatalf("ReportHostOutcome: %v", err)
+		t.Fatalf("ReportHostResult: %v", err)
+	}
+	if err := service.ReportHostResult(
+		"test.host",
+		lease.LeaseID,
+		outcome,
+		output,
+	); err != nil {
+		t.Fatalf("idempotent ReportHostResult: %v", err)
 	}
 	if err := service.ReportHostOutcome(
 		"test.host",
 		lease.LeaseID,
 		outcome,
-	); err != nil {
-		t.Fatalf("idempotent ReportHostOutcome: %v", err)
+	); !errors.Is(err, ErrConflict) {
+		t.Fatalf("changed terminal output error = %v", err)
 	}
 
 	view, err := service.GetOperation(principal, operation.OperationID)
@@ -151,7 +172,9 @@ func TestMessageOperationIsIdempotentAndReportsHostOutcome(t *testing.T) {
 		view.Run == nil ||
 		view.Run.Status != host.ActionRunning ||
 		view.Outcome == nil ||
-		view.Outcome.Summary != outcome.Summary {
+		view.Outcome.Summary != outcome.Summary ||
+		view.Output["reply"] != "I am ready." ||
+		view.Output["selected_offer_id"] != "offer.wait" {
 		t.Fatalf("GetOperation = %#v, %v", view, err)
 	}
 }
