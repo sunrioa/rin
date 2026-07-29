@@ -29,11 +29,13 @@ type Service struct {
 	random io.Reader
 	hosts  map[string]*hostState
 
-	maxOperations int
-	operationTTL  time.Duration
-	operations    map[string]*operationState
-	requests      map[string]string
-	changed       chan struct{}
+	maxOperations  int
+	operationTTL   time.Duration
+	operations     map[string]*operationState
+	requests       map[string]string
+	changed        chan struct{}
+	operationFile  *operationFile
+	operationDirty bool
 }
 
 type hostState struct {
@@ -83,6 +85,9 @@ func (service *Service) RegisterHost(request HostRegistration) (HostLease, error
 	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
+	if err := service.persistOperationsLocked(); err != nil {
+		return HostLease{}, err
+	}
 
 	now := service.now().UnixMilli()
 	if current, exists := service.hosts[request.HostID]; exists {
@@ -102,6 +107,9 @@ func (service *Service) RegisterHost(request HostRegistration) (HostLease, error
 			return current.lease, nil
 		}
 		service.expireHostOperationsLocked(request.HostID, now)
+		if err := service.persistOperationsLocked(); err != nil {
+			return HostLease{}, err
+		}
 	}
 
 	leaseID, err := service.newID("lease")
@@ -126,6 +134,9 @@ func (service *Service) RegisterHost(request HostRegistration) (HostLease, error
 func (service *Service) RenewHost(hostID, leaseID string) (HostLease, error) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
+	if err := service.persistOperationsLocked(); err != nil {
+		return HostLease{}, err
+	}
 	current, err := service.requireLeaseLocked(hostID, leaseID)
 	if err != nil {
 		return HostLease{}, err
@@ -139,6 +150,9 @@ func (service *Service) RenewHost(hostID, leaseID string) (HostLease, error) {
 func (service *Service) UnregisterHost(hostID, leaseID string) error {
 	service.mu.Lock()
 	defer service.mu.Unlock()
+	if err := service.persistOperationsLocked(); err != nil {
+		return err
+	}
 	current, err := service.requireLeaseLocked(hostID, leaseID)
 	if err != nil {
 		return err
@@ -148,7 +162,7 @@ func (service *Service) UnregisterHost(hostID, leaseID string) error {
 		hostID,
 		current.lease.ExpiresAtUnixMillis,
 	)
-	return nil
+	return service.persistOperationsLocked()
 }
 
 // PublishWorld atomically replaces one world's actor and offer read model.

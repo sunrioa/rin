@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"reflect"
@@ -85,6 +86,9 @@ func (service *Service) ExecuteActorOffer(
 		ScopeActorExecute,
 	)
 	if err != nil {
+		if persistErr := service.persistOperationsLocked(); persistErr != nil {
+			return OperationView{}, persistErr
+		}
 		return OperationView{}, err
 	}
 	var selected *host.ActionOffer
@@ -113,7 +117,7 @@ func (service *Service) ExecuteActorOffer(
 		Invocation:  &invocation,
 		SubmittedAt: service.now().UnixMilli(),
 	}
-	return service.queueOperationLocked(key, request), nil
+	return service.queueOperationLocked(key, request)
 }
 
 func (service *Service) submitText(
@@ -154,6 +158,9 @@ func (service *Service) submitText(
 		input.ActorID,
 		requiredScope,
 	); err != nil {
+		if persistErr := service.persistOperationsLocked(); persistErr != nil {
+			return OperationView{}, persistErr
+		}
 		return OperationView{}, err
 	}
 	operationID, err := service.prepareOperationLocked()
@@ -171,7 +178,7 @@ func (service *Service) submitText(
 		Text:        input.Text,
 		SubmittedAt: service.now().UnixMilli(),
 	}
-	return service.queueOperationLocked(key, request), nil
+	return service.queueOperationLocked(key, request)
 }
 
 // PollHost waits for bounded new work or cancellation requests. Redelivery is
@@ -191,8 +198,16 @@ func (service *Service) PollHost(
 			service.mu.Unlock()
 			return HostControlBatch{}, err
 		}
+		if err := service.persistOperationsLocked(); err != nil {
+			service.mu.Unlock()
+			return HostControlBatch{}, err
+		}
 		batch := service.collectHostWorkLocked(hostID, limit)
 		if len(batch.Requests) != 0 || len(batch.Cancellations) != 0 {
+			if err := service.persistOperationsLocked(); err != nil {
+				service.mu.Unlock()
+				return HostControlBatch{}, err
+			}
 			service.mu.Unlock()
 			return batch, nil
 		}
@@ -224,6 +239,9 @@ func (service *Service) AcknowledgeHost(
 	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
+	if err := service.persistOperationsLocked(); err != nil {
+		return err
+	}
 	if _, err := service.requireLeaseLocked(hostID, leaseID); err != nil {
 		return err
 	}
@@ -236,7 +254,7 @@ func (service *Service) AcknowledgeHost(
 	}
 	if operation.ack != nil {
 		if reflect.DeepEqual(*operation.ack, acknowledgement) {
-			return nil
+			return service.persistOperationsLocked()
 		}
 		return fmt.Errorf("%w: acknowledgement changed", ErrConflict)
 	}
@@ -252,8 +270,8 @@ func (service *Service) AcknowledgeHost(
 		operation.status = OperationRejected
 		operation.rejection = acknowledgement
 	}
-	service.notifyLocked()
-	return nil
+	service.markOperationsDirtyLocked()
+	return service.persistOperationsLocked()
 }
 
 // ReportHostRun records monotonic Host progress for an accepted request.
@@ -266,6 +284,9 @@ func (service *Service) ReportHostRun(
 	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
+	if err := service.persistOperationsLocked(); err != nil {
+		return err
+	}
 	if _, err := service.requireLeaseLocked(hostID, leaseID); err != nil {
 		return err
 	}
@@ -282,7 +303,7 @@ func (service *Service) ReportHostRun(
 		}
 		if run.ProgressSeq == operation.run.ProgressSeq {
 			if reflect.DeepEqual(*operation.run, run) {
-				return nil
+				return service.persistOperationsLocked()
 			}
 			return fmt.Errorf("%w: progress changed without a new sequence", ErrStale)
 		}
@@ -309,8 +330,8 @@ func (service *Service) ReportHostRun(
 	operation.run = &cloned
 	operation.status = operationStatusFromRun(run.Status)
 	operation.updatedAt = service.now().UnixMilli()
-	service.notifyLocked()
-	return nil
+	service.markOperationsDirtyLocked()
+	return service.persistOperationsLocked()
 }
 
 // ReportHostOutcome persists one authoritative terminal effect.
@@ -323,6 +344,9 @@ func (service *Service) ReportHostOutcome(
 	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
+	if err := service.persistOperationsLocked(); err != nil {
+		return err
+	}
 	if _, err := service.requireLeaseLocked(hostID, leaseID); err != nil {
 		return err
 	}
@@ -332,7 +356,7 @@ func (service *Service) ReportHostOutcome(
 	}
 	if operation.outcome != nil {
 		if reflect.DeepEqual(*operation.outcome, outcome) {
-			return nil
+			return service.persistOperationsLocked()
 		}
 		return fmt.Errorf("%w: terminal outcome changed", ErrConflict)
 	}
@@ -351,8 +375,8 @@ func (service *Service) ReportHostOutcome(
 	operation.outcome = &cloned
 	operation.status = expected
 	operation.updatedAt = service.now().UnixMilli()
-	service.notifyLocked()
-	return nil
+	service.markOperationsDirtyLocked()
+	return service.persistOperationsLocked()
 }
 
 // GetOperation returns one operation to its submitting principal.
@@ -373,6 +397,9 @@ func (service *Service) GetOperation(
 		return OperationView{}, ErrNotFound
 	}
 	service.refreshOperationHostLocked(operation)
+	if err := service.persistOperationsLocked(); err != nil {
+		return OperationView{}, err
+	}
 	if !hasScope(principal, ScopeHostAdmin) &&
 		principal.ID != operation.request.Principal.ID {
 		return OperationView{}, ErrForbidden
@@ -399,6 +426,9 @@ func (service *Service) CancelOperation(
 		return OperationView{}, ErrNotFound
 	}
 	service.refreshOperationHostLocked(operation)
+	if err := service.persistOperationsLocked(); err != nil {
+		return OperationView{}, err
+	}
 	if !hasScope(principal, ScopeHostAdmin) {
 		if principal.ID != operation.request.Principal.ID ||
 			!hasScope(principal, ScopeOperationCancel) {
@@ -411,13 +441,19 @@ func (service *Service) CancelOperation(
 	if operation.status == OperationQueued {
 		operation.status = OperationCancelled
 		operation.updatedAt = service.now().UnixMilli()
-		service.notifyLocked()
+		service.markOperationsDirtyLocked()
+		if err := service.persistOperationsLocked(); err != nil {
+			return OperationView{}, err
+		}
 		return operationView(operation), nil
 	}
 	if !operation.cancel {
 		operation.cancel = true
 		operation.updatedAt = service.now().UnixMilli()
-		service.notifyLocked()
+		service.markOperationsDirtyLocked()
+	}
+	if err := service.persistOperationsLocked(); err != nil {
+		return OperationView{}, err
 	}
 	return operationView(operation), nil
 }
@@ -455,6 +491,9 @@ func (service *Service) idempotentOperationLocked(
 			fmt.Errorf("%w: request_id was reused with different input", ErrConflict)
 	}
 	service.refreshOperationHostLocked(operation)
+	if err := service.persistOperationsLocked(); err != nil {
+		return OperationView{}, true, err
+	}
 	return operationView(operation), true, nil
 }
 
@@ -487,6 +526,9 @@ func (service *Service) authorizeActorLocked(
 func (service *Service) prepareOperationLocked() (string, error) {
 	now := service.now().UnixMilli()
 	service.pruneOperationsLocked(now)
+	if err := service.persistOperationsLocked(); err != nil {
+		return "", err
+	}
 	if len(service.operations) >= service.maxOperations {
 		return "", ErrCapacity
 	}
@@ -496,7 +538,7 @@ func (service *Service) prepareOperationLocked() (string, error) {
 func (service *Service) queueOperationLocked(
 	key string,
 	request HostControlRequest,
-) OperationView {
+) (OperationView, error) {
 	operation := &operationState{
 		request:     cloneControlRequest(request),
 		status:      OperationQueued,
@@ -506,8 +548,22 @@ func (service *Service) queueOperationLocked(
 	}
 	service.operations[request.OperationID] = operation
 	service.requests[key] = request.OperationID
-	service.notifyLocked()
-	return operationView(operation)
+	service.markOperationsDirtyLocked()
+	if err := service.persistOperationsWithLimitLocked(
+		maxQueuedStateBytes,
+	); err != nil {
+		if errors.Is(err, ErrCapacity) {
+			delete(service.operations, request.OperationID)
+			delete(service.requests, key)
+			service.operationDirty = true
+			return OperationView{}, errors.Join(
+				err,
+				service.persistOperationsLocked(),
+			)
+		}
+		return OperationView{}, err
+	}
+	return operationView(operation), nil
 }
 
 func (service *Service) collectHostWorkLocked(
@@ -535,6 +591,7 @@ func (service *Service) collectHostWorkLocked(
 		Cancellations: make([]string, 0),
 	}
 	now := service.now().UnixMilli()
+	deliveryChanged := false
 	for _, operation := range operations {
 		if len(batch.Cancellations) >= limit {
 			break
@@ -559,10 +616,14 @@ func (service *Service) collectHostWorkLocked(
 		}
 		operation.status = OperationDelivered
 		operation.updatedAt = now
+		deliveryChanged = true
 		batch.Requests = append(batch.Requests, HostControlDelivery{
 			Request:         cloneControlRequest(operation.request),
 			DeliveryAttempt: operation.attempts,
 		})
+	}
+	if deliveryChanged {
+		service.markOperationsDirtyLocked()
 	}
 	return batch
 }
@@ -612,18 +673,23 @@ func (service *Service) expireHostOperationsLocked(hostID string, now int64) {
 		}
 	}
 	if changed {
-		service.notifyLocked()
+		service.markOperationsDirtyLocked()
 	}
 }
 
 func (service *Service) pruneOperationsLocked(now int64) {
 	cutoff := now - service.operationTTL.Milliseconds()
+	changed := false
 	for operationID, operation := range service.operations {
 		if !completeOperation(operation) || operation.updatedAt > cutoff {
 			continue
 		}
 		delete(service.operations, operationID)
 		delete(service.requests, operation.idempotency)
+		changed = true
+	}
+	if changed {
+		service.markOperationsDirtyLocked()
 	}
 }
 

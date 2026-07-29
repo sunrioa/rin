@@ -13,10 +13,11 @@
 - defaults to read-only and registers message, directive, exact-offer, and
   cancellation tools only for explicitly granted scopes;
 - uses stable operation IDs, idempotent `request_id` values, Host
-  acknowledgements, progress, and outcomes for writes.
+  acknowledgements, progress, and outcomes for writes;
+- recovers Operations from an atomic local state file that never contains the
+  bearer token.
 
-Persistent recovery, pairing management, and Streamable HTTP MCP are future
-phases described in the
+Pairing management and Streamable HTTP MCP are future phases described in the
 [implementation plan](mcp-control-plane-plan.md).
 
 ## Build
@@ -33,6 +34,7 @@ Create a dedicated token and select a game-authorized principal:
 export RIN_CONTROL_TOKEN="$(openssl rand -hex 32)"
 export RIN_CONTROL_PRINCIPAL="player.one"
 export RIN_CONTROL_SCOPES="actor.read"
+export RIN_CONTROL_DATA_DIR="/absolute/path/to/rin-control-data"
 ```
 
 The token must contain at least 32 bytes. Do not put it in the repository, MCP
@@ -53,7 +55,8 @@ file locations differ, but the server entry follows this shape:
       "env": {
         "RIN_CONTROL_TOKEN": "replace-with-a-random-secret",
         "RIN_CONTROL_PRINCIPAL": "player.one",
-        "RIN_CONTROL_SCOPES": "actor.read"
+        "RIN_CONTROL_SCOPES": "actor.read",
+        "RIN_CONTROL_DATA_DIR": "/absolute/path/to/rin-control-data"
       }
     }
   }
@@ -98,6 +101,29 @@ the Host. Immediately before authority-thread dispatch, the Host still checks
 the Epoch, descriptor, deadline, principal, and game rules. Trusted startup
 configuration may also include game-specific Capability scopes for final Host
 authorization.
+
+## Recovery
+
+`RIN_CONTROL_DATA_DIR` defaults to `./rin-control-data` under the current
+working directory. MCP clients may choose different working directories, so a
+production configuration should use an absolute path. `operations.json` uses
+0600 permissions, strict JSON, and an fsynced temporary file followed by an
+atomic replacement. The file is limited to 64 MiB; new requests use only a
+32 MiB budget so progress and outcomes retain headroom.
+
+The state file contains the messages, directives, invocations, principal
+scopes, and outcomes needed for delivery and reconciliation. It does not
+contain the bearer token or model API keys. Only one `rin-mcp` process may write
+the directory.
+
+After restart:
+
+- unacknowledged requests return to `queued` with the same Operation ID;
+- acknowledged work without an Outcome becomes `outcome-unknown`;
+- the Host reconciles from its durable pending-work and Outcome Outbox;
+- Host Leases and Read Models are not persisted by Rin and must be registered
+  and published again;
+- persisted terminal Operations remain queryable by their original principal.
 
 ## Host publication endpoints
 

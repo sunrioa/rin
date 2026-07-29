@@ -47,6 +47,7 @@ Build the MCP 2026-07-28 gateway:
 go build -o bin/rin-mcp ./cmd/rin-mcp
 export RIN_CONTROL_TOKEN="$(openssl rand -hex 32)"
 export RIN_CONTROL_PRINCIPAL="player.one"
+export RIN_CONTROL_DATA_DIR="/absolute/path/to/rin-control-data"
 ```
 
 An MCP client launches `rin-mcp` over STDIO. The process accepts read-model

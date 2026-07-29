@@ -24,6 +24,7 @@ const shutdownTimeout = 5 * time.Second
 
 type configuration struct {
 	address   string
+	dataDir   string
 	token     string
 	principal host.Principal
 }
@@ -51,7 +52,13 @@ func run(
 		return err
 	}
 
-	service := controlplane.New(controlplane.Options{})
+	service, err := controlplane.OpenFile(
+		config.dataDir,
+		controlplane.Options{},
+	)
+	if err != nil {
+		return err
+	}
 	handler, err := controlplane.NewHTTPHandler(
 		service,
 		controlplane.HTTPOptions{Token: config.token},
@@ -145,6 +152,11 @@ func parseConfiguration(
 		envOr(lookupEnv, "RIN_CONTROL_ADDR", "127.0.0.1:7375"),
 		"loopback Host Control listen address",
 	)
+	dataDirectory := flags.String(
+		"data",
+		envOr(lookupEnv, "RIN_CONTROL_DATA_DIR", "./rin-control-data"),
+		"Control Operation state directory",
+	)
 	principalID := flags.String(
 		"principal",
 		envOr(lookupEnv, "RIN_CONTROL_PRINCIPAL", ""),
@@ -188,6 +200,7 @@ func parseConfiguration(
 	}
 	return configuration{
 		address:   *address,
+		dataDir:   *dataDirectory,
 		token:     token,
 		principal: principal,
 	}, nil

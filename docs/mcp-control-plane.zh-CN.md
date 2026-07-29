@@ -10,9 +10,10 @@
 - 游戏 Host 使用带 Bearer Token 的回环 HTTP 发布状态；
 - MCP 与 Host 共享一个进程内 Control Plane；
 - 默认只读，显式 Scope 才注册消息、Directive、精确 Offer 和取消 Tool；
-- 写请求使用稳定 Operation ID、幂等 `request_id`、Host ACK、进度和 Outcome。
+- 写请求使用稳定 Operation ID、幂等 `request_id`、Host ACK、进度和 Outcome；
+- Operation 使用原子本地状态文件恢复，Token 不进入该文件。
 
-持久化恢复、配对管理和 Streamable HTTP MCP 属于后续阶段，详见
+配对管理和 Streamable HTTP MCP 属于后续阶段，详见
 [实施计划](mcp-control-plane-plan.zh-CN.md)。
 
 ## 构建
@@ -29,6 +30,7 @@ go build -o bin/rin-mcp ./cmd/rin-mcp
 export RIN_CONTROL_TOKEN="$(openssl rand -hex 32)"
 export RIN_CONTROL_PRINCIPAL="player.one"
 export RIN_CONTROL_SCOPES="actor.read"
+export RIN_CONTROL_DATA_DIR="/absolute/path/to/rin-control-data"
 ```
 
 令牌至少包含 32 字节。不要把令牌放入仓库、MCP 参数、Prompt、游戏存档或日志。
@@ -48,7 +50,8 @@ Host 发布 Actor 时，`owner_principal_id` 必须与该 Principal 一致；否
       "env": {
         "RIN_CONTROL_TOKEN": "replace-with-a-random-secret",
         "RIN_CONTROL_PRINCIPAL": "player.one",
-        "RIN_CONTROL_SCOPES": "actor.read"
+        "RIN_CONTROL_SCOPES": "actor.read",
+        "RIN_CONTROL_DATA_DIR": "/absolute/path/to/rin-control-data"
       }
     }
   }
@@ -89,6 +92,25 @@ export RIN_CONTROL_SCOPES="actor.read,actor.direct,actor.execute,operation.cance
 刚刚发布的完整 Offer 绑定到 Operation；Host 在权威线程执行前仍要检查 Epoch、
 Descriptor、Deadline、Principal 和游戏规则。游戏自定义 Capability Scope
 也可以写入该配置，并由 Host 最终验证。
+
+## 恢复
+
+`RIN_CONTROL_DATA_DIR` 默认是当前工作目录下的 `./rin-control-data`。MCP Client
+的工作目录可能变化，正式配置应使用绝对路径。`operations.json` 使用 0600 权限、
+严格 JSON 和临时文件同步后的原子替换，最多 64 MiB；提交新请求时只使用其中
+32 MiB，为进度与 Outcome 预留空间。
+
+状态文件保存继续投递所必需的消息、Directive、Invocation、Principal Scope 和
+Outcome，不保存 Bearer Token 或模型 API Key。该目录只允许一个 `rin-mcp`
+进程写入。
+
+重启后：
+
+- 未 ACK 请求恢复为 `queued`，按原 Operation ID 重投；
+- 已 ACK 但没有 Outcome 的请求恢复为 `outcome-unknown`；
+- Host 从自己的持久 Pending/Outcome Outbox 对账；
+- Host Lease 和 Read Model 不由 Rin 持久化，重连后必须重新注册和发布；
+- 已持久化的终态 Operation 可继续由原 Principal 查询。
 
 ## Host 发布端点
 

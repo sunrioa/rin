@@ -20,6 +20,7 @@ func TestParseConfigurationUsesBoundedReadPrincipal(t *testing.T) {
 		t.Fatalf("parseConfiguration: %v", err)
 	}
 	if config.address != "127.0.0.1:7375" ||
+		config.dataDir != "./rin-control-data" ||
 		config.principal.ID != "player.one" ||
 		len(config.principal.GrantedScopes) != 1 ||
 		config.principal.GrantedScopes[0] != controlplane.ScopeActorRead {
