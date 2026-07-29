@@ -127,6 +127,7 @@ func proposalCacheKey(input rinruntime.DecisionContext) (string, error) {
 		Tags              any    `json:"tags"`
 		Actions           any    `json:"actions"`
 		CandidateGoals    any    `json:"candidate_goals"`
+		Agency            any    `json:"agency"`
 		Urgent            bool   `json:"urgent"`
 	}{
 		SessionID:         input.State.SessionID,
@@ -141,6 +142,7 @@ func proposalCacheKey(input rinruntime.DecisionContext) (string, error) {
 		Tags:              input.Request.Tags,
 		Actions:           input.Request.Offers,
 		CandidateGoals:    input.Request.CandidateGoals,
+		Agency:            input.Agency,
 		Urgent:            input.Request.Urgent,
 	})
 	if err != nil {

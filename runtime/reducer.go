@@ -223,8 +223,29 @@ func applyProposed(
 	payload proposedPayload,
 ) error {
 	proposal := payload.Proposal
-	if _, exists := state.Actors[proposal.ActorID]; !exists {
+	actor, exists := state.Actors[proposal.ActorID]
+	if !exists {
 		return fmt.Errorf("%w: proposal actor is unknown", ErrCorruptLog)
+	}
+	if proposal.Agency != nil {
+		if actor.AgencyState == nil {
+			return fmt.Errorf("%w: proposal actor agency is uninitialized", ErrCorruptLog)
+		}
+		agency := *actor.AgencyState
+		if proposal.Agency.Kind == protocol.TurnResponsive {
+			agency.ConsecutiveProactiveTurns = 0
+		} else {
+			agency.ConsecutiveProactiveTurns++
+			if proposal.Agency.Kind == protocol.TurnProactiveDialogue {
+				tick := proposal.Tick
+				agency.LastProactiveDialogueTick = &tick
+			}
+		}
+		actor.AgencyState = &agency
+		state.Actors[proposal.ActorID] = actor
+		if proposal.Tick > state.Tick {
+			state.Tick = proposal.Tick
+		}
 	}
 	canonicalizeProposalPresentation(&proposal)
 	state.Proposals[proposal.ID] = proposal

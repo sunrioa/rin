@@ -499,6 +499,15 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 		session.mu.Unlock()
 		return protocol.ActionProposal{}, false, NewError("actor_disabled", "actor is disabled", ErrConflict)
 	}
+	agencyEnabled := protocol.HasFeature(session.state.Features, protocol.FeatureActorAgency)
+	if agencyEnabled && requestSnapshot.Agency == nil {
+		session.mu.Unlock()
+		return protocol.ActionProposal{}, false, NewFieldError("feature_required", "agency turn is required by actor-agency-v1", "agency", ErrConflict)
+	}
+	if !agencyEnabled && requestSnapshot.Agency != nil {
+		session.mu.Unlock()
+		return protocol.ActionProposal{}, false, NewFieldError("feature_not_enabled", "agency turn requires actor-agency-v1", "agency", ErrConflict)
+	}
 	if len(request.CandidateGoals) > 0 && !protocol.HasFeature(session.state.Features, protocol.FeatureGoalCandidates) {
 		session.mu.Unlock()
 		return protocol.ActionProposal{}, false, NewFieldError("feature_not_enabled", "candidate goals require goal-candidates-v1", "candidate_goals", ErrConflict)
@@ -533,6 +542,42 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 	if request.Tick < session.state.Tick {
 		session.mu.Unlock()
 		return protocol.ActionProposal{}, false, NewFieldError("tick_regressed", "proposal tick is older than session state", "tick", ErrConflict)
+	}
+	var (
+		agencyDecision      *protocol.AgencyDecision
+		agencyStateSnapshot protocol.AgencyState
+	)
+	if agencyEnabled {
+		if actor.Agency == nil || actor.AgencyState == nil {
+			session.mu.Unlock()
+			return protocol.ActionProposal{}, false, NewError("state_invalid", "actor agency state is missing", ErrCorruptLog)
+		}
+		decision := protocol.ResolveAgency(*requestSnapshot.Agency, *actor.Agency)
+		switch decision.Kind {
+		case protocol.TurnResponsive:
+		case protocol.TurnProactiveDialogue:
+			if !protocol.AgencyAllowsInitiative(decision.Effective, protocol.InitiativeDialogue) {
+				session.mu.Unlock()
+				return protocol.ActionProposal{}, false, NewError("agency_initiative", "actor policy does not allow proactive dialogue", ErrNotDue)
+			}
+			if actor.AgencyState.LastProactiveDialogueTick != nil &&
+				request.Tick-*actor.AgencyState.LastProactiveDialogueTick < decision.Effective.MessageCooldownTicks {
+				session.mu.Unlock()
+				return protocol.ActionProposal{}, false, NewError("agency_cooldown", "actor proactive dialogue is cooling down", ErrNotDue)
+			}
+		case protocol.TurnProactiveAction:
+			if !protocol.AgencyAllowsInitiative(decision.Effective, protocol.InitiativeActions) {
+				session.mu.Unlock()
+				return protocol.ActionProposal{}, false, NewError("agency_initiative", "actor policy does not allow proactive actions", ErrNotDue)
+			}
+		}
+		if decision.Kind != protocol.TurnResponsive &&
+			actor.AgencyState.ConsecutiveProactiveTurns >= decision.Effective.MaxConsecutiveTurns {
+			session.mu.Unlock()
+			return protocol.ActionProposal{}, false, NewError("agency_turn_limit", "actor reached its consecutive proactive turn limit", ErrNotDue)
+		}
+		agencyDecision = &decision
+		agencyStateSnapshot = *actor.AgencyState
 	}
 	if !request.Urgent && request.Tick < actor.NextThinkTick {
 		session.mu.Unlock()
@@ -571,17 +616,27 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 		session.mu.Unlock()
 		return protocol.ActionProposal{}, false, NewError("request_copy_failed", "could not prepare policy context", err)
 	}
+	var policyAgency *protocol.AgencyDecision
+	if agencyDecision != nil {
+		isolatedAgency, copyErr := clone(*agencyDecision)
+		if copyErr != nil {
+			session.mu.Unlock()
+			return protocol.ActionProposal{}, false, NewError("state_copy_failed", "could not prepare agency policy context", copyErr)
+		}
+		policyAgency = &isolatedAgency
+	}
 	baseRevision := session.state.Revision
 	baseHash := session.state.HeadHash
 	baseWorldRevision := session.state.WorldRevision
 	baseLineageEpoch := session.lineageEpoch
-	arbitrationEnabled := protocol.HasFeature(session.state.Features, protocol.FeatureArbitration)
+	worldRevisionTracking := worldRevisionEnabled(session.state.Features)
 	session.mu.Unlock()
 
 	draft, err := e.decisionProvider.Propose(ctx, DecisionContext{
 		State:             stateCopy,
 		Actor:             policyActor,
 		Request:           policyRequest,
+		Agency:            policyAgency,
 		LineageGeneration: baseLineageEpoch,
 	})
 	if err != nil {
@@ -617,9 +672,14 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 		proposal, resultErr := proposalFromIdentity(identity)
 		return proposal, duplicate, resultErr
 	}
-	worldChanged := arbitrationEnabled && session.state.WorldRevision != baseWorldRevision
-	legacyChanged := !arbitrationEnabled && (session.state.Revision != baseRevision || session.state.HeadHash != baseHash)
-	if session.lineageEpoch != baseLineageEpoch || worldChanged || legacyChanged {
+	worldChanged := worldRevisionTracking && session.state.WorldRevision != baseWorldRevision
+	legacyChanged := !worldRevisionTracking && (session.state.Revision != baseRevision || session.state.HeadHash != baseHash)
+	agencyChanged := false
+	if agencyDecision != nil {
+		currentActor, exists := session.state.Actors[request.ActorID]
+		agencyChanged = !exists || !agencyStatesEqual(currentActor.AgencyState, agencyStateSnapshot)
+	}
+	if session.lineageEpoch != baseLineageEpoch || worldChanged || legacyChanged || agencyChanged {
 		return protocol.ActionProposal{}, false, NewError("state_changed", "session changed while policy was proposing; retry with a new request id", ErrStale)
 	}
 	if !canRetainAnotherProposal(session.state) {
@@ -660,6 +720,7 @@ func (e *Engine) Propose(ctx context.Context, request protocol.ProposeRequest) (
 		BasedOnWorldRevision: baseWorldRevision,
 		CreatedRevision:      session.state.Revision + 1,
 		DecisionWindow:       request.DecisionWindow,
+		Agency:               agencyDecision,
 		Action:               selected,
 		Stance:               draft.Stance,
 		Summary:              summary,
@@ -2368,6 +2429,18 @@ func worldRevisionAdvanceError(state protocol.SessionState) error {
 		)
 	}
 	return nil
+}
+
+func agencyStatesEqual(current *protocol.AgencyState, snapshot protocol.AgencyState) bool {
+	if current == nil ||
+		current.UpdatedTick != snapshot.UpdatedTick ||
+		current.UpdatedRevision != snapshot.UpdatedRevision ||
+		current.ConsecutiveProactiveTurns != snapshot.ConsecutiveProactiveTurns ||
+		(current.LastProactiveDialogueTick == nil) != (snapshot.LastProactiveDialogueTick == nil) {
+		return false
+	}
+	return current.LastProactiveDialogueTick == nil ||
+		*current.LastProactiveDialogueTick == *snapshot.LastProactiveDialogueTick
 }
 
 func goalExists(actor protocol.ActorState, goalID string) bool {

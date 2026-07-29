@@ -211,6 +211,7 @@ type DecisionContext struct {
 	State             protocol.SessionState
 	Actor             protocol.ActorState
 	Request           protocol.ProposeRequest
+	Agency            *protocol.AgencyDecision
 	LineageGeneration uint64
 }
 

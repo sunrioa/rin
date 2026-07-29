@@ -74,6 +74,7 @@ func runMutationStateClosureSequence(t *testing.T, operations []byte) {
 			before := mustEngineState(t, engine, sessionID)
 			tick := before.Tick + 1
 			request := invariantPropose(sessionID, "propose.action-report.property."+suffix, nil)
+			request.Agency = invariantAgencyTurn()
 			request.Tick = tick
 			request.Urgent = true
 			proposal, _, err := engine.Propose(context.Background(), request)
@@ -103,6 +104,7 @@ func runMutationStateClosureSequence(t *testing.T, operations []byte) {
 			before := mustEngineState(t, engine, sessionID)
 			tick := before.Tick + 1
 			request := invariantPropose(sessionID, "propose.batch.property."+suffix, nil)
+			request.Agency = invariantAgencyTurn()
 			request.Tick = tick
 			request.Urgent = true
 			request.DecisionWindow.Mode = host.DecisionSimultaneous
@@ -145,6 +147,7 @@ func runMutationStateClosureSequence(t *testing.T, operations []byte) {
 			before := mustEngineState(t, engine, sessionID)
 			tick := before.Tick + 1
 			request := invariantPropose(sessionID, "propose.arbitrate.property."+suffix, nil)
+			request.Agency = invariantAgencyTurn()
 			request.Tick = tick
 			request.Urgent = true
 			request.DecisionWindow.Mode = host.DecisionSimultaneous
@@ -217,6 +220,7 @@ func runMutationStateClosureSequence(t *testing.T, operations []byte) {
 			before := mustEngineState(t, engine, sessionID)
 			tick := before.Tick + 1
 			request := invariantPropose(sessionID, "propose.reject.property."+suffix, nil)
+			request.Agency = invariantAgencyTurn()
 			request.Tick = tick
 			request.Urgent = true
 			proposal, _, err := engine.Propose(context.Background(), request)
@@ -303,6 +307,20 @@ func runMutationStateClosureSequence(t *testing.T, operations []byte) {
 	}
 
 	assertSnapshotRestoreRoundTrip(t, engine, sessionID)
+}
+
+func invariantAgencyTurn() *protocol.AgencyTurn {
+	maximum := protocol.AgencyPolicy{
+		Initiative:           protocol.InitiativeActions,
+		Obedience:            protocol.ObedienceIndependent,
+		MessageCooldownTicks: 0,
+		MaxConsecutiveTurns:  8,
+	}
+	return &protocol.AgencyTurn{
+		Kind:         protocol.TurnResponsive,
+		HostCeiling:  maximum,
+		ServerPolicy: maximum,
+	}
 }
 
 func assertEngineTransitionClosure(

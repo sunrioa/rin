@@ -189,6 +189,41 @@ func TestCachedPolicySeparatesLineageHeadAndActorState(t *testing.T) {
 	}
 }
 
+func TestCachedPolicySeparatesAgencyContract(t *testing.T) {
+	underlying := &countingPolicy{}
+	cached, err := policy.NewCached(
+		underlying,
+		policy.CacheConfig{MaxEntries: 8, TTL: time.Minute},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := modelInput()
+	input.Agency = &protocol.AgencyDecision{
+		Kind: protocol.TurnResponsive,
+		Effective: protocol.AgencyPolicy{
+			Initiative:           protocol.InitiativePassive,
+			Obedience:            protocol.ObedienceObey,
+			MessageCooldownTicks: 1200,
+			MaxConsecutiveTurns:  2,
+		},
+	}
+	if _, err := cached.Propose(context.Background(), input); err != nil {
+		t.Fatal(err)
+	}
+	changed := input
+	agency := *input.Agency
+	agency.Effective.Obedience = protocol.ObedienceIndependent
+	changed.Agency = &agency
+	changed.Request.RequestID = "request.changed-agency"
+	if _, err := cached.Propose(context.Background(), changed); err != nil {
+		t.Fatal(err)
+	}
+	if underlying.count() != 2 {
+		t.Fatalf("different agency contracts shared a cache entry: %d", underlying.count())
+	}
+}
+
 func TestCachedPolicyCollapsesConcurrentCalls(t *testing.T) {
 	underlying := &countingPolicy{started: make(chan struct{}), release: make(chan struct{})}
 	cached, _ := policy.NewCached(underlying, policy.CacheConfig{MaxEntries: 8, TTL: time.Minute})
