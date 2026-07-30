@@ -89,6 +89,18 @@ func TestHTTPHandlerRequiresTokenAndStrictJSON(t *testing.T) {
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("duplicate-field status = %d, body = %s", response.Code, response.Body)
 	}
+
+	clientInfo := httptest.NewRequest(
+		http.MethodGet,
+		"/control/v1/client/info",
+		nil,
+	)
+	clientInfo.Header.Set("Authorization", "Bearer "+testControlToken)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, clientInfo)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("unconfigured client API status = %d", response.Code)
+	}
 }
 
 func TestHTTPHandlerDeliversAndRecordsOperationLifecycle(t *testing.T) {

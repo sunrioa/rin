@@ -13,7 +13,7 @@ import (
 
 // Gateway binds one configured external principal to Control Plane tools.
 type Gateway struct {
-	service   *controlplane.Service
+	client    ControlClient
 	principal host.Principal
 	server    *mcp.Server
 }
@@ -26,6 +26,20 @@ func New(
 	if service == nil {
 		return nil, errorsInvalid("service is required")
 	}
+	return NewClient(&serviceClient{
+		service:   service,
+		principal: clonePrincipal(principal),
+	}, principal)
+}
+
+// NewClient creates a gateway backed by a local or remote Control client.
+func NewClient(
+	client ControlClient,
+	principal host.Principal,
+) (*Gateway, error) {
+	if client == nil {
+		return nil, errorsInvalid("client is required")
+	}
 	if err := host.ValidatePrincipal(principal); err != nil {
 		return nil, errorsInvalid("principal: " + err.Error())
 	}
@@ -33,7 +47,7 @@ func New(
 		return nil, errorsInvalid("principal has no Control Plane scope")
 	}
 	gateway := &Gateway{
-		service:   service,
+		client:    client,
 		principal: clonePrincipal(principal),
 	}
 	gateway.server = mcp.NewServer(
@@ -140,11 +154,11 @@ func (gateway *Gateway) addCancelTool() {
 }
 
 func (gateway *Gateway) listWorlds(
-	_ context.Context,
+	ctx context.Context,
 	_ *mcp.CallToolRequest,
 	_ ListWorldsInput,
 ) (*mcp.CallToolResult, ListWorldsOutput, error) {
-	views, err := gateway.service.ListWorlds(gateway.principal)
+	views, err := gateway.client.ListWorlds(ctx)
 	if err != nil {
 		return nil, ListWorldsOutput{}, err
 	}
@@ -163,12 +177,12 @@ func (gateway *Gateway) listWorlds(
 }
 
 func (gateway *Gateway) listActors(
-	_ context.Context,
+	ctx context.Context,
 	_ *mcp.CallToolRequest,
 	input ListActorsInput,
 ) (*mcp.CallToolResult, ListActorsOutput, error) {
-	views, err := gateway.service.ListActors(
-		gateway.principal, input.HostID, input.WorldID,
+	views, err := gateway.client.ListActors(
+		ctx, input.HostID, input.WorldID,
 	)
 	if err != nil {
 		return nil, ListActorsOutput{}, err
@@ -184,12 +198,12 @@ func (gateway *Gateway) listActors(
 }
 
 func (gateway *Gateway) getActorState(
-	_ context.Context,
+	ctx context.Context,
 	_ *mcp.CallToolRequest,
 	input GetActorStateInput,
 ) (*mcp.CallToolResult, GetActorStateOutput, error) {
-	view, err := gateway.service.GetActor(
-		gateway.principal, input.HostID, input.WorldID, input.ActorID,
+	view, err := gateway.client.GetActor(
+		ctx, input.HostID, input.WorldID, input.ActorID,
 	)
 	if err != nil {
 		return nil, GetActorStateOutput{}, err
@@ -202,12 +216,12 @@ func (gateway *Gateway) getActorState(
 }
 
 func (gateway *Gateway) listActorOffers(
-	_ context.Context,
+	ctx context.Context,
 	_ *mcp.CallToolRequest,
 	input ListActorOffersInput,
 ) (*mcp.CallToolResult, ListActorOffersOutput, error) {
-	offers, err := gateway.service.ListActorOffers(
-		gateway.principal, input.HostID, input.WorldID, input.ActorID,
+	offers, err := gateway.client.ListActorOffers(
+		ctx, input.HostID, input.WorldID, input.ActorID,
 	)
 	if err != nil {
 		return nil, ListActorOffersOutput{}, err
@@ -236,12 +250,12 @@ func (gateway *Gateway) listActorOffers(
 }
 
 func (gateway *Gateway) sendActorMessage(
-	_ context.Context,
+	ctx context.Context,
 	_ *mcp.CallToolRequest,
 	input SendActorMessageInput,
 ) (*mcp.CallToolResult, OperationOutput, error) {
-	operation, err := gateway.service.SendActorMessage(
-		gateway.principal,
+	operation, err := gateway.client.SendActorMessage(
+		ctx,
 		controlplane.ActorTextInput{
 			RequestID: input.RequestID,
 			HostID:    input.HostID,
@@ -254,12 +268,12 @@ func (gateway *Gateway) sendActorMessage(
 }
 
 func (gateway *Gateway) sendActorDirective(
-	_ context.Context,
+	ctx context.Context,
 	_ *mcp.CallToolRequest,
 	input SendActorDirectiveInput,
 ) (*mcp.CallToolResult, OperationOutput, error) {
-	operation, err := gateway.service.SendActorDirective(
-		gateway.principal,
+	operation, err := gateway.client.SendActorDirective(
+		ctx,
 		controlplane.ActorTextInput{
 			RequestID: input.RequestID,
 			HostID:    input.HostID,
@@ -272,12 +286,12 @@ func (gateway *Gateway) sendActorDirective(
 }
 
 func (gateway *Gateway) executeActorOffer(
-	_ context.Context,
+	ctx context.Context,
 	_ *mcp.CallToolRequest,
 	input ExecuteActorOfferInput,
 ) (*mcp.CallToolResult, OperationOutput, error) {
-	operation, err := gateway.service.ExecuteActorOffer(
-		gateway.principal,
+	operation, err := gateway.client.ExecuteActorOffer(
+		ctx,
 		controlplane.ExecuteOfferInput{
 			RequestID: input.RequestID,
 			HostID:    input.HostID,
@@ -290,25 +304,23 @@ func (gateway *Gateway) executeActorOffer(
 }
 
 func (gateway *Gateway) getOperation(
-	_ context.Context,
+	ctx context.Context,
 	_ *mcp.CallToolRequest,
 	input GetOperationInput,
 ) (*mcp.CallToolResult, OperationOutput, error) {
-	operation, err := gateway.service.GetOperation(
-		gateway.principal,
-		input.OperationID,
+	operation, err := gateway.client.GetOperation(
+		ctx, input.OperationID,
 	)
 	return nil, OperationOutput{Operation: operation}, err
 }
 
 func (gateway *Gateway) cancelOperation(
-	_ context.Context,
+	ctx context.Context,
 	_ *mcp.CallToolRequest,
 	input CancelOperationInput,
 ) (*mcp.CallToolResult, OperationOutput, error) {
-	operation, err := gateway.service.CancelOperation(
-		gateway.principal,
-		input.OperationID,
+	operation, err := gateway.client.CancelOperation(
+		ctx, input.OperationID,
 	)
 	return nil, OperationOutput{Operation: operation}, err
 }

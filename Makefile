@@ -85,3 +85,5 @@ vet:
 build:
 	mkdir -p bin
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o bin/rin ./cmd/rin
+	CGO_ENABLED=0 $(GO) build -trimpath -o bin/rin-control ./cmd/rin-control
+	CGO_ENABLED=0 $(GO) build -trimpath -o bin/rin-mcp ./cmd/rin-mcp

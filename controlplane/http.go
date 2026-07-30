@@ -21,15 +21,17 @@ const defaultHTTPMaxBodyBytes int64 = 1 << 20
 
 // HTTPOptions configures the loopback Host Control transport.
 type HTTPOptions struct {
-	Token        string
-	MaxBodyBytes int64
+	Token           string
+	MaxBodyBytes    int64
+	ClientPrincipal *host.Principal
 }
 
 type hostHTTPHandler struct {
-	service      *Service
-	token        string
-	maxBodyBytes int64
-	handler      http.Handler
+	service         *Service
+	token           string
+	maxBodyBytes    int64
+	clientPrincipal *host.Principal
+	handler         http.Handler
 }
 
 type leaseRequest struct {
@@ -69,6 +71,29 @@ type outcomeRequest struct {
 	Output  json.RawMessage    `json:"output,omitempty"`
 }
 
+// ClientInfo describes the fixed identity exposed by one Control Daemon.
+type ClientInfo struct {
+	ContractVersion string         `json:"contract_version"`
+	Principal       host.Principal `json:"principal"`
+}
+
+type emptyRequest struct{}
+
+type worldTargetRequest struct {
+	HostID  string `json:"host_id"`
+	WorldID string `json:"world_id"`
+}
+
+type actorTargetRequest struct {
+	HostID  string `json:"host_id"`
+	WorldID string `json:"world_id"`
+	ActorID string `json:"actor_id"`
+}
+
+type operationTargetRequest struct {
+	OperationID string `json:"operation_id"`
+}
+
 type errorResponse struct {
 	Error string `json:"error"`
 }
@@ -88,10 +113,29 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 	if maxBodyBytes > 8<<20 {
 		return nil, fmt.Errorf("%w: max body must not exceed 8 MiB", ErrInvalid)
 	}
+	var clientPrincipal *host.Principal
+	if options.ClientPrincipal != nil {
+		if err := host.ValidatePrincipal(*options.ClientPrincipal); err != nil {
+			return nil, fmt.Errorf(
+				"%w: client principal: %v",
+				ErrInvalid,
+				err,
+			)
+		}
+		if !principalHasControlScope(*options.ClientPrincipal) {
+			return nil, fmt.Errorf(
+				"%w: client principal has no Control Plane scope",
+				ErrInvalid,
+			)
+		}
+		principal := clonePrincipalValue(*options.ClientPrincipal)
+		clientPrincipal = &principal
+	}
 	server := &hostHTTPHandler{
-		service:      service,
-		token:        options.Token,
-		maxBodyBytes: maxBodyBytes,
+		service:         service,
+		token:           options.Token,
+		maxBodyBytes:    maxBodyBytes,
+		clientPrincipal: clientPrincipal,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", server.health)
@@ -103,6 +147,18 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 	mux.HandleFunc("POST /control/v1/ack", server.acknowledge)
 	mux.HandleFunc("POST /control/v1/run", server.reportRun)
 	mux.HandleFunc("POST /control/v1/outcome", server.reportOutcome)
+	if clientPrincipal != nil {
+		mux.HandleFunc("GET /control/v1/client/info", server.clientInfo)
+		mux.HandleFunc("POST /control/v1/client/worlds", server.clientWorlds)
+		mux.HandleFunc("POST /control/v1/client/actors", server.clientActors)
+		mux.HandleFunc("POST /control/v1/client/actor", server.clientActor)
+		mux.HandleFunc("POST /control/v1/client/offers", server.clientOffers)
+		mux.HandleFunc("POST /control/v1/client/message", server.clientMessage)
+		mux.HandleFunc("POST /control/v1/client/directive", server.clientDirective)
+		mux.HandleFunc("POST /control/v1/client/execute-offer", server.clientExecuteOffer)
+		mux.HandleFunc("POST /control/v1/client/operation", server.clientOperation)
+		mux.HandleFunc("POST /control/v1/client/cancel", server.clientCancel)
+	}
 	server.handler = server.secure(mux)
 	return server, nil
 }
@@ -319,6 +375,201 @@ func (server *hostHTTPHandler) reportOutcome(
 	writeJSON(response, http.StatusOK, map[string]string{"status": "recorded"})
 }
 
+func (server *hostHTTPHandler) clientInfo(
+	response http.ResponseWriter,
+	_ *http.Request,
+) {
+	writeJSON(response, http.StatusOK, ClientInfo{
+		ContractVersion: ContractVersion,
+		Principal:       clonePrincipalValue(*server.clientPrincipal),
+	})
+}
+
+func (server *hostHTTPHandler) clientWorlds(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input emptyRequest
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	views, err := server.service.ListWorlds(*server.clientPrincipal)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	if views == nil {
+		views = []WorldView{}
+	}
+	writeJSON(response, http.StatusOK, views)
+}
+
+func (server *hostHTTPHandler) clientActors(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input worldTargetRequest
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	views, err := server.service.ListActors(
+		*server.clientPrincipal,
+		input.HostID,
+		input.WorldID,
+	)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	if views == nil {
+		views = []ActorView{}
+	}
+	writeJSON(response, http.StatusOK, views)
+}
+
+func (server *hostHTTPHandler) clientActor(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input actorTargetRequest
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	view, err := server.service.GetActor(
+		*server.clientPrincipal,
+		input.HostID,
+		input.WorldID,
+		input.ActorID,
+	)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, view)
+}
+
+func (server *hostHTTPHandler) clientOffers(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input actorTargetRequest
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	offers, err := server.service.ListActorOffers(
+		*server.clientPrincipal,
+		input.HostID,
+		input.WorldID,
+		input.ActorID,
+	)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	if offers == nil {
+		offers = []host.ActionOffer{}
+	}
+	writeJSON(response, http.StatusOK, offers)
+}
+
+func (server *hostHTTPHandler) clientMessage(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input ActorTextInput
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	operation, err := server.service.SendActorMessage(*server.clientPrincipal, input)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, operation)
+}
+
+func (server *hostHTTPHandler) clientDirective(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input ActorTextInput
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	operation, err := server.service.SendActorDirective(*server.clientPrincipal, input)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, operation)
+}
+
+func (server *hostHTTPHandler) clientExecuteOffer(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input ExecuteOfferInput
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	operation, err := server.service.ExecuteActorOffer(
+		*server.clientPrincipal,
+		input,
+	)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, operation)
+}
+
+func (server *hostHTTPHandler) clientOperation(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input operationTargetRequest
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	operation, err := server.service.GetOperation(
+		*server.clientPrincipal,
+		input.OperationID,
+	)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, operation)
+}
+
+func (server *hostHTTPHandler) clientCancel(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input operationTargetRequest
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	operation, err := server.service.CancelOperation(
+		*server.clientPrincipal,
+		input.OperationID,
+	)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, operation)
+}
+
 func (server *hostHTTPHandler) decode(
 	response http.ResponseWriter,
 	request *http.Request,
@@ -346,6 +597,22 @@ func (server *hostHTTPHandler) decode(
 		return fmt.Errorf("invalid request: %w", err)
 	}
 	return nil
+}
+
+func principalHasControlScope(principal host.Principal) bool {
+	for _, scope := range []string{
+		ScopeActorRead,
+		ScopeActorConverse,
+		ScopeActorDirect,
+		ScopeActorExecute,
+		ScopeOperationCancel,
+		ScopeHostAdmin,
+	} {
+		if hasScope(principal, scope) {
+			return true
+		}
+	}
+	return false
 }
 
 func writeServiceError(response http.ResponseWriter, err error) {
