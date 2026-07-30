@@ -8,6 +8,12 @@ protocol facts belong in OpenAPI and the relevant topic guide. Temporary design
 notes are removed after their implementation lands instead of becoming a second
 roadmap.
 
+Current status: the Control Plane and the first persistent-character slice in
+the Minecraft/Fabric reference Host have completed automated implementation and
+entered [human acceptance](https://github.com/sunrioa/rin-mi/blob/main/docs/ACCEPTANCE.md).
+Generic task graphs, large blueprints, and multiple companions do not expand
+before that gate.
+
 ## Product Direction
 
 Rin's first priority is helping games implement characters that persist within
@@ -81,9 +87,12 @@ has automated evidence.
 
 - [x] Remove completed one-off design notes and the duplicate MCP plan.
 - [x] Keep current work, future work, and explicit non-goals in this file.
-- [ ] Update one contract source and one user entry point per feature instead of
+
+Ongoing constraints:
+
+- Update one contract source and one user entry point per feature instead of
   maintaining parallel specifications.
-- [ ] Before release, remove unused Preview surfaces that have neither callers nor
+- Before release, remove unused Preview surfaces that have neither callers nor
   compatibility commitments.
 
 ### 3. One-save persistent-character reference slice
@@ -91,42 +100,47 @@ has automated evidence.
 This phase primarily lands in a real Fabric Host and proves the generic contract
 through cross-repository tests.
 
-- [ ] Bind character identity, Canon, relationships, memory provenance, and
-  unfinished goals to one world save.
-- [ ] Separate facts known by the player, known by the character, shared, and not
-  yet spoken.
-- [ ] Route in-game commands, internal AI, and MCP through one character-turn
+- [x] Bind character identity, Canon, memory provenance, and unfinished goals to
+  one world save.
+- [x] Separate facts known by the player, known by the character, shared, and
+  not yet spoken.
+- [x] Route in-game commands, internal AI, and MCP through one character-turn
   execution service.
-- [ ] Admit validated model dialogue as a traceable Canon Event.
-- [ ] Recall bounded player wording without leaking another player or stale
+- [x] Admit validated model dialogue as a traceable Canon Event.
+- [x] Recall bounded player wording without leaking another player or stale
   timeline.
-- [ ] Provide online, offline, and automatic fallback paths; offline behavior may
-  be visibly simpler.
-- [ ] Test restart, load, dimension change, death, and temporary Host outage.
+- [x] Provide explicit online and offline paths; offline behavior may be visibly
+  simpler, and online failure never pretends success.
+- [x] Automate save migration, retained-turn, unload, reload, and temporary Host
+  outage recovery.
+- [ ] Human-test death, dimension changes, relationship feel, and 30-to-60-minute
+  memory quality.
 
 ### 4. Proactivity and single control ownership
 
-- [ ] Proactive dialogue is off by default and configurable by actor cooldown,
-  quiet hours, distance, and daily limit.
-- [ ] Dormant actors wake only from explicit conditions, not unbounded background
-  polling.
-- [ ] A character can propose small goals, ask follow-up questions, refuse, and
-  revise a short-term plan.
-- [ ] One actor has one write-control lease at a time; in-game, internal AI, and
+- [x] Proactive dialogue is off by default and configurable by initiative level,
+  cooldown, and consecutive-turn limit.
+- [x] Dormant actors wake only while the owner is online, a relevant thread
+  exists, and cooldown permits; there is no unbounded background polling.
+- [x] A character can initiate contextual dialogue, propose one reviewable small
+  goal, and refuse unsafe action.
+- [x] One actor has one write-control lease at a time; in-game, internal AI, and
   MCP contention returns an explicit busy or handoff result.
-- [ ] Autonomous behavior uses the same Capability, Epoch, budget, and Outcome
-  chain as external offers.
+- [x] Autonomous and external paths share the control service, Capability, and
+  exact offers; world action is proposed before acceptance.
+- [ ] Quiet hours, daily limits, and richer autonomous goals wait for human
+  evidence that the current initiative adds value.
 
 ### 5. Bounded world tasks
 
-- [ ] Expose a small stable resource set first: held item, bounded inventory slots,
-  nearby container summaries, and tool availability.
-- [ ] Every world mutation is an exact Host Offer; a model cannot construct
+- [x] Expose bounded inventory slots, normal-container summaries, low-risk tools,
+  and nearby allowlisted resources.
+- [x] Every world mutation is an exact Host Offer; a model cannot construct
   arbitrary item IDs, coordinates, or method names.
-- [ ] Complete one interruptible long-task loop: plan, obtain resources, move,
-  execute, report progress, recover failure, and explain the outcome.
-- [ ] Revalidate chunk unload, container changes, resources taken by players, tool
-  damage, and permission revocation.
+- [x] Complete one fixed 15-step gather, craft, and build loop with approval,
+  pause, resume, cancellation, and restart recovery.
+- [x] Revalidate chunk load, block/container changes, resource counts, tool state,
+  and capability revocation.
 - [ ] Expand item, container, and task coverage only after the first loop passes
   human playtesting.
 
@@ -165,6 +179,10 @@ The following areas retain design space but are not part of the current round.
 - Auditable Canon correction, forgetting, export, and player privacy deletion.
 - More natural multi-turn conversation, speech interruption, TTS voices, and
   accessible subtitles.
+- Configurable quiet hours, daily initiative limits, relationship stages, and
+  character-readable reasons for proactive contact.
+- Optional deterministic auto-fallback after online failure; the default remains
+  explicit failure rather than a silent change in character capability.
 
 ### Actions and tasks
 
