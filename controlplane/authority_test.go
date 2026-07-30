@@ -219,7 +219,8 @@ func TestExternalAuthorityRequiresBoundPrincipal(t *testing.T) {
 			TurnID:    "turn.agent.one",
 		},
 	)
-	if err != nil || operation.Kind != ControlOffer {
+	if err != nil || operation.Kind != ControlOffer ||
+		operation.TurnID != "turn.agent.one" {
 		t.Fatalf("bound controller offer = %#v, %v", operation, err)
 	}
 }
@@ -236,7 +237,8 @@ func TestExternalControllerQueuesBoundActorUtterance(t *testing.T) {
 		Text:      "I noticed you have been building for a while.",
 	}
 	operation, err := service.SubmitActorUtterance(principal, input)
-	if err != nil || operation.Kind != ControlUtterance {
+	if err != nil || operation.Kind != ControlUtterance ||
+		operation.TurnID != input.TurnID {
 		t.Fatalf("SubmitActorUtterance = %#v, %v", operation, err)
 	}
 	retried, err := service.SubmitActorUtterance(principal, input)

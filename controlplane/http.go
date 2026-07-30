@@ -153,6 +153,7 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 		mux.HandleFunc("POST /control/v1/client/worlds", server.clientWorlds)
 		mux.HandleFunc("POST /control/v1/client/actors", server.clientActors)
 		mux.HandleFunc("POST /control/v1/client/actor", server.clientActor)
+		mux.HandleFunc("POST /control/v1/client/wait-actor", server.clientWaitActor)
 		mux.HandleFunc("POST /control/v1/client/offers", server.clientOffers)
 		mux.HandleFunc("POST /control/v1/client/message", server.clientMessage)
 		mux.HandleFunc("POST /control/v1/client/directive", server.clientDirective)
@@ -452,6 +453,27 @@ func (server *hostHTTPHandler) clientActor(
 		return
 	}
 	writeJSON(response, http.StatusOK, view)
+}
+
+func (server *hostHTTPHandler) clientWaitActor(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input WaitActorInput
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	update, err := server.service.WaitActor(
+		request.Context(),
+		*server.clientPrincipal,
+		input,
+	)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, update)
 }
 
 func (server *hostHTTPHandler) clientOffers(

@@ -828,6 +828,7 @@ func operationView(operation *operationState) OperationView {
 		WorldID:          operation.request.WorldID,
 		ActorID:          operation.request.ActorID,
 		Kind:             operation.request.Kind,
+		TurnID:           operation.request.TurnID,
 		Status:           operation.status,
 		CancelRequested:  operation.cancel,
 		DeliveryAttempts: operation.attempts,

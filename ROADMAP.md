@@ -49,6 +49,10 @@ Rin 不是游戏引擎、通用自动化平台或模型代理服务。渲染、�
   ACK、进度和 Outcome。
 - MCP 和 Host API 共用稳定 Operation ID、Epoch/Observation Binding 与精确
   Host Offer。
+- Host 发布单一 `decision_authority`，在内部控制与一个精确外部 Principal 之间
+  转交；修订号会隔离旧回合。
+- 外部控制器可以长轮询脱敏 Actor 状态，并以同一 `turn_id` 提交角色对白和精确
+  Offer 选择。
 - 状态目录独占锁、旧时间线失效、孤儿操作过期和有界恢复。
 - 独立 [`api/control-openapi.json`](api/control-openapi.json) 契约及官方 MCP
   Conformance 的能力匹配门禁。
@@ -95,9 +99,14 @@ Rin 不是游戏引擎、通用自动化平台或模型代理服务。渲染、�
 - [x] 主动对话默认关闭，并可配置主动级别、冷却和连续主动回合上限。
 - [x] Dormant Actor 仅在主人在线、存在可继续话题且满足冷却时唤醒，不做无限后台轮询。
 - [x] 角色可以发起有上下文对白、提出一个可审核小目标，并拒绝不安全动作。
-- [x] 同一 Actor 同一时刻只有一个写控制租约；游戏内、内部 AI 和 MCP 竞争时给出
-  明确的忙碌或转交结果。
-- [x] 自动行为与外部入口共用控制服务、Capability 和精确 Offer；世界动作先提议后确认。
+- [x] 同一 Actor 只有一个决策控制源：内部 Runtime，或绑定一个精确 Principal 的
+  外部 Agent；控制权修订会使尚未接受的旧回合失效。
+- [x] 外部 Agent 可以等待状态变化、作为角色说话并选择 Host Offer；对白和动作可用
+  同一个 `turn_id` 关联。
+- [x] `character-bound` 与 `agent-avatar` 明确区分角色人格和外部 Agent 人格；
+  Rin 不在控制源之间复制私有记忆。
+- [x] 自动行为与外部入口共用 Capability、精确 Offer 和 Host 最终授权；语义决策
+  与逐 Tick 执行保持分层。
 - [ ] 安静时段、每日上限和更丰富的自主目标等待真人确认当前主动性有价值后再做。
 
 ### 5. 有界世界任务

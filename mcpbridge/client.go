@@ -12,6 +12,10 @@ type ControlClient interface {
 	ListWorlds(context.Context) ([]controlplane.WorldView, error)
 	ListActors(context.Context, string, string) ([]controlplane.ActorView, error)
 	GetActor(context.Context, string, string, string) (controlplane.ActorView, error)
+	WaitActor(
+		context.Context,
+		controlplane.WaitActorInput,
+	) (controlplane.ActorUpdate, error)
 	ListActorOffers(
 		context.Context,
 		string,
@@ -66,6 +70,13 @@ func (client *serviceClient) GetActor(
 		worldID,
 		actorID,
 	)
+}
+
+func (client *serviceClient) WaitActor(
+	ctx context.Context,
+	input controlplane.WaitActorInput,
+) (controlplane.ActorUpdate, error) {
+	return client.service.WaitActor(ctx, client.principal, input)
 }
 
 func (client *serviceClient) ListActorOffers(

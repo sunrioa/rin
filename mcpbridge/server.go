@@ -110,6 +110,11 @@ func (gateway *Gateway) addReadTools() {
 		Annotations: annotations,
 	}, gateway.getActorState)
 	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name:        "wait_actor_update",
+		Description: "Wait up to 25 seconds for a newer redacted actor observation or authority revision.",
+		Annotations: annotations,
+	}, gateway.waitActorUpdate)
+	mcp.AddTool(gateway.server, &mcp.Tool{
 		Name:        "list_actor_offers",
 		Description: "List exact unexpired action offers currently published for an actor.",
 		Annotations: annotations,
@@ -224,6 +229,35 @@ func (gateway *Gateway) getActorState(
 		return nil, GetActorStateOutput{}, err
 	}
 	return nil, GetActorStateOutput{Actor: actor}, nil
+}
+
+func (gateway *Gateway) waitActorUpdate(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input WaitActorUpdateInput,
+) (*mcp.CallToolResult, WaitActorUpdateOutput, error) {
+	update, err := gateway.client.WaitActor(
+		ctx,
+		controlplane.WaitActorInput{
+			HostID:                 input.HostID,
+			WorldID:                input.WorldID,
+			ActorID:                input.ActorID,
+			AfterObservationSeq:    input.AfterObservationSeq,
+			AfterAuthorityRevision: input.AfterAuthorityRevision,
+			WaitMillis:             input.WaitMillis,
+		},
+	)
+	if err != nil {
+		return nil, WaitActorUpdateOutput{}, err
+	}
+	actor, err := convertActor(update.Actor)
+	if err != nil {
+		return nil, WaitActorUpdateOutput{}, err
+	}
+	return nil, WaitActorUpdateOutput{
+		Actor:   actor,
+		Changed: update.Changed,
+	}, nil
 }
 
 func (gateway *Gateway) listActorOffers(

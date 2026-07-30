@@ -140,6 +140,25 @@ type ActorView struct {
 	LeaseExpiresAtMillis int64             `json:"lease_expires_at_unix_millis"`
 }
 
+// WaitActorInput identifies the last actor cursor observed by a client.
+// Waiting is bounded and returns the same principal-filtered ActorView used by
+// ordinary reads.
+type WaitActorInput struct {
+	HostID                 string `json:"host_id"`
+	WorldID                string `json:"world_id"`
+	ActorID                string `json:"actor_id"`
+	AfterObservationSeq    uint64 `json:"after_observation_seq"`
+	AfterAuthorityRevision uint64 `json:"after_authority_revision"`
+	WaitMillis             uint32 `json:"wait_millis"`
+}
+
+// ActorUpdate reports whether the actor cursor changed before the bounded wait
+// elapsed. Actor always contains the latest visible snapshot.
+type ActorUpdate struct {
+	Actor   ActorView `json:"actor"`
+	Changed bool      `json:"changed"`
+}
+
 // ActorTextInput submits one message or negotiable directive to an Actor.
 type ActorTextInput struct {
 	RequestID string `json:"request_id"`
@@ -226,6 +245,7 @@ type OperationView struct {
 	WorldID          string              `json:"world_id"`
 	ActorID          string              `json:"actor_id"`
 	Kind             ControlKind         `json:"kind"`
+	TurnID           string              `json:"turn_id,omitempty"`
 	Status           OperationStatus     `json:"status"`
 	CancelRequested  bool                `json:"cancel_requested"`
 	DeliveryAttempts uint32              `json:"delivery_attempts"`

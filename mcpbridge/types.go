@@ -39,6 +39,20 @@ type GetActorStateOutput struct {
 	Actor Actor `json:"actor"`
 }
 
+type WaitActorUpdateInput struct {
+	HostID                 string `json:"host_id" jsonschema:"host identifier returned by list_worlds"`
+	WorldID                string `json:"world_id" jsonschema:"world identifier returned by list_worlds"`
+	ActorID                string `json:"actor_id" jsonschema:"actor identifier returned by list_actors"`
+	AfterObservationSeq    uint64 `json:"after_observation_seq" jsonschema:"last observation_seq returned for this actor"`
+	AfterAuthorityRevision uint64 `json:"after_authority_revision" jsonschema:"last decision_authority revision returned for this actor"`
+	WaitMillis             uint32 `json:"wait_millis" jsonschema:"bounded wait from 0 through 25000 milliseconds"`
+}
+
+type WaitActorUpdateOutput struct {
+	Actor   Actor `json:"actor"`
+	Changed bool  `json:"changed"`
+}
+
 type Actor struct {
 	HostID                   string                         `json:"host_id"`
 	WorldID                  string                         `json:"world_id"`

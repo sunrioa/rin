@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -161,6 +162,89 @@ func TestServicePublicationSequenceIsIdempotent(t *testing.T) {
 	next.Actors[0].Offers[0].ObservationSeq = 2
 	if err := service.PublishWorld("test.host", lease.LeaseID, next); err != nil {
 		t.Fatalf("next PublishWorld: %v", err)
+	}
+}
+
+func TestServiceWaitActorUsesPublishedCursor(t *testing.T) {
+	service := New(Options{
+		Now:    func() time.Time { return time.UnixMilli(1_000_000) },
+		Random: bytes.NewReader(bytes.Repeat([]byte{31}, 64)),
+	})
+	lease := mustRegister(t, service, registration("instance.one"))
+	first := worldPublication(1, "ready")
+	if err := service.PublishWorld("test.host", lease.LeaseID, first); err != nil {
+		t.Fatalf("PublishWorld: %v", err)
+	}
+	owner := host.Principal{
+		ID:            "player.one",
+		GrantedScopes: []string{ScopeActorRead},
+	}
+	current, err := service.GetActor(
+		owner, "test.host", "world.one", "actor.one",
+	)
+	if err != nil {
+		t.Fatalf("GetActor: %v", err)
+	}
+	result := make(chan ActorUpdate, 1)
+	failures := make(chan error, 1)
+	go func() {
+		update, waitErr := service.WaitActor(
+			context.Background(),
+			owner,
+			WaitActorInput{
+				HostID:                 "test.host",
+				WorldID:                "world.one",
+				ActorID:                "actor.one",
+				AfterObservationSeq:    current.ObservationSeq,
+				AfterAuthorityRevision: current.Authority.Revision,
+				WaitMillis:             1_000,
+			},
+		)
+		if waitErr != nil {
+			failures <- waitErr
+			return
+		}
+		result <- update
+	}()
+	time.Sleep(10 * time.Millisecond)
+	next := worldPublication(2, "working")
+	next.Actors[0].ObservationSeq = 2
+	next.Actors[0].Offers[0].ObservationSeq = 2
+	if err := service.PublishWorld("test.host", lease.LeaseID, next); err != nil {
+		t.Fatalf("second PublishWorld: %v", err)
+	}
+	select {
+	case waitErr := <-failures:
+		t.Fatalf("WaitActor: %v", waitErr)
+	case update := <-result:
+		if !update.Changed || update.Actor.ObservationSeq != 2 ||
+			string(update.Actor.State) != `{"status":"working"}` {
+			t.Fatalf("WaitActor = %#v", update)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("WaitActor did not wake after publication")
+	}
+	unchanged, err := service.WaitActor(
+		context.Background(),
+		owner,
+		WaitActorInput{
+			HostID:                 "test.host",
+			WorldID:                "world.one",
+			ActorID:                "actor.one",
+			AfterObservationSeq:    2,
+			AfterAuthorityRevision: current.Authority.Revision,
+			WaitMillis:             1,
+		},
+	)
+	if err != nil || unchanged.Changed {
+		t.Fatalf("unchanged WaitActor = %#v, %v", unchanged, err)
+	}
+	if _, err := service.WaitActor(
+		context.Background(),
+		owner,
+		WaitActorInput{WaitMillis: 25_001},
+	); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("oversized WaitActor error = %v", err)
 	}
 }
 

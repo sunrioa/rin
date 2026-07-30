@@ -1,6 +1,7 @@
 package controlplane
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -298,6 +299,77 @@ func (service *Service) GetActor(
 	}
 	service.mu.RLock()
 	defer service.mu.RUnlock()
+	return service.getActorLocked(principal, hostID, worldID, actorID)
+}
+
+// WaitActor waits for a newer actor observation or authority revision. It uses
+// the same visibility rules as GetActor and never creates a second event log.
+func (service *Service) WaitActor(
+	ctx context.Context,
+	principal host.Principal,
+	input WaitActorInput,
+) (ActorUpdate, error) {
+	if err := host.ValidatePrincipal(principal); err != nil {
+		return ActorUpdate{}, fmt.Errorf(
+			"%w: principal: %v", ErrInvalid, err,
+		)
+	}
+	if input.WaitMillis > 25_000 {
+		return ActorUpdate{}, invalid(
+			"wait_millis", "must not exceed 25000",
+		)
+	}
+	timer := time.NewTimer(time.Duration(input.WaitMillis) * time.Millisecond)
+	defer timer.Stop()
+	for {
+		service.mu.RLock()
+		if service.closed {
+			service.mu.RUnlock()
+			return ActorUpdate{}, ErrUnavailable
+		}
+		view, err := service.getActorLocked(
+			principal,
+			input.HostID,
+			input.WorldID,
+			input.ActorID,
+		)
+		changed := service.changed
+		service.mu.RUnlock()
+		if err != nil {
+			return ActorUpdate{}, err
+		}
+		cursorChanged := view.ObservationSeq != input.AfterObservationSeq ||
+			view.Authority.Revision != input.AfterAuthorityRevision
+		if cursorChanged || input.WaitMillis == 0 {
+			return ActorUpdate{Actor: view, Changed: cursorChanged}, nil
+		}
+		select {
+		case <-ctx.Done():
+			return ActorUpdate{}, ctx.Err()
+		case <-timer.C:
+			service.mu.RLock()
+			view, err = service.getActorLocked(
+				principal,
+				input.HostID,
+				input.WorldID,
+				input.ActorID,
+			)
+			service.mu.RUnlock()
+			if err != nil {
+				return ActorUpdate{}, err
+			}
+			cursorChanged = view.ObservationSeq != input.AfterObservationSeq ||
+				view.Authority.Revision != input.AfterAuthorityRevision
+			return ActorUpdate{Actor: view, Changed: cursorChanged}, nil
+		case <-changed:
+		}
+	}
+}
+
+func (service *Service) getActorLocked(
+	principal host.Principal,
+	hostID, worldID, actorID string,
+) (ActorView, error) {
 	current, world, err := service.findWorldLocked(hostID, worldID)
 	if err != nil {
 		return ActorView{}, err

@@ -47,6 +47,7 @@ func TestGatewayNegotiatesCurrentProtocolAndReadsPublishedState(t *testing.T) {
 		"list_actor_offers",
 		"list_actors",
 		"list_worlds",
+		"wait_actor_update",
 	}
 	if !slices.Equal(names, expectedNames) {
 		t.Fatalf("tool names = %#v", names)
@@ -80,6 +81,30 @@ func TestGatewayNegotiatesCurrentProtocolAndReadsPublishedState(t *testing.T) {
 	if state.Actor.DisplayName != "Companion" ||
 		state.Actor.State["status"] != "ready" {
 		t.Fatalf("get_actor_state = %#v", state)
+	}
+	var update WaitActorUpdateOutput
+	callTool(t, session, "wait_actor_update", map[string]any{
+		"host_id":                  "test.host",
+		"world_id":                 "world.one",
+		"actor_id":                 "actor.one",
+		"after_observation_seq":    0,
+		"after_authority_revision": 0,
+		"wait_millis":              0,
+	}, &update)
+	if !update.Changed ||
+		update.Actor.ObservationSeq != state.Actor.ObservationSeq {
+		t.Fatalf("wait_actor_update = %#v", update)
+	}
+	callTool(t, session, "wait_actor_update", map[string]any{
+		"host_id":                  "test.host",
+		"world_id":                 "world.one",
+		"actor_id":                 "actor.one",
+		"after_observation_seq":    state.Actor.ObservationSeq,
+		"after_authority_revision": state.Actor.DecisionAuthority.Revision,
+		"wait_millis":              0,
+	}, &update)
+	if update.Changed {
+		t.Fatalf("unchanged actor cursor reported an update: %#v", update)
 	}
 
 	var offers ListActorOffersOutput
@@ -212,6 +237,7 @@ func TestGatewayRegistersScopedWriteToolsAndQueuesOperations(t *testing.T) {
 		"send_actor_directive",
 		"send_actor_message",
 		"speak_as_actor",
+		"wait_actor_update",
 	}
 	if !slices.Equal(names, expected) {
 		t.Fatalf("scoped tool names = %#v", names)
@@ -300,7 +326,8 @@ func TestGatewayRegistersScopedWriteToolsAndQueuesOperations(t *testing.T) {
 		"turn_id":    "turn.mcp.one",
 		"text":       "I can help with that.",
 	}, &utterance)
-	if utterance.Operation.Kind != controlplane.ControlUtterance {
+	if utterance.Operation.Kind != controlplane.ControlUtterance ||
+		utterance.Operation.TurnID != "turn.mcp.one" {
 		t.Fatalf("utterance operation = %#v", utterance.Operation)
 	}
 
@@ -313,7 +340,8 @@ func TestGatewayRegistersScopedWriteToolsAndQueuesOperations(t *testing.T) {
 		"offer_id":   "offer.follow",
 		"turn_id":    "turn.mcp.one",
 	}, &offered)
-	if offered.Operation.Kind != controlplane.ControlOffer {
+	if offered.Operation.Kind != controlplane.ControlOffer ||
+		offered.Operation.TurnID != "turn.mcp.one" {
 		t.Fatalf("offer operation = %#v", offered.Operation)
 	}
 

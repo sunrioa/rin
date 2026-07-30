@@ -397,6 +397,36 @@
         }
       }
     },
+    "/control/v1/client/wait-actor": {
+      "post": {
+        "operationId": "control_client_wait_actor",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WaitActorInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Latest principal-visible actor state after a bounded wait",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActorUpdate"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/control/v1/client/offers": {
       "post": {
         "operationId": "control_client_list_offers",
@@ -1635,6 +1665,56 @@
           }
         }
       },
+      "WaitActorInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "host_id",
+          "world_id",
+          "actor_id",
+          "after_observation_seq",
+          "after_authority_revision",
+          "wait_millis"
+        ],
+        "properties": {
+          "host_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "world_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "after_observation_seq": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "after_authority_revision": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "wait_millis": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 25000
+          }
+        }
+      },
+      "ActorUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "actor",
+          "changed"
+        ],
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/ActorView"
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        }
+      },
       "ActorTextInput": {
         "type": "object",
         "additionalProperties": false,
@@ -1895,6 +1975,9 @@
               "utterance",
               "offer"
             ]
+          },
+          "turn_id": {
+            "$ref": "#/components/schemas/Identifier"
           },
           "status": {
             "$ref": "#/components/schemas/OperationStatus"

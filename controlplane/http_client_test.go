@@ -74,6 +74,18 @@ func TestHTTPClientUsesDaemonBoundPrincipal(t *testing.T) {
 	if err != nil || actor.ObservationSeq != 1 {
 		t.Fatalf("GetActor = %#v, %v", actor, err)
 	}
+	update, err := client.WaitActor(ctx, WaitActorInput{
+		HostID:                 "test.host",
+		WorldID:                "world.one",
+		ActorID:                "actor.one",
+		AfterObservationSeq:    actor.ObservationSeq,
+		AfterAuthorityRevision: actor.Authority.Revision,
+		WaitMillis:             0,
+	})
+	if err != nil || update.Changed ||
+		update.Actor.ObservationSeq != actor.ObservationSeq {
+		t.Fatalf("WaitActor = %#v, %v", update, err)
+	}
 	offers, err := client.ListActorOffers(
 		ctx,
 		"test.host",
@@ -102,7 +114,8 @@ func TestHTTPClientUsesDaemonBoundPrincipal(t *testing.T) {
 		TurnID:    "turn.client.one",
 		Text:      "I am ready.",
 	})
-	if err != nil || utterance.Kind != ControlUtterance {
+	if err != nil || utterance.Kind != ControlUtterance ||
+		utterance.TurnID != "turn.client.one" {
 		t.Fatalf("SubmitActorUtterance = %#v, %v", utterance, err)
 	}
 	view, err := client.GetOperation(ctx, message.OperationID)

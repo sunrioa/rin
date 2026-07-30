@@ -73,13 +73,14 @@ Principal 和 Scope 只由 `rin-control` 启动配置决定，不能由 MCP Tool
 
 ## Tool
 
-`actor.read` 注册四个只读 Tool：
+`actor.read` 注册五个只读 Tool：
 
 | Tool | 作用 |
 | --- | --- |
 | `list_worlds` | 列出当前 Principal 可见的世界 |
 | `list_actors` | 列出一个世界中可见的 Actor |
 | `get_actor_state` | 读取 Host 已脱敏发布的 Actor 状态 |
+| `wait_actor_update` | 按观察序号与控制权修订号长轮询，最长等待 25 秒 |
 | `list_actor_offers` | 读取在线 Host 当前发布的精确 Offer |
 
 按 daemon Scope 还可注册：
@@ -88,6 +89,7 @@ Principal 和 Scope 只由 `rin-control` 启动配置决定，不能由 MCP Tool
 | --- | --- | --- |
 | `send_actor_message` | `actor.converse` | 发送对白，不直接授权世界修改 |
 | `send_actor_directive` | `actor.direct` | 提交 Actor 或 Host 可以拒绝的目标 |
+| `speak_as_actor` | `actor.speak` | 由当前绑定的外部控制器提交角色对白 |
 | `execute_actor_offer` | `actor.execute` | 选择一个完整、精确的当前 Offer |
 | `get_operation` | 任一控制 Scope | 查询投递、运行和 Outcome |
 | `cancel_operation` | `operation.cancel` | 请求取消，不表示回滚 |
@@ -95,12 +97,33 @@ Principal 和 Scope 只由 `rin-control` 启动配置决定，不能由 MCP Tool
 例如需要对话和精确动作时：
 
 ```bash
-export RIN_CONTROL_SCOPES="actor.read,actor.converse,actor.execute,operation.cancel"
+export RIN_CONTROL_SCOPES="actor.read,actor.speak,actor.execute,operation.cancel"
 ```
 
-修改 Scope 后重启 `rin-control`。`execute_actor_offer` 不接受任意动作参数、坐标、
-物品 ID 或方法名。Operation 保存 Host 发布的完整 Offer 及其 Epoch/Observation
-Binding；游戏在权威线程执行前仍要复验 Offer、Deadline、权限和当前世界状态。
+修改 Scope 后重启 `rin-control`。外部角色循环通常先读取一次
+`get_actor_state`，再以返回的 `observation_seq` 和 `decision_authority.revision`
+调用 `wait_actor_update`；状态变化后可在同一个 `turn_id` 中调用
+`speak_as_actor`，并按需选择一条 `execute_actor_offer`。两个 Operation 的安全视图
+都会回显 `turn_id`，便于结果关联。
+
+`execute_actor_offer` 不接受任意动作参数、坐标、物品 ID 或方法名。Operation 保存
+Host 发布的完整 Offer 及其 Epoch、Observation 和 Authority Revision Binding；
+游戏在权威线程执行前仍要复验 Offer、Deadline、权限和当前世界状态。
+
+## 角色控制权
+
+Host 可以为 Actor 发布 `decision_authority`：
+
+- `source=internal` 时，外部 Client 只能观察，不能代角色说话或选择 Offer；
+- `source=external` 时，只有 `controller_principal_id` 精确匹配 daemon Principal
+  的 Client 可以控制该 Actor，`host.admin` 也不能绕过这一绑定；
+- `persona_mode=character-bound` 要求外部 Agent 扮演 Host 定义的角色；
+- `persona_mode=agent-avatar` 允许外部 Agent 使用自己的性格与私有记忆来表现角色；
+- 每次转交都会单调增加 `revision`。尚未被 Host 接受的旧修订 Operation 会失效，
+  已接受的有界动作可以完成，避免半途破坏世界事务。
+
+控制权只决定“谁做下一次语义决策”。导航、战斗和建造仍由 Host 的逐 Tick
+控制器执行；Rin 不把模型输出转换成逐帧移动，也不复制任一控制器的私有记忆。
 
 ## Host 生命周期
 
