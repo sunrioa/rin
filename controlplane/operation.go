@@ -608,9 +608,7 @@ func (service *Service) authorizeActorLocked(
 		if actor.ActorID != actorID {
 			continue
 		}
-		if !hasScope(principal, ScopeHostAdmin) &&
-			(principal.ID != actor.OwnerPrincipalID ||
-				!hasScope(principal, requiredScope)) {
+		if !canAccessActor(principal, actor, requiredScope) {
 			return ActorPublication{}, ErrForbidden
 		}
 		return actor, nil

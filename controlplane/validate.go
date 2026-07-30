@@ -224,7 +224,19 @@ func hasScope(principal host.Principal, scope string) bool {
 	return false
 }
 
-func canRead(principal host.Principal, ownerPrincipalID string) bool {
-	return hasScope(principal, ScopeHostAdmin) ||
-		(principal.ID == ownerPrincipalID && hasScope(principal, ScopeActorRead))
+func canAccessActor(
+	principal host.Principal,
+	actor ActorPublication,
+	requiredScope string,
+) bool {
+	if hasScope(principal, ScopeHostAdmin) {
+		return true
+	}
+	if !hasScope(principal, requiredScope) {
+		return false
+	}
+	if principal.ID == actor.OwnerPrincipalID {
+		return true
+	}
+	return authorityAllowsExternal(actor, principal.ID)
 }

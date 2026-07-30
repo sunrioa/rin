@@ -276,7 +276,7 @@ func (service *Service) ListActors(
 	online := current.lease.ExpiresAtUnixMillis > service.now().UnixMilli()
 	result := make([]ActorView, 0, len(world.Actors))
 	for _, actor := range world.Actors {
-		if canRead(principal, actor.OwnerPrincipalID) {
+		if canAccessActor(principal, actor, ScopeActorRead) {
 			result = append(result, actorView(
 				hostID, worldID, current.lease, online, actor,
 			))
@@ -306,7 +306,7 @@ func (service *Service) GetActor(
 		if actor.ActorID != actorID {
 			continue
 		}
-		if !canRead(principal, actor.OwnerPrincipalID) {
+		if !canAccessActor(principal, actor, ScopeActorRead) {
 			return ActorView{}, ErrForbidden
 		}
 		online := current.lease.ExpiresAtUnixMillis > service.now().UnixMilli()
@@ -336,7 +336,7 @@ func (service *Service) ListActorOffers(
 		if actor.ActorID != actorID {
 			continue
 		}
-		if !canRead(principal, actor.OwnerPrincipalID) {
+		if !canAccessActor(principal, actor, ScopeActorRead) {
 			return nil, ErrForbidden
 		}
 		if !authorityAllowsExternal(actor, principal.ID) {
@@ -497,7 +497,7 @@ func (service *Service) fenceSupersededAuthorityLocked(
 
 func publicationVisible(principal host.Principal, world WorldPublication) bool {
 	for _, actor := range world.Actors {
-		if canRead(principal, actor.OwnerPrincipalID) {
+		if canAccessActor(principal, actor, ScopeActorRead) {
 			return true
 		}
 	}

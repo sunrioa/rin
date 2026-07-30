@@ -192,6 +192,36 @@ func TestExternalAuthorityRequiresBoundPrincipal(t *testing.T) {
 	); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("unbound admin error = %v", err)
 	}
+	controller := host.Principal{
+		ID: "agent.one",
+		GrantedScopes: []string{
+			ScopeActorRead,
+			ScopeActorSpeak,
+			ScopeActorExecute,
+		},
+	}
+	actors, err := service.ListActors(
+		controller,
+		"test.host",
+		"world.one",
+	)
+	if err != nil || len(actors) != 1 {
+		t.Fatalf("bound controller actors = %#v, %v", actors, err)
+	}
+	operation, err := service.ExecuteActorOffer(
+		controller,
+		ExecuteOfferInput{
+			RequestID: "request.agent.offer",
+			HostID:    "test.host",
+			WorldID:   "world.one",
+			ActorID:   "actor.one",
+			OfferID:   "offer.follow",
+			TurnID:    "turn.agent.one",
+		},
+	)
+	if err != nil || operation.Kind != ControlOffer {
+		t.Fatalf("bound controller offer = %#v, %v", operation, err)
+	}
 }
 
 func TestExternalControllerQueuesBoundActorUtterance(t *testing.T) {
