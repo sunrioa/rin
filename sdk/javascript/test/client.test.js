@@ -543,6 +543,7 @@ test("all protocol routes use the expected method and bearer token", async () =>
     ["report_action", () => client.reportAction(payload), "POST", "/v2/action/report"],
     ["report_action_batch", () => client.reportActionBatch(payload), "POST", "/v2/action/report-batch"],
     ["set_actor_activity", () => client.setActorActivity(payload), "POST", "/v2/session/activity"],
+    ["set_actor_agency", () => client.setActorAgency(payload), "POST", "/v2/session/agency"],
     ["arbitrate", () => client.arbitrate(payload), "POST", "/v2/world/arbitrate"],
     ["state", () => client.state(payload), "POST", "/v2/session/get"],
     ["session_stats", () => client.sessionStats(payload), "POST", "/v2/session/stats"],

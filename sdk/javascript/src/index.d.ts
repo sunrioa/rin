@@ -570,6 +570,7 @@ export class RinClient {
   reportAction(payload: ReportActionRequest): Promise<MutationResult>;
   reportActionBatch(payload: BatchActionReportRequest): Promise<MutationResult>;
   setActorActivity(payload: RinObject): Promise<RinObject>;
+  setActorAgency(payload: RinObject): Promise<RinObject>;
   arbitrate(payload: RinObject): Promise<RinObject>;
   state(payload: RinObject): Promise<RinObject>;
   sessionStats(payload: SessionRequest): Promise<SessionStats>;

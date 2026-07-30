@@ -118,6 +118,9 @@ class RinClient:
     def set_actor_activity(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return self._post("/v2/session/activity", payload)
 
+    def set_actor_agency(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return self._post("/v2/session/agency", payload)
+
     def arbitrate(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         return self._post("/v2/world/arbitrate", payload)
 

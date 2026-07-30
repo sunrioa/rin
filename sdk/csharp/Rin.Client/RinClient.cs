@@ -151,6 +151,9 @@ public sealed class RinClient : IDisposable
     public Task<JsonElement> SetActorActivityAsync(object payload, CancellationToken cancellationToken = default) =>
         PostAsync("/v2/session/activity", payload, 200, cancellationToken);
 
+    public Task<JsonElement> SetActorAgencyAsync(object payload, CancellationToken cancellationToken = default) =>
+        PostAsync("/v2/session/agency", payload, 200, cancellationToken);
+
     public Task<JsonElement> ArbitrateAsync(object payload, CancellationToken cancellationToken = default) =>
         PostAsync("/v2/world/arbitrate", payload, 200, cancellationToken);
 

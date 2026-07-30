@@ -261,6 +261,7 @@ class RinClientTests(unittest.TestCase):
             ("report_action", client.report_action, (payload,), "POST", "/v2/action/report"),
             ("report_action_batch", client.report_action_batch, (payload,), "POST", "/v2/action/report-batch"),
             ("set_actor_activity", client.set_actor_activity, (payload,), "POST", "/v2/session/activity"),
+            ("set_actor_agency", client.set_actor_agency, (payload,), "POST", "/v2/session/agency"),
             ("arbitrate", client.arbitrate, (payload,), "POST", "/v2/world/arbitrate"),
             ("state", client.state, (payload,), "POST", "/v2/session/get"),
             ("session_stats", client.session_stats, (payload,), "POST", "/v2/session/stats"),

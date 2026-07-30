@@ -576,6 +576,7 @@ export class RinClient {
   reportAction(payload) { return this.post("/v2/action/report", payload); }
   reportActionBatch(payload) { return this.post("/v2/action/report-batch", payload); }
   setActorActivity(payload) { return this.post("/v2/session/activity", payload); }
+  setActorAgency(payload) { return this.post("/v2/session/agency", payload); }
   arbitrate(payload) { return this.post("/v2/world/arbitrate", payload); }
   state(payload) { return this.post("/v2/session/get", payload); }
   sessionStats(payload) { return this.post("/v2/session/stats", payload); }

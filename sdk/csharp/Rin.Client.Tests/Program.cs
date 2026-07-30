@@ -564,6 +564,7 @@ var cases = new (string Name, Func<Task<JsonElement>> Call, HttpMethod Method, s
     ("report_action", () => client.ReportActionAsync(payload), HttpMethod.Post, "/v2/action/report"),
     ("report_action_batch", () => client.ReportActionBatchAsync(payload), HttpMethod.Post, "/v2/action/report-batch"),
     ("set_actor_activity", () => client.SetActorActivityAsync(payload), HttpMethod.Post, "/v2/session/activity"),
+    ("set_actor_agency", () => client.SetActorAgencyAsync(payload), HttpMethod.Post, "/v2/session/agency"),
     ("arbitrate", () => client.ArbitrateAsync(payload), HttpMethod.Post, "/v2/world/arbitrate"),
     ("state", () => client.StateAsync(payload), HttpMethod.Post, "/v2/session/get"),
     ("session_stats", () => client.SessionStatsAsync(payload), HttpMethod.Post, "/v2/session/stats"),

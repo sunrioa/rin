@@ -48,6 +48,7 @@ local cases = {
     { "report_action", function(done) client:report_action(payload, done) end, "POST", "/v2/action/report" },
     { "report_action_batch", function(done) client:report_action_batch(payload, done) end, "POST", "/v2/action/report-batch" },
     { "set_actor_activity", function(done) client:set_actor_activity(payload, done) end, "POST", "/v2/session/activity" },
+    { "set_actor_agency", function(done) client:set_actor_agency(payload, done) end, "POST", "/v2/session/agency" },
     { "arbitrate", function(done) client:arbitrate(payload, done) end, "POST", "/v2/world/arbitrate" },
     { "state", function(done) client:state(payload, done) end, "POST", "/v2/session/get" },
     { "session_stats", function(done) client:session_stats(payload, done) end, "POST", "/v2/session/stats" },

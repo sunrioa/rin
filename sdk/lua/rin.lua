@@ -496,6 +496,7 @@ end
 function Client:report_action(payload, callback) self:_post("/v2/action/report", payload, 200, callback) end
 function Client:report_action_batch(payload, callback) self:_post("/v2/action/report-batch", payload, 200, callback) end
 function Client:set_actor_activity(payload, callback) self:_post("/v2/session/activity", payload, 200, callback) end
+function Client:set_actor_agency(payload, callback) self:_post("/v2/session/agency", payload, 200, callback) end
 function Client:arbitrate(payload, callback) self:_post("/v2/world/arbitrate", payload, 200, callback) end
 function Client:state(payload, callback) self:_post("/v2/session/get", payload, 200, callback) end
 function Client:session_stats(payload, callback) self:_post("/v2/session/stats", payload, 200, callback) end
