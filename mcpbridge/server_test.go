@@ -186,6 +186,7 @@ func TestGatewayRegistersScopedWriteToolsAndQueuesOperations(t *testing.T) {
 			controlplane.ScopeActorRead,
 			controlplane.ScopeActorConverse,
 			controlplane.ScopeActorDirect,
+			controlplane.ScopeActorSpeak,
 			controlplane.ScopeActorExecute,
 			controlplane.ScopeOperationCancel,
 		},
@@ -210,6 +211,7 @@ func TestGatewayRegistersScopedWriteToolsAndQueuesOperations(t *testing.T) {
 		"list_worlds",
 		"send_actor_directive",
 		"send_actor_message",
+		"speak_as_actor",
 	}
 	if !slices.Equal(names, expected) {
 		t.Fatalf("scoped tool names = %#v", names)
@@ -289,6 +291,19 @@ func TestGatewayRegistersScopedWriteToolsAndQueuesOperations(t *testing.T) {
 		t.Fatalf("directive operation = %#v", directive.Operation)
 	}
 
+	var utterance OperationOutput
+	callTool(t, session, "speak_as_actor", map[string]any{
+		"request_id": "request.mcp.utterance",
+		"host_id":    "test.host",
+		"world_id":   "world.one",
+		"actor_id":   "actor.one",
+		"turn_id":    "turn.mcp.one",
+		"text":       "I can help with that.",
+	}, &utterance)
+	if utterance.Operation.Kind != controlplane.ControlUtterance {
+		t.Fatalf("utterance operation = %#v", utterance.Operation)
+	}
+
 	var offered OperationOutput
 	callTool(t, session, "execute_actor_offer", map[string]any{
 		"request_id": "request.mcp.offer",
@@ -296,6 +311,7 @@ func TestGatewayRegistersScopedWriteToolsAndQueuesOperations(t *testing.T) {
 		"world_id":   "world.one",
 		"actor_id":   "actor.one",
 		"offer_id":   "offer.follow",
+		"turn_id":    "turn.mcp.one",
 	}, &offered)
 	if offered.Operation.Kind != controlplane.ControlOffer {
 		t.Fatalf("offer operation = %#v", offered.Operation)

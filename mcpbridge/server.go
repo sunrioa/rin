@@ -67,6 +67,9 @@ func NewClient(
 	if gateway.granted(controlplane.ScopeActorDirect) {
 		gateway.addDirectiveTool()
 	}
+	if gateway.granted(controlplane.ScopeActorSpeak) {
+		gateway.addUtteranceTool()
+	}
 	if gateway.granted(controlplane.ScopeActorExecute) {
 		gateway.addExecuteOfferTool()
 	}
@@ -135,6 +138,14 @@ func (gateway *Gateway) addDirectiveTool() {
 		Description: "Submit a negotiable goal that the actor and game Host may refuse.",
 		Annotations: writeAnnotations(true),
 	}, gateway.sendActorDirective)
+}
+
+func (gateway *Gateway) addUtteranceTool() {
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name:        "speak_as_actor",
+		Description: "Speak as an externally controlled actor; the Host records and renders the bounded utterance.",
+		Annotations: writeAnnotations(false),
+	}, gateway.speakAsActor)
 }
 
 func (gateway *Gateway) addExecuteOfferTool() {
@@ -285,6 +296,25 @@ func (gateway *Gateway) sendActorDirective(
 	return nil, OperationOutput{Operation: operation}, err
 }
 
+func (gateway *Gateway) speakAsActor(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input SpeakAsActorInput,
+) (*mcp.CallToolResult, OperationOutput, error) {
+	operation, err := gateway.client.SubmitActorUtterance(
+		ctx,
+		controlplane.ActorUtteranceInput{
+			RequestID: input.RequestID,
+			HostID:    input.HostID,
+			WorldID:   input.WorldID,
+			ActorID:   input.ActorID,
+			TurnID:    input.TurnID,
+			Text:      input.Text,
+		},
+	)
+	return nil, OperationOutput{Operation: operation}, err
+}
+
 func (gateway *Gateway) executeActorOffer(
 	ctx context.Context,
 	_ *mcp.CallToolRequest,
@@ -298,6 +328,7 @@ func (gateway *Gateway) executeActorOffer(
 			WorldID:   input.WorldID,
 			ActorID:   input.ActorID,
 			OfferID:   input.OfferID,
+			TurnID:    input.TurnID,
 		},
 	)
 	return nil, OperationOutput{Operation: operation}, err
@@ -378,6 +409,7 @@ func hasControlScope(principal host.Principal) bool {
 		controlplane.ScopeActorRead,
 		controlplane.ScopeActorConverse,
 		controlplane.ScopeActorDirect,
+		controlplane.ScopeActorSpeak,
 		controlplane.ScopeActorExecute,
 		controlplane.ScopeOperationCancel,
 		controlplane.ScopeHostAdmin,

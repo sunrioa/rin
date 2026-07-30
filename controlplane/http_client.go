@@ -171,6 +171,22 @@ func (client *HTTPClient) SendActorDirective(
 	return client.operation(ctx, "directive", input)
 }
 
+// SubmitActorUtterance queues dialogue from the current external controller.
+func (client *HTTPClient) SubmitActorUtterance(
+	ctx context.Context,
+	input ActorUtteranceInput,
+) (OperationView, error) {
+	var operation OperationView
+	err := client.request(
+		ctx,
+		http.MethodPost,
+		"utterance",
+		input,
+		&operation,
+	)
+	return operation, err
+}
+
 // ExecuteActorOffer selects one exact Host-published Offer.
 func (client *HTTPClient) ExecuteActorOffer(
 	ctx context.Context,

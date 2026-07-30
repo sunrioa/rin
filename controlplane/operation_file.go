@@ -397,8 +397,13 @@ func validateStoredRequest(request HostControlRequest, allowLegacy bool) error {
 			return errors.New("invalid binding authority_revision")
 		}
 	}
+	if request.TurnID != "" {
+		if err := validateID("turn_id", request.TurnID); err != nil {
+			return err
+		}
+	}
 	switch request.Kind {
-	case ControlMessage, ControlDirective:
+	case ControlMessage, ControlDirective, ControlUtterance:
 		if request.Invocation != nil || request.Offer != nil {
 			return errors.New("text request must not contain an offer or invocation")
 		}
@@ -410,9 +415,17 @@ func validateStoredRequest(request HostControlRequest, allowLegacy bool) error {
 		); err != nil {
 			return err
 		}
+		if request.Kind != ControlUtterance && request.TurnID != "" {
+			return errors.New("inbound text request must not contain turn_id")
+		}
 		requiredScope := ScopeActorConverse
 		if request.Kind == ControlDirective {
 			requiredScope = ScopeActorDirect
+		} else if request.Kind == ControlUtterance {
+			requiredScope = ScopeActorSpeak
+			if request.TurnID == "" {
+				return errors.New("utterance request requires turn_id")
+			}
 		}
 		if !hasScope(request.Principal, ScopeHostAdmin) &&
 			!hasScope(request.Principal, requiredScope) {

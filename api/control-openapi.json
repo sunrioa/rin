@@ -490,6 +490,36 @@
         }
       }
     },
+    "/control/v1/client/utterance": {
+      "post": {
+        "operationId": "control_client_submit_utterance",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActorUtteranceInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Queued externally authored Actor utterance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationView"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/control/v1/client/execute-offer": {
       "post": {
         "operationId": "control_client_execute_offer",
@@ -1313,8 +1343,12 @@
             "enum": [
               "message",
               "directive",
+              "utterance",
               "offer"
             ]
+          },
+          "turn_id": {
+            "$ref": "#/components/schemas/Identifier"
           },
           "text": {
             "type": "string",
@@ -1631,6 +1665,40 @@
           }
         }
       },
+      "ActorUtteranceInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "request_id",
+          "host_id",
+          "world_id",
+          "actor_id",
+          "turn_id",
+          "text"
+        ],
+        "properties": {
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "host_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "world_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "turn_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        }
+      },
       "ExecuteOfferInput": {
         "type": "object",
         "additionalProperties": false,
@@ -1655,6 +1723,9 @@
             "$ref": "#/components/schemas/Identifier"
           },
           "offer_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "turn_id": {
             "$ref": "#/components/schemas/Identifier"
           }
         }
@@ -1821,6 +1892,7 @@
             "enum": [
               "message",
               "directive",
+              "utterance",
               "offer"
             ]
           },

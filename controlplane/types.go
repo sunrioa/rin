@@ -15,6 +15,7 @@ const (
 	ScopeActorRead       = "actor.read"
 	ScopeActorConverse   = "actor.converse"
 	ScopeActorDirect     = "actor.direct"
+	ScopeActorSpeak      = "actor.speak"
 	ScopeActorExecute    = "actor.execute"
 	ScopeOperationCancel = "operation.cancel"
 	ScopeHostAdmin       = "host.admin"
@@ -26,6 +27,7 @@ type ControlKind string
 const (
 	ControlMessage   ControlKind = "message"
 	ControlDirective ControlKind = "directive"
+	ControlUtterance ControlKind = "utterance"
 	ControlOffer     ControlKind = "offer"
 )
 
@@ -147,6 +149,17 @@ type ActorTextInput struct {
 	Text      string `json:"text"`
 }
 
+// ActorUtteranceInput submits bounded player-visible dialogue from the current
+// external controller. TurnID may also be attached to an Offer selection.
+type ActorUtteranceInput struct {
+	RequestID string `json:"request_id"`
+	HostID    string `json:"host_id"`
+	WorldID   string `json:"world_id"`
+	ActorID   string `json:"actor_id"`
+	TurnID    string `json:"turn_id"`
+	Text      string `json:"text"`
+}
+
 // ExecuteOfferInput selects an exact Host-published Offer without adding
 // model-authored arguments.
 type ExecuteOfferInput struct {
@@ -155,6 +168,7 @@ type ExecuteOfferInput struct {
 	WorldID   string `json:"world_id"`
 	ActorID   string `json:"actor_id"`
 	OfferID   string `json:"offer_id"`
+	TurnID    string `json:"turn_id,omitempty"`
 }
 
 // ControlBinding records the exact Host timeline and observation that were
@@ -174,6 +188,7 @@ type HostControlRequest struct {
 	WorldID     string            `json:"world_id"`
 	ActorID     string            `json:"actor_id"`
 	Kind        ControlKind       `json:"kind"`
+	TurnID      string            `json:"turn_id,omitempty"`
 	Text        string            `json:"text,omitempty"`
 	Binding     *ControlBinding   `json:"binding,omitempty"`
 	Offer       *host.ActionOffer `json:"offer,omitempty"`

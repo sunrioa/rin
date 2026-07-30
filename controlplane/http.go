@@ -156,6 +156,7 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 		mux.HandleFunc("POST /control/v1/client/offers", server.clientOffers)
 		mux.HandleFunc("POST /control/v1/client/message", server.clientMessage)
 		mux.HandleFunc("POST /control/v1/client/directive", server.clientDirective)
+		mux.HandleFunc("POST /control/v1/client/utterance", server.clientUtterance)
 		mux.HandleFunc("POST /control/v1/client/execute-offer", server.clientExecuteOffer)
 		mux.HandleFunc("POST /control/v1/client/operation", server.clientOperation)
 		mux.HandleFunc("POST /control/v1/client/cancel", server.clientCancel)
@@ -512,6 +513,26 @@ func (server *hostHTTPHandler) clientDirective(
 	writeJSON(response, http.StatusOK, operation)
 }
 
+func (server *hostHTTPHandler) clientUtterance(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input ActorUtteranceInput
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	operation, err := server.service.SubmitActorUtterance(
+		*server.clientPrincipal,
+		input,
+	)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, operation)
+}
+
 func (server *hostHTTPHandler) clientExecuteOffer(
 	response http.ResponseWriter,
 	request *http.Request,
@@ -606,6 +627,7 @@ func principalHasControlScope(principal host.Principal) bool {
 		ScopeActorRead,
 		ScopeActorConverse,
 		ScopeActorDirect,
+		ScopeActorSpeak,
 		ScopeActorExecute,
 		ScopeOperationCancel,
 		ScopeHostAdmin,

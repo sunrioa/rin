@@ -92,12 +92,22 @@ type SendActorDirectiveInput struct {
 	Text      string `json:"text" jsonschema:"negotiable goal that the actor may refuse"`
 }
 
+type SpeakAsActorInput struct {
+	RequestID string `json:"request_id" jsonschema:"stable idempotency identifier chosen by the caller"`
+	HostID    string `json:"host_id" jsonschema:"host identifier returned by list_worlds"`
+	WorldID   string `json:"world_id" jsonschema:"world identifier returned by list_worlds"`
+	ActorID   string `json:"actor_id" jsonschema:"actor identifier returned by list_actors"`
+	TurnID    string `json:"turn_id" jsonschema:"identifier shared with an optional action from the same turn"`
+	Text      string `json:"text" jsonschema:"player-visible dialogue of at most 300 Unicode code points"`
+}
+
 type ExecuteActorOfferInput struct {
 	RequestID string `json:"request_id" jsonschema:"stable idempotency identifier chosen by the caller"`
 	HostID    string `json:"host_id" jsonschema:"host identifier returned by list_worlds"`
 	WorldID   string `json:"world_id" jsonschema:"world identifier returned by list_worlds"`
 	ActorID   string `json:"actor_id" jsonschema:"actor identifier returned by list_actors"`
 	OfferID   string `json:"offer_id" jsonschema:"exact identifier returned by list_actor_offers"`
+	TurnID    string `json:"turn_id,omitempty" jsonschema:"optional identifier shared with dialogue from the same turn"`
 }
 
 type GetOperationInput struct {

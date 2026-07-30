@@ -20,6 +20,7 @@ func TestHTTPClientUsesDaemonBoundPrincipal(t *testing.T) {
 		ScopeActorRead,
 		ScopeActorConverse,
 		ScopeActorDirect,
+		ScopeActorSpeak,
 		ScopeActorExecute,
 		ScopeOperationCancel,
 	)
@@ -92,6 +93,17 @@ func TestHTTPClientUsesDaemonBoundPrincipal(t *testing.T) {
 	})
 	if err != nil || message.Status != OperationQueued {
 		t.Fatalf("SendActorMessage = %#v, %v", message, err)
+	}
+	utterance, err := client.SubmitActorUtterance(ctx, ActorUtteranceInput{
+		RequestID: "request.client.utterance",
+		HostID:    "test.host",
+		WorldID:   "world.one",
+		ActorID:   "actor.one",
+		TurnID:    "turn.client.one",
+		Text:      "I am ready.",
+	})
+	if err != nil || utterance.Kind != ControlUtterance {
+		t.Fatalf("SubmitActorUtterance = %#v, %v", utterance, err)
 	}
 	view, err := client.GetOperation(ctx, message.OperationID)
 	if err != nil || view.OperationID != message.OperationID {

@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/sunrioa/rin/host"
@@ -190,5 +191,88 @@ func TestExternalAuthorityRequiresBoundPrincipal(t *testing.T) {
 		"actor.one",
 	); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("unbound admin error = %v", err)
+	}
+}
+
+func TestExternalControllerQueuesBoundActorUtterance(t *testing.T) {
+	service, lease, _ := operationTestService(t, Options{})
+	principal := operationPrincipal(ScopeActorSpeak)
+	input := ActorUtteranceInput{
+		RequestID: "request.utterance.one",
+		HostID:    "test.host",
+		WorldID:   "world.one",
+		ActorID:   "actor.one",
+		TurnID:    "turn.one",
+		Text:      "I noticed you have been building for a while.",
+	}
+	operation, err := service.SubmitActorUtterance(principal, input)
+	if err != nil || operation.Kind != ControlUtterance {
+		t.Fatalf("SubmitActorUtterance = %#v, %v", operation, err)
+	}
+	retried, err := service.SubmitActorUtterance(principal, input)
+	if err != nil || retried.OperationID != operation.OperationID {
+		t.Fatalf("idempotent utterance = %#v, %v", retried, err)
+	}
+	changed := input
+	changed.TurnID = "turn.two"
+	if _, err := service.SubmitActorUtterance(
+		principal,
+		changed,
+	); !errors.Is(err, ErrConflict) {
+		t.Fatalf("changed turn id error = %v", err)
+	}
+
+	batch := pollHost(t, service, lease, 1)
+	if len(batch.Requests) != 1 {
+		t.Fatalf("utterance batch = %#v", batch)
+	}
+	request := batch.Requests[0].Request
+	if request.Kind != ControlUtterance ||
+		request.TurnID != input.TurnID ||
+		request.Text != input.Text ||
+		request.Binding == nil ||
+		request.Binding.AuthorityRevision != 1 {
+		t.Fatalf("utterance request = %#v", request)
+	}
+}
+
+func TestActorUtteranceRejectsInactiveSourceAndLongText(t *testing.T) {
+	service, lease, _ := operationTestService(t, Options{})
+	principal := operationPrincipal(ScopeActorSpeak)
+	input := ActorUtteranceInput{
+		RequestID: "request.utterance.invalid",
+		HostID:    "test.host",
+		WorldID:   "world.one",
+		ActorID:   "actor.one",
+		TurnID:    "turn.invalid",
+		Text:      strings.Repeat("a", maxUtteranceRunes+1),
+	}
+	if _, err := service.SubmitActorUtterance(
+		principal,
+		input,
+	); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("long utterance error = %v", err)
+	}
+
+	publication := worldPublication(2, "internal")
+	publication.Actors[0].Authority = &DecisionAuthority{
+		Source:      DecisionInternal,
+		Revision:    2,
+		PersonaMode: PersonaCharacterBound,
+	}
+	if err := service.PublishWorld(
+		"test.host",
+		lease.LeaseID,
+		publication,
+	); err != nil {
+		t.Fatalf("PublishWorld: %v", err)
+	}
+	input.RequestID = "request.utterance.inactive"
+	input.Text = "This source is inactive."
+	if _, err := service.SubmitActorUtterance(
+		principal,
+		input,
+	); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("inactive source error = %v", err)
 	}
 }

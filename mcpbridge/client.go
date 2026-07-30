@@ -26,6 +26,10 @@ type ControlClient interface {
 		context.Context,
 		controlplane.ActorTextInput,
 	) (controlplane.OperationView, error)
+	SubmitActorUtterance(
+		context.Context,
+		controlplane.ActorUtteranceInput,
+	) (controlplane.OperationView, error)
 	ExecuteActorOffer(
 		context.Context,
 		controlplane.ExecuteOfferInput,
@@ -88,6 +92,13 @@ func (client *serviceClient) SendActorDirective(
 	input controlplane.ActorTextInput,
 ) (controlplane.OperationView, error) {
 	return client.service.SendActorDirective(client.principal, input)
+}
+
+func (client *serviceClient) SubmitActorUtterance(
+	_ context.Context,
+	input controlplane.ActorUtteranceInput,
+) (controlplane.OperationView, error) {
+	return client.service.SubmitActorUtterance(client.principal, input)
 }
 
 func (client *serviceClient) ExecuteActorOffer(
