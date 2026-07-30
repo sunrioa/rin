@@ -554,8 +554,23 @@ func (service *Service) persistOperationsWithLimitLocked(
 	if !service.operationDirty {
 		return nil
 	}
+	return service.writeOperationsLocked(maximumBytes)
+}
+
+func (service *Service) flushOperationsLocked() error {
+	if service.closed {
+		return ErrClosed
+	}
+	if !service.operationDirty && !service.operationCheckpointDirty {
+		return nil
+	}
+	return service.writeOperationsLocked(maxOperationFileBytes)
+}
+
+func (service *Service) writeOperationsLocked(maximumBytes int64) error {
 	if service.operationFile == nil {
 		service.operationDirty = false
+		service.operationCheckpointDirty = false
 		return nil
 	}
 	if err := service.operationFile.write(
@@ -565,6 +580,7 @@ func (service *Service) persistOperationsWithLimitLocked(
 		return err
 	}
 	service.operationDirty = false
+	service.operationCheckpointDirty = false
 	return nil
 }
 
@@ -585,6 +601,12 @@ func (writer *boundedOperationWriter) Write(value []byte) (int, error) {
 func (service *Service) markOperationsDirtyLocked() {
 	service.operationDirty = true
 	service.notifyLocked()
+}
+
+// Delivery counters and run progress may be lost on a crash; recovery already
+// redelivers unacknowledged work or marks acknowledged work outcome-unknown.
+func (service *Service) markOperationCheckpointDirtyLocked() {
+	service.operationCheckpointDirty = true
 }
 
 func cloneAcknowledgement(

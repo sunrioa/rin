@@ -30,14 +30,15 @@ type Service struct {
 	random io.Reader
 	hosts  map[string]*hostState
 
-	maxOperations  int
-	operationTTL   time.Duration
-	operations     map[string]*operationState
-	requests       map[string]string
-	changed        chan struct{}
-	operationFile  *operationFile
-	operationDirty bool
-	closed         bool
+	maxOperations            int
+	operationTTL             time.Duration
+	operations               map[string]*operationState
+	requests                 map[string]string
+	changed                  chan struct{}
+	operationFile            *operationFile
+	operationDirty           bool
+	operationCheckpointDirty bool
+	closed                   bool
 }
 
 type hostState struct {
@@ -87,7 +88,7 @@ func (service *Service) Close() error {
 	if service.closed {
 		return nil
 	}
-	persistErr := service.persistOperationsLocked()
+	persistErr := service.flushOperationsLocked()
 	service.closed = true
 	var closeErr error
 	if service.operationFile != nil {

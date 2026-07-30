@@ -179,6 +179,77 @@ func TestOperationFileRedeliversUnacknowledgedRequestWithStableID(t *testing.T) 
 	}
 }
 
+func TestOperationFileCoalescesDeliveryAndProgressCheckpoints(t *testing.T) {
+	root := t.TempDir()
+	now := time.UnixMilli(1_000_000)
+	service, lease := openPublishedOperationService(t, root, &now, 0)
+	principal := operationPrincipal(ScopeActorConverse)
+	operation, err := service.SendActorMessage(principal, ActorTextInput{
+		RequestID: "request.persist.checkpoint",
+		HostID:    "test.host",
+		WorldID:   "world.one",
+		ActorID:   "actor.one",
+		Text:      "Keep the durable boundary small.",
+	})
+	if err != nil {
+		t.Fatalf("SendActorMessage: %v", err)
+	}
+	path := filepath.Join(root, operationFileName)
+	queued := readOperationFileBytes(t, path)
+
+	if batch := pollHost(t, service, lease, 1); len(batch.Requests) != 1 {
+		t.Fatalf("PollHost = %#v", batch)
+	}
+	if delivered := readOperationFileBytes(t, path); !bytes.Equal(delivered, queued) {
+		t.Fatal("delivery attempt rewrote durable operation state")
+	}
+
+	if err := service.AcknowledgeHost(
+		"test.host",
+		lease.LeaseID,
+		HostAcknowledgement{OperationID: operation.OperationID, Accepted: true},
+	); err != nil {
+		t.Fatalf("AcknowledgeHost: %v", err)
+	}
+	acknowledged := readOperationFileBytes(t, path)
+	if bytes.Equal(acknowledged, queued) {
+		t.Fatal("acknowledgement was not persisted")
+	}
+
+	for sequence, progress := range []uint32{25, 75} {
+		if err := service.ReportHostRun(
+			"test.host",
+			lease.LeaseID,
+			host.ActionRun{
+				OperationID: operation.OperationID,
+				Status:      host.ActionRunning,
+				ProgressSeq: uint64(sequence + 1),
+				Progress:    progress,
+				UpdatedAt: host.Timepoint{
+					Clock: host.ClockStep,
+					Value: int64(sequence + 2),
+				},
+			},
+		); err != nil {
+			t.Fatalf("ReportHostRun %d: %v", sequence+1, err)
+		}
+		if progressState := readOperationFileBytes(t, path); !bytes.Equal(
+			progressState,
+			acknowledged,
+		) {
+			t.Fatal("nonterminal progress rewrote durable operation state")
+		}
+	}
+
+	if err := service.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	checkpoint := readOperationFileBytes(t, path)
+	if bytes.Equal(checkpoint, acknowledged) {
+		t.Fatal("graceful close did not flush the latest checkpoint")
+	}
+}
+
 func TestOperationFileDoesNotRedeliverLegacyUnboundRequest(t *testing.T) {
 	root := t.TempDir()
 	principal := operationPrincipal(ScopeActorConverse)
@@ -237,6 +308,15 @@ func TestOperationFileDoesNotRedeliverLegacyUnboundRequest(t *testing.T) {
 		len(batch.Requests) != 0 {
 		t.Fatalf("legacy redelivery = %#v, %v", batch, err)
 	}
+}
+
+func readOperationFileBytes(t *testing.T, path string) []byte {
+	t.Helper()
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile operation state: %v", err)
+	}
+	return payload
 }
 
 func TestOperationFileRejectsConcurrentWriterAndReleasesLock(t *testing.T) {

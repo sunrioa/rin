@@ -336,7 +336,7 @@ func (service *Service) ReportHostRun(
 	operation.run = &cloned
 	operation.status = operationStatusFromRun(run.Status)
 	operation.updatedAt = service.now().UnixMilli()
-	service.markOperationsDirtyLocked()
+	service.markOperationCheckpointDirtyLocked()
 	return service.persistOperationsLocked()
 }
 
@@ -648,7 +648,7 @@ func (service *Service) collectHostWorkLocked(
 		})
 	}
 	if deliveryChanged {
-		service.markOperationsDirtyLocked()
+		service.markOperationCheckpointDirtyLocked()
 	}
 	return batch
 }
