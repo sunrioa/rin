@@ -337,6 +337,7 @@ func convertActor(view controlplane.ActorView) (Actor, error) {
 		DisplayName:              view.DisplayName,
 		ObservationSeq:           view.ObservationSeq,
 		Epoch:                    view.Epoch,
+		DecisionAuthority:        view.Authority,
 		State:                    state,
 		Online:                   view.Online,
 		LeaseExpiresAtUnixMillis: view.LeaseExpiresAtMillis,

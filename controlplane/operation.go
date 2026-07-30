@@ -94,6 +94,9 @@ func (service *Service) ExecuteActorOffer(
 		}
 		return OperationView{}, err
 	}
+	if !authorityAllowsExternal(actor, principal.ID) {
+		return OperationView{}, ErrForbidden
+	}
 	var selected *host.ActionOffer
 	for index := range actor.Offers {
 		if actor.Offers[index].OfferID == input.OfferID {
@@ -791,8 +794,9 @@ func operationOutputView(output json.RawMessage) map[string]any {
 
 func bindingFromActor(actor ActorPublication) *ControlBinding {
 	return &ControlBinding{
-		Epoch:          actor.Epoch,
-		ObservationSeq: actor.ObservationSeq,
+		Epoch:             actor.Epoch,
+		ObservationSeq:    actor.ObservationSeq,
+		AuthorityRevision: effectiveAuthority(actor).Revision,
 	}
 }
 

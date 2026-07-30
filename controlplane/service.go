@@ -213,7 +213,13 @@ func (service *Service) PublishWorld(
 	} else if len(current.worlds) >= maxWorldsPerHost {
 		return invalid("world_id", "host already contains 64 worlds")
 	}
+	service.fenceSupersededAuthorityLocked(
+		hostID,
+		publication.WorldID,
+		publication,
+	)
 	current.worlds[publication.WorldID] = clonePublication(publication)
+	service.notifyLocked()
 	return nil
 }
 
@@ -333,6 +339,9 @@ func (service *Service) ListActorOffers(
 		if !canRead(principal, actor.OwnerPrincipalID) {
 			return nil, ErrForbidden
 		}
+		if !authorityAllowsExternal(actor, principal.ID) {
+			return nil, ErrForbidden
+		}
 		return cloneOffers(actor.Offers), nil
 	}
 	return nil, ErrNotFound
@@ -387,6 +396,10 @@ func clonePublication(value WorldPublication) WorldPublication {
 	cloned.Actors = make([]ActorPublication, len(value.Actors))
 	for index, actor := range value.Actors {
 		cloned.Actors[index] = actor
+		if actor.Authority != nil {
+			authority := *actor.Authority
+			cloned.Actors[index].Authority = &authority
+		}
 		cloned.Actors[index].State =
 			append(json.RawMessage(nil), actor.State...)
 		cloned.Actors[index].Offers = cloneOffers(actor.Offers)
@@ -420,9 +433,65 @@ func actorView(
 		DisplayName:          actor.DisplayName,
 		ObservationSeq:       actor.ObservationSeq,
 		Epoch:                actor.Epoch,
+		Authority:            effectiveAuthority(actor),
 		State:                append(json.RawMessage(nil), actor.State...),
 		Online:               online,
 		LeaseExpiresAtMillis: lease.ExpiresAtUnixMillis,
+	}
+}
+
+func effectiveAuthority(actor ActorPublication) DecisionAuthority {
+	if actor.Authority != nil {
+		return *actor.Authority
+	}
+	// Publications predating decision-authority support remain externally
+	// controllable by their owner, matching the original Control v1 behavior.
+	return DecisionAuthority{
+		Source:                DecisionExternal,
+		ControllerPrincipalID: actor.OwnerPrincipalID,
+		Revision:              1,
+		PersonaMode:           PersonaCharacterBound,
+	}
+}
+
+func authorityAllowsExternal(
+	actor ActorPublication,
+	principalID string,
+) bool {
+	authority := effectiveAuthority(actor)
+	return authority.Source == DecisionExternal &&
+		authority.ControllerPrincipalID == principalID
+}
+
+func (service *Service) fenceSupersededAuthorityLocked(
+	hostID, worldID string,
+	publication WorldPublication,
+) {
+	revisions := make(map[string]uint64, len(publication.Actors))
+	for _, actor := range publication.Actors {
+		revisions[actor.ActorID] = effectiveAuthority(actor).Revision
+	}
+	now := service.now().UnixMilli()
+	changed := false
+	for _, operation := range service.operations {
+		if operation.request.HostID != hostID ||
+			operation.request.WorldID != worldID ||
+			completeOperation(operation) ||
+			(operation.ack != nil && operation.ack.Accepted) ||
+			operation.request.Binding == nil {
+			continue
+		}
+		revision, exists := revisions[operation.request.ActorID]
+		if exists &&
+			revision == operation.request.Binding.AuthorityRevision {
+			continue
+		}
+		operation.status = OperationStale
+		operation.updatedAt = now
+		changed = true
+	}
+	if changed {
+		service.markOperationsDirtyLocked()
 	}
 }
 

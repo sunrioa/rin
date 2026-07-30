@@ -40,15 +40,16 @@ type GetActorStateOutput struct {
 }
 
 type Actor struct {
-	HostID                   string         `json:"host_id"`
-	WorldID                  string         `json:"world_id"`
-	ActorID                  string         `json:"actor_id"`
-	DisplayName              string         `json:"display_name"`
-	ObservationSeq           uint64         `json:"observation_seq"`
-	Epoch                    host.Epoch     `json:"epoch"`
-	State                    map[string]any `json:"state"`
-	Online                   bool           `json:"online"`
-	LeaseExpiresAtUnixMillis int64          `json:"lease_expires_at_unix_millis"`
+	HostID                   string                         `json:"host_id"`
+	WorldID                  string                         `json:"world_id"`
+	ActorID                  string                         `json:"actor_id"`
+	DisplayName              string                         `json:"display_name"`
+	ObservationSeq           uint64                         `json:"observation_seq"`
+	Epoch                    host.Epoch                     `json:"epoch"`
+	DecisionAuthority        controlplane.DecisionAuthority `json:"decision_authority"`
+	State                    map[string]any                 `json:"state"`
+	Online                   bool                           `json:"online"`
+	LeaseExpiresAtUnixMillis int64                          `json:"lease_expires_at_unix_millis"`
 }
 
 type ListActorOffersInput struct {

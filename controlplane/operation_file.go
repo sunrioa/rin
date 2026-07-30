@@ -389,6 +389,13 @@ func validateStoredRequest(request HostControlRequest, allowLegacy bool) error {
 			request.Binding.ObservationSeq > maxJSONSafeInteger {
 			return errors.New("invalid binding observation_seq")
 		}
+		if request.Binding.AuthorityRevision == 0 {
+			if !allowLegacy {
+				return errors.New("binding authority_revision is required")
+			}
+		} else if request.Binding.AuthorityRevision > maxJSONSafeInteger {
+			return errors.New("invalid binding authority_revision")
+		}
 	}
 	switch request.Kind {
 	case ControlMessage, ControlDirective:
