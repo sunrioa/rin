@@ -179,6 +179,66 @@ func TestOperationFileRedeliversUnacknowledgedRequestWithStableID(t *testing.T) 
 	}
 }
 
+func TestOperationFileDoesNotRedeliverLegacyUnboundRequest(t *testing.T) {
+	root := t.TempDir()
+	principal := operationPrincipal(ScopeActorConverse)
+	operationID := "operation.legacy"
+	state := persistedOperations{
+		Version: legacyOperationFileVersion,
+		Operations: []persistedOperation{{
+			Request: HostControlRequest{
+				OperationID: operationID,
+				RequestID:   "request.legacy",
+				Principal:   principal,
+				HostID:      "test.host",
+				WorldID:     "world.one",
+				ActorID:     "actor.one",
+				Kind:        ControlMessage,
+				Text:        "A request from an older timeline.",
+				SubmittedAt: 1,
+			},
+			Status:    OperationQueued,
+			CreatedAt: 1,
+			UpdatedAt: 1,
+		}},
+	}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatalf("Marshal legacy state: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(root, operationFileName),
+		payload,
+		0o600,
+	); err != nil {
+		t.Fatalf("WriteFile legacy state: %v", err)
+	}
+
+	now := time.UnixMilli(1_000_000)
+	recovered, err := OpenFile(root, fileTestOptions(&now, 0))
+	if err != nil {
+		t.Fatalf("OpenFile legacy state: %v", err)
+	}
+	defer recovered.Close()
+	view, err := recovered.GetOperation(principal, operationID)
+	if err != nil || view.Status != OperationStale {
+		t.Fatalf("legacy operation = %#v, %v", view, err)
+	}
+	lease := registerAndPublishOperationHost(t, recovered, "instance.legacy")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	batch, err := recovered.PollHost(
+		ctx,
+		"test.host",
+		lease.LeaseID,
+		1,
+	)
+	if !errors.Is(err, context.DeadlineExceeded) ||
+		len(batch.Requests) != 0 {
+		t.Fatalf("legacy redelivery = %#v, %v", batch, err)
+	}
+}
+
 func TestOperationFileRejectsConcurrentWriterAndReleasesLock(t *testing.T) {
 	root := t.TempDir()
 	now := time.UnixMilli(1_000_000)

@@ -125,16 +125,27 @@ type ExecuteOfferInput struct {
 	OfferID   string `json:"offer_id"`
 }
 
+// ControlBinding records the exact Host timeline and observation that were
+// visible when an external request was accepted by the Control Plane.
+type ControlBinding struct {
+	Epoch          host.Epoch `json:"epoch"`
+	ObservationSeq uint64     `json:"observation_seq"`
+}
+
 // HostControlRequest is trusted queue data delivered to an authoritative Host.
 type HostControlRequest struct {
-	OperationID string                 `json:"operation_id"`
-	RequestID   string                 `json:"request_id"`
-	Principal   host.Principal         `json:"principal"`
-	HostID      string                 `json:"host_id"`
-	WorldID     string                 `json:"world_id"`
-	ActorID     string                 `json:"actor_id"`
-	Kind        ControlKind            `json:"kind"`
-	Text        string                 `json:"text,omitempty"`
+	OperationID string            `json:"operation_id"`
+	RequestID   string            `json:"request_id"`
+	Principal   host.Principal    `json:"principal"`
+	HostID      string            `json:"host_id"`
+	WorldID     string            `json:"world_id"`
+	ActorID     string            `json:"actor_id"`
+	Kind        ControlKind       `json:"kind"`
+	Text        string            `json:"text,omitempty"`
+	Binding     *ControlBinding   `json:"binding,omitempty"`
+	Offer       *host.ActionOffer `json:"offer,omitempty"`
+	// Invocation is retained only to load v1 operation files. New requests
+	// never populate it and legacy unfinished work is never redelivered.
 	Invocation  *host.ActionInvocation `json:"invocation,omitempty"`
 	SubmittedAt int64                  `json:"submitted_at_unix_millis"`
 }

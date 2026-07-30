@@ -15,10 +15,11 @@ import (
 )
 
 const (
-	operationFileVersion  = "rin.control.operations/v1"
-	operationFileName     = "operations.json"
-	maxOperationFileBytes = 64 << 20
-	maxQueuedStateBytes   = 32 << 20
+	operationFileVersion       = "rin.control.operations/v2"
+	legacyOperationFileVersion = "rin.control.operations/v1"
+	operationFileName          = "operations.json"
+	maxOperationFileBytes      = 64 << 20
+	maxQueuedStateBytes        = 32 << 20
 )
 
 var errOperationFileTooLarge = errors.New("operation state exceeds its size limit")
@@ -179,7 +180,8 @@ func (file *operationFile) read() (persistedOperations, error) {
 			err,
 		)
 	}
-	if state.Version != operationFileVersion {
+	if state.Version != operationFileVersion &&
+		state.Version != legacyOperationFileVersion {
 		return persistedOperations{}, fmt.Errorf(
 			"%w: unsupported operation state version %q",
 			ErrPersistence,
@@ -243,7 +245,7 @@ func (service *Service) restoreOperations(state persistedOperations) error {
 		)
 	}
 	for index, persisted := range state.Operations {
-		operation, err := restoreOperation(persisted)
+		operation, err := restoreOperation(persisted, state.Version)
 		if err != nil {
 			return fmt.Errorf(
 				"%w: operations[%d]: %v",
@@ -274,8 +276,12 @@ func (service *Service) restoreOperations(state persistedOperations) error {
 
 func restoreOperation(
 	value persistedOperation,
+	fileVersion string,
 ) (*operationState, error) {
-	if err := validateStoredRequest(value.Request); err != nil {
+	legacyUnbound := value.Request.Binding == nil ||
+		value.Request.Invocation != nil ||
+		fileVersion == legacyOperationFileVersion
+	if err := validateStoredRequest(value.Request, legacyUnbound); err != nil {
 		return nil, err
 	}
 	if !validOperationStatus(value.Status) {
@@ -345,13 +351,15 @@ func restoreOperation(
 		operation.status = OperationCancelled
 	} else if operation.ack != nil && operation.ack.Accepted {
 		operation.status = OperationOutcomeUnknown
+	} else if legacyUnbound {
+		operation.status = OperationStale
 	} else {
 		operation.status = OperationQueued
 	}
 	return operation, nil
 }
 
-func validateStoredRequest(request HostControlRequest) error {
+func validateStoredRequest(request HostControlRequest, allowLegacy bool) error {
 	if err := validateControlTarget(
 		request.RequestID,
 		request.HostID,
@@ -369,10 +377,26 @@ func validateStoredRequest(request HostControlRequest) error {
 	if request.SubmittedAt < 0 || request.SubmittedAt > maxJSONSafeInteger {
 		return errors.New("invalid submitted_at_unix_millis")
 	}
+	if request.Binding == nil {
+		if !allowLegacy {
+			return errors.New("request binding is required")
+		}
+	} else {
+		if err := request.Binding.Epoch.Validate("binding.epoch"); err != nil {
+			return fmt.Errorf("binding.epoch: %w", err)
+		}
+		if request.Binding.Epoch.WorldID != request.WorldID {
+			return errors.New("binding epoch does not match request world")
+		}
+		if request.Binding.ObservationSeq == 0 ||
+			request.Binding.ObservationSeq > maxJSONSafeInteger {
+			return errors.New("invalid binding observation_seq")
+		}
+	}
 	switch request.Kind {
 	case ControlMessage, ControlDirective:
-		if request.Invocation != nil {
-			return errors.New("text request must not contain invocation")
+		if request.Invocation != nil || request.Offer != nil {
+			return errors.New("text request must not contain an offer or invocation")
 		}
 		if err := validateText(
 			"text",
@@ -391,16 +415,33 @@ func validateStoredRequest(request HostControlRequest) error {
 			return errors.New("principal is missing the request scope")
 		}
 	case ControlOffer:
-		if request.Text != "" || request.Invocation == nil {
-			return errors.New("offer request requires only an invocation")
+		if request.Text != "" {
+			return errors.New("offer request must not contain text")
 		}
-		if err := host.ValidateActionInvocation(*request.Invocation); err != nil {
-			return fmt.Errorf("invocation: %w", err)
-		}
-		if request.Invocation.OperationID != request.OperationID ||
-			request.Invocation.ActorID != request.ActorID ||
-			request.Invocation.ExpectedEpoch.WorldID != request.WorldID {
-			return errors.New("invocation does not match request")
+		if request.Offer != nil {
+			if request.Invocation != nil {
+				return errors.New("offer request cannot contain both offer and invocation")
+			}
+			if err := host.ValidateActionOffer(*request.Offer); err != nil {
+				return fmt.Errorf("offer: %w", err)
+			}
+			if request.Binding == nil ||
+				request.Offer.ActorID != request.ActorID ||
+				request.Offer.ExpectedEpoch != request.Binding.Epoch ||
+				request.Offer.ObservationSeq != request.Binding.ObservationSeq {
+				return errors.New("offer does not match request binding")
+			}
+		} else if request.Invocation != nil && allowLegacy {
+			if err := host.ValidateActionInvocation(*request.Invocation); err != nil {
+				return fmt.Errorf("legacy invocation: %w", err)
+			}
+			if request.Invocation.OperationID != request.OperationID ||
+				request.Invocation.ActorID != request.ActorID ||
+				request.Invocation.ExpectedEpoch.WorldID != request.WorldID {
+				return errors.New("legacy invocation does not match request")
+			}
+		} else {
+			return errors.New("offer request requires a Host-published offer")
 		}
 		if !hasScope(request.Principal, ScopeHostAdmin) &&
 			!hasScope(request.Principal, ScopeActorExecute) {

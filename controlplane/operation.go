@@ -108,7 +108,7 @@ func (service *Service) ExecuteActorOffer(
 	if err != nil {
 		return OperationView{}, err
 	}
-	invocation := invocationFromOffer(operationID, *selected)
+	offer := cloneOffer(*selected)
 	request := HostControlRequest{
 		OperationID: operationID,
 		RequestID:   input.RequestID,
@@ -117,7 +117,8 @@ func (service *Service) ExecuteActorOffer(
 		WorldID:     input.WorldID,
 		ActorID:     input.ActorID,
 		Kind:        ControlOffer,
-		Invocation:  &invocation,
+		Binding:     bindingFromActor(actor),
+		Offer:       &offer,
 		SubmittedAt: service.now().UnixMilli(),
 	}
 	return service.queueOperationLocked(key, request)
@@ -154,13 +155,14 @@ func (service *Service) submitText(
 	); found || err != nil {
 		return existing, err
 	}
-	if _, err := service.authorizeActorLocked(
+	actor, err := service.authorizeActorLocked(
 		principal,
 		input.HostID,
 		input.WorldID,
 		input.ActorID,
 		requiredScope,
-	); err != nil {
+	)
+	if err != nil {
 		if persistErr := service.persistOperationsLocked(); persistErr != nil {
 			return OperationView{}, persistErr
 		}
@@ -179,6 +181,7 @@ func (service *Service) submitText(
 		ActorID:     input.ActorID,
 		Kind:        kind,
 		Text:        input.Text,
+		Binding:     bindingFromActor(actor),
 		SubmittedAt: service.now().UnixMilli(),
 	}
 	return service.queueOperationLocked(key, request)
@@ -501,8 +504,8 @@ func (service *Service) idempotentOperationLocked(
 		operation.request.Kind == kind &&
 		operation.request.Text == text
 	if same && kind == ControlOffer {
-		same = operation.request.Invocation != nil &&
-			operation.request.Invocation.OfferID == offerID
+		same = operation.request.Offer != nil &&
+			operation.request.Offer.OfferID == offerID
 	}
 	if !same {
 		return OperationView{}, true,
@@ -786,28 +789,24 @@ func operationOutputView(output json.RawMessage) map[string]any {
 	return value
 }
 
-func invocationFromOffer(
-	operationID string,
-	offer host.ActionOffer,
-) host.ActionInvocation {
-	return host.ActionInvocation{
-		OperationID:      operationID,
-		OfferID:          offer.OfferID,
-		DecisionWindowID: offer.DecisionWindowID,
-		ActorID:          offer.ActorID,
-		Capability:       offer.Capability,
-		DescriptorDigest: offer.DescriptorDigest,
-		Arguments:        append([]byte(nil), offer.Arguments...),
-		Targets:          append([]host.HostRef(nil), offer.Targets...),
-		ExpectedEpoch:    offer.ExpectedEpoch,
-		ObservationSeq:   offer.ObservationSeq,
-		Deadline:         offer.Deadline,
+func bindingFromActor(actor ActorPublication) *ControlBinding {
+	return &ControlBinding{
+		Epoch:          actor.Epoch,
+		ObservationSeq: actor.ObservationSeq,
 	}
 }
 
 func cloneControlRequest(value HostControlRequest) HostControlRequest {
 	cloned := value
 	cloned.Principal = clonePrincipalValue(value.Principal)
+	if value.Binding != nil {
+		binding := *value.Binding
+		cloned.Binding = &binding
+	}
+	if value.Offer != nil {
+		offer := cloneOffer(*value.Offer)
+		cloned.Offer = &offer
+	}
 	if value.Invocation != nil {
 		invocation := *value.Invocation
 		invocation.Arguments = append([]byte(nil), value.Invocation.Arguments...)
@@ -815,6 +814,12 @@ func cloneControlRequest(value HostControlRequest) HostControlRequest {
 		cloned.Invocation = &invocation
 	}
 	return cloned
+}
+
+func cloneOffer(value host.ActionOffer) host.ActionOffer {
+	value.Arguments = append(json.RawMessage(nil), value.Arguments...)
+	value.Targets = append([]host.HostRef(nil), value.Targets...)
+	return value
 }
 
 func clonePrincipalValue(value host.Principal) host.Principal {

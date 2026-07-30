@@ -53,10 +53,16 @@ func TestMessageOperationIsIdempotentAndReportsHostOutcome(t *testing.T) {
 	}
 
 	batch := pollHost(t, service, lease, 8)
-	if len(batch.Requests) != 1 ||
-		batch.Requests[0].Request.OperationID != operation.OperationID ||
+	if len(batch.Requests) != 1 {
+		t.Fatalf("first batch = %#v", batch)
+	}
+	binding := batch.Requests[0].Request.Binding
+	if batch.Requests[0].Request.OperationID != operation.OperationID ||
 		batch.Requests[0].Request.Text != input.Text ||
 		batch.Requests[0].Request.Principal.ID != principal.ID ||
+		binding == nil ||
+		binding.Epoch != testEpoch() ||
+		binding.ObservationSeq != 1 ||
 		batch.Requests[0].DeliveryAttempt != 1 {
 		t.Fatalf("first batch = %#v", batch)
 	}
@@ -179,7 +185,7 @@ func TestMessageOperationIsIdempotentAndReportsHostOutcome(t *testing.T) {
 	}
 }
 
-func TestExecuteOfferCopiesOnlyCurrentBoundOffer(t *testing.T) {
+func TestExecuteOfferDeliversExactHostOfferAndBinding(t *testing.T) {
 	service, lease, _ := operationTestService(t, Options{})
 	principal := operationPrincipal(ScopeActorExecute)
 	input := ExecuteOfferInput{
@@ -197,17 +203,21 @@ func TestExecuteOfferCopiesOnlyCurrentBoundOffer(t *testing.T) {
 	if len(batch.Requests) != 1 {
 		t.Fatalf("batch = %#v", batch)
 	}
-	invocation := batch.Requests[0].Request.Invocation
+	request := batch.Requests[0].Request
+	offer := request.Offer
+	binding := request.Binding
 	expectedOffer := worldPublication(1, "ready").Actors[0].Offers[0]
-	if invocation == nil ||
-		invocation.OperationID != operation.OperationID ||
-		invocation.OfferID != expectedOffer.OfferID ||
-		invocation.Capability != expectedOffer.Capability ||
-		invocation.DescriptorDigest != expectedOffer.DescriptorDigest ||
-		!bytes.Equal(invocation.Arguments, expectedOffer.Arguments) ||
-		invocation.ExpectedEpoch != expectedOffer.ExpectedEpoch ||
-		invocation.ObservationSeq != expectedOffer.ObservationSeq {
-		t.Fatalf("invocation = %#v", invocation)
+	if request.OperationID != operation.OperationID ||
+		request.Invocation != nil ||
+		offer == nil ||
+		binding == nil ||
+		offer.OfferID != expectedOffer.OfferID ||
+		offer.Capability != expectedOffer.Capability ||
+		offer.DescriptorDigest != expectedOffer.DescriptorDigest ||
+		!bytes.Equal(offer.Arguments, expectedOffer.Arguments) ||
+		offer.ExpectedEpoch != binding.Epoch ||
+		offer.ObservationSeq != binding.ObservationSeq {
+		t.Fatalf("request = %#v", request)
 	}
 
 	notOffered := input
