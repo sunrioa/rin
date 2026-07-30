@@ -145,11 +145,8 @@ func (file *operationFile) read() (persistedOperations, error) {
 			ErrPersistence,
 		)
 	}
-	if info.Mode().Perm()&0o077 != 0 {
-		return persistedOperations{}, fmt.Errorf(
-			"%w: operation state permissions must not grant group or world access",
-			ErrPersistence,
-		)
+	if err := validateOperationStatePermissions(info); err != nil {
+		return persistedOperations{}, err
 	}
 	if info.Size() > maxOperationFileBytes {
 		return persistedOperations{}, fmt.Errorf(

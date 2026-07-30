@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -116,7 +117,7 @@ func TestOperationFileRecoversUnknownWorkAndTerminalOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat operation state: %v", err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("operation state mode = %o", info.Mode().Perm())
 	}
 }
@@ -361,6 +362,9 @@ func TestOperationFileRejectsAmbiguousOrInsecureState(t *testing.T) {
 		})
 	}
 
+	if runtime.GOOS == "windows" {
+		return
+	}
 	root := t.TempDir()
 	path := filepath.Join(root, operationFileName)
 	payload := `{"version":"rin.control.operations/v1","operations":[]}`
