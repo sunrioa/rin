@@ -59,10 +59,14 @@ func ParseMetadata() (Metadata, error) {
 // ParseRoutes projects method, path, operationId, and the sole successful status
 // from the authoritative OpenAPI document.
 func ParseRoutes() ([]Route, error) {
+	return parseRoutes(openAPIDocument)
+}
+
+func parseRoutes(documentBytes []byte) ([]Route, error) {
 	var document struct {
 		Paths map[string]map[string]json.RawMessage `json:"paths"`
 	}
-	if err := json.Unmarshal(openAPIDocument, &document); err != nil {
+	if err := json.Unmarshal(documentBytes, &document); err != nil {
 		return nil, fmt.Errorf("decode embedded OpenAPI paths: %w", err)
 	}
 	routes := make([]Route, 0, 20)

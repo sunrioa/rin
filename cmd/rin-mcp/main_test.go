@@ -3,6 +3,9 @@ package main
 import (
 	"io"
 	"testing"
+
+	"github.com/sunrioa/rin/controlplane"
+	"github.com/sunrioa/rin/host"
 )
 
 func TestParseConfigurationUsesControlDaemon(t *testing.T) {
@@ -42,6 +45,31 @@ func TestParseConfigurationRejectsRemoteControlURL(t *testing.T) {
 		io.Discard,
 	); err == nil {
 		t.Fatal("remote Control URL was accepted")
+	}
+	if _, err := parseConfiguration(
+		[]string{"-conformance-addr", "0.0.0.0:7380"},
+		environment,
+		io.Discard,
+	); err == nil {
+		t.Fatal("remote conformance address was accepted")
+	}
+}
+
+func TestConformanceHTTPRequiresReadOnlyPrincipal(t *testing.T) {
+	if !readOnlyConformancePrincipal(host.Principal{
+		ID:            "player.one",
+		GrantedScopes: []string{controlplane.ScopeActorRead},
+	}) {
+		t.Fatal("read-only principal was rejected")
+	}
+	if readOnlyConformancePrincipal(host.Principal{
+		ID: "player.one",
+		GrantedScopes: []string{
+			controlplane.ScopeActorRead,
+			controlplane.ScopeActorExecute,
+		},
+	}) {
+		t.Fatal("mutating principal was accepted")
 	}
 }
 

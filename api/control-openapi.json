@@ -1,0 +1,1807 @@
+{
+  "openapi": "3.1.0",
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "info": {
+    "title": "Rin Control API",
+    "version": "0.7.0",
+    "description": "Loopback contract between a Rin Control Daemon, authoritative game Hosts, and thin external-control clients."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:7375"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/control/v1/health": {
+      "get": {
+        "operationId": "control_health",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Control Daemon health",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/control/v1/register": {
+      "post": {
+        "operationId": "control_register_host",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HostRegistration"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Acquired Host lease",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostLease"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/control/v1/renew": {
+      "post": {
+        "operationId": "control_renew_host",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeaseRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Renewed Host lease",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostLease"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/control/v1/unregister": {
+      "post": {
+        "operationId": "control_unregister_host",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeaseRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Host unregistered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/control/v1/publish": {
+      "post": {
+        "operationId": "control_publish_world",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "World publication accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/control/v1/poll": {
+      "post": {
+        "operationId": "control_poll_host",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PollRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bounded Host work batch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostControlBatch"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/control/v1/ack": {
+      "post": {
+        "operationId": "control_acknowledge_host",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcknowledgementRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Acknowledgement recorded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/control/v1/run": {
+      "post": {
+        "operationId": "control_report_host_run",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Run progress recorded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/control/v1/outcome": {
+      "post": {
+        "operationId": "control_report_host_outcome",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OutcomeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Terminal outcome recorded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/control/v1/client/info": {
+      "get": {
+        "operationId": "control_client_info",
+        "responses": {
+          "200": {
+            "description": "Daemon-bound external principal",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientInfo"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/control/v1/client/worlds": {
+      "post": {
+        "operationId": "control_client_list_worlds",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Principal-visible worlds",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorldView"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/control/v1/client/actors": {
+      "post": {
+        "operationId": "control_client_list_actors",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorldTarget"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Principal-visible actors",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ActorView"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/control/v1/client/actor": {
+      "post": {
+        "operationId": "control_client_get_actor",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActorTarget"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Principal-visible actor state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActorView"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/control/v1/client/offers": {
+      "post": {
+        "operationId": "control_client_list_offers",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActorTarget"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Exact Host-published offers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ActionOffer"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/control/v1/client/message": {
+      "post": {
+        "operationId": "control_client_send_message",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActorTextInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Queued conversation operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationView"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/control/v1/client/directive": {
+      "post": {
+        "operationId": "control_client_send_directive",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActorTextInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Queued negotiable directive",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationView"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/control/v1/client/execute-offer": {
+      "post": {
+        "operationId": "control_client_execute_offer",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecuteOfferInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Queued exact-offer operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationView"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/control/v1/client/operation": {
+      "post": {
+        "operationId": "control_client_get_operation",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationTarget"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationView"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/control/v1/client/cancel": {
+      "post": {
+        "operationId": "control_client_cancel_operation",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationTarget"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated operation state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationView"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "responses": {
+      "Error": {
+        "description": "Control API error",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Identifier": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 96,
+        "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+      },
+      "JSONSafeUnsignedInteger": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "StatusResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        }
+      },
+      "Principal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "granted_scopes": {
+            "type": "array",
+            "maxItems": 64,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          }
+        }
+      },
+      "Durability": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profile",
+          "stable_identity",
+          "durable_before_network",
+          "durable_outbox",
+          "idempotent_apply",
+          "atomic_apply_and_outbox"
+        ],
+        "properties": {
+          "profile": {
+            "type": "string",
+            "enum": [
+              "advisory",
+              "idempotent-action",
+              "transactional-action"
+            ]
+          },
+          "stable_identity": {
+            "type": "boolean"
+          },
+          "durable_before_network": {
+            "type": "boolean"
+          },
+          "durable_outbox": {
+            "type": "boolean"
+          },
+          "idempotent_apply": {
+            "type": "boolean"
+          },
+          "atomic_apply_and_outbox": {
+            "type": "boolean"
+          }
+        }
+      },
+      "HostManifest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "contract_version",
+          "adapter_id",
+          "adapter_version",
+          "engine_id",
+          "engine_version",
+          "runtime",
+          "platform",
+          "headless",
+          "authority",
+          "deployment",
+          "control",
+          "clock_modes",
+          "decision_modes",
+          "max_concurrent_actors",
+          "durability"
+        ],
+        "properties": {
+          "contract_version": {
+            "const": "rin.host/v1"
+          },
+          "adapter_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "adapter_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "engine_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "engine_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "runtime": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "platform": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "headless": {
+            "type": "boolean"
+          },
+          "authority": {
+            "type": "string",
+            "enum": [
+              "standalone",
+              "server",
+              "client-advisory"
+            ]
+          },
+          "deployment": {
+            "type": "string",
+            "enum": [
+              "loopback-sidecar",
+              "dedicated-server",
+              "remote-https",
+              "embedded-offline",
+              "computer-control"
+            ]
+          },
+          "control": {
+            "type": "string",
+            "enum": [
+              "semantic",
+              "accessibility",
+              "computer-control"
+            ]
+          },
+          "clock_modes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 3,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "event",
+                "step",
+                "realtime"
+              ]
+            }
+          },
+          "decision_modes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 3,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "sequential",
+                "simultaneous",
+                "asynchronous"
+              ]
+            }
+          },
+          "max_concurrent_actors": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65536
+          },
+          "durability": {
+            "$ref": "#/components/schemas/Durability"
+          }
+        }
+      },
+      "HostRegistration": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "contract_version",
+          "host_id",
+          "instance_id",
+          "manifest",
+          "lease_ttl_millis"
+        ],
+        "properties": {
+          "contract_version": {
+            "const": "rin.control/v1"
+          },
+          "host_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "instance_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/HostManifest"
+          },
+          "lease_ttl_millis": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 300000
+          }
+        }
+      },
+      "HostLease": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "host_id",
+          "instance_id",
+          "lease_id",
+          "expires_at_unix_millis"
+        ],
+        "properties": {
+          "host_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "instance_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "lease_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "expires_at_unix_millis": {
+            "type": "integer"
+          }
+        }
+      },
+      "LeaseRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "host_id",
+          "lease_id"
+        ],
+        "properties": {
+          "host_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "lease_id": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      },
+      "Epoch": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "session_id",
+          "world_id",
+          "host",
+          "world",
+          "timeline"
+        ],
+        "properties": {
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "world_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "host": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          },
+          "world": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          },
+          "timeline": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          }
+        }
+      },
+      "Timepoint": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "clock",
+          "value"
+        ],
+        "properties": {
+          "clock": {
+            "type": "string",
+            "enum": [
+              "event",
+              "step",
+              "realtime"
+            ]
+          },
+          "value": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          }
+        }
+      },
+      "CapabilityRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        }
+      },
+      "HostRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "namespace",
+          "type",
+          "key",
+          "ephemeral",
+          "epoch"
+        ],
+        "properties": {
+          "namespace": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "type": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "ephemeral": {
+            "type": "boolean"
+          },
+          "epoch": {
+            "$ref": "#/components/schemas/Epoch"
+          }
+        }
+      },
+      "ActionOffer": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "offer_id",
+          "decision_window_id",
+          "actor_id",
+          "capability",
+          "descriptor_digest",
+          "description",
+          "arguments",
+          "expected_epoch",
+          "observation_seq",
+          "deadline"
+        ],
+        "properties": {
+          "offer_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "decision_window_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "capability": {
+            "$ref": "#/components/schemas/CapabilityRef"
+          },
+          "descriptor_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "arguments": {
+            "type": "object"
+          },
+          "targets": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/HostRef"
+            }
+          },
+          "expected_epoch": {
+            "$ref": "#/components/schemas/Epoch"
+          },
+          "observation_seq": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          },
+          "deadline": {
+            "$ref": "#/components/schemas/Timepoint"
+          }
+        }
+      },
+      "ActorPublication": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "actor_id",
+          "owner_principal_id",
+          "display_name",
+          "observation_seq",
+          "epoch",
+          "state"
+        ],
+        "properties": {
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "owner_principal_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "observation_seq": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          },
+          "epoch": {
+            "$ref": "#/components/schemas/Epoch"
+          },
+          "state": {
+            "type": "object"
+          },
+          "offers": {
+            "type": "array",
+            "maxItems": 128,
+            "items": {
+              "$ref": "#/components/schemas/ActionOffer"
+            }
+          }
+        }
+      },
+      "WorldPublication": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "world_id",
+          "display_name",
+          "sequence",
+          "actors"
+        ],
+        "properties": {
+          "world_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "sequence": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          },
+          "actors": {
+            "type": "array",
+            "maxItems": 65536,
+            "items": {
+              "$ref": "#/components/schemas/ActorPublication"
+            }
+          }
+        }
+      },
+      "PublishRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "host_id",
+          "lease_id",
+          "publication"
+        ],
+        "properties": {
+          "host_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "lease_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "publication": {
+            "$ref": "#/components/schemas/WorldPublication"
+          }
+        }
+      },
+      "PollRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "host_id",
+          "lease_id",
+          "limit",
+          "wait_millis"
+        ],
+        "properties": {
+          "host_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "lease_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "wait_millis": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 25000
+          }
+        }
+      },
+      "ControlBinding": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "epoch",
+          "observation_seq"
+        ],
+        "properties": {
+          "epoch": {
+            "$ref": "#/components/schemas/Epoch"
+          },
+          "observation_seq": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          }
+        }
+      },
+      "HostControlRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation_id",
+          "request_id",
+          "principal",
+          "host_id",
+          "world_id",
+          "actor_id",
+          "kind",
+          "binding",
+          "submitted_at_unix_millis"
+        ],
+        "properties": {
+          "operation_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "principal": {
+            "$ref": "#/components/schemas/Principal"
+          },
+          "host_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "world_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "message",
+              "directive",
+              "offer"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "binding": {
+            "$ref": "#/components/schemas/ControlBinding"
+          },
+          "offer": {
+            "$ref": "#/components/schemas/ActionOffer"
+          },
+          "submitted_at_unix_millis": {
+            "type": "integer"
+          }
+        }
+      },
+      "HostControlDelivery": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "request",
+          "delivery_attempt"
+        ],
+        "properties": {
+          "request": {
+            "$ref": "#/components/schemas/HostControlRequest"
+          },
+          "delivery_attempt": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4294967295
+          }
+        }
+      },
+      "HostControlBatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "requests",
+          "cancellations"
+        ],
+        "properties": {
+          "requests": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/components/schemas/HostControlDelivery"
+            }
+          },
+          "cancellations": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            }
+          }
+        }
+      },
+      "HostAcknowledgement": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation_id",
+          "accepted"
+        ],
+        "properties": {
+          "operation_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "accepted": {
+            "type": "boolean"
+          },
+          "code": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      },
+      "AcknowledgementRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "host_id",
+          "lease_id",
+          "acknowledgement"
+        ],
+        "properties": {
+          "host_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "lease_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "acknowledgement": {
+            "$ref": "#/components/schemas/HostAcknowledgement"
+          }
+        }
+      },
+      "ActionRun": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation_id",
+          "status",
+          "progress_seq",
+          "progress",
+          "updated_at"
+        ],
+        "properties": {
+          "operation_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ActionRunStatus"
+          },
+          "progress_seq": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          },
+          "progress": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/Timepoint"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      },
+      "RunRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "host_id",
+          "lease_id",
+          "run"
+        ],
+        "properties": {
+          "host_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "lease_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "run": {
+            "$ref": "#/components/schemas/ActionRun"
+          }
+        }
+      },
+      "ActionOutcome": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation_id",
+          "status",
+          "summary",
+          "epoch",
+          "world_seq",
+          "occurred_at"
+        ],
+        "properties": {
+          "operation_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ActionRunStatus"
+          },
+          "code": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "evidence": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/components/schemas/HostRef"
+            }
+          },
+          "epoch": {
+            "$ref": "#/components/schemas/Epoch"
+          },
+          "world_seq": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "occurred_at": {
+            "$ref": "#/components/schemas/Timepoint"
+          }
+        }
+      },
+      "OutcomeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "host_id",
+          "lease_id",
+          "outcome"
+        ],
+        "properties": {
+          "host_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "lease_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/ActionOutcome"
+          },
+          "output": {
+            "type": "object"
+          }
+        }
+      },
+      "ClientInfo": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "contract_version",
+          "principal"
+        ],
+        "properties": {
+          "contract_version": {
+            "const": "rin.control/v1"
+          },
+          "principal": {
+            "$ref": "#/components/schemas/Principal"
+          }
+        }
+      },
+      "EmptyRequest": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "WorldTarget": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "host_id",
+          "world_id"
+        ],
+        "properties": {
+          "host_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "world_id": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      },
+      "ActorTarget": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "host_id",
+          "world_id",
+          "actor_id"
+        ],
+        "properties": {
+          "host_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "world_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      },
+      "ActorTextInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "request_id",
+          "host_id",
+          "world_id",
+          "actor_id",
+          "text"
+        ],
+        "properties": {
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "host_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "world_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          }
+        }
+      },
+      "ExecuteOfferInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "request_id",
+          "host_id",
+          "world_id",
+          "actor_id",
+          "offer_id"
+        ],
+        "properties": {
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "host_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "world_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "offer_id": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      },
+      "OperationTarget": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation_id"
+        ],
+        "properties": {
+          "operation_id": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        }
+      },
+      "WorldView": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "host_id",
+          "world_id",
+          "display_name",
+          "sequence",
+          "online",
+          "lease_expires_at_unix_millis"
+        ],
+        "properties": {
+          "host_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "world_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "sequence": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "online": {
+            "type": "boolean"
+          },
+          "lease_expires_at_unix_millis": {
+            "type": "integer"
+          }
+        }
+      },
+      "ActorView": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "host_id",
+          "world_id",
+          "actor_id",
+          "owner_principal_id",
+          "display_name",
+          "observation_seq",
+          "epoch",
+          "state",
+          "online",
+          "lease_expires_at_unix_millis"
+        ],
+        "properties": {
+          "host_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "world_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "owner_principal_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "observation_seq": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "epoch": {
+            "$ref": "#/components/schemas/Epoch"
+          },
+          "state": {
+            "type": "object"
+          },
+          "online": {
+            "type": "boolean"
+          },
+          "lease_expires_at_unix_millis": {
+            "type": "integer"
+          }
+        }
+      },
+      "OperationStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "delivered",
+          "accepted",
+          "running",
+          "succeeded",
+          "failed",
+          "cancelled",
+          "interrupted",
+          "stale",
+          "outcome-unknown",
+          "rejected"
+        ]
+      },
+      "ActionRunStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "succeeded",
+          "failed",
+          "cancelled",
+          "interrupted",
+          "stale",
+          "outcome-unknown"
+        ]
+      },
+      "OperationView": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation_id",
+          "request_id",
+          "host_id",
+          "world_id",
+          "actor_id",
+          "kind",
+          "status",
+          "cancel_requested",
+          "delivery_attempts",
+          "created_at_unix_millis",
+          "updated_at_unix_millis"
+        ],
+        "properties": {
+          "operation_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "host_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "world_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "message",
+              "directive",
+              "offer"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/OperationStatus"
+          },
+          "cancel_requested": {
+            "type": "boolean"
+          },
+          "delivery_attempts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "run": {
+            "$ref": "#/components/schemas/ActionRun"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/ActionOutcome"
+          },
+          "output": {
+            "type": "object"
+          },
+          "rejection_code": {
+            "type": "string"
+          },
+          "rejection_message": {
+            "type": "string"
+          },
+          "created_at_unix_millis": {
+            "type": "integer"
+          },
+          "updated_at_unix_millis": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  }
+}

@@ -139,6 +139,7 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", server.health)
+	mux.HandleFunc("GET /control/v1/health", server.health)
 	mux.HandleFunc("POST /control/v1/register", server.register)
 	mux.HandleFunc("POST /control/v1/renew", server.renew)
 	mux.HandleFunc("POST /control/v1/unregister", server.unregister)
@@ -177,7 +178,8 @@ func (server *hostHTTPHandler) secure(next http.Handler) http.Handler {
 	) {
 		response.Header().Set("Cache-Control", "no-store")
 		response.Header().Set("X-Content-Type-Options", "nosniff")
-		if request.URL.Path != "/health" {
+		if request.URL.Path != "/health" &&
+			request.URL.Path != "/control/v1/health" {
 			provided := strings.TrimPrefix(
 				request.Header.Get("Authorization"), "Bearer ",
 			)

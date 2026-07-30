@@ -6,17 +6,26 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sunrioa/rin/controlplane"
+	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/mcpbridge"
 )
 
+const shutdownTimeout = 5 * time.Second
+
 type configuration struct {
-	controlURL string
-	token      string
+	controlURL         string
+	token              string
+	conformanceAddress string
 }
 
 func main() {
@@ -55,11 +64,24 @@ func run(
 	}
 	fmt.Fprintf(
 		stderr,
-		"rin-mcp: connected to %s as %s; MCP protocol up to %s over stdio with SDK negotiation\n",
+		"rin-mcp: connected to %s as %s; MCP protocol up to %s with SDK negotiation\n",
 		config.controlURL,
 		info.Principal.ID,
 		mcpbridge.ProtocolVersion,
 	)
+	if config.conformanceAddress != "" {
+		if !readOnlyConformancePrincipal(info.Principal) {
+			return errors.New(
+				"conformance HTTP requires an actor.read-only daemon principal",
+			)
+		}
+		return runConformanceHTTP(
+			ctx,
+			config.conformanceAddress,
+			gateway.Server(),
+			stderr,
+		)
+	}
 	if err := gateway.Run(ctx, &mcp.StdioTransport{}); err != nil &&
 		!errors.Is(err, context.Canceled) {
 		return fmt.Errorf("serve MCP: %w", err)
@@ -79,6 +101,11 @@ func parseConfiguration(
 		envOr(lookupEnv, "RIN_CONTROL_URL", "http://127.0.0.1:7375"),
 		"loopback rin-control base URL",
 	)
+	conformanceAddress := flags.String(
+		"conformance-addr",
+		"",
+		"serve read-only stateless MCP HTTP for official conformance",
+	)
 	if err := flags.Parse(arguments); err != nil {
 		return configuration{}, err
 	}
@@ -94,10 +121,105 @@ func parseConfiguration(
 	if _, err := controlplane.NewHTTPClient(*controlURL, token); err != nil {
 		return configuration{}, err
 	}
+	if *conformanceAddress != "" {
+		if err := validateLoopbackAddress(*conformanceAddress); err != nil {
+			return configuration{}, err
+		}
+	}
 	return configuration{
-		controlURL: *controlURL,
-		token:      token,
+		controlURL:         *controlURL,
+		token:              token,
+		conformanceAddress: *conformanceAddress,
 	}, nil
+}
+
+func runConformanceHTTP(
+	ctx context.Context,
+	address string,
+	mcpServer *mcp.Server,
+	stderr io.Writer,
+) error {
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		return fmt.Errorf("listen for MCP conformance: %w", err)
+	}
+	handler := mcp.NewStreamableHTTPHandler(
+		func(*http.Request) *mcp.Server { return mcpServer },
+		&mcp.StreamableHTTPOptions{
+			Stateless:    true,
+			JSONResponse: true,
+		},
+	)
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", handler)
+	mux.HandleFunc("GET /health", func(
+		response http.ResponseWriter,
+		_ *http.Request,
+	) {
+		response.WriteHeader(http.StatusNoContent)
+	})
+	server := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      35 * time.Second,
+		IdleTimeout:       45 * time.Second,
+	}
+	result := make(chan error, 1)
+	go func() {
+		result <- server.Serve(listener)
+	}()
+	fmt.Fprintf(
+		stderr,
+		"rin-mcp: conformance HTTP listening on %s/mcp\n",
+		listener.Addr(),
+	)
+	select {
+	case <-ctx.Done():
+	case err := <-result:
+		if !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("serve MCP conformance: %w", err)
+		}
+		return nil
+	}
+	shutdownCtx, cancel := context.WithTimeout(
+		context.Background(),
+		shutdownTimeout,
+	)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("stop MCP conformance: %w", err)
+	}
+	if err := <-result; !errors.Is(err, http.ErrServerClosed) {
+		return fmt.Errorf("serve MCP conformance: %w", err)
+	}
+	return nil
+}
+
+func readOnlyConformancePrincipal(principal host.Principal) bool {
+	if len(principal.GrantedScopes) != 1 {
+		return false
+	}
+	return principal.GrantedScopes[0] == controlplane.ScopeActorRead
+}
+
+func validateLoopbackAddress(address string) error {
+	hostName, portText, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("invalid MCP conformance address: %w", err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil || port < 0 || port > 65535 {
+		return errors.New("invalid MCP conformance port")
+	}
+	if strings.EqualFold(hostName, "localhost") {
+		return nil
+	}
+	ip := net.ParseIP(hostName)
+	if ip == nil || !ip.IsLoopback() {
+		return errors.New("MCP conformance address must use a loopback IP")
+	}
+	return nil
 }
 
 func envOr(

@@ -52,6 +52,57 @@ jobs:
           fi
           exit "$status"
 
+  mcp-conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.x"
+          cache: true
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          package-manager-cache: false
+      - name: Build Control Daemon and thin MCP gateway
+        run: |
+          mkdir -p .cache/mcp-conformance/bin
+          CGO_ENABLED=0 go build -trimpath -o .cache/mcp-conformance/bin/rin-control ./cmd/rin-control
+          CGO_ENABLED=0 go build -trimpath -o .cache/mcp-conformance/bin/rin-mcp ./cmd/rin-mcp
+      - name: Run capability-matched official MCP conformance scenarios
+        shell: bash
+        env:
+          RIN_CONTROL_ADDR: 127.0.0.1:17375
+          RIN_CONTROL_URL: http://127.0.0.1:17375
+          RIN_CONTROL_DATA_DIR: .cache/mcp-conformance/data
+          RIN_CONTROL_PRINCIPAL: conformance.client
+          RIN_CONTROL_SCOPES: actor.read
+          RIN_CONTROL_TOKEN: 0123456789abcdef0123456789abcdef
+        run: |
+          set -euo pipefail
+          .cache/mcp-conformance/bin/rin-control >.cache/mcp-conformance/control.log 2>&1 &
+          control_pid=$!
+          .cache/mcp-conformance/bin/rin-mcp \
+            -conformance-addr 127.0.0.1:17380 \
+            >.cache/mcp-conformance/mcp.log 2>&1 &
+          mcp_pid=$!
+          trap 'kill "$mcp_pid" "$control_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:17380/health >/dev/null; then
+              break
+            fi
+            sleep 0.25
+          done
+          curl --fail --silent http://127.0.0.1:17380/health >/dev/null
+          for scenario in \
+            server-initialize logging-set-level ping tools-list \
+            resources-list prompts-list dns-rebinding-protection; do
+            npx --yes @modelcontextprotocol/conformance@0.1.11 server \
+              --url http://127.0.0.1:17380/mcp \
+              --scenario "$scenario" \
+              --output-dir .cache/mcp-conformance/results
+          done
+
   build:
     strategy:
       matrix:
