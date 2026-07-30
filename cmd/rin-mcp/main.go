@@ -59,6 +59,7 @@ func run(
 	if err != nil {
 		return err
 	}
+	defer service.Close()
 	handler, err := controlplane.NewHTTPHandler(
 		service,
 		controlplane.HTTPOptions{Token: config.token},

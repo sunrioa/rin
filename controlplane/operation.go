@@ -664,12 +664,17 @@ func (service *Service) hostOperationLocked(
 }
 
 func (service *Service) refreshOperationHostLocked(operation *operationState) {
+	now := service.now().UnixMilli()
+	if service.expireOperationByTTLLocked(operation, now) {
+		service.markOperationsDirtyLocked()
+		return
+	}
 	current, exists := service.hosts[operation.request.HostID]
 	if exists &&
-		current.lease.ExpiresAtUnixMillis <= service.now().UnixMilli() {
+		current.lease.ExpiresAtUnixMillis <= now {
 		service.expireHostOperationsLocked(
 			operation.request.HostID,
-			service.now().UnixMilli(),
+			now,
 		)
 	}
 }
@@ -702,6 +707,9 @@ func (service *Service) expireHostOperationsLocked(hostID string, now int64) {
 func (service *Service) pruneOperationsLocked(now int64) {
 	cutoff := now - service.operationTTL.Milliseconds()
 	changed := false
+	for _, operation := range service.operations {
+		changed = service.expireOperationByTTLLocked(operation, now) || changed
+	}
 	for operationID, operation := range service.operations {
 		if !completeOperation(operation) || operation.updatedAt > cutoff {
 			continue
@@ -713,6 +721,23 @@ func (service *Service) pruneOperationsLocked(now int64) {
 	if changed {
 		service.markOperationsDirtyLocked()
 	}
+}
+
+func (service *Service) expireOperationByTTLLocked(
+	operation *operationState,
+	now int64,
+) bool {
+	if completeOperation(operation) ||
+		operation.updatedAt > now-service.operationTTL.Milliseconds() {
+		return false
+	}
+	if operation.ack != nil && operation.ack.Accepted {
+		operation.status = OperationOutcomeUnknown
+	} else {
+		operation.status = OperationStale
+	}
+	operation.updatedAt = now
+	return true
 }
 
 func (service *Service) notifyLocked() {

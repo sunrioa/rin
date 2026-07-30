@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -36,6 +37,7 @@ type Service struct {
 	changed        chan struct{}
 	operationFile  *operationFile
 	operationDirty bool
+	closed         bool
 }
 
 type hostState struct {
@@ -75,6 +77,24 @@ func New(options Options) *Service {
 		requests:      make(map[string]string),
 		changed:       make(chan struct{}),
 	}
+}
+
+// Close flushes persistent operation state and releases the data-directory
+// writer lock. In-memory services may also be closed.
+func (service *Service) Close() error {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if service.closed {
+		return nil
+	}
+	persistErr := service.persistOperationsLocked()
+	service.closed = true
+	var closeErr error
+	if service.operationFile != nil {
+		closeErr = service.operationFile.close()
+	}
+	service.notifyLocked()
+	return errors.Join(persistErr, closeErr)
 }
 
 // RegisterHost acquires a host publication lease. Re-registering the same live

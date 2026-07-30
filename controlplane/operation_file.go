@@ -24,8 +24,9 @@ const (
 var errOperationFileTooLarge = errors.New("operation state exceeds its size limit")
 
 type operationFile struct {
-	root string
-	path string
+	root     string
+	path     string
+	lockFile *os.File
 }
 
 type persistedOperations struct {
@@ -56,7 +57,7 @@ func OpenFile(root string, options Options) (*Service, error) {
 	service := New(options)
 	service.operationFile = file
 	if err := service.restoreOperations(state); err != nil {
-		return nil, err
+		return nil, errors.Join(err, file.close())
 	}
 	return service, nil
 }
@@ -98,11 +99,28 @@ func openOperationFile(
 		root: absolute,
 		path: filepath.Join(absolute, operationFileName),
 	}
-	state, err := file.read()
+	lockFile, err := acquireOperationDirectoryLock(
+		filepath.Join(absolute, operationLockFileName),
+	)
 	if err != nil {
 		return nil, persistedOperations{}, err
 	}
+	file.lockFile = lockFile
+	state, err := file.read()
+	if err != nil {
+		_ = file.close()
+		return nil, persistedOperations{}, err
+	}
 	return file, state, nil
+}
+
+func (file *operationFile) close() error {
+	if file == nil || file.lockFile == nil {
+		return nil
+	}
+	lockFile := file.lockFile
+	file.lockFile = nil
+	return releaseOperationDirectoryLock(lockFile)
 }
 
 func (file *operationFile) read() (persistedOperations, error) {
@@ -489,6 +507,9 @@ func (service *Service) persistOperationsLocked() error {
 func (service *Service) persistOperationsWithLimitLocked(
 	maximumBytes int64,
 ) error {
+	if service.closed {
+		return ErrClosed
+	}
 	if !service.operationDirty {
 		return nil
 	}

@@ -418,6 +418,35 @@ func TestOperationCapacityPrunesExpiredCompletedWork(t *testing.T) {
 	}
 }
 
+func TestOrphanedOperationExpiresWithoutRepublishedHost(t *testing.T) {
+	service, _, now := operationTestService(t, Options{
+		OperationTTL: time.Second,
+	})
+	principal := operationPrincipal(ScopeActorDirect)
+	operation, err := service.SendActorDirective(principal, ActorTextInput{
+		RequestID: "request.orphan.expires",
+		HostID:    "test.host",
+		WorldID:   "world.one",
+		ActorID:   "actor.one",
+		Text:      "Do not survive an abandoned control plane.",
+	})
+	if err != nil {
+		t.Fatalf("SendActorDirective: %v", err)
+	}
+	service.mu.Lock()
+	delete(service.hosts, "test.host")
+	service.mu.Unlock()
+	*now = now.Add(2 * time.Second)
+
+	view, err := service.GetOperation(principal, operation.OperationID)
+	if err != nil {
+		t.Fatalf("GetOperation: %v", err)
+	}
+	if view.Status != OperationStale {
+		t.Fatalf("orphaned operation status = %s", view.Status)
+	}
+}
+
 func TestHostPollWakesWhenWorkArrives(t *testing.T) {
 	service, lease, _ := operationTestService(t, Options{})
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)

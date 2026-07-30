@@ -51,6 +51,9 @@ func TestOperationFileRecoversUnknownWorkAndTerminalOutcome(t *testing.T) {
 	); err != nil {
 		t.Fatalf("ReportHostRun: %v", err)
 	}
+	if err := service.Close(); err != nil {
+		t.Fatalf("Close before recovery: %v", err)
+	}
 
 	recovered, err := OpenFile(root, fileTestOptions(&now, 64))
 	if err != nil {
@@ -88,6 +91,9 @@ func TestOperationFileRecoversUnknownWorkAndTerminalOutcome(t *testing.T) {
 	); err != nil {
 		t.Fatalf("ReportHostResult after restart: %v", err)
 	}
+	if err := recovered.Close(); err != nil {
+		t.Fatalf("Close recovered service: %v", err)
+	}
 
 	reopened, err := OpenFile(root, fileTestOptions(&now, 128))
 	if err != nil {
@@ -101,6 +107,9 @@ func TestOperationFileRecoversUnknownWorkAndTerminalOutcome(t *testing.T) {
 		view.Output["reply"] != "Recovered reply." ||
 		view.Output["capability"] != "activity.wait" {
 		t.Fatalf("reopened operation = %#v, %v", view, err)
+	}
+	if err := reopened.Close(); err != nil {
+		t.Fatalf("Close reopened service: %v", err)
 	}
 
 	info, err := os.Stat(filepath.Join(root, operationFileName))
@@ -132,6 +141,9 @@ func TestOperationFileRedeliversUnacknowledgedRequestWithStableID(t *testing.T) 
 		first.Requests[0].DeliveryAttempt != 1 {
 		t.Fatalf("first delivery = %#v", first)
 	}
+	if err := service.Close(); err != nil {
+		t.Fatalf("Close before redelivery: %v", err)
+	}
 
 	recovered, err := OpenFile(root, fileTestOptions(&now, 64))
 	if err != nil {
@@ -161,6 +173,31 @@ func TestOperationFileRedeliversUnacknowledgedRequestWithStableID(t *testing.T) 
 		second.Requests[0].Request.OperationID != operation.OperationID ||
 		second.Requests[0].DeliveryAttempt != 2 {
 		t.Fatalf("redelivery = %#v", second)
+	}
+	if err := recovered.Close(); err != nil {
+		t.Fatalf("Close recovered service: %v", err)
+	}
+}
+
+func TestOperationFileRejectsConcurrentWriterAndReleasesLock(t *testing.T) {
+	root := t.TempDir()
+	now := time.UnixMilli(1_000_000)
+	first, err := OpenFile(root, fileTestOptions(&now, 0))
+	if err != nil {
+		t.Fatalf("OpenFile first writer: %v", err)
+	}
+	if _, err := OpenFile(root, fileTestOptions(&now, 64)); !errors.Is(err, ErrDataLocked) {
+		t.Fatalf("OpenFile concurrent writer error = %v", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("Close first writer: %v", err)
+	}
+	second, err := OpenFile(root, fileTestOptions(&now, 128))
+	if err != nil {
+		t.Fatalf("OpenFile after release: %v", err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatalf("Close second writer: %v", err)
 	}
 }
 

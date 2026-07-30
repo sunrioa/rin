@@ -13,4 +13,6 @@ var (
 	ErrConflict      = errors.New("control plane value conflict")
 	ErrCapacity      = errors.New("control plane capacity exceeded")
 	ErrPersistence   = errors.New("control plane persistence failed")
+	ErrClosed        = errors.New("control plane is closed")
+	ErrDataLocked    = errors.New("control plane data directory is already locked")
 )
