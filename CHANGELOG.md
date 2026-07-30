@@ -10,6 +10,9 @@ across every future minor release.
 
 ### Added
 
+- Added the long-lived `rin-control` daemon, a typed fixed-Principal client API,
+  the [`api/control-openapi.json`](api/control-openapi.json) route contract, and
+  a capability-matched official MCP conformance gate.
 - An engine-neutral Go `host` contract with validated host manifests,
   authoritative epochs, opaque object references, versioned capabilities,
   game-bound action offers, invocations, action-run states, and outcomes.
@@ -43,6 +46,10 @@ across every future minor release.
 
 ### Changed
 
+- `rin-mcp` is now a stateless multi-instance STDIO thin proxy and no longer owns
+  the Host listener or Control state directory. Frequent delivery counters and
+  ActionRun progress are checkpoints folded into graceful shutdown or the next
+  durable mutation.
 - The wire contract is now `rin.protocol/v2`. Decision Windows, fully bound
   Action Offers, Epochs, typed Invocation/Run/Outcome reports, and
   `/v2/action/report[-batch]` replace v1 ActionSpec/Commit semantics.
@@ -83,6 +90,10 @@ across every future minor release.
 
 ### Fixed
 
+- Host Control requests now bind the submission Epoch, Observation Sequence, and
+  complete Host Offer. MCP no longer fabricates Invocations or bypasses execution
+  budgets. Control state has a cross-platform exclusive lock and orphan work
+  expires without a Host.
 - Event replay and Transfer import now validate each typed payload before
   reduction, so a self-consistent malicious event returns a corrupt-log error
   instead of dereferencing missing action lifecycle records.

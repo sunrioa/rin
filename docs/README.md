@@ -8,7 +8,8 @@ releases do not carry a post-1.0 stability guarantee.
 
 | Topic | English | 简体中文 |
 | --- | --- | --- |
-| Authoritative HTTP wire schema | [`api/openapi.json`](../api/openapi.json) | [`api/openapi.json`](../api/openapi.json) |
+| Runtime HTTP wire schema | [`api/openapi.json`](../api/openapi.json) | [`api/openapi.json`](../api/openapi.json) |
+| Host Control wire schema | [`api/control-openapi.json`](../api/control-openapi.json) | [`api/control-openapi.json`](../api/control-openapi.json) |
 | Architecture, storage, and authority boundary | [Architecture](architecture.md) | [架构](architecture.zh-CN.md) |
 | Engine-neutral host and capability contract | [Host contract](host-contract.md) | [宿主契约](host-contract.zh-CN.md) |
 | Sequential, simultaneous, chance, and hidden information | [OpenSpiel validation](open-spiel-validation.md) | [OpenSpiel 验证](open-spiel-validation.zh-CN.md) |
@@ -18,7 +19,6 @@ releases do not carry a post-1.0 stability guarantee.
 | Online-model configuration | [Model policy](model-policy.md) | [模型策略](model-policy.zh-CN.md) |
 | Optional decision, memory, speech, and telemetry ports | [Optional extensions](optional-extensions.md) | [可选扩展端口](optional-extensions.zh-CN.md) |
 | MCP external control and version negotiation | [Quick start](mcp-control-plane.md) | [快速接入](mcp-control-plane.zh-CN.md) |
-| MCP and Host Control Plane future phases | [Implementation plan](mcp-control-plane-plan.md) | [实施计划](mcp-control-plane-plan.zh-CN.md) |
 | Ren'Py, Godot, Unity, and Unreal | [Game adapters](game-adapters.md) | [游戏适配器](game-adapters.zh-CN.md) |
 | Regions, quests, and NPC actions | [RPG event conventions](rpg-events.md) | [RPG 事件约定](rpg-events.zh-CN.md) |
 | Cross-language clients and mods | [SDK and mod kits](sdk-and-mods.md) | [SDK 与 Mod 套件](sdk-and-mods.zh-CN.md) |
@@ -46,7 +46,9 @@ The standard [MIT License](../LICENSE) is the authoritative project license;
 dependency notices are recorded in
 [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).
 
-For paths, methods, HTTP statuses, required fields, and JSON shapes,
-`api/openapi.json` is authoritative. Narrative documents define transaction
-and recovery semantics. The SDK route inventory is generated coverage metadata,
-not a second wire contract.
+Runtime paths, methods, HTTP statuses, required fields, and JSON shapes are
+authoritative in `api/openapi.json`; Host Control uses
+`api/control-openapi.json`. Narrative documents define transaction and recovery
+semantics. The SDK route inventory is generated coverage metadata, not a second
+wire contract. Current phases and future non-goals live only in the
+[roadmap](../ROADMAP.en.md).

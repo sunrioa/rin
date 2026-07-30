@@ -11,7 +11,8 @@ this development release.
 
 | Concern | Authority |
 | --- | --- |
-| Paths, methods, status, JSON shape | [`api/openapi.json`](../api/openapi.json) |
+| Runtime paths, methods, status, JSON shape | [`api/openapi.json`](../api/openapi.json) |
+| Host Control paths, methods, status, JSON shape | [`api/control-openapi.json`](../api/control-openapi.json) |
 | Host/action/recovery semantics | [Protocol v2](protocol-v2.md), [Host Contract](host-contract.md), [action lifecycle](action-lifecycle.md) |
 | SDK operation inventory | [`sdk/conformance/routes.json`](../sdk/conformance/routes.json) |
 | SDK live transport behavior | [`sdk/conformance/sidecar-corpus.json`](../sdk/conformance/sidecar-corpus.json) |
@@ -38,6 +39,12 @@ is a documentation defect.
 | SDKs | Source-first | Vendor the full directory and pin the Rin revision |
 | Hosts | macOS/Linux/Windows build/test where listed | Real engine/server acceptance remains separate |
 | Optional Go ports | Decision, generation, derived memory, speech, telemetry | Adapter owns vendor translation and cancellation |
+| External control | Long-lived `rin-control` plus stateless `rin-mcp` STDIO proxies | Old single-process Gateway configurations must migrate |
+
+The old configuration where `rin-mcp` owned port 7375 and the state directory is
+not compatible. Start `rin-control` first, then connect one or more `rin-mcp`
+proxies through `RIN_CONTROL_URL`; see the
+[MCP quick start](mcp-control-plane.md).
 
 ## Optional features
 

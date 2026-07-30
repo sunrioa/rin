@@ -9,6 +9,9 @@
 
 ### 新增
 
+- 新增常驻 `rin-control` daemon、固定 Principal 的类型化 Client API、
+  [`api/control-openapi.json`](api/control-openapi.json) 路由契约和官方 MCP
+  Conformance 能力匹配门禁。
 - 引擎无关 Go `host` Contract，包含经过验证的 Host Manifest、权威 Epoch、
   不透明对象引用、带版本 Capability、游戏绑定 ActionOffer、Invocation、
   ActionRun 状态和 Outcome。
@@ -37,6 +40,9 @@
 
 ### 变化
 
+- `rin-mcp` 改为可多实例运行的无状态 STDIO 薄代理，不再占用 Host 监听端口或
+  Control 状态目录；高频投递计数与 ActionRun 进度只做检查点，正常关闭或下一次
+  耐久变更时合并落盘。
 - Wire Contract 升级为 `rin.protocol/v2`。Decision Window、完整绑定的 Action
   Offer、Epoch、类型化 Invocation/Run/Outcome Report 与
   `/v2/action/report[-batch]` 取代 v1 ActionSpec/Commit 语义。
@@ -72,6 +78,9 @@
 
 ### 修复
 
+- Host Control 请求现在绑定提交时的 Epoch、Observation Sequence 与完整
+  Host Offer；MCP 不再自行构造 Invocation 或绕过执行预算。Control 状态目录使用
+  跨平台独占锁，无 Host 的孤儿操作会有界过期。
 - Event Replay 与 Transfer Import 现在会在 Reduce 前校验每个类型化 Payload；
   自洽哈希的恶意 Event 会返回损坏日志错误，不再解引用缺失的动作生命周期记录。
 - 所有 Workflow SDK 只有收到结构完整、字段合法且属于目标 Session 的

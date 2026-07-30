@@ -41,18 +41,21 @@ go run ./examples/basic
 
 该示例只演示 Session 创建和 Observe。带有 Proposal Attempt、崩溃恢复和 Outcome Outbox 的完整切片在 [`examples/terminal-story`](examples/terminal-story/README.zh-CN.md)。
 
-构建 MCP Gateway（默认优先协商 `2026-07-28`）：
+构建常驻控制 daemon 和 MCP 薄代理（默认优先协商 `2026-07-28`）：
 
 ```bash
+go build -o bin/rin-control ./cmd/rin-control
 go build -o bin/rin-mcp ./cmd/rin-mcp
 export RIN_CONTROL_TOKEN="$(openssl rand -hex 32)"
 export RIN_CONTROL_PRINCIPAL="player.one"
+export RIN_CONTROL_SCOPES="actor.read"
 export RIN_CONTROL_DATA_DIR="/absolute/path/to/rin-control-data"
+./bin/rin-control
 ```
 
-`rin-mcp` 由 MCP Client 通过 STDIO 启动，并在 `127.0.0.1:7375` 接收游戏
-Host 发布的状态。默认 Scope 只有 `actor.read`；写工具必须显式授权，并且所有
-世界修改仍由游戏 Host 最终校验和执行。配置、权限和 Host 端点见
+`rin-control` 常驻监听 `127.0.0.1:7375`，游戏 Host 和任意数量的
+`rin-mcp` STDIO 代理都连接它。默认 Scope 只有 `actor.read`；写工具必须显式
+授权，并且所有世界修改仍由游戏 Host 最终校验和执行。配置、权限和 Host 端点见
 [MCP 快速接入](docs/mcp-control-plane.zh-CN.md)。
 
 生成 Host 或 Mod 起始项目：
@@ -83,14 +86,17 @@ go run ./cmd/rin init host --engine fabric --id guide_npc --name "Guide NPC" --n
 - [发布指南](docs/release-guide.zh-CN.md)与[路线图](ROADMAP.md)
 - [安全说明](SECURITY.md)、[变更日志](CHANGELOG.zh-CN.md)和[第三方许可](THIRD-PARTY-NOTICES.md)
 
-`api/openapi.json` 是 HTTP 路径、状态码、字段和 JSON Schema 的来源；协议文档解释运行时语义，专题文档解释适配器、长期 Session、Transfer 和可选扩展。根 README 不重复这些完整内容。
+`api/openapi.json` 是 Runtime HTTP 契约，`api/control-openapi.json` 是 Host
+Control 契约；协议文档解释运行时语义，专题文档解释适配器、长期 Session、
+Transfer 和可选扩展。根 README 不重复这些完整内容。
 
 ## 目录
 
 ```text
 cmd/rin/       Sidecar 命令行程序
-cmd/rin-mcp/   MCP Gateway
-api/           OpenAPI 3.1 契约
+cmd/rin-control/ 常驻 Host Control daemon
+cmd/rin-mcp/   MCP STDIO 薄代理
+api/           Runtime 与 Control OpenAPI 3.1 契约
 protocol/      跨语言 v2 数据类型
 runtime/       事件状态机、提案验证、快照和调度
 store/         JSONL 文件存储与内存存储

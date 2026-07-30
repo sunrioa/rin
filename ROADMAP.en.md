@@ -2,169 +2,261 @@
 
 [简体中文](ROADMAP.md) | [English](ROADMAP.en.md)
 
-**Current status:** Rin `0.7.0` is Preview, pre-1.0 software. The numbered
-sections below are delivered implementation milestones, not evidence that a
-public tag exists for every number. The verified `v0.7.0` tag is created only
-after the [release checklist](docs/release-guide.md) passes.
+Rin `0.7.0` is Preview, pre-1.0 software. This file is the single authoritative
+plan for future work. Released changes belong in the [changelog](CHANGELOG.md);
+protocol facts belong in OpenAPI and the relevant topic guide. Temporary design
+notes are removed after their implementation lands instead of becoming a second
+roadmap.
 
-The roadmap tracks reusable runtime capabilities. It does not make an
-individual game's integration part of the public runtime definition, and an
-unchecked item is not a supported feature.
+## Product Direction
 
-## Milestone 0.1 - Runtime foundation
+Rin's first priority is helping games implement characters that persist within
+one save:
 
-- [x] Go standard-library HTTP Sidecar
-- [x] Multi-actor Sessions, observations, memories, beliefs, and goals
-- [x] Character boundaries and candidate-action allowlists
-- [x] Proposal/Action Report separation of world authority
-- [x] Tick scheduling and urgent proposals
-- [x] Request IDs, revisions, stale Proposal protection, and deterministic policy
-- [x] Hash-chained JSONL, Snapshot, Restore, and deterministic Replay
-- [x] macOS, Windows, and Linux build jobs
+- a character remembers facts, relationships, and unfinished goals it could
+  reasonably know;
+- a model may propose dialogue, intent, and plans, but cannot mutate the
+  authoritative world directly;
+- in-game AI, commands, mod APIs, and MCP converge on one Host execution path;
+- online models, proactive contact, and external control can all be disabled;
+- Minecraft/Fabric is the deepest current reference scenario while the protocol
+  remains engine-neutral.
 
-## Milestone 0.2 - Optional model policy
+Rin is not a game engine, general automation platform, or hosted model agent.
+Rendering, navigation, physics, combat, inventory rules, quest rules, and final
+authorization always belong to the game Host.
 
-- [x] Standard-library OpenAI-compatible HTTP Provider
-- [x] Attempt/total timeout, cooperative cancellation, bounded retry, and circuit breaker
-- [x] Strict structured Drafts and prompt/game-data isolation
-- [x] Asynchronous Proposal Jobs and immutable head-keyed Draft cache
-- [x] Provider fixtures without real API keys
+## Supported Today
 
-## Milestone 0.3 - Game adapters
+### Runtime and durable state
 
-- [x] Ren'Py Python client and fail-closed Proposal recovery
-- [x] Godot 4 and Unity examples with engine-thread authority
-- [x] RPG region, visibility, and quest event conventions
-- [x] Executable protocol compatibility fixtures
+- Multi-actor Sessions, Observations, Memory, Belief, Goal, and boundaries.
+- A deterministic policy and an optional OpenAI-compatible online provider.
+- Action Proposal, Attempt, Run, Outcome, and crash recovery.
+- Hash-chained event logs, Snapshot, Replay, Timeline, and Session Transfer.
+- Bounded asynchronous Generation, Speech, Memory Summary, and Telemetry ports.
 
-## Milestone 0.4 - Structured generation
+### Host contract
 
-- [x] Generic asynchronous structured Generation Jobs
-- [x] Bounded request identity, semantic cache, cancellation, output size, and JSON Object validation
-- [x] Ren'Py Generation client and reference composition flow
-- [x] Provider credentials remain inside the independent Sidecar
-- [x] Generation remains outside Session world authority and Canon
+- Engine-neutral Manifest, Epoch, Capability, Offer, Invocation, and Outcome.
+- JSON Schema parameter validation, Descriptor Digest, dynamic revocation, and
+  execution-time TOCTOU revalidation.
+- HostKit Coordinator, Pending Journal, Outcome Outbox, and long-action recovery.
+- Python, JavaScript, C#, Java, and Lua clients plus multiple engine references.
 
-## Milestone 0.5 - Living-world foundations
+### External control
 
-- [x] Feature-gated layered memory summaries and explainable forgetting
-- [x] Actor-private knowledge, sourced conflicting claims, and bounded belief selection
-- [x] Game-supplied candidate goals, actor activity, and regional dormancy
-- [x] Deterministic advisory arbitration and atomic multi-actor outcome reporting
-- [x] Redacted Timeline, revision Replay, and `rin inspect`
+- A long-lived `rin-control` daemon exclusively owns port 7375, the state
+  directory, and one fixed trusted Principal.
+- Any number of thin `rin-mcp` STDIO proxies may connect to the same daemon; a
+  client exit does not stop the Host service.
+- Host registration, leases, read models, messages, rejectable directives, exact
+  offers, cancellation, acknowledgements, progress, and outcomes.
+- MCP and Host APIs share stable Operation IDs, Epoch/Observation bindings, and
+  the exact Host-authored Offer.
+- An exclusive state lock, stale timeline rejection, orphan expiry, and bounded
+  recovery.
+- A dedicated [`api/control-openapi.json`](api/control-openapi.json) contract and
+  a capability-matched official MCP conformance gate.
 
-## Milestone 0.6 - Preview integration and hardening
+## Current Implementation Phase
 
-- [x] Source-first Python 3.9+, JavaScript/Node 18+, .NET 6+, Java 17+, and Lua 5.1+ clients
-- [x] Unified 20-route OpenAPI 3.1 wire schema and generated SDK route inventory
-- [x] Fabric, BepInEx 6, and loopback-only Luanti example mods
-- [x] Offline deterministic `rin init host` contract skeletons for six custom runtimes,
-  Fabric, single-backend BepInEx Mono/IL2CPP, and Luanti, plus sealed
-  capability generation, conformance, diagnostics, and Windows gates
-- [x] Game-authoritative typed action lifecycle, Proposal Attempt, and Outcome Outbox
-- [x] Universal HostKit ports and Coordinator with long-running ActionRun and Epoch reconciliation
-- [x] Portable C99 Host reference and shared cross-engine scenario contract
-- [x] Preview Unreal Runtime Plugin skeleton with explicit Epoch binding, final
-  Game Thread authorization, and Behavior Tree long-action reporting
-- [x] Rollback-aware Ren'Py Epoch high-water marks, load/rollback Timeline
-  forks, and old-worker invalidation
-- [x] Fabric integrated/dedicated logical-server authority, lifecycle Epochs,
-  stale-work rejection, and official dedicated-server GameTest
-- [x] Unity Domain/Scene authority, durable Active Runs, cancellable NavMesh
-  long actions, and late-callback rejection
-- [x] Godot 4.6.3 headless authority generations, complete Offer binding,
-  Active Run `outcome-unknown` recovery, and Windows CI
-- [x] Luanti 5.16.1 real dedicated-server lifecycle, real ModStorage,
-  complete Offer binding, Active Run recovery, and Windows CI
-- [x] OpenSpiel 2.0.1 real Tic-Tac-Toe, Matrix RPS, and Kuhn poker coverage
-  for sequential, simultaneous, chance, and hidden information, with
-  SHA-256-pinned wheels on macOS/Linux/Windows
-- [x] Permanent request/Event ID history and fail-closed uncertain-append reconciliation
-- [x] Trusted Restore Binding, Snapshot size limits, and explicit checksum trust boundary
-- [x] Lazy Session recovery, range reads, derived checkpoints, and full-history maintenance audit
-- [x] Player-text reconstruction and fair bounded memory-summary projection
-- [x] Bilingual Changelog, compatibility matrix, migration guide, and release checklist
-- [x] Installable Node.js playable slice, persistent-rule-tree comparison, raw
-  benchmark evidence, and Windows/macOS/Linux acceptance job
-- [ ] Complete manual interaction tests in real Fabric/BepInEx games and a
-  Luanti multiplayer/fault-injection environment
+Work proceeds in this order. A later item does not expand until the previous one
+has automated evidence.
 
-## Milestone 0.7 - Universal-host foundation
+### 1. Control correctness and topology
 
-- [x] Engine-neutral Go `host` contract covering the host manifest, epochs,
-  object references, capability descriptors, offers, invocations, action runs,
-  and outcomes
-- [x] Self-contained JSON Schema 2020-12 argument/result validation and
-  deterministic descriptor digests
-- [x] Concurrency-safe capability registry with exact versions, dynamic
-  revocation, and final time-of-check/time-of-use validation
-- [x] Separate capability discovery, per-decision game authorization, execution
-  lifecycle, and persistence guarantees
-- [x] Replace the old cross-SDK `HostCapabilities` model with the accurately
-  named `HostDurability`, without compatibility aliases
-- [x] Schema fuzz, registry race, stale epoch/digest/revocation, and state
-  transition tests
-- [x] Integrate the Host Contract into cross-language SDKs, generic scaffolds,
-  and C99/Unreal reference adapters; remaining real-host acceptance follows the
-  evidence matrix
-- [x] Define vendor-neutral decision, structured-generation, derived-memory,
-  speech, and content-free telemetry ports, including bounded speech caching,
-  cancellation, text-only degradation, and playback reporting
-- [x] Remove obsolete public Go type names and free-form `DecisionDraft`
-  fields without compatibility aliases
-- [x] Add bounded `Engine.Close(ctx)` draining for in-flight operations,
-  transfers, and checkpoints before CLI Store close
-- [x] Add an accelerated-year File Store regression with 1,460 observations,
-  365 daily actions, monthly snapshots, restart, history retrieval, byte
-  accounting, and archive
+- [x] MCP and HostKit exact-offer execution share budget and final authorization
+  semantics.
+- [x] Directives bind to the submission Epoch and Observation Sequence.
+- [x] Cross-platform exclusive locking for Control state.
+- [x] Unfinished operations expire without a Host instead of occupying capacity
+  forever.
+- [x] A long-lived `rin-control` daemon and multi-client thin `rin-mcp` proxies.
+- [x] Control OpenAPI, route-drift tests, and an official MCP conformance gate.
+- [x] Frequent delivery/progress updates are recoverable checkpoints while queue,
+  ACK, cancellation, and Outcome remain durable boundaries.
 
-## Milestone 0.8 - MCP external control
+### 2. Documentation and complexity
 
-See the
-[MCP external control and Host Control Plane plan](docs/mcp-control-plane-plan.md)
-for ordering, authorization boundaries, and acceptance criteria.
+- [x] Remove completed one-off design notes and the duplicate MCP plan.
+- [x] Keep current work, future work, and explicit non-goals in this file.
+- [ ] Update one contract source and one user entry point per feature instead of
+  maintaining parallel specifications.
+- [ ] Before release, remove unused Preview surfaces that have neither callers nor
+  compatibility commitments.
 
-- [ ] Host registration, leases, actor/offer read models, and persistent queries
-- [ ] Separate `rin-mcp` stdio and loopback Streamable HTTP gateway
-- [ ] Conversation, rejectable directives, exact offer execution, and operation queries
-- [ ] Pairing, scopes, revocation, high-risk confirmation, idempotency, and restart reconciliation
-- [ ] One real server game proving MCP and in-game entry points share one execution service
-- [ ] Cross-language Host Control clients, interoperability, security, and fault-injection acceptance
+### 3. One-save persistent-character reference slice
 
-This milestone never permits MCP to bypass host-authored offers, epochs, TOCTOU
-checks, engine threading, or game authorization.
+This phase primarily lands in a real Fabric Host and proves the generic contract
+through cross-repository tests.
 
-## Preview release gates
+- [ ] Bind character identity, Canon, relationships, memory provenance, and
+  unfinished goals to one world save.
+- [ ] Separate facts known by the player, known by the character, shared, and not
+  yet spoken.
+- [ ] Route in-game commands, internal AI, and MCP through one character-turn
+  execution service.
+- [ ] Admit validated model dialogue as a traceable Canon Event.
+- [ ] Recall bounded player wording without leaking another player or stale
+  timeline.
+- [ ] Provide online, offline, and automatic fallback paths; offline behavior may
+  be visibly simpler.
+- [ ] Test restart, load, dimension change, death, and temporary Host outage.
 
-Before publishing a Preview tag:
+### 4. Proactivity and single control ownership
 
-- [ ] Required Go, adapter, SDK, contract-generation, and cross-platform build checks pass on the release commit
-- [ ] OpenAPI, generated route inventory, protocol prose, and both language sets have no drift
-- [ ] A fresh clone can check out, test, and build the proposed tag
-- [ ] Player-value claims remain inside the measured scope and satisfy the
-  [evidence gates](docs/player-value.md)
+- [ ] Proactive dialogue is off by default and configurable by actor cooldown,
+  quiet hours, distance, and daily limit.
+- [ ] Dormant actors wake only from explicit conditions, not unbounded background
+  polling.
+- [ ] A character can propose small goals, ask follow-up questions, refuse, and
+  revise a short-term plan.
+- [ ] One actor has one write-control lease at a time; in-game, internal AI, and
+  MCP contention returns an explicit busy or handoff result.
+- [ ] Autonomous behavior uses the same Capability, Epoch, budget, and Outcome
+  chain as external offers.
 
-These gates describe work to verify for a release commit; this document does
-not claim a registry package, automated binary pipeline, cryptographic
-signing, or post-1.0 stability. Inline Snapshot remains non-streaming; bounded
-Session Transfer is a separate supported complete-lineage path.
+### 5. Bounded world tasks
 
-## Next remediation priorities
+- [ ] Expose a small stable resource set first: held item, bounded inventory slots,
+  nearby container summaries, and tool availability.
+- [ ] Every world mutation is an exact Host Offer; a model cannot construct
+  arbitrary item IDs, coordinates, or method names.
+- [ ] Complete one interruptible long-task loop: plan, obtain resources, move,
+  execute, report progress, recover failure, and explain the outcome.
+- [ ] Revalidate chunk unload, container changes, resources taken by players, tool
+  damage, and permission revocation.
+- [ ] Expand item, container, and task coverage only after the first loop passes
+  human playtesting.
 
-- [x] Implement bounded-memory, verifiable, atomically published complete
-  lineage export/import according to the
-  [Scalable Session Transfer design](docs/session-transfer.md), removing the
-  lifetime cliff where Identifier History growth makes Snapshot, Replay, and
-  Restore unavailable.
-- [x] Do not mark transfer supported before over-16-MiB end-to-end,
-  cancellation, corruption, and crash-recovery tests pass. Raising the request
-  body limit alone is not a substitute for streaming transfer.
-- [x] Implement a Windows data-directory exclusive lock plus real Sidecar
-  persistence, restart, and lock-contention tests. Windows support is a project
-  constraint; cross-compilation alone is not runtime support.
-- [x] Remove unmeasured optional cognition features from the release value
-  claim; the single-preference slice reaches parity with a much smaller
-  persistent rule tree and does not justify a broader “worth it” claim.
+## Human Acceptance Gate
 
-Every milestone keeps one principle: a model may propose intent and expression;
-the game engine decides what actually happens.
+After automated tests pass, humans must confirm these behaviors in a real game:
+
+- memory feels natural over 30 to 60 minutes, avoids repeated questions, and never
+  cites facts the character should not know;
+- proactive contact feels present without becoming intrusive and stops completely
+  when disabled;
+- the character reasonably refuses, clarifies, and admits limitations instead of
+  inventing success;
+- players can understand who owns control when internal AI and MCP target the same
+  action;
+- long-task progress, cancellation, failure, and recovery are legible;
+- online latency, offline fallback, restart recovery, and long sessions show no
+  obvious stalls or state drift;
+- GUI, multiplayer, and locked-screen cases that cannot be automated are recorded
+  on the acceptance checklist.
+
+The implementation round stops at this gate. More framework surface is not a
+substitute for player evidence.
+
+## Later Work
+
+The following areas retain design space but are not part of the current round.
+
+### Character quality
+
+- Long-term relationship stages, emotional aftermath, commitments, and unfinished
+  topics.
+- Sourced, correctable character opinions and explicit handling of conflicting
+  memories.
+- Model-proposed safe micro-goals approved by the Host or player.
+- Auditable Canon correction, forgetting, export, and player privacy deletion.
+- More natural multi-turn conversation, speech interruption, TTS voices, and
+  accessible subtitles.
+
+### Actions and tasks
+
+- More items, recipes, workstations, trading, combat assistance, and complex
+  containers.
+- Verifiable small blueprints and staged construction, not unrestricted
+  natural-language building.
+- Pause, resume, replanning, and resource budgets for multi-step plans.
+- Multi-character cooperation and conflict arbitration only after a single
+  character loop proves player value.
+
+### Engines and SDKs
+
+- Generated cross-language Host Control clients from Control OpenAPI.
+- Equally deep reference Hosts for Godot, Unity, Unreal, Ren'Py, and other
+  server-authoritative games.
+- A lightweight SDK extracted from reusable Journal, Lease, and thread-handoff
+  code in the current Java integration.
+- Post-1.0 compatibility only after save formats and protocols reach a stability
+  threshold.
+
+### Control and security
+
+- Multi-Principal pairing, revocation, short-lived credentials, and an audit UI.
+- MCP Streamable HTTP, TLS, and remote deployment only after authentication and
+  threat models are complete.
+- Multi-controller leases, priorities, human takeover, and arbitration.
+- Remove the MCP Preview marker after the official `2026-07-28` protocol and Go
+  SDK are stable releases.
+- Full official conformance scenarios; the current gate runs only scenarios that
+  match Rin's exposed capabilities.
+
+### Storage and performance
+
+- Measure latency and write volume at 1,000, 10,000, and 65,536 operations first.
+- Introduce an append journal, segmented files, or SQLite/WAL only if whole-file
+  checkpoints exceed a measured budget.
+- Read-model persistence, compaction, and archive need explicit recovery semantics
+  rather than cache-only behavior.
+- Large model responses, speech, and media remain in bounded caches outside the
+  core event log.
+
+### Tooling and content production
+
+- Static validation for character packs, capability packs, and test scenarios.
+- Trusted content-pack signatures, provenance, version rollback, and source
+  records.
+- Author-facing character/task preview tools without arbitrary script execution
+  inside the Runtime.
+- Visual novels and RPGs may share Canon and control ports; narrative hot reload
+  remains game-defined.
+
+## Explicit Non-goals
+
+Until product evidence changes the priority, Rin will not implement:
+
+- identity synchronization across saves, servers, or games;
+- direct model world-write authority or any path around Host Offers;
+- pretending an NPC has every capability of a full game client or real player;
+- arbitrary natural-language megabuilds, arbitrary blueprints, or arbitrary code
+  execution;
+- default multi-agent debate, group autonomy, or simultaneous multi-controller
+  writes;
+- public unauthenticated MCP/Control APIs, hosted accounts, or cloud sync;
+- a plug-and-play promise for every game and engine;
+- a vector database, ORM, message broker, or vendor SDK without measured need.
+
+## Complexity Budget
+
+- A new dependency must replace difficult self-maintained code and have licensing,
+  cross-platform, and supply-chain justification.
+- A new protocol type must solve a problem that two real Hosts cannot express with
+  the existing contract.
+- A new public API needs a caller, failure semantics, recovery semantics, and
+  automated tests.
+- A new topic guide needs one distinct reader task; phase plans live only here.
+- Generated artifacts must be reproducible and verified, never a hand-maintained
+  second contract.
+- Experiments without player-value evidence stay in examples or branches, not the
+  core Runtime.
+
+## Preview Release Gate
+
+- Go, adapter, SDK, contract, and cross-platform build checks all pass.
+- Both OpenAPI documents, generated route inventory, and narrative docs do not
+  drift.
+- A fresh clone builds, tests, and runs the minimal example.
+- MCP uses the official SDK and passes official conformance scenarios matching its
+  capabilities.
+- Player-value claims do not exceed the [recorded evidence](docs/player-value.md).
+- Human results for real Fabric, BepInEx, and Luanti integrations are recorded;
+  unverified areas remain explicitly Preview.
+
+The invariant remains: a model may propose intent and expression; the game engine
+decides what becomes real.

@@ -41,19 +41,23 @@ go run ./examples/basic
 
 It covers Session creation and Observe only. The complete vertical slice with Proposal Attempt persistence, crash recovery, and an Outcome Outbox is [`examples/terminal-story`](examples/terminal-story/README.md).
 
-Build the MCP gateway (prefers `2026-07-28` by default):
+Build the long-lived control daemon and MCP thin proxy (prefers `2026-07-28`
+by default):
 
 ```bash
+go build -o bin/rin-control ./cmd/rin-control
 go build -o bin/rin-mcp ./cmd/rin-mcp
 export RIN_CONTROL_TOKEN="$(openssl rand -hex 32)"
 export RIN_CONTROL_PRINCIPAL="player.one"
+export RIN_CONTROL_SCOPES="actor.read"
 export RIN_CONTROL_DATA_DIR="/absolute/path/to/rin-control-data"
+./bin/rin-control
 ```
 
-An MCP client launches `rin-mcp` over STDIO. The process accepts read-model
-publications from game hosts on `127.0.0.1:7375`. The default scope is
-`actor.read`; write tools require explicit grants, and the game Host still
-validates and applies every world mutation. See the
+`rin-control` stays on `127.0.0.1:7375`; game Hosts and any number of `rin-mcp`
+STDIO proxies connect to it. The default scope is `actor.read`; write tools
+require explicit grants, and the game Host still validates and applies every
+world mutation. See the
 [MCP quick start](docs/mcp-control-plane.md) for client configuration, scopes,
 and Host endpoints.
 
@@ -85,14 +89,19 @@ See [game adapters](docs/game-adapters.md) for installation, thread boundaries, 
 - [Release guide](docs/release-guide.md) and [roadmap](ROADMAP.en.md)
 - [Security](SECURITY.en.md), [changelog](CHANGELOG.md), and [third-party notices](THIRD-PARTY-NOTICES.md)
 
-`api/openapi.json` is the source for HTTP paths, status codes, fields, and JSON Schema. The protocol reference describes runtime semantics; focused documents cover adapters, long sessions, Transfer, and optional extensions. The root README does not duplicate those details.
+`api/openapi.json` is the Runtime HTTP contract and
+`api/control-openapi.json` is the Host Control contract. The protocol reference
+describes runtime semantics; focused documents cover adapters, long sessions,
+Transfer, and optional extensions. The root README does not duplicate those
+details.
 
 ## Repository layout
 
 ```text
 cmd/rin/       Sidecar command-line program
-cmd/rin-mcp/   MCP gateway
-api/           OpenAPI 3.1 contract
+cmd/rin-control/ Long-lived Host Control daemon
+cmd/rin-mcp/   MCP STDIO thin proxy
+api/           Runtime and Control OpenAPI 3.1 contracts
 protocol/      Cross-language v2 types
 runtime/       Event state machine, proposal validation, snapshots, scheduling
 store/         JSONL file store and in-memory store

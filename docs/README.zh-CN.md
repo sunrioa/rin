@@ -7,7 +7,8 @@ Rin `0.7.0` 是 Preview、pre-1.0 软件。文档按公共接口组织，不以�
 
 | 主题 | 简体中文 | English |
 | --- | --- | --- |
-| 权威 HTTP Wire Schema | [`api/openapi.json`](../api/openapi.json) | [`api/openapi.json`](../api/openapi.json) |
+| Runtime HTTP Wire Schema | [`api/openapi.json`](../api/openapi.json) | [`api/openapi.json`](../api/openapi.json) |
+| Host Control Wire Schema | [`api/control-openapi.json`](../api/control-openapi.json) | [`api/control-openapi.json`](../api/control-openapi.json) |
 | 架构、存储与权威边界 | [架构](architecture.zh-CN.md) | [Architecture](architecture.md) |
 | 引擎无关宿主与能力契约 | [宿主契约](host-contract.zh-CN.md) | [Host contract](host-contract.md) |
 | 顺序、同时、Chance 与隐藏信息 | [OpenSpiel 验证](open-spiel-validation.zh-CN.md) | [OpenSpiel validation](open-spiel-validation.md) |
@@ -17,7 +18,6 @@ Rin `0.7.0` 是 Preview、pre-1.0 软件。文档按公共接口组织，不以�
 | 在线模型配置 | [模型策略](model-policy.zh-CN.md) | [Model policy](model-policy.md) |
 | 可选决策、记忆、语音与遥测端口 | [可选扩展端口](optional-extensions.zh-CN.md) | [Optional extensions](optional-extensions.md) |
 | MCP 外部控制与版本协商 | [快速接入](mcp-control-plane.zh-CN.md) | [Quick start](mcp-control-plane.md) |
-| MCP 与 Host Control Plane 后续阶段 | [实施计划](mcp-control-plane-plan.zh-CN.md) | [Implementation plan](mcp-control-plane-plan.md) |
 | Ren'Py、Godot、Unity 与 Unreal | [游戏适配器](game-adapters.zh-CN.md) | [Game adapters](game-adapters.md) |
 | 区域、任务与 NPC 动作 | [RPG 事件约定](rpg-events.zh-CN.md) | [RPG event conventions](rpg-events.md) |
 | 跨语言客户端与 Mod | [SDK 与 Mod 套件](sdk-and-mods.zh-CN.md) | [SDK and mod kits](sdk-and-mods.md) |
@@ -43,6 +43,7 @@ Rin `0.7.0` 是 Preview、pre-1.0 软件。文档按公共接口组织，不以�
 标准 [MIT License](../LICENSE) 英文原文是项目许可证；
 依赖许可声明见 [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md)。
 
-Path、Method、HTTP Status、必填字段与 JSON Shape 以 `api/openapi.json` 为准；
+Runtime 的 Path、Method、HTTP Status、必填字段与 JSON Shape 以
+`api/openapi.json` 为准；Host Control 以 `api/control-openapi.json` 为准。
 叙述文档定义事务与恢复语义。SDK Route Inventory 是生成的覆盖元数据，不是第二份
-Wire Contract。
+Wire Contract。当前阶段和未来非目标只在[路线图](../ROADMAP.md)维护。

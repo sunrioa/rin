@@ -19,6 +19,7 @@ tools/unity-harness/obj/
 sdk/python/**/*.egg-info/
 
 # Local-only maintainer documentation
+/docs/superpowers/
 /docs/living-worlds-v0.5-plan.md
 /docs/living-worlds-v0.5-plan.zh-CN.md
 /docs/writing-guide.md

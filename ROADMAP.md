@@ -2,146 +2,195 @@
 
 [简体中文](ROADMAP.md) | [English](ROADMAP.en.md)
 
-**当前状态：** Rin `0.7.0` 是 Preview、pre-1.0 软件。下列编号是已经交付的实施
-里程碑，不表示每个编号都存在公共 Tag。只有
-[发布清单](docs/release-guide.zh-CN.md)通过后，才会创建已验证的 `v0.7.0` Tag。
+Rin `0.7.0` 是 Preview、pre-1.0 软件。本文件是未来工作的唯一权威计划；
+已经发布的变化见[变更日志](CHANGELOG.zh-CN.md)，协议事实见 OpenAPI 和专题文档。
+临时设计稿在实现合并后删除，不继续作为第二份路线图维护。
 
-路线图记录可复用的 Runtime 能力，不把某个游戏的接入进度纳入公共 Runtime
-定义；未勾选项不属于受支持能力。
+## 产品方向
 
-## 里程碑 0.1 - Runtime 基础
+Rin 的首要目标是帮助游戏实现同一存档中持续存在的角色：
 
-- [x] Go 标准库 HTTP Sidecar
-- [x] 多角色 Session、Observation、Memory、Belief 与 Goal
-- [x] 角色 Boundary 和 Candidate Action Allowlist
-- [x] Proposal/Action Report 世界权威分离
-- [x] Tick 调度与 Urgent Proposal
-- [x] Request ID、Revision、过期 Proposal 保护与确定性 Policy
-- [x] Hash-chained JSONL、Snapshot、Restore 与确定性 Replay
-- [x] macOS、Windows 与 Linux Build Job
+- 角色记得自己合理知道的事实、关系和未完成目标；
+- 模型可以提出对白、意图和计划，但不能直接修改权威世界；
+- 游戏内 AI、命令、Mod API 和 MCP 最终进入同一条 Host 执行链；
+- 在线模型、主动联系和外部控制都可以关闭；
+- Minecraft/Fabric 是当前最深的参考场景，协议仍保持引擎无关。
 
-## 里程碑 0.2 - 可选模型 Policy
+Rin 不是游戏引擎、通用自动化平台或模型代理服务。渲染、导航、物理、战斗、
+背包规则、任务规则和最终权限始终属于游戏 Host。
 
-- [x] Go 标准库 OpenAI-compatible HTTP Provider
-- [x] Attempt/Total Timeout、协作取消、有界重试与 Circuit Breaker
-- [x] 严格结构化 Draft 与 Prompt/游戏数据隔离
-- [x] 异步 Proposal Job 与按 Head 建 Key 的不可变 Draft Cache
-- [x] 不含真实 API Key 的 Provider Fixture
+## 当前已支持
 
-## 里程碑 0.3 - 游戏 Adapter
+### Runtime 与持久状态
 
-- [x] Ren'Py Python Client 与 Fail-closed Proposal Recovery
-- [x] 保持引擎线程权威的 Godot 4 与 Unity 示例
-- [x] RPG Region、Visibility 与 Quest Event 约定
-- [x] 可执行协议兼容 Fixture
+- 多角色 Session、Observation、Memory、Belief、Goal 与边界。
+- 确定性 Policy，以及可选的 OpenAI-compatible 在线 Provider。
+- Action Proposal、Attempt、Run、Outcome 和崩溃恢复。
+- Hash-chained 事件日志、Snapshot、Replay、Timeline 和 Session Transfer。
+- 有界异步 Generation、Speech、Memory Summary 与 Telemetry 端口。
 
-## 里程碑 0.4 - 结构化生成
+### Host 契约
 
-- [x] 通用异步结构化 Generation Job
-- [x] 有界 Request Identity、Semantic Cache、取消、输出大小与 JSON Object 校验
-- [x] Ren'Py Generation Client 与参考组合流程
-- [x] Provider 凭据只保留在独立 Sidecar
-- [x] Generation 不进入 Session 世界权威或 Canon
+- 引擎无关 Manifest、Epoch、Capability、Offer、Invocation 和 Outcome。
+- JSON Schema 参数校验、Descriptor Digest、动态撤销和执行前 TOCTOU 复验。
+- HostKit Coordinator、Pending Journal、Outcome Outbox 和长期动作恢复。
+- Python、JavaScript、C#、Java、Lua 客户端及多种引擎参考适配器。
 
-## 里程碑 0.5 - Living World 基础
+### 外部控制
 
-- [x] Feature-gated 分层 Memory Summary 与可解释遗忘
-- [x] Actor 私有知识、带来源冲突 Claim 与有界 Belief 选择
-- [x] 游戏提供的 Candidate Goal、Actor Activity 与区域 Dormancy
-- [x] 确定性建议仲裁与原子多 Actor Outcome 记账
-- [x] 脱敏 Timeline、指定 Revision Replay 与 `rin inspect`
+- 常驻 `rin-control` 独占 7375 端口、状态目录和固定可信 Principal。
+- 任意数量的 `rin-mcp` STDIO 薄代理可连接同一 daemon；Client 退出不会关闭 Host
+  服务。
+- Host 注册、租约、Read Model、消息、可拒绝 Directive、精确 Offer、取消、
+  ACK、进度和 Outcome。
+- MCP 和 Host API 共用稳定 Operation ID、Epoch/Observation Binding 与精确
+  Host Offer。
+- 状态目录独占锁、旧时间线失效、孤儿操作过期和有界恢复。
+- 独立 [`api/control-openapi.json`](api/control-openapi.json) 契约及官方 MCP
+  Conformance 的能力匹配门禁。
 
-## 里程碑 0.6 - Preview 接入与加固
+## 当前实施阶段
 
-- [x] 源码优先的 Python 3.9+、JavaScript/Node 18+、.NET 6+、Java 17+、Lua 5.1+ Client
-- [x] 统一 20 Route OpenAPI 3.1 Wire Schema 与生成的 SDK Route Inventory
-- [x] Fabric、BepInEx 6 与 Loopback-only Luanti 示例 Mod
-- [x] 离线、确定性的 `rin init host` 契约骨架，覆盖六种自定义 Runtime、
-  Fabric、单 Backend BepInEx Mono/IL2CPP、Luanti，以及密封能力生成、
-  Conformance、Doctor 与 Windows 门禁
-- [x] 游戏权威的类型化动作生命周期、Proposal Attempt 与 Outcome Outbox
-- [x] 通用 HostKit 端口与 Coordinator，覆盖长时间 ActionRun 和 Epoch 对账
-- [x] 可移植 C99 Host 参考与跨引擎共享 Scenario Contract
-- [x] Preview Unreal Runtime Plugin 骨架，覆盖显式 Epoch 绑定、Game Thread
-  最终授权与 Behavior Tree 长动作回报
-- [x] Ren'Py Rollback-aware Epoch：Persistent 高水位、Load/Rollback Timeline
-  Fork 与旧 Worker 失效
-- [x] Fabric Integrated/Dedicated Logical Server Authority、Lifecycle Epoch、
-  旧工作拒绝与官方 Dedicated Server GameTest
-- [x] Unity Domain/Scene Authority、持久 Active Run、可取消 NavMesh 长动作与
-  迟到 Callback 拒绝
-- [x] Godot 4.6.3 Headless Authority Generation、完整 Offer Binding、Active
-  Run `outcome-unknown` 恢复与 Windows CI
-- [x] Luanti 5.16.1 真实 Dedicated Server 生命周期、真实 ModStorage、
-  完整 Offer Binding、Active Run 恢复与 Windows CI
-- [x] OpenSpiel 2.0.1：真实 Tic-Tac-Toe、Matrix RPS 与 Kuhn Poker 覆盖顺序、
-  同时、Chance 与隐藏信息；macOS/Linux/Windows Wheel 均以 SHA-256 固定
-- [x] 永久 Request/Event ID History 与 Fail-closed 未决 Append 对账
-- [x] 可信 Restore Binding、Snapshot 大小限制与明确 Checksum Trust Boundary
-- [x] Lazy Session 恢复、Range Read、派生 Checkpoint 与全历史运维审计
-- [x] 玩家文本重建与公平有界 Memory Summary Projection
-- [x] 双语 Changelog、兼容矩阵、迁移指南与发布清单
-- [x] 可安装 Node.js 可玩切片、持久化规则树对照、原始基准证据，以及
-  Windows/macOS/Linux 验收 Job
-- [ ] 在真实 Fabric、BepInEx 游戏版本及 Luanti 多人/故障注入环境中完成人工交互验收
+以下工作按顺序完成。前一项没有自动化证据时，不扩展后一项。
 
-## 里程碑 0.7 - 通用 Host 基础
+### 1. 控制面正确性与拓扑
 
-- [x] 引擎无关 Go `host` Contract，覆盖宿主 Manifest、Epoch、对象引用、
-  Capability Descriptor、Offer、Invocation、ActionRun 与 Outcome
-- [x] 自包含 JSON Schema 2020-12 参数/结果校验与确定性 Descriptor Digest
-- [x] 并发安全 Capability Registry、精确版本、动态撤销和执行前 TOCTOU 复验
-- [x] 明确区分 Capability Discovery、每轮游戏授权、执行生命周期和持久保证
-- [x] 跨 SDK 将旧 `HostCapabilities` 清理为准确的 `HostDurability`，不保留别名
-- [x] Schema Fuzz、Registry Race、过期 Epoch/Digest/撤销和状态转换测试
-- [x] 将 Host Contract 接入跨语言 SDK、通用脚手架，以及 C99/Unreal
-  Reference Adapter；其余真实宿主验收继续按证据矩阵推进
-- [x] 将决策、结构化生成、派生 Memory、Speech 与无内容 Telemetry 收敛为
-  供应商无关端口；Speech 支持有界 Cache、取消、纯文字降级和播放回报
-- [x] 删除 `DecisionDraft` 旧自由文本字段和旧公开 Go 类型名，不保留兼容 Alias
-- [x] `Engine.Close(ctx)` 有界排空在途 Operation、Transfer 与 Checkpoint，
-  CLI 在 Store Close 前调用
-- [x] 加速一年 File Store 回归，覆盖 1,460 次 Observation、365 次每日动作、
-  月度 Snapshot、重启、历史检索、容量统计与 Archive
+- [x] MCP 与 HostKit 对精确 Offer 使用相同的预算和最终授权语义。
+- [x] Directive 绑定提交时的 Epoch 和 Observation Sequence。
+- [x] Control 状态目录跨平台独占锁。
+- [x] 无 Host 的未完成 Operation 能过期，不永久占满队列。
+- [x] 常驻 `rin-control` 与多客户端 `rin-mcp` 薄代理。
+- [x] Control OpenAPI、路由漂移测试和官方 MCP Conformance 门禁。
+- [x] 高频投递/进度只做可恢复检查点，耐久边界保留在入队、ACK、取消和 Outcome。
 
-## 里程碑 0.8 - MCP 外部控制
+### 2. 文档与复杂度收敛
 
-详细顺序、权限边界和验收标准见
-[MCP 外部控制与 Host Control Plane 实施计划](docs/mcp-control-plane-plan.zh-CN.md)。
+- [x] 删除已完成的一次性设计稿和重复 MCP 计划。
+- [x] 以本文件统一当前阶段、未来阶段和明确非目标。
+- [ ] 每次功能变更同时更新唯一的契约来源和一个用户入口，避免平行规格。
+- [ ] 发布前根据真实玩家证据删除没有使用方、没有兼容承诺的 Preview 表面。
 
-- [ ] Host 注册、租约、Actor/Offer Read Model 与持久查询
-- [ ] 独立 `rin-mcp` STDIO 与回环 Streamable HTTP Gateway
-- [ ] 对话、可拒绝 Directive、精确 Offer 执行与 Operation 查询
-- [ ] 配对、Scope、撤销、高风险确认、幂等与重启对账
-- [ ] 一个真实服务端游戏证明 MCP 与游戏内入口共用同一执行服务
-- [ ] 跨语言 Host Control Client、互操作、安全和故障注入验收
+### 3. 单存档持续角色参考切片
 
-该里程碑不允许 MCP 绕过 Host-authored Offer、Epoch、TOCTOU、引擎线程或游戏权限。
+该阶段主要在真实 Fabric Host 中落地，并用跨仓库契约测试证明通用性。
 
-## Preview 发布门禁
+- [ ] 将角色身份、Canon、关系、记忆来源和未完成目标绑定到一个世界存档。
+- [ ] 区分玩家知道、角色知道、共同经历和角色尚未说出的事实。
+- [ ] 游戏内命令、内部 AI 与 MCP 共用同一个角色回合执行服务。
+- [ ] 让模型生成的对白经过校验后成为可追溯 Canon Event。
+- [ ] 对玩家原话做有界记忆召回，并避免其他玩家或旧时间线信息泄漏。
+- [ ] 提供在线、离线和自动降级路径；离线时角色可以明显更简单。
+- [ ] 完成重启、读档、维度切换、死亡和 Host 暂时离线的恢复测试。
 
-发布 Preview Tag 前：
+### 4. 主动性与单一控制权
 
-- [ ] 发布 Commit 通过必要的 Go、Adapter、SDK、契约生成和跨平台 Build 检查
-- [ ] OpenAPI、生成 Route Inventory、Protocol 文字与两套语言文档不存在漂移
-- [ ] Fresh Clone 能 Checkout、测试并构建候选 Tag
-- [ ] 玩家价值主张不超出实测范围，并通过
-  [证据门禁](docs/player-value.zh-CN.md)
+- [ ] 主动对话默认关闭，可按角色配置冷却、安静时段、距离和每日上限。
+- [ ] Dormant Actor 仅在有明确唤醒条件时进入调度，不做无限后台轮询。
+- [ ] 角色可以提出小目标、追问、拒绝和改变短期计划。
+- [ ] 同一 Actor 同一时刻只有一个写控制租约；游戏内、内部 AI 和 MCP 竞争时给出
+  明确的忙碌或转交结果。
+- [ ] 自动行为使用与外部 Offer 相同的 Capability、Epoch、预算和 Outcome 链。
 
-这些门禁描述发布 Commit 必须验证的工作；本文不宣称已有语言 Registry Package、
-自动 Binary Pipeline、密码学签名或 post-1.0 稳定性。Inline Snapshot 仍不使用
-streaming；有界 Session Transfer 是独立的完整 lineage 受支持路径。
+### 5. 有界世界任务
 
-## 下一阶段优先修复
+- [ ] 首先开放少量稳定资源：手持物、有限背包槽、附近容器摘要和工具可用性。
+- [ ] 每个世界动作由 Host 发布精确 Offer，模型不能构造任意物品 ID、坐标或方法名。
+- [ ] 完成一个可中断的长任务闭环：规划、取用资源、移动、执行、进度、失败恢复和
+  最终说明。
+- [ ] 对区块卸载、容器变化、资源被玩家拿走、工具损坏和权限撤销做 TOCTOU 复验。
+- [ ] 只有第一个任务通过真人试玩后，才扩展更多物品、容器和任务类型。
 
-- [x] 按[可扩展 Session Transfer 设计](docs/session-transfer.zh-CN.md)实现有界内存、
-  可验证、原子发布的完整 lineage 导出与导入，解除 Identifier History 增长后
-  Snapshot、Replay 与 Restore 全部不可用的生命周期硬上限。
-- [x] 在完成超过 16 MiB 的端到端、取消、损坏和崩溃恢复测试前，不把该能力标记为
-  已支持，也不以单纯提高请求正文上限代替流式传输。
-- [x] 实现 Windows 数据目录独占锁与真实 Sidecar 持久化/重启/锁竞争测试；
-  Windows 支持是项目约束，交叉编译成功不能代替运行时支持。
-- [x] 从发布价值主张中移除未经测量的 Optional Cognition Feature；单偏好切片
-  只与小得多的持久化规则树持平，不支持更宽泛的“值得复杂度”宣称。
+## 真人验收门槛
 
-每个里程碑都保持同一原则：模型可以提出意图和表达，游戏引擎决定现实发生什么。
+自动测试完成后，以下项目必须由真人在真实游戏中确认：
+
+- 角色在 30 至 60 分钟内记忆自然，不重复追问，也不引用不应知道的信息。
+- 主动联系有存在感但不打扰；关闭后完全停止。
+- 角色会合理拒绝、澄清和承认做不到，而不是伪造成功。
+- 内部 AI 与 MCP 控制同一动作时，玩家能理解谁取得了控制权。
+- 长任务的进度、取消、失败和恢复反馈清楚。
+- 在线延迟、离线降级、重启恢复和长时间运行没有明显卡顿或状态漂移。
+- GUI、多人体验和锁屏后无法自动完成的实机项目按验收清单逐项记录。
+
+达到这一门槛后，本轮实现停止，不以继续增加框架功能替代真人证据。
+
+## 后续规划
+
+以下内容需要保留设计空间，但当前不实现。
+
+### 角色质量
+
+- 长期关系阶段、情绪余波、承诺与未完成话题。
+- 有来源、可修正的角色观点，以及对矛盾记忆的显式处理。
+- 模型提出新的安全小目标，再由 Host 或玩家批准。
+- 可审计的 Canon 修订、遗忘、导出和玩家隐私删除。
+- 更自然的多轮对话、语音打断、TTS 音色和无障碍字幕。
+
+### 动作与任务
+
+- 更多物品、配方、工作站、交易、战斗辅助和复杂容器。
+- 可验证的小型蓝图与分阶段建造，不接受无限制自然语言建筑。
+- 多步骤规划的暂停、恢复、重新规划和资源预算。
+- 多角色协作与冲突仲裁，前提是单角色闭环已有玩家价值。
+
+### 引擎与 SDK
+
+- 从 Control OpenAPI 生成跨语言 Host Control Client。
+- 为 Godot、Unity、Unreal、Ren'Py 和其他服务端游戏提供同等深度的参考 Host。
+- 将当前 Java 集成中通用的 Journal、Lease 和线程切换提炼为轻量 SDK。
+- 保存格式和协议达到稳定门槛后再承诺 post-1.0 兼容。
+
+### 控制与安全
+
+- 多 Principal 配对、撤销、短期凭据和审计界面。
+- MCP Streamable HTTP、TLS 和远程部署，仅在认证模型与威胁模型完成后开放。
+- 多控制器 Lease、优先级、人工接管和仲裁。
+- 官方 `2026-07-28` MCP 协议与 Go SDK 转为稳定发布后再移除 Preview 标记。
+- 完整官方 Conformance 场景；当前门禁只运行与 Rin 暴露能力匹配的场景。
+
+### 存储与性能
+
+- 先测量 1,000、10,000 和 65,536 个 Operation 的延迟与写入量。
+- 只有整文件快照超过实际预算时，才引入追加 Journal、分段文件或 SQLite/WAL。
+- Read Model 持久化、压缩和归档必须有明确恢复语义，不能只做缓存。
+- 大模型响应、语音和媒体继续存放在受限 Cache，不进入核心事件日志。
+
+### 工具与内容生产
+
+- 角色包、Capability 包和测试场景的静态校验工具。
+- 受信任内容包的签名、版本回滚和来源记录。
+- 面向作者的角色/任务预览器，但不在 Runtime 内执行任意脚本。
+- 视觉小说或 RPG 可以使用相同 Canon 与控制端口，叙事热更新仍由具体游戏定义。
+
+## 明确非目标
+
+在当前产品证据不足前，不实现：
+
+- 跨存档、跨服务器或跨游戏同步同一角色身份；
+- 让模型直接取得世界写权限或绕过 Host Offer；
+- 把 NPC 伪装成拥有完整客户端能力的真实玩家；
+- 任意自然语言大型建筑、任意蓝图或任意脚本执行；
+- 默认开启的多 Agent 辩论、群体自治或同时多控制器；
+- 公网裸露的 MCP/Control API、托管账号系统或云同步；
+- 为每种游戏和引擎承诺即插即用；
+- 仅为追逐趋势引入向量数据库、ORM、消息队列或供应商 SDK。
+
+## 复杂度预算
+
+- 新依赖必须替代至少一段难以维护的自实现，并有许可证、跨平台和供应链理由。
+- 新协议类型必须解决两个真实 Host 都无法用现有契约表达的问题。
+- 新公共接口必须有调用方、失败语义、恢复语义和自动测试。
+- 新专题文档必须有唯一读者任务；阶段计划只写在本文件。
+- 生成文件必须可验证和可重建，不手工维护第二份契约。
+- 没有玩家价值证据的实验放在示例或分支，不进入核心 Runtime。
+
+## Preview 发布门槛
+
+- Go、Adapter、SDK、契约和跨平台 Build 检查全部通过。
+- 两份 OpenAPI、生成 Route Inventory 和叙述文档没有漂移。
+- Fresh Clone 可以构建、测试并运行最小示例。
+- MCP 使用官方 SDK，并通过当前能力对应的官方 Conformance 场景。
+- 玩家价值主张不超过[已有证据](docs/player-value.zh-CN.md)。
+- 真实 Fabric、BepInEx 和 Luanti 的人工验收结果被记录，未验证项明确标为 Preview。
+
+核心原则不变：模型可以提出意图和表达，游戏引擎决定现实发生什么。
