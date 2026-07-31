@@ -60,6 +60,10 @@ authorization always belong to the game Host.
   offers, cancellation, acknowledgements, progress, and outcomes.
 - MCP and Host APIs share stable Operation IDs, Epoch/Observation bindings, and
   the exact Host-authored Offer.
+- Hosts publish one `decision_authority` that hands an Actor between internal
+  control and one exact external Principal; revisions fence stale turns.
+- External controllers can long-poll redacted Actor state and submit Actor
+  speech plus an exact Offer selection under one `turn_id`.
 - An exclusive state lock, stale timeline rejection, orphan expiry, and bounded
   recovery.
 - A dedicated [`api/control-openapi.json`](api/control-openapi.json) contract and
@@ -124,10 +128,16 @@ through cross-repository tests.
   exists, and cooldown permits; there is no unbounded background polling.
 - [x] A character can initiate contextual dialogue, propose one reviewable small
   goal, and refuse unsafe action.
-- [x] One actor has one write-control lease at a time; in-game, internal AI, and
-  MCP contention returns an explicit busy or handoff result.
-- [x] Autonomous and external paths share the control service, Capability, and
-  exact offers; world action is proposed before acceptance.
+- [x] One Actor has one decision source: the internal runtime or an external
+  agent bound to one exact Principal. Authority revisions stale unaccepted old
+  turns.
+- [x] An external agent can wait for state changes, speak as the Actor, and
+  select a Host Offer; dialogue and action may share one `turn_id`.
+- [x] `character-bound` and `agent-avatar` distinguish the Host character from
+  an external agent persona; Rin does not copy private memory across sources.
+- [x] Autonomous and external paths share Capability, exact Offers, and final
+  Host authorization while semantic decisions remain separate from per-tick
+  execution.
 - [ ] Quiet hours, daily limits, and richer autonomous goals wait for human
   evidence that the current initiative adds value.
 

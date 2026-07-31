@@ -18,7 +18,7 @@ import (
 	"github.com/sunrioa/rin/internal/jsonwire"
 )
 
-const defaultControlClientTimeout = 15 * time.Second
+const defaultControlClientTimeout = 30 * time.Second
 
 // HTTPClient connects a thin external-control client to one Control Daemon.
 type HTTPClient struct {
@@ -135,6 +135,22 @@ func (client *HTTPClient) GetActor(
 	return view, err
 }
 
+// WaitActor waits for a newer actor cursor for at most 25 seconds.
+func (client *HTTPClient) WaitActor(
+	ctx context.Context,
+	input WaitActorInput,
+) (ActorUpdate, error) {
+	var update ActorUpdate
+	err := client.request(
+		ctx,
+		http.MethodPost,
+		"wait-actor",
+		input,
+		&update,
+	)
+	return update, err
+}
+
 // ListActorOffers returns exact Host-published offers for one actor.
 func (client *HTTPClient) ListActorOffers(
 	ctx context.Context,
@@ -169,6 +185,22 @@ func (client *HTTPClient) SendActorDirective(
 	input ActorTextInput,
 ) (OperationView, error) {
 	return client.operation(ctx, "directive", input)
+}
+
+// SubmitActorUtterance queues dialogue from the current external controller.
+func (client *HTTPClient) SubmitActorUtterance(
+	ctx context.Context,
+	input ActorUtteranceInput,
+) (OperationView, error) {
+	var operation OperationView
+	err := client.request(
+		ctx,
+		http.MethodPost,
+		"utterance",
+		input,
+		&operation,
+	)
+	return operation, err
 }
 
 // ExecuteActorOffer selects one exact Host-published Offer.

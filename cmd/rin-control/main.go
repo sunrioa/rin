@@ -236,6 +236,7 @@ func containsAnyControlScope(scopes []string) bool {
 		controlplane.ScopeActorRead,
 		controlplane.ScopeActorConverse,
 		controlplane.ScopeActorDirect,
+		controlplane.ScopeActorSpeak,
 		controlplane.ScopeActorExecute,
 		controlplane.ScopeOperationCancel,
 		controlplane.ScopeHostAdmin,

@@ -397,6 +397,36 @@
         }
       }
     },
+    "/control/v1/client/wait-actor": {
+      "post": {
+        "operationId": "control_client_wait_actor",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WaitActorInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Latest principal-visible actor state after a bounded wait",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActorUpdate"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/control/v1/client/offers": {
       "post": {
         "operationId": "control_client_list_offers",
@@ -476,6 +506,36 @@
         "responses": {
           "200": {
             "description": "Queued negotiable directive",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationView"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/control/v1/client/utterance": {
+      "post": {
+        "operationId": "control_client_submit_utterance",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActorUtteranceInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Queued externally authored Actor utterance",
             "content": {
               "application/json": {
                 "schema": {
@@ -1067,6 +1127,44 @@
           }
         }
       },
+      "DecisionAuthority": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source",
+          "revision",
+          "persona_mode"
+        ],
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "internal",
+              "external"
+            ]
+          },
+          "controller_principal_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "revision": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          },
+          "persona_mode": {
+            "type": "string",
+            "enum": [
+              "character-bound",
+              "agent-avatar"
+            ]
+          }
+        }
+      },
       "ActorPublication": {
         "type": "object",
         "additionalProperties": false,
@@ -1102,6 +1200,9 @@
           },
           "epoch": {
             "$ref": "#/components/schemas/Epoch"
+          },
+          "decision_authority": {
+            "$ref": "#/components/schemas/DecisionAuthority"
           },
           "state": {
             "type": "object"
@@ -1205,13 +1306,24 @@
         "additionalProperties": false,
         "required": [
           "epoch",
-          "observation_seq"
+          "observation_seq",
+          "authority_revision"
         ],
         "properties": {
           "epoch": {
             "$ref": "#/components/schemas/Epoch"
           },
           "observation_seq": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+              },
+              {
+                "minimum": 1
+              }
+            ]
+          },
+          "authority_revision": {
             "allOf": [
               {
                 "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
@@ -1261,8 +1373,12 @@
             "enum": [
               "message",
               "directive",
+              "utterance",
               "offer"
             ]
+          },
+          "turn_id": {
+            "$ref": "#/components/schemas/Identifier"
           },
           "text": {
             "type": "string",
@@ -1549,6 +1665,56 @@
           }
         }
       },
+      "WaitActorInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "host_id",
+          "world_id",
+          "actor_id",
+          "after_observation_seq",
+          "after_authority_revision",
+          "wait_millis"
+        ],
+        "properties": {
+          "host_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "world_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "after_observation_seq": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "after_authority_revision": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "wait_millis": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 25000
+          }
+        }
+      },
+      "ActorUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "actor",
+          "changed"
+        ],
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/ActorView"
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        }
+      },
       "ActorTextInput": {
         "type": "object",
         "additionalProperties": false,
@@ -1579,6 +1745,40 @@
           }
         }
       },
+      "ActorUtteranceInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "request_id",
+          "host_id",
+          "world_id",
+          "actor_id",
+          "turn_id",
+          "text"
+        ],
+        "properties": {
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "host_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "world_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "turn_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        }
+      },
       "ExecuteOfferInput": {
         "type": "object",
         "additionalProperties": false,
@@ -1603,6 +1803,9 @@
             "$ref": "#/components/schemas/Identifier"
           },
           "offer_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "turn_id": {
             "$ref": "#/components/schemas/Identifier"
           }
         }
@@ -1662,6 +1865,7 @@
           "display_name",
           "observation_seq",
           "epoch",
+          "decision_authority",
           "state",
           "online",
           "lease_expires_at_unix_millis"
@@ -1687,6 +1891,9 @@
           },
           "epoch": {
             "$ref": "#/components/schemas/Epoch"
+          },
+          "decision_authority": {
+            "$ref": "#/components/schemas/DecisionAuthority"
           },
           "state": {
             "type": "object"
@@ -1765,8 +1972,12 @@
             "enum": [
               "message",
               "directive",
+              "utterance",
               "offer"
             ]
+          },
+          "turn_id": {
+            "$ref": "#/components/schemas/Identifier"
           },
           "status": {
             "$ref": "#/components/schemas/OperationStatus"

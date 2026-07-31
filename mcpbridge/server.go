@@ -67,6 +67,9 @@ func NewClient(
 	if gateway.granted(controlplane.ScopeActorDirect) {
 		gateway.addDirectiveTool()
 	}
+	if gateway.granted(controlplane.ScopeActorSpeak) {
+		gateway.addUtteranceTool()
+	}
 	if gateway.granted(controlplane.ScopeActorExecute) {
 		gateway.addExecuteOfferTool()
 	}
@@ -107,6 +110,11 @@ func (gateway *Gateway) addReadTools() {
 		Annotations: annotations,
 	}, gateway.getActorState)
 	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name:        "wait_actor_update",
+		Description: "Wait up to 25 seconds for a newer redacted actor observation or authority revision.",
+		Annotations: annotations,
+	}, gateway.waitActorUpdate)
+	mcp.AddTool(gateway.server, &mcp.Tool{
 		Name:        "list_actor_offers",
 		Description: "List exact unexpired action offers currently published for an actor.",
 		Annotations: annotations,
@@ -135,6 +143,14 @@ func (gateway *Gateway) addDirectiveTool() {
 		Description: "Submit a negotiable goal that the actor and game Host may refuse.",
 		Annotations: writeAnnotations(true),
 	}, gateway.sendActorDirective)
+}
+
+func (gateway *Gateway) addUtteranceTool() {
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name:        "speak_as_actor",
+		Description: "Speak as an externally controlled actor; the Host records and renders the bounded utterance.",
+		Annotations: writeAnnotations(false),
+	}, gateway.speakAsActor)
 }
 
 func (gateway *Gateway) addExecuteOfferTool() {
@@ -215,6 +231,35 @@ func (gateway *Gateway) getActorState(
 	return nil, GetActorStateOutput{Actor: actor}, nil
 }
 
+func (gateway *Gateway) waitActorUpdate(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input WaitActorUpdateInput,
+) (*mcp.CallToolResult, WaitActorUpdateOutput, error) {
+	update, err := gateway.client.WaitActor(
+		ctx,
+		controlplane.WaitActorInput{
+			HostID:                 input.HostID,
+			WorldID:                input.WorldID,
+			ActorID:                input.ActorID,
+			AfterObservationSeq:    input.AfterObservationSeq,
+			AfterAuthorityRevision: input.AfterAuthorityRevision,
+			WaitMillis:             input.WaitMillis,
+		},
+	)
+	if err != nil {
+		return nil, WaitActorUpdateOutput{}, err
+	}
+	actor, err := convertActor(update.Actor)
+	if err != nil {
+		return nil, WaitActorUpdateOutput{}, err
+	}
+	return nil, WaitActorUpdateOutput{
+		Actor:   actor,
+		Changed: update.Changed,
+	}, nil
+}
+
 func (gateway *Gateway) listActorOffers(
 	ctx context.Context,
 	_ *mcp.CallToolRequest,
@@ -285,6 +330,25 @@ func (gateway *Gateway) sendActorDirective(
 	return nil, OperationOutput{Operation: operation}, err
 }
 
+func (gateway *Gateway) speakAsActor(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input SpeakAsActorInput,
+) (*mcp.CallToolResult, OperationOutput, error) {
+	operation, err := gateway.client.SubmitActorUtterance(
+		ctx,
+		controlplane.ActorUtteranceInput{
+			RequestID: input.RequestID,
+			HostID:    input.HostID,
+			WorldID:   input.WorldID,
+			ActorID:   input.ActorID,
+			TurnID:    input.TurnID,
+			Text:      input.Text,
+		},
+	)
+	return nil, OperationOutput{Operation: operation}, err
+}
+
 func (gateway *Gateway) executeActorOffer(
 	ctx context.Context,
 	_ *mcp.CallToolRequest,
@@ -298,6 +362,7 @@ func (gateway *Gateway) executeActorOffer(
 			WorldID:   input.WorldID,
 			ActorID:   input.ActorID,
 			OfferID:   input.OfferID,
+			TurnID:    input.TurnID,
 		},
 	)
 	return nil, OperationOutput{Operation: operation}, err
@@ -337,6 +402,7 @@ func convertActor(view controlplane.ActorView) (Actor, error) {
 		DisplayName:              view.DisplayName,
 		ObservationSeq:           view.ObservationSeq,
 		Epoch:                    view.Epoch,
+		DecisionAuthority:        view.Authority,
 		State:                    state,
 		Online:                   view.Online,
 		LeaseExpiresAtUnixMillis: view.LeaseExpiresAtMillis,
@@ -377,6 +443,7 @@ func hasControlScope(principal host.Principal) bool {
 		controlplane.ScopeActorRead,
 		controlplane.ScopeActorConverse,
 		controlplane.ScopeActorDirect,
+		controlplane.ScopeActorSpeak,
 		controlplane.ScopeActorExecute,
 		controlplane.ScopeOperationCancel,
 		controlplane.ScopeHostAdmin,

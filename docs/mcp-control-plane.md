@@ -79,13 +79,14 @@ reserved for MCP wire traffic; diagnostics go to standard error.
 
 ## Tools
 
-`actor.read` registers four read-only tools:
+`actor.read` registers five read-only tools:
 
 | Tool | Purpose |
 | --- | --- |
 | `list_worlds` | List worlds visible to the fixed Principal |
 | `list_actors` | List visible Actors in one world |
 | `get_actor_state` | Read the Host's redacted Actor publication |
+| `wait_actor_update` | Long-poll by observation and authority revision for up to 25 seconds |
 | `list_actor_offers` | Read exact Offers from an online Host |
 
 Daemon scopes may also register:
@@ -94,6 +95,7 @@ Daemon scopes may also register:
 | --- | --- | --- |
 | `send_actor_message` | `actor.converse` | Send dialogue without authorizing a world mutation |
 | `send_actor_directive` | `actor.direct` | Submit a goal the Actor or Host may reject |
+| `speak_as_actor` | `actor.speak` | Submit Actor dialogue as the bound external controller |
 | `execute_actor_offer` | `actor.execute` | Select one complete current Offer |
 | `get_operation` | any control scope | Inspect delivery, run, and Outcome state |
 | `cancel_operation` | `operation.cancel` | Request cancellation; this is not rollback |
@@ -101,14 +103,40 @@ Daemon scopes may also register:
 For conversation and exact actions, for example:
 
 ```bash
-export RIN_CONTROL_SCOPES="actor.read,actor.converse,actor.execute,operation.cancel"
+export RIN_CONTROL_SCOPES="actor.read,actor.speak,actor.execute,operation.cancel"
 ```
 
-Restart `rin-control` after changing scopes. `execute_actor_offer` does not accept
-arbitrary action parameters, coordinates, item IDs, or method names. The
-Operation stores the complete Host Offer and Epoch/Observation binding. The game
-still revalidates the Offer, deadline, permissions, and current world state on
-its authoritative thread.
+Restart `rin-control` after changing scopes. An external character loop normally
+reads `get_actor_state` once, then calls `wait_actor_update` with the returned
+`observation_seq` and `decision_authority.revision`. After a change it may call
+`speak_as_actor` and, when appropriate, `execute_actor_offer` with the same
+`turn_id`. Both principal-safe Operation views echo that ID for correlation.
+
+`execute_actor_offer` does not accept arbitrary action parameters, coordinates,
+item IDs, or method names. The Operation retains the complete Host Offer and its
+Epoch, Observation, and Authority Revision bindings. The game still revalidates
+the Offer, deadline, permissions, and current world state on its authoritative
+thread.
+
+## Character Decision Authority
+
+A Host may publish `decision_authority` for an Actor:
+
+- With `source=internal`, external clients may observe but cannot speak as the
+  Actor or select its Offers.
+- With `source=external`, only a daemon Principal exactly matching
+  `controller_principal_id` may control the Actor. `host.admin` cannot bypass
+  this binding.
+- `persona_mode=character-bound` asks the external agent to portray the
+  Host-defined character.
+- `persona_mode=agent-avatar` lets the external agent use its own personality
+  and private memory while embodying the Actor.
+- Every handoff increases `revision`. Unaccepted Operations from an older
+  revision become stale; an already accepted bounded action may finish.
+
+Authority selects who makes the next semantic decision. Navigation, combat, and
+building remain per-tick Host controllers. Rin neither turns model output into
+frame-by-frame movement nor copies either controller's private memory.
 
 ## Host Lifecycle
 

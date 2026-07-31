@@ -153,9 +153,11 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 		mux.HandleFunc("POST /control/v1/client/worlds", server.clientWorlds)
 		mux.HandleFunc("POST /control/v1/client/actors", server.clientActors)
 		mux.HandleFunc("POST /control/v1/client/actor", server.clientActor)
+		mux.HandleFunc("POST /control/v1/client/wait-actor", server.clientWaitActor)
 		mux.HandleFunc("POST /control/v1/client/offers", server.clientOffers)
 		mux.HandleFunc("POST /control/v1/client/message", server.clientMessage)
 		mux.HandleFunc("POST /control/v1/client/directive", server.clientDirective)
+		mux.HandleFunc("POST /control/v1/client/utterance", server.clientUtterance)
 		mux.HandleFunc("POST /control/v1/client/execute-offer", server.clientExecuteOffer)
 		mux.HandleFunc("POST /control/v1/client/operation", server.clientOperation)
 		mux.HandleFunc("POST /control/v1/client/cancel", server.clientCancel)
@@ -453,6 +455,27 @@ func (server *hostHTTPHandler) clientActor(
 	writeJSON(response, http.StatusOK, view)
 }
 
+func (server *hostHTTPHandler) clientWaitActor(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input WaitActorInput
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	update, err := server.service.WaitActor(
+		request.Context(),
+		*server.clientPrincipal,
+		input,
+	)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, update)
+}
+
 func (server *hostHTTPHandler) clientOffers(
 	response http.ResponseWriter,
 	request *http.Request,
@@ -505,6 +528,26 @@ func (server *hostHTTPHandler) clientDirective(
 		return
 	}
 	operation, err := server.service.SendActorDirective(*server.clientPrincipal, input)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, operation)
+}
+
+func (server *hostHTTPHandler) clientUtterance(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input ActorUtteranceInput
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	operation, err := server.service.SubmitActorUtterance(
+		*server.clientPrincipal,
+		input,
+	)
 	if err != nil {
 		writeServiceError(response, err)
 		return
@@ -606,6 +649,7 @@ func principalHasControlScope(principal host.Principal) bool {
 		ScopeActorRead,
 		ScopeActorConverse,
 		ScopeActorDirect,
+		ScopeActorSpeak,
 		ScopeActorExecute,
 		ScopeOperationCancel,
 		ScopeHostAdmin,

@@ -39,16 +39,31 @@ type GetActorStateOutput struct {
 	Actor Actor `json:"actor"`
 }
 
+type WaitActorUpdateInput struct {
+	HostID                 string `json:"host_id" jsonschema:"host identifier returned by list_worlds"`
+	WorldID                string `json:"world_id" jsonschema:"world identifier returned by list_worlds"`
+	ActorID                string `json:"actor_id" jsonschema:"actor identifier returned by list_actors"`
+	AfterObservationSeq    uint64 `json:"after_observation_seq" jsonschema:"last observation_seq returned for this actor"`
+	AfterAuthorityRevision uint64 `json:"after_authority_revision" jsonschema:"last decision_authority revision returned for this actor"`
+	WaitMillis             uint32 `json:"wait_millis" jsonschema:"bounded wait from 0 through 25000 milliseconds"`
+}
+
+type WaitActorUpdateOutput struct {
+	Actor   Actor `json:"actor"`
+	Changed bool  `json:"changed"`
+}
+
 type Actor struct {
-	HostID                   string         `json:"host_id"`
-	WorldID                  string         `json:"world_id"`
-	ActorID                  string         `json:"actor_id"`
-	DisplayName              string         `json:"display_name"`
-	ObservationSeq           uint64         `json:"observation_seq"`
-	Epoch                    host.Epoch     `json:"epoch"`
-	State                    map[string]any `json:"state"`
-	Online                   bool           `json:"online"`
-	LeaseExpiresAtUnixMillis int64          `json:"lease_expires_at_unix_millis"`
+	HostID                   string                         `json:"host_id"`
+	WorldID                  string                         `json:"world_id"`
+	ActorID                  string                         `json:"actor_id"`
+	DisplayName              string                         `json:"display_name"`
+	ObservationSeq           uint64                         `json:"observation_seq"`
+	Epoch                    host.Epoch                     `json:"epoch"`
+	DecisionAuthority        controlplane.DecisionAuthority `json:"decision_authority"`
+	State                    map[string]any                 `json:"state"`
+	Online                   bool                           `json:"online"`
+	LeaseExpiresAtUnixMillis int64                          `json:"lease_expires_at_unix_millis"`
 }
 
 type ListActorOffersInput struct {
@@ -91,12 +106,22 @@ type SendActorDirectiveInput struct {
 	Text      string `json:"text" jsonschema:"negotiable goal that the actor may refuse"`
 }
 
+type SpeakAsActorInput struct {
+	RequestID string `json:"request_id" jsonschema:"stable idempotency identifier chosen by the caller"`
+	HostID    string `json:"host_id" jsonschema:"host identifier returned by list_worlds"`
+	WorldID   string `json:"world_id" jsonschema:"world identifier returned by list_worlds"`
+	ActorID   string `json:"actor_id" jsonschema:"actor identifier returned by list_actors"`
+	TurnID    string `json:"turn_id" jsonschema:"identifier shared with an optional action from the same turn"`
+	Text      string `json:"text" jsonschema:"player-visible dialogue of at most 300 Unicode code points"`
+}
+
 type ExecuteActorOfferInput struct {
 	RequestID string `json:"request_id" jsonschema:"stable idempotency identifier chosen by the caller"`
 	HostID    string `json:"host_id" jsonschema:"host identifier returned by list_worlds"`
 	WorldID   string `json:"world_id" jsonschema:"world identifier returned by list_worlds"`
 	ActorID   string `json:"actor_id" jsonschema:"actor identifier returned by list_actors"`
 	OfferID   string `json:"offer_id" jsonschema:"exact identifier returned by list_actor_offers"`
+	TurnID    string `json:"turn_id,omitempty" jsonschema:"optional identifier shared with dialogue from the same turn"`
 }
 
 type GetOperationInput struct {

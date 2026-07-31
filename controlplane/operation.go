@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"slices"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sunrioa/rin/host"
 )
@@ -19,6 +20,7 @@ const (
 	hardMaxOperations    = 65_536
 	defaultOperationTTL  = 30 * time.Minute
 	maxControlTextBytes  = 4 << 10
+	maxUtteranceRunes    = 300
 	maxHostPollItems     = 64
 )
 
@@ -54,6 +56,71 @@ func (service *Service) SendActorDirective(
 	return service.submitText(principal, input, ControlDirective)
 }
 
+// SubmitActorUtterance queues player-visible dialogue authored by the current
+// externally bound controller.
+func (service *Service) SubmitActorUtterance(
+	principal host.Principal,
+	input ActorUtteranceInput,
+) (OperationView, error) {
+	if err := validateActorUtteranceInput(input); err != nil {
+		return OperationView{}, err
+	}
+	if err := host.ValidatePrincipal(principal); err != nil {
+		return OperationView{}, fmt.Errorf("%w: principal: %v", ErrInvalid, err)
+	}
+
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	key := operationRequestKey(principal.ID, input.RequestID)
+	if existing, found, err := service.idempotentOperationLocked(
+		key,
+		principal,
+		input.HostID,
+		input.WorldID,
+		input.ActorID,
+		ControlUtterance,
+		input.Text,
+		"",
+		input.TurnID,
+	); found || err != nil {
+		return existing, err
+	}
+	actor, err := service.authorizeActorLocked(
+		principal,
+		input.HostID,
+		input.WorldID,
+		input.ActorID,
+		ScopeActorSpeak,
+	)
+	if err != nil {
+		if persistErr := service.persistOperationsLocked(); persistErr != nil {
+			return OperationView{}, persistErr
+		}
+		return OperationView{}, err
+	}
+	if !authorityAllowsExternal(actor, principal.ID) {
+		return OperationView{}, ErrForbidden
+	}
+	operationID, err := service.prepareOperationLocked()
+	if err != nil {
+		return OperationView{}, err
+	}
+	request := HostControlRequest{
+		OperationID: operationID,
+		RequestID:   input.RequestID,
+		Principal:   clonePrincipalValue(principal),
+		HostID:      input.HostID,
+		WorldID:     input.WorldID,
+		ActorID:     input.ActorID,
+		Kind:        ControlUtterance,
+		TurnID:      input.TurnID,
+		Text:        input.Text,
+		Binding:     bindingFromActor(actor),
+		SubmittedAt: service.now().UnixMilli(),
+	}
+	return service.queueOperationLocked(key, request)
+}
+
 // ExecuteActorOffer queues one exact Host-published Offer.
 func (service *Service) ExecuteActorOffer(
 	principal host.Principal,
@@ -78,6 +145,7 @@ func (service *Service) ExecuteActorOffer(
 		ControlOffer,
 		"",
 		input.OfferID,
+		input.TurnID,
 	); found || err != nil {
 		return existing, err
 	}
@@ -93,6 +161,9 @@ func (service *Service) ExecuteActorOffer(
 			return OperationView{}, persistErr
 		}
 		return OperationView{}, err
+	}
+	if !authorityAllowsExternal(actor, principal.ID) {
+		return OperationView{}, ErrForbidden
 	}
 	var selected *host.ActionOffer
 	for index := range actor.Offers {
@@ -117,6 +188,7 @@ func (service *Service) ExecuteActorOffer(
 		WorldID:     input.WorldID,
 		ActorID:     input.ActorID,
 		Kind:        ControlOffer,
+		TurnID:      input.TurnID,
 		Binding:     bindingFromActor(actor),
 		Offer:       &offer,
 		SubmittedAt: service.now().UnixMilli(),
@@ -151,6 +223,7 @@ func (service *Service) submitText(
 		input.ActorID,
 		kind,
 		input.Text,
+		"",
 		"",
 	); found || err != nil {
 		return existing, err
@@ -484,7 +557,7 @@ func (service *Service) idempotentOperationLocked(
 	principal host.Principal,
 	hostID, worldID, actorID string,
 	kind ControlKind,
-	text, offerID string,
+	text, offerID, turnID string,
 ) (OperationView, bool, error) {
 	operationID, exists := service.requests[key]
 	if !exists {
@@ -502,7 +575,8 @@ func (service *Service) idempotentOperationLocked(
 		operation.request.WorldID == worldID &&
 		operation.request.ActorID == actorID &&
 		operation.request.Kind == kind &&
-		operation.request.Text == text
+		operation.request.Text == text &&
+		operation.request.TurnID == turnID
 	if same && kind == ControlOffer {
 		same = operation.request.Offer != nil &&
 			operation.request.Offer.OfferID == offerID
@@ -534,9 +608,7 @@ func (service *Service) authorizeActorLocked(
 		if actor.ActorID != actorID {
 			continue
 		}
-		if !hasScope(principal, ScopeHostAdmin) &&
-			(principal.ID != actor.OwnerPrincipalID ||
-				!hasScope(principal, requiredScope)) {
+		if !canAccessActor(principal, actor, requiredScope) {
 			return ActorPublication{}, ErrForbidden
 		}
 		return actor, nil
@@ -756,6 +828,7 @@ func operationView(operation *operationState) OperationView {
 		WorldID:          operation.request.WorldID,
 		ActorID:          operation.request.ActorID,
 		Kind:             operation.request.Kind,
+		TurnID:           operation.request.TurnID,
 		Status:           operation.status,
 		CancelRequested:  operation.cancel,
 		DeliveryAttempts: operation.attempts,
@@ -791,8 +864,9 @@ func operationOutputView(output json.RawMessage) map[string]any {
 
 func bindingFromActor(actor ActorPublication) *ControlBinding {
 	return &ControlBinding{
-		Epoch:          actor.Epoch,
-		ObservationSeq: actor.ObservationSeq,
+		Epoch:             actor.Epoch,
+		ObservationSeq:    actor.ObservationSeq,
+		AuthorityRevision: effectiveAuthority(actor).Revision,
 	}
 }
 
@@ -849,6 +923,32 @@ func validateActorTextInput(input ActorTextInput) error {
 	return validateText("text", input.Text, maxControlTextBytes, true)
 }
 
+func validateActorUtteranceInput(input ActorUtteranceInput) error {
+	if err := validateControlTarget(
+		input.RequestID,
+		input.HostID,
+		input.WorldID,
+		input.ActorID,
+	); err != nil {
+		return err
+	}
+	if err := validateID("turn_id", input.TurnID); err != nil {
+		return err
+	}
+	if err := validateText(
+		"text",
+		input.Text,
+		maxControlTextBytes,
+		true,
+	); err != nil {
+		return err
+	}
+	if utf8.RuneCountInString(input.Text) > maxUtteranceRunes {
+		return invalid("text", "must contain at most 300 Unicode code points")
+	}
+	return nil
+}
+
 func validateExecuteOfferInput(input ExecuteOfferInput) error {
 	if err := validateControlTarget(
 		input.RequestID,
@@ -858,7 +958,13 @@ func validateExecuteOfferInput(input ExecuteOfferInput) error {
 	); err != nil {
 		return err
 	}
-	return validateID("offer_id", input.OfferID)
+	if err := validateID("offer_id", input.OfferID); err != nil {
+		return err
+	}
+	if input.TurnID != "" {
+		return validateID("turn_id", input.TurnID)
+	}
+	return nil
 }
 
 func validateControlTarget(

@@ -12,6 +12,10 @@ type ControlClient interface {
 	ListWorlds(context.Context) ([]controlplane.WorldView, error)
 	ListActors(context.Context, string, string) ([]controlplane.ActorView, error)
 	GetActor(context.Context, string, string, string) (controlplane.ActorView, error)
+	WaitActor(
+		context.Context,
+		controlplane.WaitActorInput,
+	) (controlplane.ActorUpdate, error)
 	ListActorOffers(
 		context.Context,
 		string,
@@ -25,6 +29,10 @@ type ControlClient interface {
 	SendActorDirective(
 		context.Context,
 		controlplane.ActorTextInput,
+	) (controlplane.OperationView, error)
+	SubmitActorUtterance(
+		context.Context,
+		controlplane.ActorUtteranceInput,
 	) (controlplane.OperationView, error)
 	ExecuteActorOffer(
 		context.Context,
@@ -64,6 +72,13 @@ func (client *serviceClient) GetActor(
 	)
 }
 
+func (client *serviceClient) WaitActor(
+	ctx context.Context,
+	input controlplane.WaitActorInput,
+) (controlplane.ActorUpdate, error) {
+	return client.service.WaitActor(ctx, client.principal, input)
+}
+
 func (client *serviceClient) ListActorOffers(
 	_ context.Context,
 	hostID, worldID, actorID string,
@@ -88,6 +103,13 @@ func (client *serviceClient) SendActorDirective(
 	input controlplane.ActorTextInput,
 ) (controlplane.OperationView, error) {
 	return client.service.SendActorDirective(client.principal, input)
+}
+
+func (client *serviceClient) SubmitActorUtterance(
+	_ context.Context,
+	input controlplane.ActorUtteranceInput,
+) (controlplane.OperationView, error) {
+	return client.service.SubmitActorUtterance(client.principal, input)
 }
 
 func (client *serviceClient) ExecuteActorOffer(

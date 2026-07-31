@@ -92,6 +92,14 @@ func validateActor(value ActorPublication, worldID string, index int) error {
 	if value.Epoch.WorldID != worldID {
 		return invalid(prefix+".epoch.world_id", "must equal publication world_id")
 	}
+	if value.Authority != nil {
+		if err := validateDecisionAuthority(
+			prefix+".decision_authority",
+			*value.Authority,
+		); err != nil {
+			return err
+		}
+	}
 	if err := validateJSONObject(prefix+".state", value.State, maxActorStateBytes); err != nil {
 		return err
 	}
@@ -117,6 +125,47 @@ func validateActor(value ActorPublication, worldID string, index int) error {
 			return invalid(prefix+".offers", "must not contain duplicate offer_id values")
 		}
 		offers[offer.OfferID] = struct{}{}
+	}
+	return nil
+}
+
+func validateDecisionAuthority(
+	field string,
+	value DecisionAuthority,
+) error {
+	if value.Revision == 0 || value.Revision > maxJSONSafeInteger {
+		return invalid(field+".revision", "must be a positive JSON-safe integer")
+	}
+	switch value.Source {
+	case DecisionInternal:
+		if value.ControllerPrincipalID != "" {
+			return invalid(
+				field+".controller_principal_id",
+				"must be empty for internal authority",
+			)
+		}
+		if value.PersonaMode != PersonaCharacterBound {
+			return invalid(
+				field+".persona_mode",
+				"must be character-bound for internal authority",
+			)
+		}
+	case DecisionExternal:
+		if err := validateID(
+			field+".controller_principal_id",
+			value.ControllerPrincipalID,
+		); err != nil {
+			return err
+		}
+		if value.PersonaMode != PersonaCharacterBound &&
+			value.PersonaMode != PersonaAgentAvatar {
+			return invalid(
+				field+".persona_mode",
+				"must be character-bound or agent-avatar",
+			)
+		}
+	default:
+		return invalid(field+".source", "must be internal or external")
 	}
 	return nil
 }
@@ -175,7 +224,19 @@ func hasScope(principal host.Principal, scope string) bool {
 	return false
 }
 
-func canRead(principal host.Principal, ownerPrincipalID string) bool {
-	return hasScope(principal, ScopeHostAdmin) ||
-		(principal.ID == ownerPrincipalID && hasScope(principal, ScopeActorRead))
+func canAccessActor(
+	principal host.Principal,
+	actor ActorPublication,
+	requiredScope string,
+) bool {
+	if hasScope(principal, ScopeHostAdmin) {
+		return true
+	}
+	if !hasScope(principal, requiredScope) {
+		return false
+	}
+	if principal.ID == actor.OwnerPrincipalID {
+		return true
+	}
+	return authorityAllowsExternal(actor, principal.ID)
 }

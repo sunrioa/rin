@@ -26,8 +26,8 @@ func TestControlOpenAPIReferencesEveryDaemonRoute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseControlRoutes: %v", err)
 	}
-	if len(routes) != 19 {
-		t.Fatalf("Control route count = %d, want 19", len(routes))
+	if len(routes) != 21 {
+		t.Fatalf("Control route count = %d, want 21", len(routes))
 	}
 
 	service := New(Options{})
@@ -35,6 +35,7 @@ func TestControlOpenAPIReferencesEveryDaemonRoute(t *testing.T) {
 		ScopeActorRead,
 		ScopeActorConverse,
 		ScopeActorDirect,
+		ScopeActorSpeak,
 		ScopeActorExecute,
 		ScopeOperationCancel,
 	)

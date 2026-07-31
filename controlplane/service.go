@@ -1,6 +1,7 @@
 package controlplane
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -213,7 +214,13 @@ func (service *Service) PublishWorld(
 	} else if len(current.worlds) >= maxWorldsPerHost {
 		return invalid("world_id", "host already contains 64 worlds")
 	}
+	service.fenceSupersededAuthorityLocked(
+		hostID,
+		publication.WorldID,
+		publication,
+	)
 	current.worlds[publication.WorldID] = clonePublication(publication)
+	service.notifyLocked()
 	return nil
 }
 
@@ -270,7 +277,7 @@ func (service *Service) ListActors(
 	online := current.lease.ExpiresAtUnixMillis > service.now().UnixMilli()
 	result := make([]ActorView, 0, len(world.Actors))
 	for _, actor := range world.Actors {
-		if canRead(principal, actor.OwnerPrincipalID) {
+		if canAccessActor(principal, actor, ScopeActorRead) {
 			result = append(result, actorView(
 				hostID, worldID, current.lease, online, actor,
 			))
@@ -292,6 +299,77 @@ func (service *Service) GetActor(
 	}
 	service.mu.RLock()
 	defer service.mu.RUnlock()
+	return service.getActorLocked(principal, hostID, worldID, actorID)
+}
+
+// WaitActor waits for a newer actor observation or authority revision. It uses
+// the same visibility rules as GetActor and never creates a second event log.
+func (service *Service) WaitActor(
+	ctx context.Context,
+	principal host.Principal,
+	input WaitActorInput,
+) (ActorUpdate, error) {
+	if err := host.ValidatePrincipal(principal); err != nil {
+		return ActorUpdate{}, fmt.Errorf(
+			"%w: principal: %v", ErrInvalid, err,
+		)
+	}
+	if input.WaitMillis > 25_000 {
+		return ActorUpdate{}, invalid(
+			"wait_millis", "must not exceed 25000",
+		)
+	}
+	timer := time.NewTimer(time.Duration(input.WaitMillis) * time.Millisecond)
+	defer timer.Stop()
+	for {
+		service.mu.RLock()
+		if service.closed {
+			service.mu.RUnlock()
+			return ActorUpdate{}, ErrUnavailable
+		}
+		view, err := service.getActorLocked(
+			principal,
+			input.HostID,
+			input.WorldID,
+			input.ActorID,
+		)
+		changed := service.changed
+		service.mu.RUnlock()
+		if err != nil {
+			return ActorUpdate{}, err
+		}
+		cursorChanged := view.ObservationSeq != input.AfterObservationSeq ||
+			view.Authority.Revision != input.AfterAuthorityRevision
+		if cursorChanged || input.WaitMillis == 0 {
+			return ActorUpdate{Actor: view, Changed: cursorChanged}, nil
+		}
+		select {
+		case <-ctx.Done():
+			return ActorUpdate{}, ctx.Err()
+		case <-timer.C:
+			service.mu.RLock()
+			view, err = service.getActorLocked(
+				principal,
+				input.HostID,
+				input.WorldID,
+				input.ActorID,
+			)
+			service.mu.RUnlock()
+			if err != nil {
+				return ActorUpdate{}, err
+			}
+			cursorChanged = view.ObservationSeq != input.AfterObservationSeq ||
+				view.Authority.Revision != input.AfterAuthorityRevision
+			return ActorUpdate{Actor: view, Changed: cursorChanged}, nil
+		case <-changed:
+		}
+	}
+}
+
+func (service *Service) getActorLocked(
+	principal host.Principal,
+	hostID, worldID, actorID string,
+) (ActorView, error) {
 	current, world, err := service.findWorldLocked(hostID, worldID)
 	if err != nil {
 		return ActorView{}, err
@@ -300,7 +378,7 @@ func (service *Service) GetActor(
 		if actor.ActorID != actorID {
 			continue
 		}
-		if !canRead(principal, actor.OwnerPrincipalID) {
+		if !canAccessActor(principal, actor, ScopeActorRead) {
 			return ActorView{}, ErrForbidden
 		}
 		online := current.lease.ExpiresAtUnixMillis > service.now().UnixMilli()
@@ -330,7 +408,10 @@ func (service *Service) ListActorOffers(
 		if actor.ActorID != actorID {
 			continue
 		}
-		if !canRead(principal, actor.OwnerPrincipalID) {
+		if !canAccessActor(principal, actor, ScopeActorRead) {
+			return nil, ErrForbidden
+		}
+		if !authorityAllowsExternal(actor, principal.ID) {
 			return nil, ErrForbidden
 		}
 		return cloneOffers(actor.Offers), nil
@@ -387,6 +468,10 @@ func clonePublication(value WorldPublication) WorldPublication {
 	cloned.Actors = make([]ActorPublication, len(value.Actors))
 	for index, actor := range value.Actors {
 		cloned.Actors[index] = actor
+		if actor.Authority != nil {
+			authority := *actor.Authority
+			cloned.Actors[index].Authority = &authority
+		}
 		cloned.Actors[index].State =
 			append(json.RawMessage(nil), actor.State...)
 		cloned.Actors[index].Offers = cloneOffers(actor.Offers)
@@ -420,15 +505,71 @@ func actorView(
 		DisplayName:          actor.DisplayName,
 		ObservationSeq:       actor.ObservationSeq,
 		Epoch:                actor.Epoch,
+		Authority:            effectiveAuthority(actor),
 		State:                append(json.RawMessage(nil), actor.State...),
 		Online:               online,
 		LeaseExpiresAtMillis: lease.ExpiresAtUnixMillis,
 	}
 }
 
+func effectiveAuthority(actor ActorPublication) DecisionAuthority {
+	if actor.Authority != nil {
+		return *actor.Authority
+	}
+	// Publications predating decision-authority support remain externally
+	// controllable by their owner, matching the original Control v1 behavior.
+	return DecisionAuthority{
+		Source:                DecisionExternal,
+		ControllerPrincipalID: actor.OwnerPrincipalID,
+		Revision:              1,
+		PersonaMode:           PersonaCharacterBound,
+	}
+}
+
+func authorityAllowsExternal(
+	actor ActorPublication,
+	principalID string,
+) bool {
+	authority := effectiveAuthority(actor)
+	return authority.Source == DecisionExternal &&
+		authority.ControllerPrincipalID == principalID
+}
+
+func (service *Service) fenceSupersededAuthorityLocked(
+	hostID, worldID string,
+	publication WorldPublication,
+) {
+	revisions := make(map[string]uint64, len(publication.Actors))
+	for _, actor := range publication.Actors {
+		revisions[actor.ActorID] = effectiveAuthority(actor).Revision
+	}
+	now := service.now().UnixMilli()
+	changed := false
+	for _, operation := range service.operations {
+		if operation.request.HostID != hostID ||
+			operation.request.WorldID != worldID ||
+			completeOperation(operation) ||
+			(operation.ack != nil && operation.ack.Accepted) ||
+			operation.request.Binding == nil {
+			continue
+		}
+		revision, exists := revisions[operation.request.ActorID]
+		if exists &&
+			revision == operation.request.Binding.AuthorityRevision {
+			continue
+		}
+		operation.status = OperationStale
+		operation.updatedAt = now
+		changed = true
+	}
+	if changed {
+		service.markOperationsDirtyLocked()
+	}
+}
+
 func publicationVisible(principal host.Principal, world WorldPublication) bool {
 	for _, actor := range world.Actors {
-		if canRead(principal, actor.OwnerPrincipalID) {
+		if canAccessActor(principal, actor, ScopeActorRead) {
 			return true
 		}
 	}
