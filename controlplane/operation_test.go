@@ -443,14 +443,146 @@ func TestLeaseExpiryMakesUndeliveredWorkStaleAndAcceptedWorkUnknown(
 	*now = now.Add(6 * time.Second)
 	deliveredView, err := service.GetOperation(principal, deliveredID)
 	if err != nil || deliveredView.Status != OperationOutcomeUnknown ||
-		!deliveredView.Terminal || deliveredView.ExecutionConfirmed {
+		deliveredView.Terminal || !deliveredView.ReconciliationPending ||
+		deliveredView.ExecutionConfirmed {
 		t.Fatalf("accepted after expiry = %#v, %v", deliveredView, err)
 	}
 	undeliveredView, err := service.GetOperation(principal, undeliveredID)
 	if err != nil || undeliveredView.Status != OperationStale ||
 		undeliveredView.DeliveryAttempts != 0 ||
-		!undeliveredView.Terminal || undeliveredView.ExecutionConfirmed {
+		!undeliveredView.Terminal || undeliveredView.ReconciliationPending ||
+		undeliveredView.ExecutionConfirmed {
 		t.Fatalf("queued after expiry = %#v, %v", undeliveredView, err)
+	}
+}
+
+func TestOutcomeUnknownWaitsForLateAuthoritativeReconciliation(t *testing.T) {
+	service, lease, now := operationTestService(t, Options{})
+	principal := operationPrincipal(ScopeActorConverse)
+	operation, err := service.SendActorMessage(principal, ActorTextInput{
+		RequestID: "request.reconcile.late",
+		HostID:    "test.host",
+		WorldID:   "world.one",
+		ActorID:   "actor.one",
+		Text:      "Reconcile this from the Host outbox.",
+	})
+	if err != nil {
+		t.Fatalf("SendActorMessage: %v", err)
+	}
+	pollHost(t, service, lease, 1)
+	if err := service.AcknowledgeHost(
+		"test.host",
+		lease.LeaseID,
+		HostAcknowledgement{OperationID: operation.OperationID, Accepted: true},
+	); err != nil {
+		t.Fatalf("AcknowledgeHost: %v", err)
+	}
+
+	*now = now.Add(6 * time.Second)
+	unknown, err := service.GetOperation(principal, operation.OperationID)
+	if err != nil || unknown.Terminal || !unknown.ReconciliationPending {
+		t.Fatalf("unknown operation = %#v, %v", unknown, err)
+	}
+	waitResult := make(chan OperationUpdate, 1)
+	waitFailure := make(chan error, 1)
+	go func() {
+		update, waitErr := service.WaitOperation(
+			context.Background(),
+			principal,
+			WaitOperationInput{
+				OperationID: operation.OperationID,
+				AfterCursor: unknown.Cursor,
+				WaitMillis:  1_000,
+			},
+		)
+		if waitErr != nil {
+			waitFailure <- waitErr
+			return
+		}
+		waitResult <- update
+	}()
+
+	recoveryLease := registerAndPublishOperationHost(
+		t,
+		service,
+		"instance.reconciler",
+	)
+	outcome := host.ActionOutcome{
+		OperationID: operation.OperationID,
+		Status:      host.ActionSucceeded,
+		Summary:     "Recovered from the Host outbox.",
+		Epoch:       testEpoch(),
+		WorldSeq:    2,
+		OccurredAt:  host.Timepoint{Clock: host.ClockStep, Value: 3},
+	}
+	if err := service.ReportHostOutcome(
+		"test.host",
+		recoveryLease.LeaseID,
+		outcome,
+	); err != nil {
+		t.Fatalf("ReportHostOutcome: %v", err)
+	}
+	select {
+	case waitErr := <-waitFailure:
+		t.Fatalf("WaitOperation: %v", waitErr)
+	case update := <-waitResult:
+		if !update.Changed || !update.Operation.Terminal ||
+			update.Operation.ReconciliationPending ||
+			!update.Operation.ExecutionConfirmed {
+			t.Fatalf("reconciled update = %#v", update)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("WaitOperation did not wake for late reconciliation")
+	}
+}
+
+func TestUnreconciledOutcomeUnknownExpiresFromCapacity(t *testing.T) {
+	service, lease, now := operationTestService(t, Options{
+		MaxOperations: 1,
+		OperationTTL:  time.Second,
+	})
+	principal := operationPrincipal(ScopeActorConverse)
+	first, err := service.SendActorMessage(principal, ActorTextInput{
+		RequestID: "request.unknown.capacity.one",
+		HostID:    "test.host",
+		WorldID:   "world.one",
+		ActorID:   "actor.one",
+		Text:      "This result may be lost.",
+	})
+	if err != nil {
+		t.Fatalf("first SendActorMessage: %v", err)
+	}
+	pollHost(t, service, lease, 1)
+	if err := service.AcknowledgeHost(
+		"test.host",
+		lease.LeaseID,
+		HostAcknowledgement{OperationID: first.OperationID, Accepted: true},
+	); err != nil {
+		t.Fatalf("AcknowledgeHost: %v", err)
+	}
+
+	*now = now.Add(2 * time.Second)
+	unknown, err := service.GetOperation(principal, first.OperationID)
+	if err != nil || unknown.Status != OperationOutcomeUnknown ||
+		!unknown.ReconciliationPending {
+		t.Fatalf("expired accepted operation = %#v, %v", unknown, err)
+	}
+	*now = now.Add(2 * time.Second)
+	second, err := service.SendActorMessage(principal, ActorTextInput{
+		RequestID: "request.unknown.capacity.two",
+		HostID:    "test.host",
+		WorldID:   "world.one",
+		ActorID:   "actor.one",
+		Text:      "Capacity must recover after reconciliation retention.",
+	})
+	if err != nil || second.OperationID == "" {
+		t.Fatalf("second SendActorMessage = %#v, %v", second, err)
+	}
+	if _, err := service.GetOperation(
+		principal,
+		first.OperationID,
+	); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("pruned unknown operation error = %v", err)
 	}
 }
 

@@ -489,7 +489,7 @@ func (service *Service) GetOperation(
 	return service.getOperationLocked(principal, operationID)
 }
 
-// WaitOperation waits for a newer operation cursor or a reportable terminal
+// WaitOperation waits for a newer operation cursor or a settled terminal
 // state. It does not interpret queueing, delivery, or progress as execution.
 func (service *Service) WaitOperation(
 	ctx context.Context,
@@ -896,16 +896,17 @@ func (service *Service) notifyLocked() {
 
 func operationView(operation *operationState) OperationView {
 	view := OperationView{
-		OperationID: operation.request.OperationID,
-		RequestID:   operation.request.RequestID,
-		HostID:      operation.request.HostID,
-		WorldID:     operation.request.WorldID,
-		ActorID:     operation.request.ActorID,
-		Kind:        operation.request.Kind,
-		TurnID:      operation.request.TurnID,
-		Status:      operation.status,
-		Cursor:      operationCursor(operation),
-		Terminal:    reportableTerminalOperation(operation),
+		OperationID:           operation.request.OperationID,
+		RequestID:             operation.request.RequestID,
+		HostID:                operation.request.HostID,
+		WorldID:               operation.request.WorldID,
+		ActorID:               operation.request.ActorID,
+		Kind:                  operation.request.Kind,
+		TurnID:                operation.request.TurnID,
+		Status:                operation.status,
+		Cursor:                operationCursor(operation),
+		Terminal:              settledOperation(operation),
+		ReconciliationPending: reconciliationPending(operation),
 		ExecutionConfirmed: operation.status == OperationSucceeded &&
 			operation.outcome != nil,
 		CancelRequested:  operation.cancel,
@@ -946,9 +947,13 @@ func operationCursor(operation *operationState) string {
 	)
 }
 
-func reportableTerminalOperation(operation *operationState) bool {
-	return completeOperation(operation) ||
-		operation.status == OperationOutcomeUnknown
+func settledOperation(operation *operationState) bool {
+	return completeOperation(operation) && !reconciliationPending(operation)
+}
+
+func reconciliationPending(operation *operationState) bool {
+	return operation.status == OperationOutcomeUnknown &&
+		operation.outcome == nil
 }
 
 func operationOutputView(output json.RawMessage) map[string]any {
@@ -1150,6 +1155,11 @@ func terminalOperationStatus(status OperationStatus) bool {
 }
 
 func completeOperation(operation *operationState) bool {
+	// An unresolved outcome is no longer delivered or cancellable. It remains
+	// reconcilable until retention pruning removes it.
+	if operation.status == OperationOutcomeUnknown {
+		return true
+	}
 	if operation.status == OperationRejected {
 		return true
 	}

@@ -2016,6 +2016,7 @@
           "status",
           "cursor",
           "terminal",
+          "reconciliation_pending",
           "execution_confirmed",
           "cancel_requested",
           "delivery_attempts",
@@ -2059,7 +2060,11 @@
           },
           "terminal": {
             "type": "boolean",
-            "description": "Whether the caller has a reportable terminal state"
+            "description": "Whether the operation is settled and cannot receive a different authoritative result"
+          },
+          "reconciliation_pending": {
+            "type": "boolean",
+            "description": "Whether the current outcome is unknown and the Host may still reconcile it"
           },
           "execution_confirmed": {
             "type": "boolean",

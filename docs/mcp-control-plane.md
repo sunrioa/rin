@@ -126,9 +126,12 @@ unchanged into `wait_operation`, or continue using `get_operation`:
 - `queued`, `delivered`, `accepted`, and `running` never mean completed;
 - report NPC execution as successful only when `execution_confirmed=true`, which
   requires `status=succeeded` and an authoritative Host `outcome`;
-- `terminal=true` means there is a reportable terminal state. Never relabel
-  `failed`, `rejected`, `cancelled`, `interrupted`, `stale`, or
-  `outcome-unknown` as success;
+- `terminal=true` means the state is settled and cannot receive a different
+  authoritative result. Never relabel `failed`, `rejected`, `cancelled`,
+  `interrupted`, or `stale` as success;
+- `reconciliation_pending=true` means the current state is `outcome-unknown`
+  and the Host may still submit an authoritative Outcome. Continue using
+  `wait_operation` and do not treat it as final success or failure;
 - `stale` with `delivery_attempts=0` means the Host never received the request;
 - `wait_operation.changed=false` only means no newer revision arrived during the
   wait and supplies no execution evidence;
@@ -136,9 +139,10 @@ unchanged into `wait_operation`, or continue using `get_operation`:
   `subject_id`; a nested context for another subject cannot prove Actor behavior.
   Actor execution requires an Operation Outcome or Actor-owned task telemetry.
 
-`outcome-unknown` is a reportable uncertain state that the Host may later
-reconcile from its Pending Journal and Outcome Outbox. Callers must not guess a
-success or failure before that reconciliation.
+An `outcome-unknown` without an authoritative Outcome waits for Host
+reconciliation from its Pending Journal and Outcome Outbox for a bounded
+retention period, then becomes eligible for pruning. A Host-reported
+`outcome-unknown` with an Outcome is a settled uncertain result.
 
 ## Character Decision Authority
 

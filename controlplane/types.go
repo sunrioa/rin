@@ -239,26 +239,27 @@ type HostAcknowledgement struct {
 
 // OperationView is the principal-safe state of one Control Operation.
 type OperationView struct {
-	OperationID        string              `json:"operation_id"`
-	RequestID          string              `json:"request_id"`
-	HostID             string              `json:"host_id"`
-	WorldID            string              `json:"world_id"`
-	ActorID            string              `json:"actor_id"`
-	Kind               ControlKind         `json:"kind"`
-	TurnID             string              `json:"turn_id,omitempty"`
-	Status             OperationStatus     `json:"status"`
-	Cursor             string              `json:"cursor"`
-	Terminal           bool                `json:"terminal"`
-	ExecutionConfirmed bool                `json:"execution_confirmed"`
-	CancelRequested    bool                `json:"cancel_requested"`
-	DeliveryAttempts   uint32              `json:"delivery_attempts"`
-	Run                *host.ActionRun     `json:"run,omitempty"`
-	Outcome            *host.ActionOutcome `json:"outcome,omitempty"`
-	Output             map[string]any      `json:"output,omitempty"`
-	RejectionCode      string              `json:"rejection_code,omitempty"`
-	RejectionMessage   string              `json:"rejection_message,omitempty"`
-	CreatedAt          int64               `json:"created_at_unix_millis"`
-	UpdatedAt          int64               `json:"updated_at_unix_millis"`
+	OperationID           string              `json:"operation_id"`
+	RequestID             string              `json:"request_id"`
+	HostID                string              `json:"host_id"`
+	WorldID               string              `json:"world_id"`
+	ActorID               string              `json:"actor_id"`
+	Kind                  ControlKind         `json:"kind"`
+	TurnID                string              `json:"turn_id,omitempty"`
+	Status                OperationStatus     `json:"status"`
+	Cursor                string              `json:"cursor"`
+	Terminal              bool                `json:"terminal"`
+	ReconciliationPending bool                `json:"reconciliation_pending"`
+	ExecutionConfirmed    bool                `json:"execution_confirmed"`
+	CancelRequested       bool                `json:"cancel_requested"`
+	DeliveryAttempts      uint32              `json:"delivery_attempts"`
+	Run                   *host.ActionRun     `json:"run,omitempty"`
+	Outcome               *host.ActionOutcome `json:"outcome,omitempty"`
+	Output                map[string]any      `json:"output,omitempty"`
+	RejectionCode         string              `json:"rejection_code,omitempty"`
+	RejectionMessage      string              `json:"rejection_message,omitempty"`
+	CreatedAt             int64               `json:"created_at_unix_millis"`
+	UpdatedAt             int64               `json:"updated_at_unix_millis"`
 }
 
 // WaitOperationInput identifies the last operation revision observed by a

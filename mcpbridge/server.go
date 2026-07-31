@@ -124,12 +124,12 @@ func (gateway *Gateway) addReadTools() {
 func (gateway *Gateway) addOperationTools() {
 	mcp.AddTool(gateway.server, &mcp.Tool{
 		Name:        "get_operation",
-		Description: "Read one operation. queued, delivered, accepted, or running never prove completion; success requires execution_confirmed=true and an authoritative Host outcome.",
+		Description: "Read one operation. queued, delivered, accepted, or running never prove completion; reconciliation_pending means the Host may still report a final result; success requires execution_confirmed=true and an authoritative Host outcome.",
 		Annotations: readAnnotations(),
 	}, gateway.getOperation)
 	mcp.AddTool(gateway.server, &mcp.Tool{
 		Name:        "wait_operation",
-		Description: "Wait up to 25 seconds for an operation change or reportable terminal state. changed=false supplies no new execution evidence; success requires execution_confirmed=true.",
+		Description: "Wait up to 25 seconds for an operation change or settled terminal state. Continue waiting while reconciliation_pending=true; changed=false supplies no new execution evidence; success requires execution_confirmed=true.",
 		Annotations: readAnnotations(),
 	}, gateway.waitOperation)
 }

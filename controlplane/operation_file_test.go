@@ -63,6 +63,8 @@ func TestOperationFileRecoversUnknownWorkAndTerminalOutcome(t *testing.T) {
 	view, err := recovered.GetOperation(principal, operation.OperationID)
 	if err != nil ||
 		view.Status != OperationOutcomeUnknown ||
+		view.Terminal ||
+		!view.ReconciliationPending ||
 		view.Run == nil ||
 		view.Run.Status != host.ActionSucceeded {
 		t.Fatalf("recovered operation = %#v, %v", view, err)
@@ -103,6 +105,9 @@ func TestOperationFileRecoversUnknownWorkAndTerminalOutcome(t *testing.T) {
 	view, err = reopened.GetOperation(principal, operation.OperationID)
 	if err != nil ||
 		view.Status != OperationSucceeded ||
+		!view.Terminal ||
+		view.ReconciliationPending ||
+		!view.ExecutionConfirmed ||
 		view.Outcome == nil ||
 		view.Outcome.Summary != outcome.Summary ||
 		view.Output["reply"] != "Recovered reply." ||

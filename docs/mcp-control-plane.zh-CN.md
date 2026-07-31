@@ -117,16 +117,19 @@ Host 发布的完整 Offer 及其 Epoch、Observation 和 Authority Revision Bin
 - `queued`、`delivered`、`accepted`、`running` 均不能汇报为完成；
 - 只有 `execution_confirmed=true` 才能汇报 NPC 执行成功；该值仅在
   `status=succeeded` 且存在 Host 权威 `outcome` 时成立；
-- `terminal=true` 表示已有可向用户报告的终态。`failed`、`rejected`、
-  `cancelled`、`interrupted`、`stale` 和 `outcome-unknown` 都不能包装成成功；
+- `terminal=true` 表示状态已经稳定，不会再收到不同的权威结果。`failed`、
+  `rejected`、`cancelled`、`interrupted` 和 `stale` 都不能包装成成功；
+- `reconciliation_pending=true` 表示当前为 `outcome-unknown`，Host 仍可能补交
+  权威 Outcome；调用方应继续使用 `wait_operation`，不能把它当作最终成功或失败；
 - `stale` 且 `delivery_attempts=0` 表示 Host 从未领取该请求；
 - `wait_operation.changed=false` 只表示等待期间没有新版本，不是任何执行证据；
 - Host 状态是不透明数据，必须按显式 `subject` 与 `subject_id` 归属观察；属于其他
   主体的嵌套 Context 不能证明 Actor 行为。Actor 执行只能由 Operation Outcome 或
   Actor 自身的任务遥测证明。
 
-`outcome-unknown` 是可报告的不确定终态，Host 后续仍可通过 Pending Journal 和
-Outcome Outbox 对账；调用方不得在对账前猜测成功或失败。
+无权威 Outcome 的 `outcome-unknown` 会在有限保留期内等待 Host 通过 Pending
+Journal 和 Outcome Outbox 对账，之后才能被清理，避免孤儿请求永久占满队列。
+Host 主动报告且带 Outcome 的 `outcome-unknown` 则是稳定的不确定结果。
 
 ## 角色控制权
 
