@@ -98,6 +98,7 @@ Daemon scopes may also register:
 | `speak_as_actor` | `actor.speak` | Submit Actor dialogue as the bound external controller |
 | `execute_actor_offer` | `actor.execute` | Select one complete current Offer |
 | `get_operation` | any control scope | Inspect delivery, run, and Outcome state |
+| `wait_operation` | any control scope | Wait by opaque cursor for a change or reportable terminal state, up to 25 seconds |
 | `cancel_operation` | `operation.cancel` | Request cancellation; this is not rollback |
 
 For conversation and exact actions, for example:
@@ -117,6 +118,27 @@ item IDs, or method names. The Operation retains the complete Host Offer and its
 Epoch, Observation, and Authority Revision bindings. The game still revalidates
 the Offer, deadline, permissions, and current world state on its authoritative
 thread.
+
+The direct result of every write tool means only that Rin accepted or queued the
+request. It is not evidence that the game executed it. Callers copy `cursor`
+unchanged into `wait_operation`, or continue using `get_operation`:
+
+- `queued`, `delivered`, `accepted`, and `running` never mean completed;
+- report NPC execution as successful only when `execution_confirmed=true`, which
+  requires `status=succeeded` and an authoritative Host `outcome`;
+- `terminal=true` means there is a reportable terminal state. Never relabel
+  `failed`, `rejected`, `cancelled`, `interrupted`, `stale`, or
+  `outcome-unknown` as success;
+- `stale` with `delivery_attempts=0` means the Host never received the request;
+- `wait_operation.changed=false` only means no newer revision arrived during the
+  wait and supplies no execution evidence;
+- Host state is opaque. Attribute observations by explicit `subject` and
+  `subject_id`; a nested context for another subject cannot prove Actor behavior.
+  Actor execution requires an Operation Outcome or Actor-owned task telemetry.
+
+`outcome-unknown` is a reportable uncertain state that the Host may later
+reconcile from its Pending Journal and Outcome Outbox. Callers must not guess a
+success or failure before that reconciliation.
 
 ## Character Decision Authority
 
@@ -169,6 +191,9 @@ The Control contract is
 | `POST /control/v1/ack` | Accept or reject a delivery |
 | `POST /control/v1/run` | Report action progress |
 | `POST /control/v1/outcome` | Report the authoritative result and output |
+
+The client route `POST /control/v1/client/wait-operation` exposes the same
+bounded long-poll semantics.
 
 `/control/v1/client/*` routes are used by the typed `rin-mcp` HTTP client. Client
 request bodies never carry a Principal; the daemon always injects its fixed

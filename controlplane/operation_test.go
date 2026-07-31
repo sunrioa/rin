@@ -30,6 +30,10 @@ func TestMessageOperationIsIdempotentAndReportsHostOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SendActorMessage: %v", err)
 	}
+	if operation.Cursor == "" || operation.Terminal ||
+		operation.ExecutionConfirmed {
+		t.Fatalf("queued operation semantics = %#v", operation)
+	}
 	retried, err := service.SendActorMessage(principal, input)
 	if err != nil || retried.OperationID != operation.OperationID {
 		t.Fatalf("idempotent retry = %#v, %v", retried, err)
@@ -174,6 +178,8 @@ func TestMessageOperationIsIdempotentAndReportsHostOutcome(t *testing.T) {
 	view, err := service.GetOperation(principal, operation.OperationID)
 	if err != nil ||
 		view.Status != OperationSucceeded ||
+		!view.Terminal ||
+		!view.ExecutionConfirmed ||
 		view.DeliveryAttempts != 3 ||
 		view.Run == nil ||
 		view.Run.Status != host.ActionRunning ||
@@ -182,6 +188,64 @@ func TestMessageOperationIsIdempotentAndReportsHostOutcome(t *testing.T) {
 		view.Output["reply"] != "I am ready." ||
 		view.Output["selected_offer_id"] != "offer.wait" {
 		t.Fatalf("GetOperation = %#v, %v", view, err)
+	}
+}
+
+func TestWaitOperationWakesForDeliveryWithoutClaimingExecution(t *testing.T) {
+	service, lease, _ := operationTestService(t, Options{})
+	principal := operationPrincipal(ScopeActorConverse)
+	operation, err := service.SendActorMessage(principal, ActorTextInput{
+		RequestID: "request.wait.delivery",
+		HostID:    "test.host",
+		WorldID:   "world.one",
+		ActorID:   "actor.one",
+		Text:      "Wait for the Host.",
+	})
+	if err != nil {
+		t.Fatalf("SendActorMessage: %v", err)
+	}
+
+	result := make(chan OperationUpdate, 1)
+	failure := make(chan error, 1)
+	go func() {
+		update, waitErr := service.WaitOperation(
+			context.Background(),
+			principal,
+			WaitOperationInput{
+				OperationID: operation.OperationID,
+				AfterCursor: operation.Cursor,
+				WaitMillis:  1_000,
+			},
+		)
+		if waitErr != nil {
+			failure <- waitErr
+			return
+		}
+		result <- update
+	}()
+
+	pollHost(t, service, lease, 1)
+	select {
+	case waitErr := <-failure:
+		t.Fatalf("WaitOperation: %v", waitErr)
+	case update := <-result:
+		if !update.Changed ||
+			update.Operation.Status != OperationDelivered ||
+			update.Operation.DeliveryAttempts != 1 ||
+			update.Operation.Terminal ||
+			update.Operation.ExecutionConfirmed {
+			t.Fatalf("WaitOperation = %#v", update)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("WaitOperation did not wake after Host delivery")
+	}
+
+	if _, err := service.WaitOperation(
+		context.Background(),
+		principal,
+		WaitOperationInput{OperationID: operation.OperationID, WaitMillis: 25_001},
+	); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("oversized WaitOperation error = %v", err)
 	}
 }
 
@@ -378,11 +442,14 @@ func TestLeaseExpiryMakesUndeliveredWorkStaleAndAcceptedWorkUnknown(
 
 	*now = now.Add(6 * time.Second)
 	deliveredView, err := service.GetOperation(principal, deliveredID)
-	if err != nil || deliveredView.Status != OperationOutcomeUnknown {
+	if err != nil || deliveredView.Status != OperationOutcomeUnknown ||
+		!deliveredView.Terminal || deliveredView.ExecutionConfirmed {
 		t.Fatalf("accepted after expiry = %#v, %v", deliveredView, err)
 	}
 	undeliveredView, err := service.GetOperation(principal, undeliveredID)
-	if err != nil || undeliveredView.Status != OperationStale {
+	if err != nil || undeliveredView.Status != OperationStale ||
+		undeliveredView.DeliveryAttempts != 0 ||
+		!undeliveredView.Terminal || undeliveredView.ExecutionConfirmed {
 		t.Fatalf("queued after expiry = %#v, %v", undeliveredView, err)
 	}
 }

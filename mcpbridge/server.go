@@ -53,7 +53,7 @@ func NewClient(
 	gateway.server = mcp.NewServer(
 		&mcp.Implementation{Name: "rin", Version: "0.7.0"},
 		&mcp.ServerOptions{
-			Instructions: "Inspect Host-published state and submit only the bounded operations allowed by the configured principal scopes.",
+			Instructions: "Inspect Host-published state and submit only bounded operations. Write-tool responses acknowledge queueing, not execution. Follow each operation with wait_operation or get_operation. Report actor execution as successful only when execution_confirmed is true; changed=false is never new execution evidence. Attribute observations by their explicit subject and subject_id; nested context for another subject is not actor behavior.",
 			Capabilities: &mcp.ServerCapabilities{},
 		},
 	)
@@ -124,15 +124,20 @@ func (gateway *Gateway) addReadTools() {
 func (gateway *Gateway) addOperationTools() {
 	mcp.AddTool(gateway.server, &mcp.Tool{
 		Name:        "get_operation",
-		Description: "Read the current state and authoritative Host outcome of one submitted operation.",
+		Description: "Read one operation. queued, delivered, accepted, or running never prove completion; success requires execution_confirmed=true and an authoritative Host outcome.",
 		Annotations: readAnnotations(),
 	}, gateway.getOperation)
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name:        "wait_operation",
+		Description: "Wait up to 25 seconds for an operation change or reportable terminal state. changed=false supplies no new execution evidence; success requires execution_confirmed=true.",
+		Annotations: readAnnotations(),
+	}, gateway.waitOperation)
 }
 
 func (gateway *Gateway) addMessageTool() {
 	mcp.AddTool(gateway.server, &mcp.Tool{
 		Name:        "send_actor_message",
-		Description: "Send plain conversation to an actor without directly authorizing a world mutation.",
+		Description: "Queue plain conversation without authorizing a world mutation. The returned operation is not proof that the Host rendered it; wait for execution confirmation.",
 		Annotations: writeAnnotations(false),
 	}, gateway.sendActorMessage)
 }
@@ -140,7 +145,7 @@ func (gateway *Gateway) addMessageTool() {
 func (gateway *Gateway) addDirectiveTool() {
 	mcp.AddTool(gateway.server, &mcp.Tool{
 		Name:        "send_actor_directive",
-		Description: "Submit a negotiable goal that the actor and game Host may refuse.",
+		Description: "Queue a negotiable goal that the actor and Host may refuse. The response is acceptance by Rin only; wait for a terminal Host outcome.",
 		Annotations: writeAnnotations(true),
 	}, gateway.sendActorDirective)
 }
@@ -148,7 +153,7 @@ func (gateway *Gateway) addDirectiveTool() {
 func (gateway *Gateway) addUtteranceTool() {
 	mcp.AddTool(gateway.server, &mcp.Tool{
 		Name:        "speak_as_actor",
-		Description: "Speak as an externally controlled actor; the Host records and renders the bounded utterance.",
+		Description: "Queue bounded actor dialogue for the Host to record and render. Do not claim it was spoken until execution_confirmed is true.",
 		Annotations: writeAnnotations(false),
 	}, gateway.speakAsActor)
 }
@@ -156,7 +161,7 @@ func (gateway *Gateway) addUtteranceTool() {
 func (gateway *Gateway) addExecuteOfferTool() {
 	mcp.AddTool(gateway.server, &mcp.Tool{
 		Name:        "execute_actor_offer",
-		Description: "Select one exact currently published offer without supplying new action arguments.",
+		Description: "Queue one exact published offer without new arguments. queued means only stored by Rin; follow the operation until execution_confirmed=true or report its non-success terminal state.",
 		Annotations: writeAnnotations(true),
 	}, gateway.executeActorOffer)
 }
@@ -377,6 +382,25 @@ func (gateway *Gateway) getOperation(
 		ctx, input.OperationID,
 	)
 	return nil, OperationOutput{Operation: operation}, err
+}
+
+func (gateway *Gateway) waitOperation(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input WaitOperationInput,
+) (*mcp.CallToolResult, OperationUpdateOutput, error) {
+	update, err := gateway.client.WaitOperation(
+		ctx,
+		controlplane.WaitOperationInput{
+			OperationID: input.OperationID,
+			AfterCursor: input.AfterCursor,
+			WaitMillis:  input.WaitMillis,
+		},
+	)
+	return nil, OperationUpdateOutput{
+		Operation: update.Operation,
+		Changed:   update.Changed,
+	}, err
 }
 
 func (gateway *Gateway) cancelOperation(

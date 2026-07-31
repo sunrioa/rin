@@ -227,6 +227,23 @@ func (client *HTTPClient) GetOperation(
 	return client.operationTarget(ctx, "operation", operationID)
 }
 
+// WaitOperation waits for a newer operation cursor or reportable terminal
+// state for at most 25 seconds.
+func (client *HTTPClient) WaitOperation(
+	ctx context.Context,
+	input WaitOperationInput,
+) (OperationUpdate, error) {
+	var update OperationUpdate
+	err := client.request(
+		ctx,
+		http.MethodPost,
+		"wait-operation",
+		input,
+		&update,
+	)
+	return update, err
+}
+
 // CancelOperation requests cancellation without implying rollback.
 func (client *HTTPClient) CancelOperation(
 	ctx context.Context,

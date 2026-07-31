@@ -486,6 +486,80 @@ func (service *Service) GetOperation(
 	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
+	return service.getOperationLocked(principal, operationID)
+}
+
+// WaitOperation waits for a newer operation cursor or a reportable terminal
+// state. It does not interpret queueing, delivery, or progress as execution.
+func (service *Service) WaitOperation(
+	ctx context.Context,
+	principal host.Principal,
+	input WaitOperationInput,
+) (OperationUpdate, error) {
+	if err := host.ValidatePrincipal(principal); err != nil {
+		return OperationUpdate{}, fmt.Errorf(
+			"%w: principal: %v", ErrInvalid, err,
+		)
+	}
+	if err := validateID("operation_id", input.OperationID); err != nil {
+		return OperationUpdate{}, err
+	}
+	if len(input.AfterCursor) > 256 || !utf8.ValidString(input.AfterCursor) {
+		return OperationUpdate{}, invalid(
+			"after_cursor", "must be valid UTF-8 of at most 256 bytes",
+		)
+	}
+	if input.WaitMillis > 25_000 {
+		return OperationUpdate{}, invalid(
+			"wait_millis", "must not exceed 25000",
+		)
+	}
+	timer := time.NewTimer(time.Duration(input.WaitMillis) * time.Millisecond)
+	defer timer.Stop()
+	for {
+		service.mu.Lock()
+		if service.closed {
+			service.mu.Unlock()
+			return OperationUpdate{}, ErrUnavailable
+		}
+		view, err := service.getOperationLocked(principal, input.OperationID)
+		changed := service.changed
+		service.mu.Unlock()
+		if err != nil {
+			return OperationUpdate{}, err
+		}
+		cursorChanged := view.Cursor != input.AfterCursor
+		if view.Terminal || cursorChanged || input.WaitMillis == 0 {
+			return OperationUpdate{
+				Operation: view,
+				Changed:   cursorChanged,
+			}, nil
+		}
+		select {
+		case <-ctx.Done():
+			return OperationUpdate{}, ctx.Err()
+		case <-timer.C:
+			service.mu.Lock()
+			view, err = service.getOperationLocked(
+				principal, input.OperationID,
+			)
+			service.mu.Unlock()
+			if err != nil {
+				return OperationUpdate{}, err
+			}
+			return OperationUpdate{
+				Operation: view,
+				Changed:   view.Cursor != input.AfterCursor,
+			}, nil
+		case <-changed:
+		}
+	}
+}
+
+func (service *Service) getOperationLocked(
+	principal host.Principal,
+	operationID string,
+) (OperationView, error) {
 	operation, exists := service.operations[operationID]
 	if !exists {
 		return OperationView{}, ErrNotFound
@@ -822,14 +896,18 @@ func (service *Service) notifyLocked() {
 
 func operationView(operation *operationState) OperationView {
 	view := OperationView{
-		OperationID:      operation.request.OperationID,
-		RequestID:        operation.request.RequestID,
-		HostID:           operation.request.HostID,
-		WorldID:          operation.request.WorldID,
-		ActorID:          operation.request.ActorID,
-		Kind:             operation.request.Kind,
-		TurnID:           operation.request.TurnID,
-		Status:           operation.status,
+		OperationID: operation.request.OperationID,
+		RequestID:   operation.request.RequestID,
+		HostID:      operation.request.HostID,
+		WorldID:     operation.request.WorldID,
+		ActorID:     operation.request.ActorID,
+		Kind:        operation.request.Kind,
+		TurnID:      operation.request.TurnID,
+		Status:      operation.status,
+		Cursor:      operationCursor(operation),
+		Terminal:    reportableTerminalOperation(operation),
+		ExecutionConfirmed: operation.status == OperationSucceeded &&
+			operation.outcome != nil,
 		CancelRequested:  operation.cancel,
 		DeliveryAttempts: operation.attempts,
 		RejectionCode:    operation.rejection.Code,
@@ -847,6 +925,30 @@ func operationView(operation *operationState) OperationView {
 	}
 	view.Output = operationOutputView(operation.output)
 	return view
+}
+
+func operationCursor(operation *operationState) string {
+	runStatus := host.ActionRunStatus("")
+	progressSequence := uint64(0)
+	if operation.run != nil {
+		runStatus = operation.run.Status
+		progressSequence = operation.run.ProgressSeq
+	}
+	return fmt.Sprintf(
+		"op1:%s:%d:%t:%d:%s:%d:%t",
+		operation.status,
+		operation.attempts,
+		operation.cancel,
+		operation.updatedAt,
+		runStatus,
+		progressSequence,
+		operation.outcome != nil,
+	)
+}
+
+func reportableTerminalOperation(operation *operationState) bool {
+	return completeOperation(operation) ||
+		operation.status == OperationOutcomeUnknown
 }
 
 func operationOutputView(output json.RawMessage) map[string]any {

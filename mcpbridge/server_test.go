@@ -48,6 +48,7 @@ func TestGatewayNegotiatesCurrentProtocolAndReadsPublishedState(t *testing.T) {
 		"list_actors",
 		"list_worlds",
 		"wait_actor_update",
+		"wait_operation",
 	}
 	if !slices.Equal(names, expectedNames) {
 		t.Fatalf("tool names = %#v", names)
@@ -238,6 +239,7 @@ func TestGatewayRegistersScopedWriteToolsAndQueuesOperations(t *testing.T) {
 		"send_actor_message",
 		"speak_as_actor",
 		"wait_actor_update",
+		"wait_operation",
 	}
 	if !slices.Equal(names, expected) {
 		t.Fatalf("scoped tool names = %#v", names)
@@ -253,7 +255,9 @@ func TestGatewayRegistersScopedWriteToolsAndQueuesOperations(t *testing.T) {
 	var message OperationOutput
 	callTool(t, session, "send_actor_message", messageInput, &message)
 	if message.Operation.Status != controlplane.OperationQueued ||
-		message.Operation.Kind != controlplane.ControlMessage {
+		message.Operation.Kind != controlplane.ControlMessage ||
+		message.Operation.Terminal ||
+		message.Operation.ExecutionConfirmed {
 		t.Fatalf("message operation = %#v", message.Operation)
 	}
 	var retry OperationOutput
@@ -353,8 +357,20 @@ func TestGatewayRegistersScopedWriteToolsAndQueuesOperations(t *testing.T) {
 		t.Fatalf("get_operation = %#v", fetched.Operation)
 	}
 	if fetched.Operation.Output["reply"] != "I heard you." ||
-		fetched.Operation.Output["capability"] != "activity.wait" {
+		fetched.Operation.Output["capability"] != "activity.wait" ||
+		!fetched.Operation.Terminal ||
+		!fetched.Operation.ExecutionConfirmed {
 		t.Fatalf("get_operation output = %#v", fetched.Operation.Output)
+	}
+	var operationUpdate OperationUpdateOutput
+	callTool(t, session, "wait_operation", map[string]any{
+		"operation_id": message.Operation.OperationID,
+		"after_cursor": message.Operation.Cursor,
+		"wait_millis":  0,
+	}, &operationUpdate)
+	if !operationUpdate.Changed ||
+		!operationUpdate.Operation.ExecutionConfirmed {
+		t.Fatalf("wait_operation = %#v", operationUpdate)
 	}
 
 	var cancelled OperationOutput

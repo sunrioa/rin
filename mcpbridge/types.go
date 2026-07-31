@@ -128,10 +128,21 @@ type GetOperationInput struct {
 	OperationID string `json:"operation_id" jsonschema:"operation identifier returned by a write tool"`
 }
 
+type WaitOperationInput struct {
+	OperationID string `json:"operation_id" jsonschema:"operation identifier returned by a write tool"`
+	AfterCursor string `json:"after_cursor,omitempty" jsonschema:"opaque cursor copied unchanged from the last operation response"`
+	WaitMillis  uint32 `json:"wait_millis" jsonschema:"bounded wait in milliseconds from 0 through 25000"`
+}
+
 type CancelOperationInput struct {
 	OperationID string `json:"operation_id" jsonschema:"operation identifier returned by a write tool"`
 }
 
 type OperationOutput struct {
 	Operation controlplane.OperationView `json:"operation"`
+}
+
+type OperationUpdateOutput struct {
+	Operation controlplane.OperationView `json:"operation"`
+	Changed   bool                       `json:"changed"`
 }

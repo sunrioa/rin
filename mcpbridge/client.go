@@ -39,6 +39,10 @@ type ControlClient interface {
 		controlplane.ExecuteOfferInput,
 	) (controlplane.OperationView, error)
 	GetOperation(context.Context, string) (controlplane.OperationView, error)
+	WaitOperation(
+		context.Context,
+		controlplane.WaitOperationInput,
+	) (controlplane.OperationUpdate, error)
 	CancelOperation(context.Context, string) (controlplane.OperationView, error)
 }
 
@@ -124,6 +128,13 @@ func (client *serviceClient) GetOperation(
 	operationID string,
 ) (controlplane.OperationView, error) {
 	return client.service.GetOperation(client.principal, operationID)
+}
+
+func (client *serviceClient) WaitOperation(
+	ctx context.Context,
+	input controlplane.WaitOperationInput,
+) (controlplane.OperationUpdate, error) {
+	return client.service.WaitOperation(ctx, client.principal, input)
 }
 
 func (client *serviceClient) CancelOperation(

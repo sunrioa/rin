@@ -624,6 +624,7 @@ func (service *Service) markOperationsDirtyLocked() {
 // redelivers unacknowledged work or marks acknowledged work outcome-unknown.
 func (service *Service) markOperationCheckpointDirtyLocked() {
 	service.operationCheckpointDirty = true
+	service.notifyLocked()
 }
 
 func cloneAcknowledgement(

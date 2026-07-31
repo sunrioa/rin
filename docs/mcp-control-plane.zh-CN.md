@@ -92,6 +92,7 @@ Principal 和 Scope 只由 `rin-control` 启动配置决定，不能由 MCP Tool
 | `speak_as_actor` | `actor.speak` | 由当前绑定的外部控制器提交角色对白 |
 | `execute_actor_offer` | `actor.execute` | 选择一个完整、精确的当前 Offer |
 | `get_operation` | 任一控制 Scope | 查询投递、运行和 Outcome |
+| `wait_operation` | 任一控制 Scope | 按不透明 Cursor 等待 Operation 变化或可报告终态，最长 25 秒 |
 | `cancel_operation` | `operation.cancel` | 请求取消，不表示回滚 |
 
 例如需要对话和精确动作时：
@@ -109,6 +110,23 @@ export RIN_CONTROL_SCOPES="actor.read,actor.speak,actor.execute,operation.cancel
 `execute_actor_offer` 不接受任意动作参数、坐标、物品 ID 或方法名。Operation 保存
 Host 发布的完整 Offer 及其 Epoch、Observation 和 Authority Revision Binding；
 游戏在权威线程执行前仍要复验 Offer、Deadline、权限和当前世界状态。
+
+所有写 Tool 的直接返回只表示 Rin 已接收或排队，不能证明游戏已经执行。调用方必须
+把返回的 `cursor` 原样交给 `wait_operation`，或继续调用 `get_operation`：
+
+- `queued`、`delivered`、`accepted`、`running` 均不能汇报为完成；
+- 只有 `execution_confirmed=true` 才能汇报 NPC 执行成功；该值仅在
+  `status=succeeded` 且存在 Host 权威 `outcome` 时成立；
+- `terminal=true` 表示已有可向用户报告的终态。`failed`、`rejected`、
+  `cancelled`、`interrupted`、`stale` 和 `outcome-unknown` 都不能包装成成功；
+- `stale` 且 `delivery_attempts=0` 表示 Host 从未领取该请求；
+- `wait_operation.changed=false` 只表示等待期间没有新版本，不是任何执行证据；
+- Host 状态是不透明数据，必须按显式 `subject` 与 `subject_id` 归属观察；属于其他
+  主体的嵌套 Context 不能证明 Actor 行为。Actor 执行只能由 Operation Outcome 或
+  Actor 自身的任务遥测证明。
+
+`outcome-unknown` 是可报告的不确定终态，Host 后续仍可通过 Pending Journal 和
+Outcome Outbox 对账；调用方不得在对账前猜测成功或失败。
 
 ## 角色控制权
 
@@ -154,6 +172,8 @@ Control 契约由
 | `POST /control/v1/ack` | 接受或拒绝投递 |
 | `POST /control/v1/run` | 上报运行进度 |
 | `POST /control/v1/outcome` | 上报权威终态和结构化输出 |
+
+Client 路径 `POST /control/v1/client/wait-operation` 提供相同的有界长轮询语义。
 
 `/control/v1/client/*` 路由供 `rin-mcp` 的类型化 HTTP Client 使用。Client 请求体
 不携带 Principal；daemon 始终注入启动时固定的 Principal，避免身份伪造。

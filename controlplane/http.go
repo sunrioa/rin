@@ -160,6 +160,7 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 		mux.HandleFunc("POST /control/v1/client/utterance", server.clientUtterance)
 		mux.HandleFunc("POST /control/v1/client/execute-offer", server.clientExecuteOffer)
 		mux.HandleFunc("POST /control/v1/client/operation", server.clientOperation)
+		mux.HandleFunc("POST /control/v1/client/wait-operation", server.clientWaitOperation)
 		mux.HandleFunc("POST /control/v1/client/cancel", server.clientCancel)
 	}
 	server.handler = server.secure(mux)
@@ -593,6 +594,27 @@ func (server *hostHTTPHandler) clientOperation(
 		return
 	}
 	writeJSON(response, http.StatusOK, operation)
+}
+
+func (server *hostHTTPHandler) clientWaitOperation(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input WaitOperationInput
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	update, err := server.service.WaitOperation(
+		request.Context(),
+		*server.clientPrincipal,
+		input,
+	)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, update)
 }
 
 func (server *hostHTTPHandler) clientCancel(

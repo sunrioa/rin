@@ -610,6 +610,36 @@
         }
       }
     },
+    "/control/v1/client/wait-operation": {
+      "post": {
+        "operationId": "control_client_wait_operation",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WaitOperationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Latest operation state and cursor change flag",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationUpdate"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/control/v1/client/cancel": {
       "post": {
         "operationId": "control_client_cancel_operation",
@@ -1822,6 +1852,44 @@
           }
         }
       },
+      "WaitOperationInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation_id",
+          "wait_millis"
+        ],
+        "properties": {
+          "operation_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "after_cursor": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "wait_millis": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 25000
+          }
+        }
+      },
+      "OperationUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation",
+          "changed"
+        ],
+        "properties": {
+          "operation": {
+            "$ref": "#/components/schemas/OperationView"
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        }
+      },
       "WorldView": {
         "type": "object",
         "additionalProperties": false,
@@ -1946,6 +2014,9 @@
           "actor_id",
           "kind",
           "status",
+          "cursor",
+          "terminal",
+          "execution_confirmed",
           "cancel_requested",
           "delivery_attempts",
           "created_at_unix_millis",
@@ -1981,6 +2052,18 @@
           },
           "status": {
             "$ref": "#/components/schemas/OperationStatus"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque operation revision cursor"
+          },
+          "terminal": {
+            "type": "boolean",
+            "description": "Whether the caller has a reportable terminal state"
+          },
+          "execution_confirmed": {
+            "type": "boolean",
+            "description": "True only for succeeded with an authoritative Host Outcome"
           },
           "cancel_requested": {
             "type": "boolean"

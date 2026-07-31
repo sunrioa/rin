@@ -106,6 +106,16 @@ func TestHTTPClientUsesDaemonBoundPrincipal(t *testing.T) {
 	if err != nil || message.Status != OperationQueued {
 		t.Fatalf("SendActorMessage = %#v, %v", message, err)
 	}
+	operationUpdate, err := client.WaitOperation(ctx, WaitOperationInput{
+		OperationID: message.OperationID,
+		AfterCursor: message.Cursor,
+		WaitMillis:  0,
+	})
+	if err != nil || operationUpdate.Changed ||
+		operationUpdate.Operation.Terminal ||
+		operationUpdate.Operation.ExecutionConfirmed {
+		t.Fatalf("WaitOperation = %#v, %v", operationUpdate, err)
+	}
 	utterance, err := client.SubmitActorUtterance(ctx, ActorUtteranceInput{
 		RequestID: "request.client.utterance",
 		HostID:    "test.host",
