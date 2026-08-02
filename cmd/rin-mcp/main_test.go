@@ -2,17 +2,21 @@ package main
 
 import (
 	"io"
+	"path/filepath"
 	"testing"
 
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/internal/mcpconfig"
 )
+
+const testControlToken = "0123456789abcdef0123456789abcdef"
 
 func TestParseConfigurationUsesControlDaemon(t *testing.T) {
 	config, err := parseConfiguration(
 		nil,
 		testEnvironment(map[string]string{
-			"RIN_CONTROL_TOKEN": "0123456789abcdef0123456789abcdef",
+			"RIN_CONTROL_TOKEN": testControlToken,
 		}),
 		io.Discard,
 	)
@@ -37,7 +41,7 @@ func TestParseConfigurationRejectsMissingCredentials(t *testing.T) {
 
 func TestParseConfigurationRejectsRemoteControlURL(t *testing.T) {
 	environment := testEnvironment(map[string]string{
-		"RIN_CONTROL_TOKEN": "0123456789abcdef0123456789abcdef",
+		"RIN_CONTROL_TOKEN": testControlToken,
 	})
 	if _, err := parseConfiguration(
 		[]string{"-control-url", "http://0.0.0.0:7375"},
@@ -52,6 +56,69 @@ func TestParseConfigurationRejectsRemoteControlURL(t *testing.T) {
 		io.Discard,
 	); err == nil {
 		t.Fatal("remote conformance address was accepted")
+	}
+}
+
+func TestParseConfigurationLoadsPrivateFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcp-client.json")
+	if err := mcpconfig.Write(
+		path,
+		mcpconfig.New("http://127.0.0.1:7385", testControlToken),
+	); err != nil {
+		t.Fatal(err)
+	}
+	config, err := parseConfiguration(
+		[]string{"-config", path},
+		testEnvironment(map[string]string{}),
+		io.Discard,
+	)
+	if err != nil {
+		t.Fatalf("parseConfiguration: %v", err)
+	}
+	if config.controlURL != "http://127.0.0.1:7385" ||
+		config.token != testControlToken {
+		t.Fatalf("configuration = %#v", config)
+	}
+}
+
+func TestParseConfigurationPrivateFileOverridesEnvironment(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcp-client.json")
+	if err := mcpconfig.Write(
+		path,
+		mcpconfig.New("http://127.0.0.1:7385", testControlToken),
+	); err != nil {
+		t.Fatal(err)
+	}
+	overrideToken := "abcdef0123456789abcdef0123456789"
+	config, err := parseConfiguration(
+		[]string{"-config", path},
+		testEnvironment(map[string]string{
+			"RIN_CONTROL_URL":   "http://127.0.0.1:7395",
+			"RIN_CONTROL_TOKEN": overrideToken,
+		}),
+		io.Discard,
+	)
+	if err != nil {
+		t.Fatalf("parseConfiguration: %v", err)
+	}
+	if config.controlURL != "http://127.0.0.1:7385" ||
+		config.token != testControlToken {
+		t.Fatalf("configuration = %#v", config)
+	}
+	config, err = parseConfiguration(
+		[]string{
+			"-config", path,
+			"-control-url", "http://127.0.0.1:7396",
+		},
+		testEnvironment(map[string]string{}),
+		io.Discard,
+	)
+	if err != nil {
+		t.Fatalf("parseConfiguration explicit URL: %v", err)
+	}
+	if config.controlURL != "http://127.0.0.1:7396" ||
+		config.token != testControlToken {
+		t.Fatalf("explicit URL configuration = %#v", config)
 	}
 }
 

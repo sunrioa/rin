@@ -17,6 +17,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/internal/mcpconfig"
 	"github.com/sunrioa/rin/mcpbridge"
 )
 
@@ -96,9 +97,14 @@ func parseConfiguration(
 ) (configuration, error) {
 	flags := flag.NewFlagSet("rin-mcp", flag.ContinueOnError)
 	flags.SetOutput(stderr)
+	configPath := flags.String(
+		"config",
+		envOr(lookupEnv, "RIN_MCP_CONFIG", ""),
+		"private MCP client configuration file",
+	)
 	controlURL := flags.String(
 		"control-url",
-		envOr(lookupEnv, "RIN_CONTROL_URL", "http://127.0.0.1:7375"),
+		"",
 		"loopback rin-control base URL",
 	)
 	conformanceAddress := flags.String(
@@ -113,9 +119,24 @@ func parseConfiguration(
 		return configuration{}, fmt.Errorf("unexpected arguments: %v", flags.Args())
 	}
 	token, _ := lookupEnv("RIN_CONTROL_TOKEN")
+	if *configPath != "" {
+		fileConfig, err := mcpconfig.Load(*configPath)
+		if err != nil {
+			return configuration{}, fmt.Errorf("load MCP configuration: %w", err)
+		}
+		token = fileConfig.Token
+		if *controlURL == "" {
+			*controlURL = fileConfig.ControlURL
+		}
+	} else if *controlURL == "" {
+		*controlURL = envOr(lookupEnv, "RIN_CONTROL_URL", "")
+	}
+	if *controlURL == "" {
+		*controlURL = "http://127.0.0.1:7375"
+	}
 	if len(token) < 32 {
 		return configuration{}, errors.New(
-			"RIN_CONTROL_TOKEN must contain at least 32 bytes",
+			"RIN_CONTROL_TOKEN or configured token must contain at least 32 bytes",
 		)
 	}
 	if _, err := controlplane.NewHTTPClient(*controlURL, token); err != nil {

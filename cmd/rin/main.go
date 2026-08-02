@@ -50,6 +50,15 @@ func run(arguments []string) (resultErr error) {
 	if len(arguments) > 0 && arguments[0] == "doctor" {
 		return runDoctor(arguments[1:], os.Stdout)
 	}
+	if len(arguments) > 0 && arguments[0] == "mcp" {
+		return runMCP(
+			context.Background(),
+			arguments[1:],
+			os.Stdin,
+			os.Stdout,
+			os.Stderr,
+		)
+	}
 	if len(arguments) > 0 && arguments[0] == "serve" {
 		arguments = arguments[1:]
 	}
@@ -61,6 +70,7 @@ func run(arguments []string) (resultErr error) {
   rin conformance host [options]
   rin doctor host [options]
   rin inspect [options]
+  rin mcp [install|status|update|uninstall]
   rin serve [options]
   rin version
 

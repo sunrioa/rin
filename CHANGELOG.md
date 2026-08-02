@@ -10,6 +10,11 @@ across every future minor release.
 
 ### Added
 
+- Added `rin mcp install`, `status`, `update`, and `uninstall` for selecting
+  Codex, Claude Code, and OpenClaw from one CLI. The installer uses each
+  client's official MCP command, keeps the daemon token in one private local
+  file, protects unmanaged same-name registrations, and atomically updates one
+  stable `rin-mcp` executable without rewriting client configs.
 - Added the long-lived `rin-control` daemon, a typed fixed-Principal client API,
   the [`api/control-openapi.json`](api/control-openapi.json) route contract, and
   a capability-matched official MCP conformance gate.

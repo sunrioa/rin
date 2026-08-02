@@ -45,6 +45,7 @@ Build the long-lived control daemon and MCP thin proxy (prefers `2026-07-28`
 by default):
 
 ```bash
+go build -o bin/rin ./cmd/rin
 go build -o bin/rin-control ./cmd/rin-control
 go build -o bin/rin-mcp ./cmd/rin-mcp
 export RIN_CONTROL_TOKEN="$(openssl rand -hex 32)"
@@ -53,6 +54,21 @@ export RIN_CONTROL_SCOPES="actor.read"
 export RIN_CONTROL_DATA_DIR="/absolute/path/to/rin-control-data"
 ./bin/rin-control
 ```
+
+Configure Rin MCP once for installed Codex, Claude Code, or OpenClaw clients:
+
+```bash
+./bin/rin mcp install
+./bin/rin mcp status
+```
+
+The installer offers an interactive Agent selector, uses each Agent's official
+CLI to register one stable `rin-mcp` path, and stores the URL and token only once
+in a mode-`0600` local configuration. After unpacking a newer Rin distribution,
+`rin mcp update` preserves every Agent registration. Automation can use
+`-agents codex,claude,openclaw` or `-yes`. See the
+[MCP quick start](docs/mcp-control-plane.md) for installation, update, and
+uninstall details.
 
 `rin-control` stays on `127.0.0.1:7375`; game Hosts and any number of `rin-mcp`
 STDIO proxies connect to it. The default scope is `actor.read`; write tools

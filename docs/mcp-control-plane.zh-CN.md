@@ -29,6 +29,7 @@ Conformance 场景。
 要求 Go 1.25 或更高版本：
 
 ```bash
+go build -o bin/rin ./cmd/rin
 go build -o bin/rin-control ./cmd/rin-control
 go build -o bin/rin-mcp ./cmd/rin-mcp
 ```
@@ -50,9 +51,99 @@ export RIN_CONTROL_DATA_DIR="/absolute/path/to/rin-control-data"
 Host 发布 Actor 时，`owner_principal_id` 必须与配置的 Principal 一致，否则该
 Actor 对普通 Client 不可见。`host.admin` 可以跨 Owner 读取，默认不应授予。
 
-## MCP Client 配置
+## 一键配置 MCP Client
 
-先保证 `rin-control` 已运行，再让 MCP Client 启动 `rin-mcp`：
+`rin` 可以检测 Codex、Claude Code 与 OpenClaw CLI，并通过各自的官方 MCP 命令
+完成用户级注册。首次运行会列出已检测到的 Agent；输入编号、名称或直接回车选择
+全部：
+
+命令格式以 [Codex MCP](https://developers.openai.com/codex/mcp)、
+[Claude Code MCP](https://code.claude.com/docs/en/mcp) 与
+[OpenClaw MCP](https://docs.openclaw.ai/cli/mcp) 官方文档为准。
+
+```bash
+export RIN_CONTROL_TOKEN="replace-with-the-same-random-secret"
+./bin/rin mcp install
+```
+
+非交互环境可以显式选择或接受所有已检测 Agent：
+
+```bash
+./bin/rin mcp install -agents codex,claude,openclaw
+./bin/rin mcp install -yes
+```
+
+安装器执行以下操作：
+
+1. 把同目录的 `rin-mcp` 原子安装到操作系统用户配置目录下的稳定路径；
+2. 把回环 Control URL 和 Token 写入同目录的私密 `mcp-client.json`，Unix 权限为
+   `0600`；
+3. 通过 Agent 官方 CLI 注册 `rin-mcp --config <private-file>`。Agent 配置中不
+   包含 Token；
+4. 写入安装清单，记录由 Rin 接管的 Agent；明确失败且复查确认未写入时回滚记录。
+
+使用 `--config` 时，该私密文件中的 Token 和 URL 不受 Agent 进程偶然继承的旧
+环境变量影响；只有显式 `--control-url` 参数可以临时覆盖文件中的 URL。未使用
+配置文件时，原有 `RIN_CONTROL_URL` 与 `RIN_CONTROL_TOKEN` 行为保持不变。
+
+同名 `rin` MCP Server 若不是安装器创建的，默认拒绝覆盖。确认需要接管时使用
+`-force`；修复已托管但被手工改坏的注册使用 `-repair`。安装完成后应重启或重载
+对应 Agent Client。
+
+检查所有 Agent、托管二进制和私密配置：
+
+```bash
+./bin/rin mcp status
+```
+
+状态输出不会显示 Token。Codex、Claude Code 或 OpenClaw 没有安装时只会标记为
+未检测到，不影响其他 Client。
+
+### 一键更新
+
+从新版 Rin 发行目录运行：
+
+```bash
+./bin/rin mcp update
+```
+
+命令自动使用当前 `rin` 同目录的新版 `rin-mcp`，原子替换稳定托管路径，不改写
+Agent 注册或私密连接配置；SHA-256 相同则不重复替换。也可明确指定已验证的二进制：
+
+```bash
+rin mcp update -server /absolute/path/to/new/rin-mcp
+```
+
+Windows 会锁定正在运行的可执行文件，更新前需要退出使用 Rin MCP 的 Agent；
+macOS/Linux 也建议更新后重启 Agent，使已有 STDIO 会话加载新版本。
+
+当前仓库没有承诺带 SHA-256 清单的自动 Binary Release Pipeline，因此该命令
+不会静默从网络下载未验证程序。正式发布经过校验的二进制后，联网更新可保持相同
+命令接口扩展。
+
+### 卸载
+
+默认移除清单内全部 Agent 注册，但保留托管文件以便重新安装；也可以只移除指定
+Agent：
+
+```bash
+rin mcp uninstall
+rin mcp uninstall -agents codex,claude
+```
+
+完全移除托管二进制、安装清单和私密连接配置：
+
+```bash
+rin mcp uninstall -purge
+```
+
+卸载器只删除自己记录的注册和固定托管路径，不删除同名未托管配置，也拒绝清理
+符号链接或其他非普通文件。
+
+## 手工配置
+
+无法使用受支持 Agent CLI 时，仍可手工让 MCP Client 启动 `rin-mcp`。既可以沿用
+环境变量，也可以使用安装器创建的中央配置文件：
 
 ```json
 {
@@ -66,6 +157,12 @@ Actor 对普通 Client 不可见。`host.admin` 可以跨 Owner 读取，默认�
     }
   }
 }
+```
+
+中央配置形式的等价命令是：
+
+```bash
+/absolute/path/to/rin-mcp --config /absolute/path/to/mcp-client.json
 ```
 
 Principal 和 Scope 只由 `rin-control` 启动配置决定，不能由 MCP Tool 参数或代理

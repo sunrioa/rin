@@ -44,6 +44,7 @@ go run ./examples/basic
 构建常驻控制 daemon 和 MCP 薄代理（默认优先协商 `2026-07-28`）：
 
 ```bash
+go build -o bin/rin ./cmd/rin
 go build -o bin/rin-control ./cmd/rin-control
 go build -o bin/rin-mcp ./cmd/rin-mcp
 export RIN_CONTROL_TOKEN="$(openssl rand -hex 32)"
@@ -52,6 +53,19 @@ export RIN_CONTROL_SCOPES="actor.read"
 export RIN_CONTROL_DATA_DIR="/absolute/path/to/rin-control-data"
 ./bin/rin-control
 ```
+
+把 Rin MCP 一次配置到本机已安装的 Codex、Claude Code 或 OpenClaw：
+
+```bash
+./bin/rin mcp install
+./bin/rin mcp status
+```
+
+安装器交互选择 Agent，使用各 Agent 的官方 CLI 注册同一个稳定的 `rin-mcp`
+路径，并把地址与 Token 只保存一次到权限为 `0600` 的本机配置。后续换入新版
+Rin 发行目录后运行 `rin mcp update` 即可保留全部 Agent 配置。自动化环境可用
+`-agents codex,claude,openclaw` 或 `-yes`；完整安装、更新与卸载说明见
+[MCP 快速接入](docs/mcp-control-plane.zh-CN.md)。
 
 `rin-control` 常驻监听 `127.0.0.1:7375`，游戏 Host 和任意数量的
 `rin-mcp` STDIO 代理都连接它。默认 Scope 只有 `actor.read`；写工具必须显式

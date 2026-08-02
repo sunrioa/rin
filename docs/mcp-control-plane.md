@@ -31,6 +31,7 @@ runs the official conformance scenarios that match Rin's exposed capabilities.
 Go 1.25 or later is required:
 
 ```bash
+go build -o bin/rin ./cmd/rin
 go build -o bin/rin-control ./cmd/rin-control
 go build -o bin/rin-mcp ./cmd/rin-mcp
 ```
@@ -55,9 +56,111 @@ An Actor's published `owner_principal_id` must match the configured Principal or
 the Actor is hidden from ordinary clients. `host.admin` can read across owners
 and should not be granted by default.
 
-## MCP Client Configuration
+## One-command MCP Client Setup
 
-Keep `rin-control` running, then configure the MCP client to start `rin-mcp`:
+`rin` detects Codex, Claude Code, and OpenClaw CLIs and invokes each client's
+official MCP management commands. The first run lists detected Agents; select
+numbers, names, or press Enter for all:
+
+Command shapes follow the official [Codex MCP](https://developers.openai.com/codex/mcp),
+[Claude Code MCP](https://code.claude.com/docs/en/mcp), and
+[OpenClaw MCP](https://docs.openclaw.ai/cli/mcp) references.
+
+```bash
+export RIN_CONTROL_TOKEN="replace-with-the-same-random-secret"
+./bin/rin mcp install
+```
+
+For noninteractive setup, select clients explicitly or accept every detected
+client:
+
+```bash
+./bin/rin mcp install -agents codex,claude,openclaw
+./bin/rin mcp install -yes
+```
+
+The installer:
+
+1. atomically installs the sibling `rin-mcp` binary at a stable path below the
+   operating system's user configuration directory;
+2. writes the loopback Control URL and token once to a private
+   `mcp-client.json` file (mode `0600` on Unix);
+3. uses the official Agent CLI to register
+   `rin-mcp --config <private-file>`, so Agent configurations contain no token;
+4. records registrations it owns in a manifest and rolls ownership back when
+   a failed CLI command is confirmed to have written nothing.
+
+With `--config`, the token and URL in that private file are not overridden by
+stale environment variables accidentally inherited by an Agent process. Only
+an explicit `--control-url` argument temporarily overrides its URL. Without a
+config file, the existing `RIN_CONTROL_URL` and `RIN_CONTROL_TOKEN` behavior is
+unchanged.
+
+An existing `rin` MCP server not owned by this installer is never overwritten
+by default. Use `-force` only to take it over, or `-repair` to rewrite an owned
+registration that was changed manually. Restart or reload selected Agent
+clients after installation.
+
+Inspect all Agent registrations, the managed binary, and private config without
+printing the token:
+
+```bash
+./bin/rin mcp status
+```
+
+Missing Codex, Claude Code, or OpenClaw commands are reported as undetected and
+do not affect another client.
+
+### One-command update
+
+Run the command from an unpacked newer Rin distribution:
+
+```bash
+./bin/rin mcp update
+```
+
+It uses the new `rin-mcp` beside the current `rin` executable and atomically
+replaces the stable managed binary without rewriting Agent registrations or
+the private connection config. An identical SHA-256 is reused without another
+replacement. A verified binary may also be supplied
+explicitly:
+
+```bash
+rin mcp update -server /absolute/path/to/new/rin-mcp
+```
+
+Windows locks running executable images, so exit Agents using Rin MCP before
+updating. Restart Agents after an update on macOS or Linux as well so existing
+STDIO sessions load the new version.
+
+This repository does not currently promise an automated binary release
+pipeline with published SHA-256 manifests, so the command does not silently
+download an unverified executable. A future verified network updater can retain
+this command surface.
+
+### Uninstall
+
+By default, remove all manifest-owned Agent registrations while keeping the
+managed files for easy reinstall, or select clients explicitly:
+
+```bash
+rin mcp uninstall
+rin mcp uninstall -agents codex,claude
+```
+
+Remove the managed binary, manifest, and private connection config as well:
+
+```bash
+rin mcp uninstall -purge
+```
+
+The uninstaller only removes registrations it owns and exact managed regular
+files. It neither deletes an unmanaged same-name entry nor follows symlinks.
+
+## Manual MCP Client Configuration
+
+When a supported Agent CLI is unavailable, configure the MCP client to start
+`rin-mcp` manually. Environment variables remain supported:
 
 ```json
 {
@@ -71,6 +174,12 @@ Keep `rin-control` running, then configure the MCP client to start `rin-mcp`:
     }
   }
 }
+```
+
+The equivalent command using the installer's central config is:
+
+```bash
+/absolute/path/to/rin-mcp --config /absolute/path/to/mcp-client.json
 ```
 
 Only the `rin-control` startup configuration selects the Principal and scopes.

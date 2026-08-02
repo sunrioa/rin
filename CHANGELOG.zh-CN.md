@@ -9,6 +9,10 @@
 
 ### 新增
 
+- 新增 `rin mcp install`、`status`、`update` 与 `uninstall`，可从一个 CLI
+  选择 Codex、Claude Code 和 OpenClaw。安装器调用各 Client 的官方 MCP 命令，
+  只在一个本机私密文件保存 daemon Token，保护同名未托管注册，并在不重写
+  Client 配置的情况下原子更新稳定路径中的 `rin-mcp`。
 - 新增常驻 `rin-control` daemon、固定 Principal 的类型化 Client API、
   [`api/control-openapi.json`](api/control-openapi.json) 路由契约和官方 MCP
   Conformance 能力匹配门禁。
