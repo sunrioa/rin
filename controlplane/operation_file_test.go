@@ -185,6 +185,253 @@ func TestOperationFileRedeliversUnacknowledgedRequestWithStableID(t *testing.T) 
 	}
 }
 
+func TestOperationFileRedeliversAcceptedRequestWithoutExecutionEvidence(
+	t *testing.T,
+) {
+	root := t.TempDir()
+	now := time.UnixMilli(1_000_000)
+	service, lease := openPublishedOperationService(t, root, &now, 0)
+	principal := operationPrincipal(ScopeActorDirect)
+	operation, err := service.SendActorDirective(principal, ActorTextInput{
+		RequestID: "request.persist.accepted.redelivery",
+		HostID:    "test.host",
+		WorldID:   "world.one",
+		ActorID:   "actor.one",
+		Text:      "Resume the durable request after reconnect.",
+	})
+	if err != nil {
+		t.Fatalf("SendActorDirective: %v", err)
+	}
+	first := pollHost(t, service, lease, 1)
+	if len(first.Requests) != 1 {
+		t.Fatalf("first delivery = %#v", first)
+	}
+	ack := HostAcknowledgement{
+		OperationID: operation.OperationID,
+		Accepted:    true,
+	}
+	if err := service.AcknowledgeHost("test.host", lease.LeaseID, ack); err != nil {
+		t.Fatalf("AcknowledgeHost: %v", err)
+	}
+	if err := service.Close(); err != nil {
+		t.Fatalf("Close before recovery: %v", err)
+	}
+
+	recovered, err := OpenFile(root, fileTestOptions(&now, 64))
+	if err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+	defer recovered.Close()
+	view, err := recovered.GetOperation(principal, operation.OperationID)
+	if err != nil || view.Status != OperationAccepted || view.Terminal ||
+		view.ReconciliationPending || view.ExecutionConfirmed {
+		t.Fatalf("recovered accepted operation = %#v, %v", view, err)
+	}
+	recoveryLease := registerAndPublishOperationHost(
+		t,
+		recovered,
+		"instance.accepted.redelivery",
+	)
+	second := pollHost(t, recovered, recoveryLease, 1)
+	if len(second.Requests) != 1 ||
+		second.Requests[0].Request.OperationID != operation.OperationID ||
+		second.Requests[0].DeliveryAttempt != 2 {
+		t.Fatalf("accepted redelivery = %#v", second)
+	}
+	if err := recovered.AcknowledgeHost(
+		"test.host",
+		recoveryLease.LeaseID,
+		ack,
+	); err != nil {
+		t.Fatalf("idempotent AcknowledgeHost after redelivery: %v", err)
+	}
+}
+
+func TestOperationFileDoesNotRedeliverExpiredRequestAfterRestart(t *testing.T) {
+	root := t.TempDir()
+	now := time.UnixMilli(1_000_000)
+	options := fileTestOptions(&now, 0)
+	options.OperationTTL = time.Second
+	service, err := OpenFile(root, options)
+	if err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+	registerAndPublishOperationHost(t, service, "instance.expiring")
+	principal := operationPrincipal(ScopeActorDirect)
+	operation, err := service.SendActorDirective(principal, ActorTextInput{
+		RequestID: "request.persist.expired",
+		HostID:    "test.host",
+		WorldID:   "world.one",
+		ActorID:   "actor.one",
+		Text:      "Do not revive this after its retention window.",
+	})
+	if err != nil {
+		t.Fatalf("SendActorDirective: %v", err)
+	}
+	if err := service.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	now = now.Add(2 * time.Second)
+	options = fileTestOptions(&now, 64)
+	options.OperationTTL = time.Second
+	recovered, err := OpenFile(root, options)
+	if err != nil {
+		t.Fatalf("OpenFile after expiry: %v", err)
+	}
+	defer recovered.Close()
+	recoveryLease := registerAndPublishOperationHost(
+		t,
+		recovered,
+		"instance.expired.recovery",
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	batch, err := recovered.PollHost(
+		ctx,
+		"test.host",
+		recoveryLease.LeaseID,
+		1,
+	)
+	if !errors.Is(err, context.DeadlineExceeded) || len(batch.Requests) != 0 {
+		t.Fatalf("expired delivery = %#v, %v", batch, err)
+	}
+	view, err := recovered.GetOperation(principal, operation.OperationID)
+	if err != nil || view.Status != OperationStale || !view.Terminal ||
+		view.DeliveryAttempts != 0 {
+		t.Fatalf("expired operation = %#v, %v", view, err)
+	}
+}
+
+func TestOperationFileDoesNotReviveExpiredAcceptedRequest(t *testing.T) {
+	root := t.TempDir()
+	now := time.UnixMilli(1_000_000)
+	options := fileTestOptions(&now, 0)
+	options.OperationTTL = time.Second
+	service, err := OpenFile(root, options)
+	if err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+	lease := registerAndPublishOperationHost(t, service, "instance.accepted.expiring")
+	principal := operationPrincipal(ScopeActorConverse)
+	operation, err := service.SendActorMessage(principal, ActorTextInput{
+		RequestID: "request.persist.accepted.expired",
+		HostID:    "test.host",
+		WorldID:   "world.one",
+		ActorID:   "actor.one",
+		Text:      "Do not revive this accepted request after expiry.",
+	})
+	if err != nil {
+		t.Fatalf("SendActorMessage: %v", err)
+	}
+	pollHost(t, service, lease, 1)
+	if err := service.AcknowledgeHost(
+		"test.host",
+		lease.LeaseID,
+		HostAcknowledgement{OperationID: operation.OperationID, Accepted: true},
+	); err != nil {
+		t.Fatalf("AcknowledgeHost: %v", err)
+	}
+	now = now.Add(2 * time.Second)
+	view, err := service.GetOperation(principal, operation.OperationID)
+	if err != nil || view.Status != OperationOutcomeUnknown ||
+		!view.ReconciliationPending {
+		t.Fatalf("expired accepted operation = %#v, %v", view, err)
+	}
+	if err := service.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	options = fileTestOptions(&now, 64)
+	options.OperationTTL = time.Second
+	recovered, err := OpenFile(root, options)
+	if err != nil {
+		t.Fatalf("OpenFile after expiry: %v", err)
+	}
+	defer recovered.Close()
+	view, err = recovered.GetOperation(principal, operation.OperationID)
+	if err != nil || view.Status != OperationOutcomeUnknown ||
+		view.Terminal || !view.ReconciliationPending {
+		t.Fatalf("recovered expired accepted operation = %#v, %v", view, err)
+	}
+	recoveryLease := registerAndPublishOperationHost(
+		t,
+		recovered,
+		"instance.accepted.expired.recovery",
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	batch, err := recovered.PollHost(
+		ctx,
+		"test.host",
+		recoveryLease.LeaseID,
+		1,
+	)
+	if !errors.Is(err, context.DeadlineExceeded) || len(batch.Requests) != 0 {
+		t.Fatalf("revived accepted delivery = %#v, %v", batch, err)
+	}
+}
+
+func TestOperationFileDoesNotRevivePersistedStaleRequest(t *testing.T) {
+	root := t.TempDir()
+	now := time.UnixMilli(1_000_000)
+	options := fileTestOptions(&now, 0)
+	options.OperationTTL = time.Second
+	service, err := OpenFile(root, options)
+	if err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+	registerAndPublishOperationHost(t, service, "instance.stale.expiring")
+	principal := operationPrincipal(ScopeActorDirect)
+	operation, err := service.SendActorDirective(principal, ActorTextInput{
+		RequestID: "request.persist.stale",
+		HostID:    "test.host",
+		WorldID:   "world.one",
+		ActorID:   "actor.one",
+		Text:      "Remain stale after restart.",
+	})
+	if err != nil {
+		t.Fatalf("SendActorDirective: %v", err)
+	}
+	now = now.Add(2 * time.Second)
+	view, err := service.GetOperation(principal, operation.OperationID)
+	if err != nil || view.Status != OperationStale || !view.Terminal {
+		t.Fatalf("stale operation = %#v, %v", view, err)
+	}
+	if err := service.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	options = fileTestOptions(&now, 64)
+	options.OperationTTL = time.Second
+	recovered, err := OpenFile(root, options)
+	if err != nil {
+		t.Fatalf("OpenFile after stale persistence: %v", err)
+	}
+	defer recovered.Close()
+	view, err = recovered.GetOperation(principal, operation.OperationID)
+	if err != nil || view.Status != OperationStale || !view.Terminal ||
+		view.DeliveryAttempts != 0 {
+		t.Fatalf("recovered stale operation = %#v, %v", view, err)
+	}
+	recoveryLease := registerAndPublishOperationHost(
+		t,
+		recovered,
+		"instance.stale.recovery",
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	batch, err := recovered.PollHost(
+		ctx,
+		"test.host",
+		recoveryLease.LeaseID,
+		1,
+	)
+	if !errors.Is(err, context.DeadlineExceeded) || len(batch.Requests) != 0 {
+		t.Fatalf("revived stale delivery = %#v, %v", batch, err)
+	}
+}
+
 func TestOperationFileCoalescesDeliveryAndProgressCheckpoints(t *testing.T) {
 	root := t.TempDir()
 	now := time.UnixMilli(1_000_000)

@@ -348,7 +348,11 @@ func (client *HTTPClient) request(
 				response.StatusCode,
 			)
 		}
-		return controlClientStatusError(response.StatusCode, remote.Error)
+		return controlClientStatusError(
+			response.StatusCode,
+			remote.Code,
+			remote.Error,
+		)
 	}
 	if err := decodeHTTPClientJSON(payload, output); err != nil {
 		return fmt.Errorf(
@@ -406,26 +410,52 @@ func decodeHTTPClientJSON(payload []byte, target any) error {
 	return decodeSingleJSON(bytes.NewReader(payload), target)
 }
 
-func controlClientStatusError(status int, message string) error {
+func controlClientStatusError(status int, code, message string) error {
 	if message == "" {
 		message = http.StatusText(status)
 	}
 	var target error
-	switch status {
-	case http.StatusBadRequest:
+	switch code {
+	case "invalid":
 		target = ErrInvalid
-	case http.StatusUnauthorized, http.StatusForbidden:
+	case "forbidden":
 		target = ErrForbidden
-	case http.StatusNotFound:
+	case "not_found":
 		target = ErrNotFound
-	case http.StatusConflict:
+	case "lease_expired":
+		target = ErrLeaseExpired
+	case "unavailable":
+		target = ErrUnavailable
+	case "not_accepted":
+		target = ErrNotAccepted
+	case "lease_conflict":
+		target = ErrLeaseConflict
+	case "stale":
+		target = ErrStale
+	case "conflict":
 		target = ErrConflict
-	case http.StatusGone:
-		target = ErrUnavailable
-	case http.StatusTooManyRequests:
+	case "capacity":
 		target = ErrCapacity
-	default:
+	case "internal":
 		target = ErrUnavailable
+	}
+	if target == nil {
+		switch status {
+		case http.StatusBadRequest:
+			target = ErrInvalid
+		case http.StatusUnauthorized, http.StatusForbidden:
+			target = ErrForbidden
+		case http.StatusNotFound:
+			target = ErrNotFound
+		case http.StatusConflict:
+			target = ErrConflict
+		case http.StatusGone:
+			target = ErrUnavailable
+		case http.StatusTooManyRequests:
+			target = ErrCapacity
+		default:
+			target = ErrUnavailable
+		}
 	}
 	return fmt.Errorf("%w: %s", target, message)
 }

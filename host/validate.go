@@ -698,5 +698,5 @@ func validActionRunStatus(value ActionRunStatus) bool {
 
 func isTerminalActionRunStatus(value ActionRunStatus) bool {
 	return value == ActionSucceeded || value == ActionFailed || value == ActionCancelled ||
-		value == ActionInterrupted || value == ActionStale
+		value == ActionInterrupted || value == ActionStale || value == ActionOutcomeUnknown
 }

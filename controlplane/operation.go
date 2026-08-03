@@ -277,6 +277,7 @@ func (service *Service) PollHost(
 			service.mu.Unlock()
 			return HostControlBatch{}, err
 		}
+		service.pruneOperationsLocked(service.now().UnixMilli())
 		if err := service.persistOperationsLocked(); err != nil {
 			service.mu.Unlock()
 			return HostControlBatch{}, err
@@ -373,8 +374,11 @@ func (service *Service) ReportHostRun(
 	if err != nil {
 		return err
 	}
+	if operation.outcome != nil {
+		return fmt.Errorf("%w: terminal result is already recorded", ErrConflict)
+	}
 	if operation.ack == nil || !operation.ack.Accepted {
-		return fmt.Errorf("%w: operation was not accepted", ErrConflict)
+		return ErrNotAccepted
 	}
 	if operation.run != nil {
 		if run.ProgressSeq < operation.run.ProgressSeq {
@@ -454,15 +458,19 @@ func (service *Service) ReportHostResult(
 		return fmt.Errorf("%w: terminal result changed", ErrConflict)
 	}
 	if operation.ack == nil || !operation.ack.Accepted {
-		return fmt.Errorf("%w: operation was not accepted", ErrConflict)
+		return ErrNotAccepted
 	}
 	expected := operationStatusFromRun(outcome.Status)
 	if terminalOperationStatus(operation.status) && operation.status != expected {
 		return fmt.Errorf("%w: outcome conflicts with terminal run", ErrConflict)
 	}
-	if operation.request.Kind == ControlOffer &&
-		outcome.Epoch.WorldID != operation.request.WorldID {
-		return fmt.Errorf("%w: outcome epoch belongs to another world", ErrInvalid)
+	if operation.request.Binding != nil &&
+		outcome.Epoch != operation.request.Binding.Epoch {
+		return fmt.Errorf("%w: outcome epoch does not match request binding", ErrInvalid)
+	}
+	if operation.request.Binding != nil &&
+		outcome.WorldSeq < operation.request.Binding.ObservationSeq {
+		return fmt.Errorf("%w: outcome world sequence predates request binding", ErrInvalid)
 	}
 	cloned := cloneOutcome(outcome)
 	operation.outcome = &cloned
@@ -744,6 +752,11 @@ func (service *Service) collectHostWorkLocked(
 		}
 	}
 	slices.SortFunc(operations, func(left, right *operationState) int {
+		leftPriority := deliveryPriority(left.status)
+		rightPriority := deliveryPriority(right.status)
+		if leftPriority != rightPriority {
+			return leftPriority - rightPriority
+		}
 		if left.createdAt < right.createdAt {
 			return -1
 		}
@@ -785,7 +798,9 @@ func (service *Service) collectHostWorkLocked(
 		if operation.attempts < math.MaxUint32 {
 			operation.attempts++
 		}
-		operation.status = OperationDelivered
+		if operation.ack == nil {
+			operation.status = OperationDelivered
+		}
 		operation.updatedAt = now
 		deliveryChanged = true
 		batch.Requests = append(batch.Requests, HostControlDelivery{
@@ -797,6 +812,19 @@ func (service *Service) collectHostWorkLocked(
 		service.markOperationCheckpointDirtyLocked()
 	}
 	return batch
+}
+
+func deliveryPriority(status OperationStatus) int {
+	switch status {
+	case OperationQueued:
+		return 0
+	case OperationDelivered:
+		return 1
+	case OperationAccepted:
+		return 2
+	default:
+		return 3
+	}
 }
 
 func (service *Service) hostOperationLocked(
@@ -835,7 +863,7 @@ func (service *Service) expireHostOperationsLocked(hostID string, now int64) {
 			continue
 		}
 		if operation.ack != nil && operation.ack.Accepted {
-			if operation.status != OperationOutcomeUnknown {
+			if operation.run != nil && operation.status != OperationOutcomeUnknown {
 				operation.status = OperationOutcomeUnknown
 				operation.updatedAt = now
 				changed = true

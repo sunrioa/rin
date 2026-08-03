@@ -10,6 +10,7 @@ var (
 	ErrLeaseExpired  = errors.New("control plane lease expired")
 	ErrStale         = errors.New("stale control plane value")
 	ErrUnavailable   = errors.New("control plane host unavailable")
+	ErrNotAccepted   = errors.New("control plane operation not accepted")
 	ErrConflict      = errors.New("control plane value conflict")
 	ErrCapacity      = errors.New("control plane capacity exceeded")
 	ErrPersistence   = errors.New("control plane persistence failed")

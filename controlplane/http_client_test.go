@@ -205,3 +205,34 @@ func TestHTTPClientCannotBypassDaemonToken(t *testing.T) {
 		t.Fatalf("Info wrong-token error = %v", err)
 	}
 }
+
+func TestHTTPClientPreservesStableServiceErrorCode(t *testing.T) {
+	if err := controlClientStatusError(
+		http.StatusConflict,
+		"stale",
+		"published actor state changed",
+	); !errors.Is(err, ErrStale) {
+		t.Fatalf("stable stale error = %v", err)
+	}
+	if err := controlClientStatusError(
+		http.StatusConflict,
+		"lease_conflict",
+		"another Host instance is live",
+	); !errors.Is(err, ErrLeaseConflict) {
+		t.Fatalf("stable lease conflict error = %v", err)
+	}
+	if err := controlClientStatusError(
+		http.StatusNotFound,
+		"",
+		"legacy daemon response",
+	); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("legacy status fallback error = %v", err)
+	}
+	if err := controlClientStatusError(
+		http.StatusConflict,
+		"not_accepted",
+		"operation was not acknowledged",
+	); !errors.Is(err, ErrNotAccepted) {
+		t.Fatalf("stable not-accepted error = %v", err)
+	}
+}

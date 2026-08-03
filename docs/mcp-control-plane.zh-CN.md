@@ -278,6 +278,11 @@ Client 路径 `POST /control/v1/client/wait-operation` 提供相同的有界长�
 `/control/v1/client/*` 路由供 `rin-mcp` 的类型化 HTTP Client 使用。Client 请求体
 不携带 Principal；daemon 始终注入启动时固定的 Principal，避免身份伪造。
 
+错误响应始终包含供人阅读的 `error`，并可包含稳定的机器可读 `code`。当前服务码为
+`invalid`、`forbidden`、`not_found`、`lease_expired`、`unavailable`、
+`lease_conflict`、`stale`、`not_accepted`、`conflict`、`capacity` 和 `internal`。Client 应在
+`code` 存在时按它分支，并把 HTTP 状态码作为兼容回退。
+
 ## 持久化与恢复
 
 `RIN_CONTROL_DATA_DIR` 中的 `operations.json` 使用 0600 权限、严格 JSON、
@@ -289,8 +294,12 @@ Client 路径 `POST /control/v1/client/wait-operation` 提供相同的有界长�
 - 新入队请求、ACK、取消和 Outcome 立即持久化；
 - 投递次数和 ActionRun 进度是检查点，在下一个耐久写入或正常关闭时合并；
 - 进程在 ACK 前崩溃时，请求按相同 Operation ID 安全重投，投递计数可以重置；
-- ACK 后尚无 Outcome 的请求恢复为 `outcome-unknown`，Host 应从自己的 Pending
-  Journal/Outcome Outbox 对账；
+- ACK 后尚无 Run 或 Outcome 的请求按相同 Operation ID 重投，由 Host 从持久
+  Pending Journal 恢复；
+- 已报告执行但尚无 Outcome 的请求恢复为 `outcome-unknown`，Host 应从自己的
+  Outcome Outbox 对账；
+- 已持久化的 `stale` 或未解决 `outcome-unknown` 在重启后不会复活为 queued 或
+  accepted 请求；
 - 绑定旧 Epoch、旧 Observation 或旧版无 Binding 的请求不会交给新时间线；
 - 无 Host 的未完成请求在 TTL 后变为 `stale` 或 `outcome-unknown`，不会永久占满
   队列；

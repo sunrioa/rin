@@ -312,6 +312,12 @@ bounded long-poll semantics.
 request bodies never carry a Principal; the daemon always injects its fixed
 startup Principal to prevent identity spoofing.
 
+Error responses always contain a human-readable `error` and may include a stable
+machine-readable `code`. Current service codes are `invalid`, `forbidden`,
+`not_found`, `lease_expired`, `unavailable`, `lease_conflict`, `stale`,
+`not_accepted`, `conflict`, `capacity`, and `internal`. Clients should branch on `code` when it
+is present and treat the HTTP status as the compatibility fallback.
+
 ## Persistence and Recovery
 
 `operations.json` in `RIN_CONTROL_DATA_DIR` uses mode 0600, strict JSON,
@@ -326,8 +332,12 @@ Recovery rules:
   durable write or graceful shutdown;
 - a crash before ACK safely redelivers the same Operation ID, although the
   delivery counter may reset;
-- accepted work without an Outcome restores as `outcome-unknown`; the Host
-  reconciles it from its Pending Journal and Outcome Outbox;
+- accepted work with no reported run or Outcome is redelivered by the same
+  Operation ID so the Host can resume from its durable Pending Journal;
+- accepted work with reported execution but no Outcome restores as
+  `outcome-unknown`; the Host reconciles it from its Outcome Outbox;
+- a persisted `stale` or unresolved `outcome-unknown` state is never revived as
+  queued or accepted work after restart;
 - requests bound to an old Epoch, old Observation, or legacy unbound state never
   reach a new timeline;
 - unfinished work without a Host expires to `stale` or `outcome-unknown` instead

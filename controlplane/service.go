@@ -184,6 +184,7 @@ func (service *Service) UnregisterHost(hostID, leaseID string) error {
 		hostID,
 		current.lease.ExpiresAtUnixMillis,
 	)
+	service.notifyLocked()
 	return service.persistOperationsLocked()
 }
 
@@ -424,7 +425,7 @@ func (service *Service) requireLeaseLocked(
 ) (*hostState, error) {
 	current, exists := service.hosts[hostID]
 	if !exists || current.lease.LeaseID != leaseID {
-		return nil, ErrNotFound
+		return nil, ErrLeaseExpired
 	}
 	if current.lease.ExpiresAtUnixMillis <= service.now().UnixMilli() {
 		return nil, ErrLeaseExpired

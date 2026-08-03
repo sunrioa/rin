@@ -96,6 +96,7 @@ type operationTargetRequest struct {
 
 type errorResponse struct {
 	Error string `json:"error"`
+	Code  string `json:"code,omitempty"`
 }
 
 // NewHTTPHandler creates a token-authenticated Host Control handler.
@@ -686,26 +687,40 @@ func principalHasControlScope(principal host.Principal) bool {
 func writeServiceError(response http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrInvalid):
-		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		writeHTTPErrorCode(response, http.StatusBadRequest, "invalid", err.Error())
 	case errors.Is(err, ErrForbidden):
-		writeHTTPError(response, http.StatusForbidden, err.Error())
+		writeHTTPErrorCode(response, http.StatusForbidden, "forbidden", err.Error())
 	case errors.Is(err, ErrNotFound):
-		writeHTTPError(response, http.StatusNotFound, err.Error())
-	case errors.Is(err, ErrLeaseExpired), errors.Is(err, ErrUnavailable):
-		writeHTTPError(response, http.StatusGone, err.Error())
-	case errors.Is(err, ErrLeaseConflict), errors.Is(err, ErrStale):
-		writeHTTPError(response, http.StatusConflict, err.Error())
+		writeHTTPErrorCode(response, http.StatusNotFound, "not_found", err.Error())
+	case errors.Is(err, ErrLeaseExpired):
+		writeHTTPErrorCode(response, http.StatusGone, "lease_expired", err.Error())
+	case errors.Is(err, ErrUnavailable):
+		writeHTTPErrorCode(response, http.StatusGone, "unavailable", err.Error())
+	case errors.Is(err, ErrNotAccepted):
+		writeHTTPErrorCode(response, http.StatusConflict, "not_accepted", err.Error())
+	case errors.Is(err, ErrLeaseConflict):
+		writeHTTPErrorCode(response, http.StatusConflict, "lease_conflict", err.Error())
+	case errors.Is(err, ErrStale):
+		writeHTTPErrorCode(response, http.StatusConflict, "stale", err.Error())
 	case errors.Is(err, ErrConflict):
-		writeHTTPError(response, http.StatusConflict, err.Error())
+		writeHTTPErrorCode(response, http.StatusConflict, "conflict", err.Error())
 	case errors.Is(err, ErrCapacity):
-		writeHTTPError(response, http.StatusTooManyRequests, err.Error())
+		writeHTTPErrorCode(response, http.StatusTooManyRequests, "capacity", err.Error())
 	default:
-		writeHTTPError(response, http.StatusInternalServerError, "internal error")
+		writeHTTPErrorCode(response, http.StatusInternalServerError, "internal", "internal error")
 	}
 }
 
 func writeHTTPError(response http.ResponseWriter, status int, message string) {
-	writeJSON(response, status, errorResponse{Error: message})
+	writeHTTPErrorCode(response, status, "", message)
+}
+
+func writeHTTPErrorCode(
+	response http.ResponseWriter,
+	status int,
+	code, message string,
+) {
+	writeJSON(response, status, errorResponse{Error: message, Code: code})
 }
 
 func writeJSON(response http.ResponseWriter, status int, value any) {

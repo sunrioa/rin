@@ -350,8 +350,13 @@ func restoreOperation(
 		operation.ack == nil {
 		operation.status = OperationCancelled
 	} else if operation.ack != nil && operation.ack.Accepted {
-		operation.status = OperationOutcomeUnknown
-	} else if legacyUnbound {
+		if !legacyUnbound && operation.run == nil &&
+			value.Status == OperationAccepted {
+			operation.status = OperationAccepted
+		} else {
+			operation.status = OperationOutcomeUnknown
+		}
+	} else if legacyUnbound || value.Status == OperationStale {
 		operation.status = OperationStale
 	} else {
 		operation.status = OperationQueued
@@ -511,6 +516,24 @@ func validatePersistedOperationRelations(value persistedOperation) error {
 		value.Status != operationStatusFromRun(value.Outcome.Status) {
 		return errors.New("outcome does not match operation status")
 	}
+	if value.Outcome != nil && value.Request.Binding != nil &&
+		value.Outcome.Epoch != value.Request.Binding.Epoch {
+		return errors.New("outcome epoch does not match request binding")
+	}
+	if value.Outcome != nil && value.Request.Binding != nil &&
+		value.Outcome.WorldSeq < value.Request.Binding.ObservationSeq {
+		return errors.New("outcome world sequence predates request binding")
+	}
+	if value.Run != nil {
+		runStatus := operationStatusFromRun(value.Run.Status)
+		if value.Outcome == nil && value.Status != runStatus {
+			return errors.New("run does not match operation status")
+		}
+		if value.Outcome != nil && terminalOperationStatus(runStatus) &&
+			value.Run.Status != value.Outcome.Status {
+			return errors.New("terminal run conflicts with outcome")
+		}
+	}
 	if value.Ack == nil {
 		if value.Status == OperationDelivered && value.Attempts == 0 {
 			return errors.New("delivered operation requires a delivery attempt")
@@ -623,8 +646,8 @@ func (service *Service) markOperationsDirtyLocked() {
 	service.notifyLocked()
 }
 
-// Delivery counters and run progress may be lost on a crash; recovery already
-// redelivers unacknowledged work or marks acknowledged work outcome-unknown.
+// Delivery counters and run progress may be lost on a crash. Recovery
+// redelivers work with no execution evidence and reconciles work with a run.
 func (service *Service) markOperationCheckpointDirtyLocked() {
 	service.operationCheckpointDirty = true
 	service.notifyLocked()

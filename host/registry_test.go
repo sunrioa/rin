@@ -235,6 +235,17 @@ func TestManifestAndActionRunInvariants(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := ValidateActionOutcome(ActionOutcome{
+		OperationID: "operation.move.1",
+		Status:      ActionOutcomeUnknown,
+		Code:        "host.outcome_unknown",
+		Summary:     "The Host cannot prove whether the effect completed.",
+		Epoch:       testEpoch(),
+		WorldSeq:    7,
+		OccurredAt:  Timepoint{Clock: ClockStep, Value: 8},
+	}); err != nil {
+		t.Fatalf("authoritative outcome-unknown rejected: %v", err)
+	}
 }
 
 func TestCapabilityVersionIsExactSemVer(t *testing.T) {

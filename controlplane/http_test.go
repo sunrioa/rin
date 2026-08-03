@@ -163,6 +163,29 @@ func TestHTTPHandlerDeliversAndRecordsOperationLifecycle(t *testing.T) {
 		batch.Requests[0].Request.OperationID != operation.OperationID {
 		t.Fatalf("poll batch = %#v", batch)
 	}
+	response = requestJSON(t, handler, "/control/v1/outcome", outcomeRequest{
+		HostID:  "test.host",
+		LeaseID: lease.LeaseID,
+		Outcome: host.ActionOutcome{
+			OperationID: operation.OperationID,
+			Status:      host.ActionStale,
+			Code:        "host.not_started",
+			Summary:     "Execution did not start.",
+			Epoch:       testEpoch(),
+			WorldSeq:    1,
+			OccurredAt:  host.Timepoint{Clock: host.ClockStep, Value: 1},
+		},
+	})
+	if response.Code != http.StatusConflict {
+		t.Fatalf("unaccepted outcome status = %d, body = %s", response.Code, response.Body)
+	}
+	var notAccepted errorResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &notAccepted); err != nil {
+		t.Fatalf("decode unaccepted outcome error: %v", err)
+	}
+	if notAccepted.Code != "not_accepted" {
+		t.Fatalf("unaccepted outcome error = %#v", notAccepted)
+	}
 
 	response = requestJSON(
 		t,
@@ -218,6 +241,76 @@ func TestHTTPHandlerDeliversAndRecordsOperationLifecycle(t *testing.T) {
 		view.Output["reply"] != "Ready." ||
 		view.Output["capability"] != "activity.wait" {
 		t.Fatalf("GetOperation = %#v, %v", view, err)
+	}
+}
+
+func TestHTTPHandlerReturnsStableNotFoundCodeForMissingOutcome(t *testing.T) {
+	service := New(Options{
+		Now:    func() time.Time { return time.UnixMilli(1_000_000) },
+		Random: bytes.NewReader(bytes.Repeat([]byte{9}, 64)),
+	})
+	handler, err := NewHTTPHandler(service, HTTPOptions{Token: testControlToken})
+	if err != nil {
+		t.Fatalf("NewHTTPHandler: %v", err)
+	}
+	lease := HostLease{}
+	response := requestJSON(
+		t,
+		handler,
+		"/control/v1/register",
+		registration("instance.missing.outcome"),
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("register status = %d, body = %s", response.Code, response.Body)
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &lease); err != nil {
+		t.Fatalf("decode lease: %v", err)
+	}
+	response = requestJSON(t, handler, "/control/v1/outcome", outcomeRequest{
+		HostID:  "test.host",
+		LeaseID: "lease.expired",
+		Outcome: host.ActionOutcome{
+			OperationID: "operation.pending",
+			Status:      host.ActionFailed,
+			Code:        "host.failed",
+			Summary:     "The lease must be renewed before reporting.",
+			Epoch:       testEpoch(),
+			WorldSeq:    2,
+			OccurredAt:  host.Timepoint{Clock: host.ClockStep, Value: 3},
+		},
+	})
+	if response.Code != http.StatusGone {
+		t.Fatalf("expired lease status = %d, body = %s", response.Code, response.Body)
+	}
+	var expired errorResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &expired); err != nil {
+		t.Fatalf("decode expired lease error: %v", err)
+	}
+	if expired.Code != "lease_expired" {
+		t.Fatalf("expired lease error = %#v", expired)
+	}
+	response = requestJSON(t, handler, "/control/v1/outcome", outcomeRequest{
+		HostID:  "test.host",
+		LeaseID: lease.LeaseID,
+		Outcome: host.ActionOutcome{
+			OperationID: "operation.missing",
+			Status:      host.ActionFailed,
+			Code:        "host.failed",
+			Summary:     "The operation is no longer present.",
+			Epoch:       testEpoch(),
+			WorldSeq:    2,
+			OccurredAt:  host.Timepoint{Clock: host.ClockStep, Value: 3},
+		},
+	})
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("missing outcome status = %d, body = %s", response.Code, response.Body)
+	}
+	var remote errorResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &remote); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if remote.Code != "not_found" || remote.Error == "" {
+		t.Fatalf("missing outcome error = %#v", remote)
 	}
 }
 

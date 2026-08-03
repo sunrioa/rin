@@ -138,6 +138,34 @@ func TestServiceLeaseConflictExpiryAndTakeover(t *testing.T) {
 	}
 }
 
+func TestUnregisterHostWakesBlockedPoll(t *testing.T) {
+	service := New(Options{
+		Now:    func() time.Time { return time.UnixMilli(1_000_000) },
+		Random: bytes.NewReader(bytes.Repeat([]byte{7}, 64)),
+	})
+	lease := mustRegister(t, service, registration("instance.polling"))
+	service.mu.RLock()
+	changed := service.changed
+	service.mu.RUnlock()
+
+	if err := service.UnregisterHost("test.host", lease.LeaseID); err != nil {
+		t.Fatalf("UnregisterHost: %v", err)
+	}
+	select {
+	case <-changed:
+	default:
+		t.Fatal("UnregisterHost did not wake blocked Host polls")
+	}
+	if _, err := service.PollHost(
+		context.Background(),
+		"test.host",
+		lease.LeaseID,
+		1,
+	); !errors.Is(err, ErrLeaseExpired) {
+		t.Fatalf("PollHost after unregister error = %v", err)
+	}
+}
+
 func TestServicePublicationSequenceIsIdempotent(t *testing.T) {
 	service := New(Options{
 		Now:    func() time.Time { return time.UnixMilli(1_000_000) },

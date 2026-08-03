@@ -93,6 +93,10 @@ func TestMessageOperationIsIdempotentAndReportsHostOutcome(t *testing.T) {
 		acceptedRedelivery.Requests[0].DeliveryAttempt != 3 {
 		t.Fatalf("accepted redelivery = %#v", acceptedRedelivery)
 	}
+	acceptedView, err := service.GetOperation(principal, operation.OperationID)
+	if err != nil || acceptedView.Status != OperationAccepted {
+		t.Fatalf("accepted redelivery changed operation state = %#v, %v", acceptedView, err)
+	}
 	if err := service.ReportHostRun(
 		"test.host",
 		lease.LeaseID,
@@ -140,6 +144,15 @@ func TestMessageOperationIsIdempotentAndReportsHostOutcome(t *testing.T) {
 		WorldSeq:    2,
 		OccurredAt:  host.Timepoint{Clock: host.ClockStep, Value: 4},
 	}
+	mismatchedEpoch := outcome
+	mismatchedEpoch.Epoch.Timeline++
+	if err := service.ReportHostOutcome(
+		"test.host",
+		lease.LeaseID,
+		mismatchedEpoch,
+	); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("mismatched outcome epoch error = %v", err)
+	}
 	output := json.RawMessage(
 		`{"type":"actor_turn","reply":"I am ready.","selected_offer_id":"offer.wait"}`,
 	)
@@ -174,6 +187,19 @@ func TestMessageOperationIsIdempotentAndReportsHostOutcome(t *testing.T) {
 	); !errors.Is(err, ErrConflict) {
 		t.Fatalf("changed terminal output error = %v", err)
 	}
+	if err := service.ReportHostRun(
+		"test.host",
+		lease.LeaseID,
+		host.ActionRun{
+			OperationID: operation.OperationID,
+			Status:      host.ActionSucceeded,
+			ProgressSeq: 4,
+			Progress:    100,
+			UpdatedAt:   host.Timepoint{Clock: host.ClockStep, Value: 5},
+		},
+	); !errors.Is(err, ErrConflict) {
+		t.Fatalf("run after terminal outcome error = %v", err)
+	}
 
 	view, err := service.GetOperation(principal, operation.OperationID)
 	if err != nil ||
@@ -188,6 +214,92 @@ func TestMessageOperationIsIdempotentAndReportsHostOutcome(t *testing.T) {
 		view.Output["reply"] != "I am ready." ||
 		view.Output["selected_offer_id"] != "offer.wait" {
 		t.Fatalf("GetOperation = %#v, %v", view, err)
+	}
+}
+
+func TestHostOutcomeCannotPredateBoundObservation(t *testing.T) {
+	service, lease, _ := operationTestService(t, Options{})
+	principal := operationPrincipal(ScopeActorConverse)
+	publication := worldPublication(2, "newer")
+	publication.Actors[0].ObservationSeq = 2
+	publication.Actors[0].Offers[0].ObservationSeq = 2
+	if err := service.PublishWorld(
+		"test.host", lease.LeaseID, publication,
+	); err != nil {
+		t.Fatalf("PublishWorld: %v", err)
+	}
+	operation, err := service.SendActorMessage(principal, ActorTextInput{
+		RequestID: "request.outcome.world.sequence",
+		HostID:    "test.host",
+		WorldID:   "world.one",
+		ActorID:   "actor.one",
+		Text:      "Use the newer observation.",
+	})
+	if err != nil {
+		t.Fatalf("SendActorMessage: %v", err)
+	}
+	pollHost(t, service, lease, 1)
+	if err := service.AcknowledgeHost(
+		"test.host",
+		lease.LeaseID,
+		HostAcknowledgement{OperationID: operation.OperationID, Accepted: true},
+	); err != nil {
+		t.Fatalf("AcknowledgeHost: %v", err)
+	}
+	if err := service.ReportHostOutcome(
+		"test.host",
+		lease.LeaseID,
+		host.ActionOutcome{
+			OperationID: operation.OperationID,
+			Status:      host.ActionSucceeded,
+			Summary:     "This result claims an older world state.",
+			Epoch:       testEpoch(),
+			WorldSeq:    1,
+			OccurredAt:  host.Timepoint{Clock: host.ClockStep, Value: 3},
+		},
+	); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("older outcome world sequence error = %v", err)
+	}
+}
+
+func TestFreshHostWorkIsNotStarvedByAcceptedRedelivery(t *testing.T) {
+	service, lease, _ := operationTestService(t, Options{})
+	principal := operationPrincipal(ScopeActorConverse)
+	first, err := service.SendActorMessage(principal, ActorTextInput{
+		RequestID: "request.fairness.first",
+		HostID:    "test.host",
+		WorldID:   "world.one",
+		ActorID:   "actor.one",
+		Text:      "First request.",
+	})
+	if err != nil {
+		t.Fatalf("first SendActorMessage: %v", err)
+	}
+	batch := pollHost(t, service, lease, 1)
+	if len(batch.Requests) != 1 ||
+		batch.Requests[0].Request.OperationID != first.OperationID {
+		t.Fatalf("first poll = %#v", batch)
+	}
+	if err := service.AcknowledgeHost("test.host", lease.LeaseID, HostAcknowledgement{
+		OperationID: first.OperationID,
+		Accepted:    true,
+	}); err != nil {
+		t.Fatalf("AcknowledgeHost: %v", err)
+	}
+	second, err := service.SendActorMessage(principal, ActorTextInput{
+		RequestID: "request.fairness.second",
+		HostID:    "test.host",
+		WorldID:   "world.one",
+		ActorID:   "actor.one",
+		Text:      "Second request.",
+	})
+	if err != nil {
+		t.Fatalf("second SendActorMessage: %v", err)
+	}
+	batch = pollHost(t, service, lease, 1)
+	if len(batch.Requests) != 1 ||
+		batch.Requests[0].Request.OperationID != second.OperationID {
+		t.Fatalf("fresh work was starved by accepted redelivery: %#v", batch)
 	}
 }
 
@@ -456,6 +568,49 @@ func TestLeaseExpiryMakesUndeliveredWorkStaleAndAcceptedWorkUnknown(
 	}
 }
 
+func TestLeaseExpiryRedeliversAcceptedWorkWithoutExecutionEvidence(
+	t *testing.T,
+) {
+	service, lease, now := operationTestService(t, Options{})
+	principal := operationPrincipal(ScopeActorConverse)
+	operation, err := service.SendActorMessage(principal, ActorTextInput{
+		RequestID: "request.expire.accepted.redelivery",
+		HostID:    "test.host",
+		WorldID:   "world.one",
+		ActorID:   "actor.one",
+		Text:      "Resume after the Host lease is replaced.",
+	})
+	if err != nil {
+		t.Fatalf("SendActorMessage: %v", err)
+	}
+	pollHost(t, service, lease, 1)
+	if err := service.AcknowledgeHost(
+		"test.host",
+		lease.LeaseID,
+		HostAcknowledgement{OperationID: operation.OperationID, Accepted: true},
+	); err != nil {
+		t.Fatalf("AcknowledgeHost: %v", err)
+	}
+
+	*now = now.Add(6 * time.Second)
+	recoveryLease := registerAndPublishOperationHost(
+		t,
+		service,
+		"instance.accepted.redelivery",
+	)
+	view, err := service.GetOperation(principal, operation.OperationID)
+	if err != nil || view.Status != OperationAccepted || view.Terminal ||
+		view.ReconciliationPending {
+		t.Fatalf("accepted operation after lease replacement = %#v, %v", view, err)
+	}
+	batch := pollHost(t, service, recoveryLease, 1)
+	if len(batch.Requests) != 1 ||
+		batch.Requests[0].Request.OperationID != operation.OperationID ||
+		batch.Requests[0].DeliveryAttempt != 2 {
+		t.Fatalf("accepted lease-recovery delivery = %#v", batch)
+	}
+}
+
 func TestOutcomeUnknownWaitsForLateAuthoritativeReconciliation(t *testing.T) {
 	service, lease, now := operationTestService(t, Options{})
 	principal := operationPrincipal(ScopeActorConverse)
@@ -476,6 +631,19 @@ func TestOutcomeUnknownWaitsForLateAuthoritativeReconciliation(t *testing.T) {
 		HostAcknowledgement{OperationID: operation.OperationID, Accepted: true},
 	); err != nil {
 		t.Fatalf("AcknowledgeHost: %v", err)
+	}
+	if err := service.ReportHostRun(
+		"test.host",
+		lease.LeaseID,
+		host.ActionRun{
+			OperationID: operation.OperationID,
+			Status:      host.ActionRunning,
+			ProgressSeq: 1,
+			Progress:    10,
+			UpdatedAt:   host.Timepoint{Clock: host.ClockStep, Value: 2},
+		},
+	); err != nil {
+		t.Fatalf("ReportHostRun: %v", err)
 	}
 
 	*now = now.Add(6 * time.Second)
@@ -533,6 +701,51 @@ func TestOutcomeUnknownWaitsForLateAuthoritativeReconciliation(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("WaitOperation did not wake for late reconciliation")
+	}
+}
+
+func TestAuthoritativeOutcomeUnknownSettlesWithoutConfirmingExecution(t *testing.T) {
+	service, lease, _ := operationTestService(t, Options{})
+	principal := operationPrincipal(ScopeActorConverse)
+	operation, err := service.SendActorMessage(principal, ActorTextInput{
+		RequestID: "request.outcome.unknown.authoritative",
+		HostID:    "test.host",
+		WorldID:   "world.one",
+		ActorID:   "actor.one",
+		Text:      "Preserve uncertainty honestly.",
+	})
+	if err != nil {
+		t.Fatalf("SendActorMessage: %v", err)
+	}
+	pollHost(t, service, lease, 1)
+	if err := service.AcknowledgeHost(
+		"test.host",
+		lease.LeaseID,
+		HostAcknowledgement{OperationID: operation.OperationID, Accepted: true},
+	); err != nil {
+		t.Fatalf("AcknowledgeHost: %v", err)
+	}
+	outcome := host.ActionOutcome{
+		OperationID: operation.OperationID,
+		Status:      host.ActionOutcomeUnknown,
+		Code:        "host.outcome_unknown",
+		Summary:     "The Host cannot prove whether the effect completed.",
+		Epoch:       testEpoch(),
+		WorldSeq:    2,
+		OccurredAt:  host.Timepoint{Clock: host.ClockStep, Value: 3},
+	}
+	if err := service.ReportHostOutcome(
+		"test.host",
+		lease.LeaseID,
+		outcome,
+	); err != nil {
+		t.Fatalf("ReportHostOutcome: %v", err)
+	}
+	view, err := service.GetOperation(principal, operation.OperationID)
+	if err != nil || view.Status != OperationOutcomeUnknown || !view.Terminal ||
+		view.ReconciliationPending || view.ExecutionConfirmed || view.Outcome == nil ||
+		view.Outcome.Status != host.ActionOutcomeUnknown {
+		t.Fatalf("authoritative outcome-unknown view = %#v, %v", view, err)
 	}
 }
 
