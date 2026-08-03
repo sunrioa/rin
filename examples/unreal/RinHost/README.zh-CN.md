@@ -20,10 +20,18 @@
 `BindWorldIdentity`。Plugin 有意不从进程 GUID、对象指针、PIE 名称或地图路径
 推断身份。本地边界将 Identifier 限制为 96 个安全字符，将 Epoch/Progress
 Counter 限制为 `1..9007199254740991`；到达上限后递增会 fail closed。
-`AuthorizeAndQueueInvocation` 在一次 Game Thread 调用中完成最终
-Epoch、精确 Capability Version、Digest、撤销和重复 Operation 检查。只有先完成
-授权入队，才可启动 `UBTTask_RinHostMoveTo`；该 Task 只负责为已入队 Operation
-报告 `running` 和终态。
+发布 Decision Window 前，游戏先调用 `ObserveAuthoritativeClock`，再用
+`ReplaceActionOffers` 发布当前完整的 Host 权威 Offer 集合。`OfferDigest` 必须是
+完整 canonical Offer（包括本骨架保持 opaque 的 Arguments 与 Targets）的
+SHA-256。选中的 Invocation 必须逐项重复 Offer 身份、Actor、Capability、Epoch、
+Observation Sequence、Deadline 与 Digest，只额外增加 `OperationId`。
+
+`AuthorizeAndQueueInvocation` 会消费一个当前 Offer，并在一次 Game Thread 调用中
+完成最终 Epoch、完整 Offer Binding、权威 Deadline、精确 Capability
+Version/Digest、撤销和重复 Operation 检查。Capability 被撤销或时钟越过 Deadline
+时，对应的排队 Run 会立即变为 `stale`；`ReportRun(... Running ...)` 还会在
+Behavior Tree 真正启动前再次检查。只有先完成授权入队，才可启动
+`UBTTask_RinHostMoveTo`；该 Task 只负责为已入队 Operation 报告 `running` 和终态。
 
 替换 World 会使已绑定 World Epoch 失效，并将未完成 Run 改为
 `outcome-unknown`；只有权威存档加载完才能重新绑定。`ForkTimeline` 也会先使

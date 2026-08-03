@@ -40,6 +40,39 @@ class VerifyUnrealTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "forbidden token"):
                 verify_plugin(plugin)
 
+    def test_requires_exact_offer_binding_at_authorization(self) -> None:
+        with plugin_copy() as plugin:
+            source = plugin / "Source/RinHost/Private/RinHostSubsystem.cpp"
+            contents = source.read_text(encoding="utf-8")
+            source.write_text(
+                contents.replace(
+                    "!OfferMatchesInvocation(*Offer, Invocation) ||",
+                    "Invocation.OfferId.IsEmpty() ||",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(SystemExit, "OfferMatchesInvocation"):
+                verify_plugin(plugin)
+
+    def test_requires_revocation_to_invalidate_queued_runs(self) -> None:
+        with plugin_copy() as plugin:
+            source = plugin / "Source/RinHost/Private/RinHostSubsystem.cpp"
+            contents = source.read_text(encoding="utf-8")
+            source.write_text(
+                contents.replace(
+                    "MarkQueuedRunsStaleForCapability(CapabilityKey);",
+                    "static_cast<void>(CapabilityKey);",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                SystemExit,
+                "MarkQueuedRunsStaleForCapability",
+            ):
+                verify_plugin(plugin)
+
 
 if __name__ == "__main__":
     unittest.main()

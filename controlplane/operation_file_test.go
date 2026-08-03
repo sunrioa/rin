@@ -258,6 +258,11 @@ func TestOperationFileCoalescesDeliveryAndProgressCheckpoints(t *testing.T) {
 
 func TestOperationFileDoesNotRedeliverLegacyUnboundRequest(t *testing.T) {
 	root := t.TempDir()
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(root, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
 	principal := operationPrincipal(ScopeActorConverse)
 	operationID := "operation.legacy"
 	state := persistedOperations{

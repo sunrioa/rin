@@ -10,6 +10,8 @@ public enum ProposalFreshnessDecision
 
 public static class ProposalFreshness
 {
+    private const long MaxJsonSafeInteger = 9_007_199_254_740_991L;
+
     public static ProposalFreshnessDecision Evaluate(
         JsonElement state,
         ActionProposal proposal)
@@ -26,20 +28,32 @@ public static class ProposalFreshness
         {
             return ProposalFreshnessDecision.Stale;
         }
-        if (proposal.BasedOnWorldRevision is > 0)
+        if (proposal.BasedOnWorldRevision is not null)
         {
+            var basedOnWorld = proposal.BasedOnWorldRevision.Value;
             return state.TryGetProperty("world_revision", out var world) &&
-                world.ValueKind == JsonValueKind.Number &&
-                world.TryGetInt64(out var revision) &&
-                revision == proposal.BasedOnWorldRevision
+                TryPositiveSafeInteger(world, out var revision) &&
+                PositiveSafeInteger(basedOnWorld) &&
+                revision == basedOnWorld
                     ? ProposalFreshnessDecision.Fresh
                     : ProposalFreshnessDecision.Stale;
         }
         return state.TryGetProperty("revision", out var sessionRevision) &&
-            sessionRevision.ValueKind == JsonValueKind.Number &&
-            sessionRevision.TryGetInt64(out var current) &&
+            TryPositiveSafeInteger(sessionRevision, out var current) &&
+            PositiveSafeInteger(proposal.CreatedRevision) &&
             current == proposal.CreatedRevision
                 ? ProposalFreshnessDecision.Fresh
                 : ProposalFreshnessDecision.Stale;
     }
+
+    private static bool TryPositiveSafeInteger(JsonElement value, out long result)
+    {
+        result = 0;
+        return value.ValueKind == JsonValueKind.Number &&
+            value.TryGetInt64(out result) &&
+            PositiveSafeInteger(result);
+    }
+
+    private static bool PositiveSafeInteger(long value) =>
+        value > 0 && value <= MaxJsonSafeInteger;
 }

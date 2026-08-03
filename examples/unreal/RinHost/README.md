@@ -22,10 +22,20 @@ authoritative world and timeline generations. The plugin deliberately does not
 derive identity from a process GUID, object pointer, PIE name, or map path.
 The local boundary limits identifiers to 96 safe characters and Epoch/progress
 counters to `1..9007199254740991`; increments fail closed at the ceiling.
-`AuthorizeAndQueueInvocation` performs the final Epoch, exact capability
-version, digest, revocation, and duplicate-operation checks in one Game Thread
-call. Authorize before enqueuing `UBTTask_RinHostMoveTo`; the task reports
-`running` and a terminal result for that already queued operation.
+Before publishing a Decision Window, the game calls `ObserveAuthoritativeClock`
+and then `ReplaceActionOffers` with the complete current Host-authored offer
+set. `OfferDigest` must be the SHA-256 of the canonical complete offer,
+including opaque arguments and targets. A selected invocation repeats the
+offer identity, actor, capability, Epoch, observation sequence, deadline, and
+digest exactly; only `OperationId` is additional.
+
+`AuthorizeAndQueueInvocation` consumes one current offer and performs the final
+Epoch, complete offer binding, authoritative deadline, exact capability
+version/digest, revocation, and duplicate-operation checks in one Game Thread
+call. Capability revocation or deadline advancement marks matching queued runs
+`stale`, and `ReportRun(... Running ...)` repeats both checks immediately before
+Behavior Tree execution. Authorize before enqueuing `UBTTask_RinHostMoveTo`;
+the task reports `running` and a terminal result for that queued operation.
 
 World replacement invalidates the bound World Epoch and changes unfinished
 runs to `outcome-unknown`. Rebind only after the authoritative save has loaded.

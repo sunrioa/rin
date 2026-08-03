@@ -673,9 +673,21 @@ function successfulStoryClient() {
 
 function response(status, envelope) {
   const bytes = new TextEncoder().encode(JSON.stringify(envelope));
+  let delivered = false;
   return {
     status,
     headers: { get: (name) => name.toLowerCase() === "content-length" ? String(bytes.length) : null },
-    arrayBuffer: async () => bytes.buffer,
+    body: {
+      getReader: () => ({
+        read: async () => {
+          if (delivered) return { done: true, value: undefined };
+          delivered = true;
+          return { done: false, value: bytes };
+        },
+        cancel: async () => {},
+        releaseLock: () => {},
+      }),
+      cancel: async () => {},
+    },
   };
 }

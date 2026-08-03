@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/sunrioa/rin/protocol"
@@ -71,5 +72,53 @@ func TestQuickClientRejectsUnsafeRemoteHTTP(t *testing.T) {
 	t.Parallel()
 	if _, err := newQuickClient("http://example.com", "token"); err == nil {
 		t.Fatal("remote plaintext HTTP was accepted")
+	}
+}
+
+func TestQuickClientRequiresStrongRemoteToken(t *testing.T) {
+	t.Parallel()
+	if _, err := newQuickClient("https://example.com", "short"); err == nil {
+		t.Fatal("short remote token was accepted")
+	}
+	if _, err := newQuickClient(
+		"https://example.com",
+		strings.Repeat("t", minimumRemoteTokenBytes),
+	); err != nil {
+		t.Fatalf("valid remote token was rejected: %v", err)
+	}
+}
+
+func TestQuickClientRejectsRedirectsWithoutForwardingRequest(t *testing.T) {
+	t.Parallel()
+	var redirected atomic.Bool
+	destination := httptest.NewServer(http.HandlerFunc(func(
+		response http.ResponseWriter,
+		request *http.Request,
+	) {
+		redirected.Store(true)
+		response.WriteHeader(http.StatusOK)
+	}))
+	defer destination.Close()
+
+	source := httptest.NewServer(http.HandlerFunc(func(
+		response http.ResponseWriter,
+		request *http.Request,
+	) {
+		http.Redirect(response, request, destination.URL, http.StatusTemporaryRedirect)
+	}))
+	defer source.Close()
+
+	client, err := newQuickClient(source.URL, "fixture-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output protocol.MutationResult
+	if err := client.post("/v2/session/create", map[string]string{
+		"request_id": "request.redirect",
+	}, &output); err == nil {
+		t.Fatal("authenticated redirect was followed")
+	}
+	if redirected.Load() {
+		t.Fatal("redirect destination received the request")
 	}
 }

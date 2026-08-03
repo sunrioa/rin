@@ -179,6 +179,43 @@ final class WorkflowCoordinatorTest {
                                 "based_on_world_revision", 8L))
                         == ProposalFreshness.Decision.STALE,
                 "stale world Proposal was accepted");
+        require(
+                ProposalFreshness.evaluate(
+                        Map.of(
+                                "revision", -7L,
+                                "proposals", Map.of(
+                                        "proposal.workflow",
+                                        Map.of("status", "pending"))),
+                        Map.of(
+                                "id", "proposal.workflow",
+                                "created_revision", -7L))
+                        == ProposalFreshness.Decision.STALE,
+                "negative Session revision was accepted");
+        require(
+                ProposalFreshness.evaluate(
+                        Map.of(
+                                "world_revision", 9_007_199_254_740_992L,
+                                "proposals", Map.of(
+                                        "proposal.workflow",
+                                        Map.of("status", "pending"))),
+                        Map.of(
+                                "id", "proposal.workflow",
+                                "based_on_world_revision", 9_007_199_254_740_992L))
+                        == ProposalFreshness.Decision.STALE,
+                "JSON-unsafe world revision was accepted");
+        require(
+                ProposalFreshness.evaluate(
+                        Map.of(
+                                "revision", 8L,
+                                "proposals", Map.of(
+                                        "proposal.workflow",
+                                        Map.of("status", "pending"))),
+                        Map.of(
+                                "id", "proposal.workflow",
+                                "created_revision", 8L,
+                                "based_on_world_revision", -1L))
+                        == ProposalFreshness.Decision.STALE,
+                "invalid optional world revision fell back to Session freshness");
 
         verifyEvictedJobRecovery(request);
         verifyReportRetry();

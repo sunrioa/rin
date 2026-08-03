@@ -207,13 +207,31 @@ func TestValidateListenAddress(t *testing.T) {
 		},
 		{
 			name: "remote needs TLS proxy declaration", address: "0.0.0.0:7374",
-			security:  listenSecurity{allowRemote: true, token: "token"},
+			security: listenSecurity{
+				allowRemote: true, token: strings.Repeat("t", minimumRemoteTokenBytes),
+			},
+			wantError: true,
+		},
+		{
+			name: "remote rejects one-byte token", address: "0.0.0.0:7374",
+			security: listenSecurity{
+				allowRemote: true, tlsProxy: true, token: "t",
+			},
+			wantError: true,
+		},
+		{
+			name: "remote rejects 31-byte token", address: "0.0.0.0:7374",
+			security: listenSecurity{
+				allowRemote: true, tlsProxy: true,
+				token: strings.Repeat("t", minimumRemoteTokenBytes-1),
+			},
 			wantError: true,
 		},
 		{
 			name: "remote explicit", address: "0.0.0.0:7374",
 			security: listenSecurity{
-				allowRemote: true, tlsProxy: true, token: "token",
+				allowRemote: true, tlsProxy: true,
+				token: strings.Repeat("t", minimumRemoteTokenBytes),
 			},
 		},
 		{name: "invalid", address: "7374", wantError: true},
@@ -566,7 +584,7 @@ func TestServeFailsBeforeStartupForInvalidConfiguredLimits(t *testing.T) {
 	})
 	t.Run("remote listener without TLS proxy declaration", func(t *testing.T) {
 		clearServeEnvironment(t)
-		t.Setenv("RIN_TOKEN", "test-token")
+		t.Setenv("RIN_TOKEN", strings.Repeat("t", minimumRemoteTokenBytes))
 		dataDirectory := filepath.Join(t.TempDir(), "must-not-exist")
 		err := run([]string{
 			"serve",
@@ -593,7 +611,7 @@ func TestServeFailsBeforeStartupForInvalidConfiguredLimits(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			clearServeEnvironment(t)
-			t.Setenv("RIN_TOKEN", "test-token")
+			t.Setenv("RIN_TOKEN", strings.Repeat("t", minimumRemoteTokenBytes))
 			if test.environment {
 				t.Setenv("RIN_TLS_PROXY", "true")
 			}

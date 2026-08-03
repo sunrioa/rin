@@ -42,6 +42,7 @@ struct RINHOST_API FRinHostEpoch
     bool IsValid() const;
     static bool IsSafeIdentifier(const FString& Value, bool bNamespaced);
     static bool IsSafePositiveInteger(int64 Value);
+    static bool IsSafeNonNegativeInteger(int64 Value);
     bool operator==(const FRinHostEpoch& Other) const;
     bool operator!=(const FRinHostEpoch& Other) const
     {
@@ -74,6 +75,49 @@ struct RINHOST_API FRinCapabilityDescriptor
 };
 
 USTRUCT(BlueprintType)
+struct RINHOST_API FRinActionOffer
+{
+    GENERATED_BODY()
+
+    UPROPERTY(BlueprintReadWrite, Category = "Rin")
+    FString OfferId;
+
+    UPROPERTY(BlueprintReadWrite, Category = "Rin")
+    FString DecisionWindowId;
+
+    UPROPERTY(BlueprintReadWrite, Category = "Rin")
+    FString ActorId;
+
+    UPROPERTY(BlueprintReadWrite, Category = "Rin")
+    FString CapabilityId;
+
+    UPROPERTY(BlueprintReadWrite, Category = "Rin")
+    FString CapabilityVersion;
+
+    UPROPERTY(BlueprintReadWrite, Category = "Rin")
+    FString DescriptorDigest;
+
+    // SHA-256 of the complete canonical Host-authored Action Offer, including
+    // arguments and targets that this lightweight skeleton keeps opaque.
+    UPROPERTY(BlueprintReadWrite, Category = "Rin")
+    FString OfferDigest;
+
+    UPROPERTY(BlueprintReadWrite, Category = "Rin")
+    FRinHostEpoch ExpectedEpoch;
+
+    UPROPERTY(BlueprintReadWrite, Category = "Rin")
+    int64 ObservationSequence = 0;
+
+    UPROPERTY(BlueprintReadWrite, Category = "Rin")
+    FString DeadlineClock;
+
+    UPROPERTY(BlueprintReadWrite, Category = "Rin")
+    int64 DeadlineValue = 0;
+
+    bool IsValid() const;
+};
+
+USTRUCT(BlueprintType)
 struct RINHOST_API FRinActionInvocation
 {
     GENERATED_BODY()
@@ -85,6 +129,12 @@ struct RINHOST_API FRinActionInvocation
     FString OfferId;
 
     UPROPERTY(BlueprintReadWrite, Category = "Rin")
+    FString DecisionWindowId;
+
+    UPROPERTY(BlueprintReadWrite, Category = "Rin")
+    FString ActorId;
+
+    UPROPERTY(BlueprintReadWrite, Category = "Rin")
     FString CapabilityId;
 
     UPROPERTY(BlueprintReadWrite, Category = "Rin")
@@ -94,7 +144,19 @@ struct RINHOST_API FRinActionInvocation
     FString DescriptorDigest;
 
     UPROPERTY(BlueprintReadWrite, Category = "Rin")
+    FString OfferDigest;
+
+    UPROPERTY(BlueprintReadWrite, Category = "Rin")
     FRinHostEpoch ExpectedEpoch;
+
+    UPROPERTY(BlueprintReadWrite, Category = "Rin")
+    int64 ObservationSequence = 0;
+
+    UPROPERTY(BlueprintReadWrite, Category = "Rin")
+    FString DeadlineClock;
+
+    UPROPERTY(BlueprintReadWrite, Category = "Rin")
+    int64 DeadlineValue = 0;
 
     bool IsValid() const;
 };
@@ -109,6 +171,21 @@ struct RINHOST_API FRinActionRun
 
     UPROPERTY(BlueprintReadOnly, Category = "Rin")
     FString OperationId;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Rin")
+    FString CapabilityId;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Rin")
+    FString CapabilityVersion;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Rin")
+    FString DescriptorDigest;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Rin")
+    FString DeadlineClock;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Rin")
+    int64 DeadlineValue = 0;
 
     UPROPERTY(BlueprintReadOnly, Category = "Rin")
     ERinActionRunStatus Status = ERinActionRunStatus::Queued;

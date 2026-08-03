@@ -3,6 +3,7 @@ using System.Collections.Generic;
 
 internal static class RinUnityStateValidation
 {
+
     public static bool Pending(
         string runId,
         string sessionId,
@@ -21,6 +22,7 @@ internal static class RinUnityStateValidation
             value.request.offers.Length > 32 ||
             value.offer_arguments_json == null ||
             value.offer_arguments_json.Length != value.request.offers.Length ||
+            !RinUnityClockAuthority.PendingIsValid(value) ||
             value.observation.session_id != sessionId ||
             value.request.session_id != sessionId ||
             value.observation.tick != value.request.tick ||

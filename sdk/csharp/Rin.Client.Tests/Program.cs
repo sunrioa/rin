@@ -219,6 +219,28 @@ using (var typedProposalClient = new RinClient(
             result.Proposal with { BasedOnWorldRevision = 4 }) ==
         ProposalFreshnessDecision.Fresh,
         "fresh world Proposal was rejected");
+    using var negativeState = JsonDocument.Parse(
+        "{\"revision\":-7,\"proposals\":{\"proposal.fixture\":{\"status\":\"pending\"}}}");
+    Require(
+        ProposalFreshness.Evaluate(
+            negativeState.RootElement,
+            result.Proposal with { CreatedRevision = -7 }) ==
+        ProposalFreshnessDecision.Stale,
+        "negative Session revision was accepted");
+    using var unsafeWorldState = JsonDocument.Parse(
+        "{\"world_revision\":9007199254740992,\"proposals\":{\"proposal.fixture\":{\"status\":\"pending\"}}}");
+    Require(
+        ProposalFreshness.Evaluate(
+            unsafeWorldState.RootElement,
+            result.Proposal with { BasedOnWorldRevision = 9_007_199_254_740_992L }) ==
+        ProposalFreshnessDecision.Stale,
+        "JSON-unsafe world revision was accepted");
+    Require(
+        ProposalFreshness.Evaluate(
+            freshState.RootElement,
+            result.Proposal with { BasedOnWorldRevision = -1 }) ==
+        ProposalFreshnessDecision.Stale,
+        "invalid optional world revision fell back to Session freshness");
 }
 
 var workflowAckSession = "session.workflow";

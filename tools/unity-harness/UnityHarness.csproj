@@ -11,6 +11,8 @@
     <Compile Include="Program.cs" />
     <Compile Include="../../examples/unity/RinClient.cs" Link="RinClient.cs" />
     <Compile Include="../../examples/unity/RinUnityActionGate.cs" Link="RinUnityActionGate.cs" />
+    <Compile Include="../../examples/unity/RinUnityClockAuthority.cs" Link="RinUnityClockAuthority.cs" />
+    <Compile Include="../../examples/unity/RinUnityInvocationAuthority.cs" Link="RinUnityInvocationAuthority.cs" />
     <Compile Include="../../examples/unity/RinUnityOfferBinding.cs" Link="RinUnityOfferBinding.cs" />
     <Compile Include="../../examples/unity/RinUnityStateFile.cs" Link="RinUnityStateFile.cs" />
     <Compile Include="../../examples/unity/RinUnityStateValidation.cs" Link="RinUnityStateValidation.cs" />

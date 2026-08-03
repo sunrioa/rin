@@ -10,7 +10,8 @@ Rin `0.7.0` 是 Preview、pre-1.0 软件。Preview 状态不会放宽本文的 F
 ## Defaults
 
 - 服务默认只监听 `127.0.0.1`。
-- 非 loopback 地址必须同时传入 `-allow-remote`、设置 `RIN_TOKEN`，并传入
+- 非 loopback 地址必须同时传入 `-allow-remote`、设置至少 32 字节的
+  `RIN_TOKEN`，并传入
   `-tls-proxy` 或设置 `RIN_TLS_PROXY=true`；缺少任一项会在打开数据目录前失败。
 - Rin 不终止入站 TLS。正式远程部署应让 TLS Reverse Proxy 与 Rin 同机，并让
   Rin 继续监听 loopback；分机部署只允许在受控私网监听，并限制为仅 Proxy 可达。
@@ -31,7 +32,9 @@ Rin `0.7.0` 是 Preview、pre-1.0 软件。Preview 状态不会放宽本文的 F
   边界不会舍入不安全整数，而是直接拒绝。
 - Session ID 只能使用安全标识符，HTTP 请求不能提供文件路径。
 - 在 Unix 上，事件、索引、checkpoint、Snapshot 与锁文件权限为 `0600`，数据
-  目录为 `0700`。Windows 不解释 POSIX mode bit，这些文件继承数据根目录 ACL；
+  目录为 `0700`。首次初始化会先把空的宽权限根目录收紧为 `0700`；已经含有状态
+  的宽权限根目录或子目录会被拒绝。Windows 不解释 POSIX mode bit，这些文件
+  继承数据根目录 ACL；
   部署方必须把该 ACL 限制到 Sidecar 账户。Snapshot、checkpoint 与重建索引使用
   已同步的临时文件、rename 和 directory sync 发布。
 - 事件日志采用 `retain_forever`；File Store 默认保留每个 Session 最近 2 个

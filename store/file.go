@@ -95,6 +95,9 @@ func openFileWithPreflight(
 	if err := makeDirectoryTreeSynced(absolute, 0o700); err != nil {
 		return nil, fmt.Errorf("create data directory: %w", err)
 	}
+	if err := preparePrivateDataDirectory(absolute); err != nil {
+		return nil, err
+	}
 	absolute, err = validateRealDataDirectory(absolute)
 	if err != nil {
 		return nil, err
@@ -158,6 +161,9 @@ func validateRealDataDirectory(path string) (string, error) {
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return "", errors.New("data directory must be a real directory")
 	}
+	if err := validatePrivateDirectoryPermissions(info, "data directory"); err != nil {
+		return "", err
+	}
 	return path, nil
 }
 
@@ -173,7 +179,7 @@ func ensureRealDirectory(path string, label string) error {
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("%s path must be a real directory", label)
 	}
-	return nil
+	return validatePrivateDirectoryPermissions(info, label+" directory")
 }
 
 func requireRealDirectory(path string, label string) error {
@@ -184,7 +190,7 @@ func requireRealDirectory(path string, label string) error {
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("%s path must be a real directory", label)
 	}
-	return nil
+	return validatePrivateDirectoryPermissions(info, label+" directory")
 }
 
 func validateRealLockFile(path string, required bool) error {
@@ -847,7 +853,11 @@ func (s *File) ListSessions() ([]string, error) {
 	result := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() && safeID.MatchString(entry.Name()) {
-			if _, err := os.Stat(filepath.Join(s.root, "sessions", entry.Name(), "events.jsonl")); err == nil {
+			directory, err := s.sessionDir(entry.Name())
+			if err != nil {
+				return nil, err
+			}
+			if _, err := os.Stat(filepath.Join(directory, "events.jsonl")); err == nil {
 				result = append(result, entry.Name())
 			} else if !errors.Is(err, os.ErrNotExist) {
 				return nil, fmt.Errorf("stat session %s event log: %w", entry.Name(), err)
@@ -919,7 +929,21 @@ func (s *File) sessionDir(sessionID string) (string, error) {
 	if !safeID.MatchString(sessionID) {
 		return "", errors.New("unsafe session id")
 	}
-	return filepath.Join(s.root, "sessions", sessionID), nil
+	path := filepath.Join(s.root, "sessions", sessionID)
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return path, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("inspect Session directory: %w", err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", errors.New("Session path must be a real directory")
+	}
+	if err := validatePrivateDirectoryPermissions(info, "Session directory"); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 func ensureEOF(decoder *json.Decoder) error {

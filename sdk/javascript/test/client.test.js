@@ -409,6 +409,21 @@ function response(status, envelope, headers = {}) {
     status,
     headers: { get: (name) => values.get(name.toLowerCase()) ?? null },
     arrayBuffer: async () => bytes.buffer,
+    body: {
+      getReader: () => {
+        let delivered = false;
+        return {
+          read: async () => {
+            if (delivered) return { done: true, value: undefined };
+            delivered = true;
+            return { done: false, value: bytes };
+          },
+          cancel: async () => {},
+          releaseLock: () => {},
+        };
+      },
+      cancel: async () => {},
+    },
   };
 }
 
@@ -800,6 +815,26 @@ test("streamed responses are capped before the full body is buffered", async () 
   await assert.rejects(client.health(), RinProtocolError);
   assert.equal(reads, 2);
   assert.equal(canceled, true);
+});
+
+test("responses without a bounded stream fail before arrayBuffer allocation", async () => {
+  let arrayBufferCalled = false;
+  const client = new RinClient(undefined, {
+    maxResponseBytes: 1024,
+    fetch: async () => ({
+      status: 200,
+      headers: { get: () => "16" },
+      arrayBuffer: async () => {
+        arrayBufferCalled = true;
+        return new ArrayBuffer(16);
+      },
+    }),
+  });
+  await assert.rejects(
+    client.health(),
+    (error) => error instanceof RinProtocolError && error.code === "invalid_response",
+  );
+  assert.equal(arrayBufferCalled, false);
 });
 
 test("the deadline remains active while a streamed body is read", async () => {

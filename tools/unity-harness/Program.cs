@@ -69,6 +69,7 @@ internal static class Program
             VerifyOpaqueActionArguments();
             VerifyIdentifierBoundaries();
             VerifyOfferBinding();
+            VerifyDecisionWindowExpiry();
             VerifyActionGate();
             VerifyInterruptedRunRecovery();
             Console.WriteLine("Rin Unity workflow restart tests passed");
@@ -159,6 +160,40 @@ internal static class Program
             "uncertain cancellation was reported as known");
     }
 
+    private static void VerifyDecisionWindowExpiry()
+    {
+        var epoch = new Epoch
+        {
+            session_id = "unity.session.test",
+            world_id = "unity.world",
+            host = 1,
+            world = 1,
+            timeline = 1,
+        };
+        var window = Window(epoch);
+        var offer = Offer(epoch, window.id);
+        var pending = new PendingTurnState
+        {
+            authoritative_clock = "step",
+            authoritative_clock_value = 10,
+        };
+        var invocation = RinUnityOfferBinding.Invocation(
+            "unity.operation.test",
+            offer);
+        Require(
+            RinUnityClockAuthority.DeadlineAllowsStart(pending, invocation),
+            "an unexpired Unity offer was rejected");
+        pending.authoritative_clock_value = 11;
+        Require(
+            !RinUnityClockAuthority.DeadlineAllowsStart(pending, invocation),
+            "an expired Unity offer reached action start");
+        pending.authoritative_clock = "event";
+        pending.authoritative_clock_value = 1;
+        Require(
+            !RinUnityClockAuthority.DeadlineAllowsStart(pending, invocation),
+            "a mismatched authoritative clock reached action start");
+    }
+
     private static void VerifyInterruptedRunRecovery()
     {
         var root = Path.Combine(
@@ -216,6 +251,8 @@ internal static class Program
             {
                 version = 1,
                 operation_id = operationId,
+                authoritative_clock = "step",
+                authoritative_clock_value = 1,
                 offer_arguments_json = new[]
                 {
                     "{\"destination_id\":\"guide_marker\"}",

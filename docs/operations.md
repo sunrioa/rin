@@ -62,9 +62,9 @@ binds loopback by default, and propagates the Sidecar exit code. Check
 ## Remote deployment
 
 The supported remote path terminates TLS at a trusted reverse proxy and always
-configures a non-empty `RIN_TOKEN`. Prefer running the proxy on the same host:
-Rin then remains on its default loopback listener and no remote-listen override
-is needed.
+configures a `RIN_TOKEN` of at least 32 bytes. Prefer running the proxy on the
+same host: Rin then remains on its default loopback listener and no
+remote-listen override is needed.
 
 ```bash
 export RIN_TOKEN="$(openssl rand -hex 32)"

@@ -2,8 +2,9 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-面向 Node.js 18+ 或标准 Fetch 宿主的零依赖 Promise 客户端，内含
-TypeScript 声明。
+面向 Node.js 18+ 或标准 Fetch 宿主的零依赖 Promise 客户端。宿主必须提供
+`Response.body.getReader()`，以便在读取过程中执行响应上限；SDK 会拒绝无法受限
+的 `arrayBuffer()` 回退。内含 TypeScript 声明。
 
 ```js
 import { RinClient } from "@sunrioa/rin-sdk";

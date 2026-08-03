@@ -23,6 +23,8 @@ REQUIRED = {
         "ConfigureHostIdentity",
         "BindWorldIdentity",
         "RegisterCapability",
+        "ReplaceActionOffers",
+        "ObserveAuthoritativeClock",
         "AuthorizeAndQueueInvocation",
         "DispatchToGameThread",
     ),
@@ -34,12 +36,18 @@ REQUIRED = {
         "CanTransition",
         "Epoch.TimelineGeneration >= FRinHostEpoch::MaxJsonSafeInteger",
         "IsSafePositiveInteger(ProgressSequence)",
+        "OfferMatchesInvocation",
+        "MarkQueuedRunsStaleForCapability",
+        "MarkExpiredQueuedRuns",
+        "IsQueuedRunAuthorized",
     ),
     "Source/RinHost/Private/RinHostTypes.cpp": (
         "IsSafeIdentifier",
         "IsSafePositiveInteger",
         "IsExactVersion",
         "IsLowerHexDigest",
+        "FRinActionOffer::IsValid",
+        "OfferDigest",
     ),
     "Source/RinHost/Public/BTTask_RinHostMoveTo.h": (
         "UBTTask_MoveTo",
@@ -70,6 +78,24 @@ WINDOWS_RESERVED = re.compile(
     r"^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$",
     re.IGNORECASE,
 )
+
+
+def function_body(source: str, name: str) -> str:
+    start = source.find(f"URinHostSubsystem::{name}")
+    if start < 0:
+        raise SystemExit(f"RinHostSubsystem.cpp is missing {name}")
+    opening = source.find("{", start)
+    if opening < 0:
+        raise SystemExit(f"RinHostSubsystem.cpp has no body for {name}")
+    depth = 0
+    for index in range(opening, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[opening : index + 1]
+    raise SystemExit(f"RinHostSubsystem.cpp has an incomplete body for {name}")
 
 
 def verify_relative_paths(relatives: list[str]) -> None:
@@ -113,6 +139,37 @@ def verify_plugin(plugin: Path) -> None:
         for fragment in fragments:
             if fragment not in source:
                 raise SystemExit(f"{relative} is missing {fragment!r}")
+    subsystem = (
+        plugin / "Source/RinHost/Private/RinHostSubsystem.cpp"
+    ).read_text("utf-8")
+    guarded_functions = {
+        "AuthorizeAndQueueInvocation": (
+            "ActionOffers.Find",
+            "OfferMatchesInvocation",
+            "AuthoritativeClocks.Find",
+            "ActionOffers.Remove",
+            "Descriptor->bActive",
+        ),
+        "RevokeCapability": (
+            "Descriptor->bActive = false",
+            "ActionOffers.Remove",
+            "MarkQueuedRunsStaleForCapability",
+        ),
+        "ReportRun": (
+            "IsQueuedRunAuthorized",
+            "ERinActionRunStatus::Stale",
+        ),
+        "ObserveAuthoritativeClock": (
+            "MarkExpiredQueuedRuns",
+        ),
+    }
+    for function, fragments in guarded_functions.items():
+        body = function_body(subsystem, function)
+        for fragment in fragments:
+            if fragment not in body:
+                raise SystemExit(
+                    f"{function} is missing security guard {fragment!r}"
+                )
     types_header = (
         plugin / "Source/RinHost/Public/RinHostTypes.h"
     ).read_text("utf-8")

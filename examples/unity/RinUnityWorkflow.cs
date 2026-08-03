@@ -237,17 +237,14 @@ public sealed class RinUnityWorkflow : MonoBehaviour
 
     public void ObserveAuthoritativeClock(string clock, long value)
     {
-        if (!authoritativeStateReady || activeRun == null ||
-            value < 0 || value > MaxJsonInteger)
-        {
-            return;
-        }
-        var deadline = activeRun.invocation.deadline;
-        if (deadline != null && deadline.clock == clock && value > deadline.value)
-        {
-            actionGate.ReplaceAuthority(
-                "The Unity action exceeded its game-authored deadline.");
-        }
+        authoritativeStateReady = RinUnityClockAuthority.Observe(
+            authoritativeStateReady,
+            pendingTurn,
+            activeRun,
+            clock,
+            value,
+            PersistCurrentState,
+            actionGate.ReplaceAuthority);
     }
 
     private IEnumerator RunTurn()
@@ -337,6 +334,8 @@ public sealed class RinUnityWorkflow : MonoBehaviour
         {
             version = 1,
             operation_id = operationId,
+            authoritative_clock = input.clock,
+            authoritative_clock_value = input.opened_at,
             offer_arguments_json = offerArguments,
             observation = new ObserveRequest
             {
@@ -421,16 +420,17 @@ public sealed class RinUnityWorkflow : MonoBehaviour
             var invocation = RinUnityOfferBinding.Invocation(
                 pendingTurn.operation_id,
                 offered);
-            if (!RinUnityOfferBinding.EpochEquals(
-                invocation.expected_epoch,
-                CurrentEpoch()))
+            var authorityError = RinUnityInvocationAuthority.StartError(
+                pendingTurn,
+                invocation,
+                CurrentEpoch());
+            if (authorityError != null)
             {
                 marker = CreateMarker(
                     pendingTurn.operation_id,
                     resolved.proposal,
                     invocation,
-                    RinHostActionResult.Rejected(
-                        "The Unity Host rejected an offer from a replaced authority."));
+                    RinHostActionResult.Rejected(authorityError));
                 applied.Add(marker.operation_id, marker);
                 if (!CompletePendingTurn(marker)) yield break;
             }
@@ -803,10 +803,11 @@ public sealed class RinUnityWorkflow : MonoBehaviour
         if (markers.Length > MaxAppliedMarkers ||
             entries.Length > MaxOutboxEntries ||
             (pendingTurn != null &&
-                !RinUnityStateValidation.Pending(
-                    runId,
-                    SessionId(),
-                    pendingTurn)) ||
+                (!RinUnityClockAuthority.RestorePending(pendingTurn) ||
+                    !RinUnityStateValidation.Pending(
+                        runId,
+                        SessionId(),
+                        pendingTurn))) ||
             (activeRun != null &&
                 (pendingTurn == null ||
                     activeRun.operation_id != pendingTurn.operation_id)))
@@ -1025,6 +1026,8 @@ internal sealed class PendingTurnState
 {
     public int version;
     public string operation_id;
+    public string authoritative_clock;
+    public long authoritative_clock_value;
     public string[] offer_arguments_json;
     public ObserveRequest observation;
     public ProposeRequest request;

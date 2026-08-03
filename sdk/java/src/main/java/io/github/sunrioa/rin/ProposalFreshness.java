@@ -6,6 +6,8 @@ import java.util.Map;
 public final class ProposalFreshness {
     public enum Decision { FRESH, STALE }
 
+    private static final long MAX_JSON_SAFE_INTEGER = 9_007_199_254_740_991L;
+
     private ProposalFreshness() { }
 
     public static Decision evaluate(
@@ -16,14 +18,18 @@ public final class ProposalFreshness {
         Map<?, ?> retained = object(proposals.get(proposalId));
         if (!"pending".equals(retained.get("status"))) return Decision.STALE;
 
-        long worldRevision = integer(proposal.get("based_on_world_revision"), 0);
-        if (worldRevision > 0) {
-            return integer(sessionState.get("world_revision"), -1) == worldRevision
+        if (proposal.containsKey("based_on_world_revision")) {
+            Long worldRevision = positiveSafeInteger(
+                    proposal.get("based_on_world_revision"));
+            Long currentWorldRevision = positiveSafeInteger(
+                    sessionState.get("world_revision"));
+            return worldRevision != null && worldRevision.equals(currentWorldRevision)
                     ? Decision.FRESH
                     : Decision.STALE;
         }
-        return integer(sessionState.get("revision"), -1)
-                        == integer(proposal.get("created_revision"), -2)
+        Long currentRevision = positiveSafeInteger(sessionState.get("revision"));
+        Long createdRevision = positiveSafeInteger(proposal.get("created_revision"));
+        return createdRevision != null && createdRevision.equals(currentRevision)
                 ? Decision.FRESH
                 : Decision.STALE;
     }
@@ -46,12 +52,13 @@ public final class ProposalFreshness {
         return result;
     }
 
-    private static long integer(Object value, long fallback) {
-        if (!(value instanceof Number number)) return fallback;
+    private static Long positiveSafeInteger(Object value) {
+        if (!(value instanceof Number number)) return null;
         double floating = number.doubleValue();
         long integral = number.longValue();
-        return Double.isFinite(floating) && floating == integral
-                ? integral
-                : fallback;
+        return Double.isFinite(floating) && floating == integral &&
+                integral > 0 && integral <= MAX_JSON_SAFE_INTEGER
+                ? Long.valueOf(integral)
+                : null;
     }
 }

@@ -113,6 +113,16 @@
       "durability_profile": "advisory"
     },
     {
+      "path": "examples/unity/RinUnityClockAuthority.cs",
+      "max_lines": 105,
+      "durability_profile": "advisory"
+    },
+    {
+      "path": "examples/unity/RinUnityInvocationAuthority.cs",
+      "max_lines": 30,
+      "durability_profile": "advisory"
+    },
+    {
       "path": "examples/unity/RinUnityOfferBinding.cs",
       "max_lines": 130,
       "durability_profile": "advisory"

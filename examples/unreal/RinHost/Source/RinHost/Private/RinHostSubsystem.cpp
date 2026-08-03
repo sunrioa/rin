@@ -38,6 +38,24 @@ bool CanTransition(
     }
     return false;
 }
+
+bool OfferMatchesInvocation(
+    const FRinActionOffer& Offer,
+    const FRinActionInvocation& Invocation
+)
+{
+    return Offer.OfferId == Invocation.OfferId &&
+        Offer.DecisionWindowId == Invocation.DecisionWindowId &&
+        Offer.ActorId == Invocation.ActorId &&
+        Offer.CapabilityId == Invocation.CapabilityId &&
+        Offer.CapabilityVersion == Invocation.CapabilityVersion &&
+        Offer.DescriptorDigest == Invocation.DescriptorDigest &&
+        Offer.OfferDigest == Invocation.OfferDigest &&
+        Offer.ExpectedEpoch == Invocation.ExpectedEpoch &&
+        Offer.ObservationSequence == Invocation.ObservationSequence &&
+        Offer.DeadlineClock == Invocation.DeadlineClock &&
+        Offer.DeadlineValue == Invocation.DeadlineValue;
+}
 } // namespace
 
 void URinHostSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -80,6 +98,8 @@ bool URinHostSubsystem::ConfigureHostIdentity(
     Epoch.WorldId.Reset();
     Epoch.WorldGeneration = 0;
     Epoch.TimelineGeneration = 0;
+    ActionOffers.Reset();
+    AuthoritativeClocks.Reset();
     if (bHadSession)
     {
         MarkActiveRunsOutcomeUnknown(
@@ -125,6 +145,8 @@ bool URinHostSubsystem::BindWorldIdentity(
     Epoch.WorldId = StableWorldId;
     Epoch.WorldGeneration = WorldGeneration;
     Epoch.TimelineGeneration = TimelineGeneration;
+    ActionOffers.Reset();
+    AuthoritativeClocks.Reset();
     if (bHadEpoch)
     {
         MarkActiveRunsOutcomeUnknown(
@@ -142,6 +164,8 @@ void URinHostSubsystem::Deinitialize()
         TEXT("Host stopped before action completion.")
     );
     Capabilities.Reset();
+    ActionOffers.Reset();
+    AuthoritativeClocks.Reset();
     Runs.Reset();
     AppliedOperationIds.Reset();
     Super::Deinitialize();
@@ -179,6 +203,98 @@ bool URinHostSubsystem::RevokeCapability(
         return false;
     }
     Descriptor->bActive = false;
+    const FString CapabilityKey = Id + TEXT("@") + Version;
+    TArray<FString> InvalidOffers;
+    for (const TPair<FString, FRinActionOffer>& Entry : ActionOffers)
+    {
+        if (Entry.Value.CapabilityId + TEXT("@") +
+            Entry.Value.CapabilityVersion == CapabilityKey)
+        {
+            InvalidOffers.Add(Entry.Key);
+        }
+    }
+    for (const FString& OfferId : InvalidOffers)
+    {
+        ActionOffers.Remove(OfferId);
+    }
+    MarkQueuedRunsStaleForCapability(CapabilityKey);
+    return true;
+}
+
+bool URinHostSubsystem::ReplaceActionOffers(
+    const TArray<FRinActionOffer>& Offers
+)
+{
+    check(IsInGameThread());
+    if (!Epoch.IsValid() ||
+        Offers.IsEmpty() ||
+        Offers.Num() > MaxTrackedActionOffers)
+    {
+        return false;
+    }
+    TMap<FString, FRinActionOffer> Replacement;
+    for (const FRinActionOffer& Offer : Offers)
+    {
+        if (!Offer.IsValid() ||
+            Offer.ExpectedEpoch != Epoch ||
+            Replacement.Contains(Offer.OfferId))
+        {
+            return false;
+        }
+        const FRinCapabilityDescriptor* Descriptor = Capabilities.Find(
+            Offer.CapabilityId + TEXT("@") + Offer.CapabilityVersion
+        );
+        const int64* CurrentClock = AuthoritativeClocks.Find(
+            Offer.DeadlineClock
+        );
+        if (Descriptor == nullptr ||
+            !Descriptor->bActive ||
+            Descriptor->Digest != Offer.DescriptorDigest ||
+            CurrentClock == nullptr ||
+            *CurrentClock > Offer.DeadlineValue)
+        {
+            return false;
+        }
+        Replacement.Add(Offer.OfferId, Offer);
+    }
+    ActionOffers = MoveTemp(Replacement);
+    return true;
+}
+
+bool URinHostSubsystem::ObserveAuthoritativeClock(
+    const FString& Clock,
+    const int64 Value
+)
+{
+    check(IsInGameThread());
+    if (!FRinHostEpoch::IsSafeIdentifier(Clock, false) ||
+        !FRinHostEpoch::IsSafeNonNegativeInteger(Value))
+    {
+        return false;
+    }
+    if (const int64* Existing = AuthoritativeClocks.Find(Clock))
+    {
+        if (Value < *Existing)
+        {
+            return false;
+        }
+    }
+    AuthoritativeClocks.Add(Clock, Value);
+
+    TArray<FString> ExpiredOffers;
+    for (const TPair<FString, FRinActionOffer>& Entry : ActionOffers)
+    {
+        if (Entry.Value.DeadlineClock == Clock &&
+            Value > Entry.Value.DeadlineValue)
+        {
+            ExpiredOffers.Add(Entry.Key);
+        }
+    }
+    for (const FString& OfferId : ExpiredOffers)
+    {
+        ActionOffers.Remove(OfferId);
+    }
+    MarkExpiredQueuedRuns(Clock, Value);
     return true;
 }
 
@@ -191,6 +307,8 @@ void URinHostSubsystem::ForkTimeline()
         return;
     }
     ++Epoch.TimelineGeneration;
+    ActionOffers.Reset();
+    AuthoritativeClocks.Reset();
     MarkActiveRunsOutcomeUnknown(
         TEXT("Timeline forked before action completion.")
     );
@@ -209,6 +327,17 @@ bool URinHostSubsystem::AuthorizeAndQueueInvocation(
     {
         return false;
     }
+    const FRinActionOffer* Offer = ActionOffers.Find(Invocation.OfferId);
+    const int64* CurrentClock = AuthoritativeClocks.Find(
+        Invocation.DeadlineClock
+    );
+    if (Offer == nullptr ||
+        !OfferMatchesInvocation(*Offer, Invocation) ||
+        CurrentClock == nullptr ||
+        *CurrentClock > Invocation.DeadlineValue)
+    {
+        return false;
+    }
     const FRinCapabilityDescriptor* Descriptor = Capabilities.Find(
         Invocation.CapabilityId + TEXT("@") + Invocation.CapabilityVersion
     );
@@ -218,10 +347,16 @@ bool URinHostSubsystem::AuthorizeAndQueueInvocation(
     {
         return false;
     }
+    ActionOffers.Remove(Invocation.OfferId);
     AppliedOperationIds.Add(Invocation.OperationId);
     FRinActionRun Queued;
     Queued.Epoch = Invocation.ExpectedEpoch;
     Queued.OperationId = Invocation.OperationId;
+    Queued.CapabilityId = Invocation.CapabilityId;
+    Queued.CapabilityVersion = Invocation.CapabilityVersion;
+    Queued.DescriptorDigest = Invocation.DescriptorDigest;
+    Queued.DeadlineClock = Invocation.DeadlineClock;
+    Queued.DeadlineValue = Invocation.DeadlineValue;
     Queued.Status = ERinActionRunStatus::Queued;
     Queued.ProgressSequence = 1;
     Queued.Progress = 0;
@@ -256,6 +391,23 @@ bool URinHostSubsystem::ReportRun(
     {
         return false;
     }
+    if (Current->Status == ERinActionRunStatus::Queued &&
+        Status == ERinActionRunStatus::Running &&
+        !IsQueuedRunAuthorized(*Current))
+    {
+        if (Current->ProgressSequence < FRinHostEpoch::MaxJsonSafeInteger)
+        {
+            FRinActionRun Stale = *Current;
+            Stale.Status = ERinActionRunStatus::Stale;
+            ++Stale.ProgressSequence;
+            Stale.Message = TEXT(
+                "Queued invocation authorization changed before execution."
+            );
+            Runs.Add(OperationId, Stale);
+            OnActionRunChanged.Broadcast(Stale);
+        }
+        return false;
+    }
     if (!CanTransition(Current->Status, Status) ||
         ProgressSequence <= Current->ProgressSequence ||
         Progress < Current->Progress)
@@ -277,6 +429,87 @@ bool URinHostSubsystem::ReportRun(
     Runs.Add(OperationId, Next);
     OnActionRunChanged.Broadcast(Next);
     return true;
+}
+
+bool URinHostSubsystem::IsQueuedRunAuthorized(
+    const FRinActionRun& Run
+) const
+{
+    if (Run.Status != ERinActionRunStatus::Queued ||
+        Run.Epoch != Epoch)
+    {
+        return false;
+    }
+    const FRinCapabilityDescriptor* Descriptor = Capabilities.Find(
+        Run.CapabilityId + TEXT("@") + Run.CapabilityVersion
+    );
+    const int64* CurrentClock = AuthoritativeClocks.Find(Run.DeadlineClock);
+    return Descriptor != nullptr &&
+        Descriptor->bActive &&
+        Descriptor->Digest == Run.DescriptorDigest &&
+        CurrentClock != nullptr &&
+        *CurrentClock <= Run.DeadlineValue;
+}
+
+void URinHostSubsystem::MarkQueuedRunsStaleForCapability(
+    const FString& CapabilityKey
+)
+{
+    TArray<FRinActionRun> Changed;
+    for (const TPair<FString, FRinActionRun>& Entry : Runs)
+    {
+        const FRinActionRun& Current = Entry.Value;
+        if (Current.Status != ERinActionRunStatus::Queued ||
+            Current.CapabilityId + TEXT("@") +
+                Current.CapabilityVersion != CapabilityKey ||
+            Current.ProgressSequence >= FRinHostEpoch::MaxJsonSafeInteger)
+        {
+            continue;
+        }
+        FRinActionRun Stale = Current;
+        Stale.Status = ERinActionRunStatus::Stale;
+        ++Stale.ProgressSequence;
+        Stale.Message = TEXT(
+            "Capability was revoked before queued invocation execution."
+        );
+        Changed.Add(MoveTemp(Stale));
+    }
+    for (const FRinActionRun& Stale : Changed)
+    {
+        Runs.Add(Stale.OperationId, Stale);
+        OnActionRunChanged.Broadcast(Stale);
+    }
+}
+
+void URinHostSubsystem::MarkExpiredQueuedRuns(
+    const FString& Clock,
+    const int64 Value
+)
+{
+    TArray<FRinActionRun> Changed;
+    for (const TPair<FString, FRinActionRun>& Entry : Runs)
+    {
+        const FRinActionRun& Current = Entry.Value;
+        if (Current.Status != ERinActionRunStatus::Queued ||
+            Current.DeadlineClock != Clock ||
+            Value <= Current.DeadlineValue ||
+            Current.ProgressSequence >= FRinHostEpoch::MaxJsonSafeInteger)
+        {
+            continue;
+        }
+        FRinActionRun Stale = Current;
+        Stale.Status = ERinActionRunStatus::Stale;
+        ++Stale.ProgressSequence;
+        Stale.Message = TEXT(
+            "Decision Window expired before queued invocation execution."
+        );
+        Changed.Add(MoveTemp(Stale));
+    }
+    for (const FRinActionRun& Stale : Changed)
+    {
+        Runs.Add(Stale.OperationId, Stale);
+        OnActionRunChanged.Broadcast(Stale);
+    }
 }
 
 void URinHostSubsystem::MarkActiveRunsOutcomeUnknown(const FString& Message)
@@ -332,6 +565,8 @@ void URinHostSubsystem::HandleWorldInitialized(
     Epoch.WorldId.Reset();
     Epoch.WorldGeneration = 0;
     Epoch.TimelineGeneration = 0;
+    ActionOffers.Reset();
+    AuthoritativeClocks.Reset();
     MarkActiveRunsOutcomeUnknown(
         TEXT("World changed before action completion.")
     );

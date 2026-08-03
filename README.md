@@ -132,7 +132,7 @@ export RIN_TOKEN="$(openssl rand -hex 32)"
 go run ./cmd/rin serve
 ```
 
-远程监听必须同时声明 `-allow-remote`、`RIN_TOKEN` 和 `-tls-proxy`（或 `RIN_TLS_PROXY=true`）。这些选项不会替代 TLS，也不会让公网明文监听变安全。Token、模型 Key 和供应商 URL 不会写入事件、快照或响应。完整边界见[部署与监控](docs/operations.zh-CN.md)和[安全说明](SECURITY.md)。
+远程监听必须同时声明 `-allow-remote`、至少 32 字节的 `RIN_TOKEN` 和 `-tls-proxy`（或 `RIN_TLS_PROXY=true`）。这些选项不会替代 TLS，也不会让公网明文监听变安全。Token、模型 Key 和供应商 URL 不会写入事件、快照或响应。完整边界见[部署与监控](docs/operations.zh-CN.md)和[安全说明](SECURITY.md)。
 
 Rin 不负责渲染、导航、物理、战斗、背包、任务规则或任意脚本执行，也不把模型输出直接当作世界事实。项目不引入供应商 SDK、向量数据库、ORM、WebSocket 或动态插件执行。
 

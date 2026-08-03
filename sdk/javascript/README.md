@@ -3,6 +3,8 @@
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 A zero-dependency Promise client for Node.js 18+ or any standard Fetch host.
+The host must expose `Response.body.getReader()` so response limits are
+enforced while bytes are read; unbounded `arrayBuffer()` fallbacks are rejected.
 The package includes TypeScript declarations.
 
 ```js

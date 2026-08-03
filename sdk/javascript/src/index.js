@@ -1147,11 +1147,10 @@ class TransferExportParser {
 async function readBoundedBody(response, maximum) {
   const reader = response.body?.getReader?.();
   if (!reader) {
-    const raw = new Uint8Array(await response.arrayBuffer());
-    if (raw.byteLength > maximum) {
-      throw new RinProtocolError("response_too_large", "Rin response exceeds the configured limit");
-    }
-    return raw;
+    throw new RinProtocolError(
+      "invalid_response",
+      "Rin response body does not provide a bounded stream",
+    );
   }
 
   const chunks = [];

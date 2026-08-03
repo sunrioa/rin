@@ -523,6 +523,11 @@ func TestEventRecordReadableLimitIsExact(t *testing.T) {
 
 func TestFileStoreCleansOnlyRecognizedTemporaryArtifacts(t *testing.T) {
 	root := t.TempDir()
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(root, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
 	sessions := filepath.Join(root, "sessions")
 	if err := os.MkdirAll(filepath.Join(sessions, "session.cleanup"), 0o700); err != nil {
 		t.Fatal(err)

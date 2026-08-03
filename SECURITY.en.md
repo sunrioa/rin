@@ -12,7 +12,8 @@ be evaluated through the Changelog and migration guides.
 ## Defaults
 
 - The service listens only on `127.0.0.1` by default.
-- A non-loopback listener requires `-allow-remote`, `RIN_TOKEN`, and either
+- A non-loopback listener requires `-allow-remote`, a `RIN_TOKEN` of at least
+  32 bytes, and either
   `-tls-proxy` or `RIN_TLS_PROXY=true`. Missing any one fails before the data
   directory is opened.
 - Rin does not terminate inbound TLS. Production remote deployments should
@@ -41,7 +42,9 @@ be evaluated through the Changelog and migration guides.
 - Session IDs use safe identifiers only; HTTP requests cannot provide file
   paths.
 - On Unix, events, indexes, checkpoints, snapshots, and the lock file use
-  `0600`, while data directories use `0700`. Windows does not interpret POSIX
+  `0600`, while data directories use `0700`. First initialization tightens an
+  empty permissive root to `0700`; permissive roots or children that already
+  contain state are rejected. Windows does not interpret POSIX
   mode bits; these files inherit the data-root ACL, which operators must
   restrict to the Sidecar account. Snapshot, checkpoint, and rebuilt-index
   publication uses a synced temporary file, rename, and directory sync.

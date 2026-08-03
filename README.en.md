@@ -139,7 +139,7 @@ export RIN_TOKEN="$(openssl rand -hex 32)"
 go run ./cmd/rin serve
 ```
 
-A remote listener must declare `-allow-remote`, `RIN_TOKEN`, and `-tls-proxy` (or `RIN_TLS_PROXY=true`). These options do not provide TLS or make a public plaintext listener safe. Tokens, model keys, and provider URLs are not written to events, snapshots, or responses. See [deployment and monitoring](docs/operations.md) and [security](SECURITY.en.md).
+A remote listener must declare `-allow-remote`, a `RIN_TOKEN` of at least 32 bytes, and `-tls-proxy` (or `RIN_TLS_PROXY=true`). These options do not provide TLS or make a public plaintext listener safe. Tokens, model keys, and provider URLs are not written to events, snapshots, or responses. See [deployment and monitoring](docs/operations.md) and [security](SECURITY.en.md).
 
 Rin does not own rendering, navigation, physics, combat, inventory, quest rules, or arbitrary script execution. Model output is never treated as a world fact. The project does not add provider SDKs, a vector database, an ORM, WebSockets, or dynamic plugin execution.
 

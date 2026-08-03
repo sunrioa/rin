@@ -57,7 +57,7 @@ Sidecar Exit Code。启动游戏前请检查 `/ready`。
 
 ## 远程部署
 
-受支持的远程路径必须由可信 Reverse Proxy 终止 TLS，并始终配置非空
+受支持的远程路径必须由可信 Reverse Proxy 终止 TLS，并始终配置至少 32 字节的
 `RIN_TOKEN`。优先让 Proxy 与 Rin 运行在同一台主机：Rin 继续使用默认 Loopback
 监听，不需要开启远程监听。
 

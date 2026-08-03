@@ -96,6 +96,9 @@ func openOperationFile(
 			ErrPersistence,
 		)
 	}
+	if err := prepareOperationDirectoryPermissions(absolute, info); err != nil {
+		return nil, persistedOperations{}, err
+	}
 	file := &operationFile{
 		root: absolute,
 		path: filepath.Join(absolute, operationFileName),

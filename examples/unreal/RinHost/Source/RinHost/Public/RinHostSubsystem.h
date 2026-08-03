@@ -34,6 +34,13 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Rin|Host")
     bool RevokeCapability(const FString& Id, const FString& Version);
 
+    // Atomically replaces the current Decision Window's Host-authored offers.
+    UFUNCTION(BlueprintCallable, Category = "Rin|Host")
+    bool ReplaceActionOffers(const TArray<FRinActionOffer>& Offers);
+
+    UFUNCTION(BlueprintCallable, Category = "Rin|Host")
+    bool ObserveAuthoritativeClock(const FString& Clock, int64 Value);
+
     UFUNCTION(BlueprintPure, Category = "Rin|Host")
     FRinHostEpoch CurrentEpoch() const { return Epoch; }
 
@@ -62,6 +69,9 @@ public:
 
 private:
     void MarkActiveRunsOutcomeUnknown(const FString& Message);
+    void MarkQueuedRunsStaleForCapability(const FString& CapabilityKey);
+    void MarkExpiredQueuedRuns(const FString& Clock, int64 Value);
+    bool IsQueuedRunAuthorized(const FRinActionRun& Run) const;
 
     void HandleWorldInitialized(
         UWorld* World,
@@ -70,9 +80,12 @@ private:
 
     FRinHostEpoch Epoch;
     TMap<FString, FRinCapabilityDescriptor> Capabilities;
+    TMap<FString, FRinActionOffer> ActionOffers;
+    TMap<FString, int64> AuthoritativeClocks;
     TMap<FString, FRinActionRun> Runs;
     TSet<FString> AppliedOperationIds;
     FDelegateHandle WorldInitializedHandle;
 
     static constexpr int32 MaxTrackedOperationIds = 4096;
+    static constexpr int32 MaxTrackedActionOffers = 256;
 };

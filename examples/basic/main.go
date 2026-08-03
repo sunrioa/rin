@@ -22,7 +22,10 @@ import (
 	"github.com/sunrioa/rin/protocol"
 )
 
-const maxResponseBytes = 1 << 20
+const (
+	maxResponseBytes        = 1 << 20
+	minimumRemoteTokenBytes = 32
+)
 
 type quickClient struct {
 	baseURL string
@@ -54,13 +57,24 @@ func newQuickClient(address, token string) (*quickClient, error) {
 	if parsed.Scheme != "https" && !(loopback && parsed.Scheme == "http") {
 		return nil, errors.New("remote Rin requires HTTPS")
 	}
-	if !loopback && token == "" {
-		return nil, errors.New("remote Rin requires RIN_TOKEN")
+	if !loopback && len(token) < minimumRemoteTokenBytes {
+		return nil, fmt.Errorf(
+			"remote Rin requires RIN_TOKEN with at least %d bytes",
+			minimumRemoteTokenBytes,
+		)
 	}
 	return &quickClient{
 		baseURL: strings.TrimRight(address, "/"),
 		token:   token,
-		http:    &http.Client{Timeout: 5 * time.Second},
+		http: &http.Client{
+			Timeout: 5 * time.Second,
+			CheckRedirect: func(
+				_request *http.Request,
+				_via []*http.Request,
+			) error {
+				return errors.New("Rin redirects are not allowed")
+			},
+		},
 	}, nil
 }
 

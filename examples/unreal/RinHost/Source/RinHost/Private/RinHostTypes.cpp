@@ -158,6 +158,11 @@ bool FRinHostEpoch::IsSafePositiveInteger(const int64 Value)
     return Value > 0 && Value <= MaxJsonSafeInteger;
 }
 
+bool FRinHostEpoch::IsSafeNonNegativeInteger(const int64 Value)
+{
+    return Value >= 0 && Value <= MaxJsonSafeInteger;
+}
+
 bool FRinHostEpoch::operator==(const FRinHostEpoch& Other) const
 {
     return SessionId == Other.SessionId &&
@@ -175,12 +180,33 @@ bool FRinCapabilityDescriptor::IsValid() const
         bActive;
 }
 
+bool FRinActionOffer::IsValid() const
+{
+    return FRinHostEpoch::IsSafeIdentifier(OfferId, false) &&
+        FRinHostEpoch::IsSafeIdentifier(DecisionWindowId, false) &&
+        FRinHostEpoch::IsSafeIdentifier(ActorId, false) &&
+        FRinHostEpoch::IsSafeIdentifier(CapabilityId, true) &&
+        IsExactVersion(CapabilityVersion) &&
+        IsLowerHexDigest(DescriptorDigest) &&
+        IsLowerHexDigest(OfferDigest) &&
+        ExpectedEpoch.IsValid() &&
+        FRinHostEpoch::IsSafePositiveInteger(ObservationSequence) &&
+        FRinHostEpoch::IsSafeIdentifier(DeadlineClock, false) &&
+        FRinHostEpoch::IsSafePositiveInteger(DeadlineValue);
+}
+
 bool FRinActionInvocation::IsValid() const
 {
     return FRinHostEpoch::IsSafeIdentifier(OperationId, false) &&
         FRinHostEpoch::IsSafeIdentifier(OfferId, false) &&
+        FRinHostEpoch::IsSafeIdentifier(DecisionWindowId, false) &&
+        FRinHostEpoch::IsSafeIdentifier(ActorId, false) &&
         FRinHostEpoch::IsSafeIdentifier(CapabilityId, true) &&
         IsExactVersion(CapabilityVersion) &&
         IsLowerHexDigest(DescriptorDigest) &&
-        ExpectedEpoch.IsValid();
+        IsLowerHexDigest(OfferDigest) &&
+        ExpectedEpoch.IsValid() &&
+        FRinHostEpoch::IsSafePositiveInteger(ObservationSequence) &&
+        FRinHostEpoch::IsSafeIdentifier(DeadlineClock, false) &&
+        FRinHostEpoch::IsSafePositiveInteger(DeadlineValue);
 }

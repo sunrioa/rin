@@ -434,6 +434,8 @@ type listenSecurity struct {
 	token       string
 }
 
+const minimumRemoteTokenBytes = 32
+
 func validateListenAddress(address string, security listenSecurity) error {
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
@@ -446,8 +448,11 @@ func validateListenAddress(address string, security listenSecurity) error {
 	if !loopback && !security.allowRemote {
 		return errors.New("non-loopback address requires -allow-remote")
 	}
-	if !loopback && security.token == "" {
-		return errors.New("non-loopback address requires RIN_TOKEN")
+	if !loopback && len(security.token) < minimumRemoteTokenBytes {
+		return fmt.Errorf(
+			"non-loopback address requires RIN_TOKEN with at least %d bytes",
+			minimumRemoteTokenBytes,
+		)
 	}
 	if !loopback && !security.tlsProxy {
 		return errors.New(
