@@ -16,6 +16,8 @@ const Version = protocol.ContractReleaseVersion
 // project metadata.
 //
 //go:embed java/src/main/java/io/github/sunrioa/rin/HostActions.java
+//go:embed java/src/main/java/io/github/sunrioa/rin/HostControlSession.java
+//go:embed java/src/main/java/io/github/sunrioa/rin/HostControlTransport.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/HostDurability.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/HostDurabilityProfile.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/JsonCodec.java

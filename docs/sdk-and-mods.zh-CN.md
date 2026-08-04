@@ -36,6 +36,12 @@ Python 和 JavaScript 没有运行时依赖；C# 在 .NET 6 使用 Framework API
 Java 通过两个方法的 Codec 复用宿主 JSON 库；Lua 注入全部宿主服务，因为
 不同 Lua 引擎的 HTTP 和 JSON API 不兼容。
 
+Java Package 还提供与引擎无关的 `HostControlSession`，供游戏 Host 连接
+`rin-control`。它通过注入的 `HostControlTransport` 处理注册、租约续期、发布、
+Poll、ACK、`ActionRun`、终态 Outcome 和注销，不包含 Minecraft、Fabric、实体、
+方块或游戏线程类型。每个 Adapter 仍需自行负责有界 Observation、精确 Offer、
+权威线程调度、执行时校验、持久化和真实 Durability 声明。
+
 ## 目录约定
 
 ```text

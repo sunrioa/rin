@@ -40,6 +40,14 @@ reuses the host's JSON library through a two-method codec. Lua injects all
 host-specific services because Lua engines expose incompatible HTTP and JSON
 APIs.
 
+The Java package also includes the engine-neutral `HostControlSession` for a
+game Host that connects to `rin-control`. It owns registration, lease renewal,
+publication, polling, acknowledgement, `ActionRun`, terminal Outcome, and
+unregister calls over an injected `HostControlTransport`. It contains no
+Minecraft, Fabric, entity, block, or game-thread type. Each adapter remains
+responsible for bounded observations, exact Offers, authority-thread dispatch,
+execution-time validation, persistence, and its real durability claim.
+
 ## Directory contract
 
 ```text

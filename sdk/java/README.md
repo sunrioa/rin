@@ -28,6 +28,13 @@ future, with no second delayed timeout task. This package implements the
 `transport` profile only; large-lineage Session Transfer requires a
 `streaming` SDK target.
 
+The SDK is engine-neutral. `HostControlSession` implements the generic
+`rin.control/v1` Host lease and operation lifecycle over an injected
+`HostControlTransport`: register, publish, poll, acknowledge, report progress,
+report an authoritative outcome, and unregister. Minecraft, RPG, visual novel,
+or other adapters provide their own manifest, observations, game-thread
+executor, and JSON/HTTP transport.
+
 `WorkflowCoordinator` owns the reusable Pending Turn, Job recovery, settlement,
 and Outcome Outbox state machine. Supply a persistent `WorkflowStore` and a
 validated `HostDurability` value. `idempotent-action` apply callbacks receive
