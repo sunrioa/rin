@@ -341,6 +341,11 @@ func ValidateActionOffer(offer ActionOffer) error {
 	if err := validateRefs("targets", offer.Targets, offer.ExpectedEpoch); err != nil {
 		return err
 	}
+	if offer.Planning != nil {
+		if err := validateActionPlanMetadata(*offer.Planning); err != nil {
+			return err
+		}
+	}
 	if err := offer.ExpectedEpoch.Validate("expected_epoch"); err != nil {
 		return err
 	}
@@ -349,6 +354,48 @@ func ValidateActionOffer(offer ActionOffer) error {
 	}
 	if err := offer.Deadline.Validate("deadline"); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateActionPlanMetadata(value ActionPlanMetadata) error {
+	if err := validateText("planning.intent", value.Intent, 160, true); err != nil {
+		return err
+	}
+	if err := validateHostID("planning.plan_id", value.PlanID, false); err != nil {
+		return err
+	}
+	if value.PlanRevision == 0 {
+		return invalid("planning.plan_revision", "must be positive")
+	}
+	if !validRiskLevel(value.Risk) {
+		return invalid("planning.risk", "is not supported")
+	}
+	if value.BlockedReason != "" {
+		if err := validateHostID("planning.blocked_reason", value.BlockedReason, false); err != nil {
+			return err
+		}
+	}
+	if err := validatePlanConditions("planning.preconditions", value.Preconditions); err != nil {
+		return err
+	}
+	return validatePlanConditions("planning.postconditions", value.Postconditions)
+}
+
+func validatePlanConditions(field string, values []string) error {
+	if len(values) > 16 {
+		return invalid(field, "must contain at most 16 values")
+	}
+	seen := make(map[string]struct{}, len(values))
+	for index, value := range values {
+		itemField := fmt.Sprintf("%s[%d]", field, index)
+		if err := validateText(itemField, value, 160, true); err != nil {
+			return err
+		}
+		if _, exists := seen[value]; exists {
+			return invalid(field, "must not contain duplicates")
+		}
+		seen[value] = struct{}{}
 	}
 	return nil
 }

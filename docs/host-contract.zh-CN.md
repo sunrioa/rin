@@ -49,6 +49,19 @@ Body 或生成参数。HostKit 还会先用 Descriptor 的精确 Output Schema �
 因此同一 Registry 可以服务 Ren'Py Label、Unity Component、Unreal Ability、
 Godot Node、服务端 Mod、Web 游戏和自研引擎，而不偏向其中任意一种宿主。
 
+## 有界计划元数据
+
+`ActionOffer.planning` 是可选、引擎无关的计划说明。它让内部策略和 MCP Client
+理解一个 Offer 属于哪项连续工作，而不把游戏规则搬进 Rin。字段包括 `intent`、
+`plan_id`、`step_index`、`plan_revision`、前置条件、后置条件、稳定的
+`blocked_reason` 和风险级别。
+
+这份元数据不是新的执行入口。坐标、对象引用、物品、配方和命令仍只能存在于 Host
+已经绑定并验证的 Offer 中；调用方仍只选择 `offer_id`。规划、目标搜索、寻路和每一步
+后状态验证属于游戏 Adapter，Rin 只负责携带、校验、持久复制并向控制客户端展示元数据。
+计划修订后 Host 必须发布新 Offer，旧 Offer 继续受 Observation、Epoch、Deadline 和
+执行前复核约束。
+
 ## Epoch 与对象引用
 
 `Epoch` 包含稳定 Session/World ID 和三个正数、JSON-safe 的 Generation：

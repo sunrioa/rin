@@ -10,6 +10,11 @@ across every future minor release.
 
 ### Added
 
+- Added optional engine-neutral `ActionOffer.planning` metadata for bounded
+  multi-step work, including intent, plan identity and revision, conditions,
+  stable blocked reasons, and risk. Host validation, Control Plane/MCP output,
+  OpenAPI, and JavaScript, C#, and Java SDK surfaces carry the same shape
+  without allowing clients to submit plan nodes or world parameters.
 - Added `rin mcp install`, `status`, `update`, and `uninstall` for selecting
   Codex, Claude Code, and OpenClaw from one CLI. The installer uses each
   client's official MCP command, keeps the daemon token in one private local

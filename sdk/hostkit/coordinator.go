@@ -1153,6 +1153,7 @@ func actionOffersEqual(left, right host.ActionOffer) bool {
 		left.Description == right.Description &&
 		bytes.Equal(left.Arguments, right.Arguments) &&
 		reflect.DeepEqual(left.Targets, right.Targets) &&
+		reflect.DeepEqual(left.Planning, right.Planning) &&
 		left.ExpectedEpoch == right.ExpectedEpoch &&
 		left.ObservationSeq == right.ObservationSeq &&
 		left.Deadline == right.Deadline

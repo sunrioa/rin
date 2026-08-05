@@ -191,6 +191,20 @@ type CapabilityRef struct {
 	Version string `json:"version"`
 }
 
+// ActionPlanMetadata describes where a Host-authored offer sits in a bounded
+// multi-step plan. It is descriptive only: authorization still comes from the
+// exact ActionOffer, current Host state, and capability policy.
+type ActionPlanMetadata struct {
+	Intent         string    `json:"intent"`
+	PlanID         string    `json:"plan_id"`
+	StepIndex      uint32    `json:"step_index"`
+	PlanRevision   uint32    `json:"plan_revision"`
+	Preconditions  []string  `json:"preconditions,omitempty"`
+	Postconditions []string  `json:"postconditions,omitempty"`
+	BlockedReason  string    `json:"blocked_reason,omitempty"`
+	Risk           RiskLevel `json:"risk"`
+}
+
 // CapabilityDescriptor describes a host-local implementation. Discovery never
 // authorizes use: each turn still needs an ActionOffer created by the game.
 type CapabilityDescriptor struct {
@@ -215,17 +229,18 @@ type CapabilityDescriptor struct {
 // selected and constrained by the host; a model chooses OfferID, not a method
 // name or arbitrary arguments.
 type ActionOffer struct {
-	OfferID          string          `json:"offer_id"`
-	DecisionWindowID string          `json:"decision_window_id"`
-	ActorID          string          `json:"actor_id"`
-	Capability       CapabilityRef   `json:"capability"`
-	DescriptorDigest string          `json:"descriptor_digest"`
-	Description      string          `json:"description"`
-	Arguments        json.RawMessage `json:"arguments"`
-	Targets          []HostRef       `json:"targets,omitempty"`
-	ExpectedEpoch    Epoch           `json:"expected_epoch"`
-	ObservationSeq   uint64          `json:"observation_seq"`
-	Deadline         Timepoint       `json:"deadline"`
+	OfferID          string              `json:"offer_id"`
+	DecisionWindowID string              `json:"decision_window_id"`
+	ActorID          string              `json:"actor_id"`
+	Capability       CapabilityRef       `json:"capability"`
+	DescriptorDigest string              `json:"descriptor_digest"`
+	Description      string              `json:"description"`
+	Arguments        json.RawMessage     `json:"arguments"`
+	Targets          []HostRef           `json:"targets,omitempty"`
+	Planning         *ActionPlanMetadata `json:"planning,omitempty"`
+	ExpectedEpoch    Epoch               `json:"expected_epoch"`
+	ObservationSeq   uint64              `json:"observation_seq"`
+	Deadline         Timepoint           `json:"deadline"`
 }
 
 // ActionInvocation is a validated offer bound to a stable operation ID.

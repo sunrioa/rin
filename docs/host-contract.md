@@ -63,6 +63,22 @@ The registry can therefore be shared by Ren'Py labels, Unity components,
 Unreal abilities, Godot nodes, server Mods, Web games, and custom engines
 without granting any one of them special semantics.
 
+## Bounded plan metadata
+
+`ActionOffer.planning` is an optional, engine-neutral explanation of the
+bounded plan containing an offer. It lets internal policies and MCP clients
+read the `intent`, `plan_id`, `step_index`, `plan_revision`, preconditions,
+postconditions, stable `blocked_reason`, and risk without moving game rules
+into Rin.
+
+This metadata is not another execution input. Coordinates, object references,
+items, recipes, and commands remain inside a complete Host-authored offer, and
+a caller still selects only its `offer_id`. Goal search, pathfinding, planning,
+and post-state verification belong to the game adapter. Rin validates, copies,
+and exposes the metadata. A plan revision requires a newly published offer;
+the old one remains fenced by its observation, epoch, deadline, and final Host
+revalidation.
+
 ## Epoch and object references
 
 `Epoch` contains stable Session and World IDs plus three positive JSON-safe

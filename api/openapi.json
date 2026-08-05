@@ -4757,6 +4757,62 @@
           }
         }
       },
+      "ActionPlanMetadata": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "plan_id",
+          "step_index",
+          "plan_revision",
+          "risk"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "plan_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "step_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "plan_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "preconditions": {
+            "type": "array",
+            "maxItems": 16,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            }
+          },
+          "postconditions": {
+            "type": "array",
+            "maxItems": 16,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            }
+          },
+          "blocked_reason": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "risk": {
+            "type": "string",
+            "enum": ["low", "moderate", "high", "critical"]
+          }
+        }
+      },
       "ActionOfferInput": {
         "type": "object",
         "additionalProperties": false,
@@ -4795,6 +4851,9 @@
             "items": {
               "$ref": "#/components/schemas/HostRef"
             }
+          },
+          "planning": {
+            "$ref": "#/components/schemas/ActionPlanMetadata"
           },
           "expected_epoch": {
             "$ref": "#/components/schemas/Epoch"
@@ -4856,6 +4915,9 @@
             "items": {
               "$ref": "#/components/schemas/HostRef"
             }
+          },
+          "planning": {
+            "$ref": "#/components/schemas/ActionPlanMetadata"
           },
           "expected_epoch": {
             "$ref": "#/components/schemas/Epoch"

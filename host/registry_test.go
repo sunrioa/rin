@@ -45,12 +45,31 @@ func TestRegistrySealsOffersAndRejectsTOCTOU(t *testing.T) {
 		DescriptorDigest: sealed.Digest,
 		Description:      "Move to the dock.",
 		Arguments:        json.RawMessage(`{"target":"dock"}`),
-		ExpectedEpoch:    epoch,
-		ObservationSeq:   7,
-		Deadline:         Timepoint{Clock: ClockRealtime, Value: 20_000},
+		Planning: &ActionPlanMetadata{
+			Intent:         "Reach the dock safely",
+			PlanID:         "plan.move.dock",
+			StepIndex:      1,
+			PlanRevision:   2,
+			Preconditions:  []string{"dock remains reachable"},
+			Postconditions: []string{"actor reaches dock"},
+			Risk:           RiskLow,
+		},
+		ExpectedEpoch:  epoch,
+		ObservationSeq: 7,
+		Deadline:       Timepoint{Clock: ClockRealtime, Value: 20_000},
 	}
 	if err := registry.ValidateOffer(offer, Timepoint{Clock: ClockRealtime, Value: 10_000}, epoch); err != nil {
 		t.Fatalf("valid offer rejected: %v", err)
+	}
+	invalidPlan := offer
+	invalidPlan.Planning = &ActionPlanMetadata{
+		Intent:       "Move",
+		PlanID:       "plan.move.dock",
+		PlanRevision: 0,
+		Risk:         RiskLow,
+	}
+	if err := registry.ValidateOffer(invalidPlan, Timepoint{Clock: ClockRealtime, Value: 10_000}, epoch); err == nil {
+		t.Fatal("offer with invalid planning metadata accepted")
 	}
 	invocation, err := registry.NewInvocation(
 		offer,

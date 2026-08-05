@@ -208,6 +208,12 @@ export RIN_CONTROL_SCOPES="actor.read,actor.speak,actor.execute,operation.cancel
 Host 发布的完整 Offer 及其 Epoch、Observation 和 Authority Revision Binding；
 游戏在权威线程执行前仍要复验 Offer、Deadline、权限和当前世界状态。
 
+连续任务的 Offer 可以带可选 `planning`：计划意图、计划 ID、步骤/修订号、前置条件、
+后置条件、阻塞原因和风险。它只帮助 Agent 判断“为何可执行、正在做什么、为何暂停”；
+Agent 不能修改这些字段，也不能借此提交计划节点或世界参数。任务启动后应从
+`get_actor_state`/`wait_actor_update` 读取 Host 发布的活动计划状态，不能把
+`execute_actor_offer` 的 `started` 误报为整项任务完成。
+
 所有写 Tool 的直接返回只表示 Rin 已接收或排队，不能证明游戏已经执行。调用方必须
 把返回的 `cursor` 原样交给 `wait_operation`，或继续调用 `get_operation`：
 

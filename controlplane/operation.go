@@ -1028,7 +1028,18 @@ func cloneControlRequest(value HostControlRequest) HostControlRequest {
 func cloneOffer(value host.ActionOffer) host.ActionOffer {
 	value.Arguments = append(json.RawMessage(nil), value.Arguments...)
 	value.Targets = append([]host.HostRef(nil), value.Targets...)
+	value.Planning = clonePlanning(value.Planning)
 	return value
+}
+
+func clonePlanning(value *host.ActionPlanMetadata) *host.ActionPlanMetadata {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	cloned.Preconditions = append([]string(nil), value.Preconditions...)
+	cloned.Postconditions = append([]string(nil), value.Postconditions...)
+	return &cloned
 }
 
 func clonePrincipalValue(value host.Principal) host.Principal {

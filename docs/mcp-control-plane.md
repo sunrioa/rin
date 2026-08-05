@@ -228,6 +228,14 @@ Epoch, Observation, and Authority Revision bindings. The game still revalidates
 the Offer, deadline, permissions, and current world state on its authoritative
 thread.
 
+An offer that starts or advances continuous work may include optional
+`planning` metadata: intent, plan ID, step and revision, preconditions,
+postconditions, a blocked reason, and risk. This helps an agent understand why
+work is available or paused. It cannot edit those fields or submit plan nodes
+or world parameters. After an offer reports `started`, clients inspect the
+Host-published active-plan state through `get_actor_state` or
+`wait_actor_update`; `started` does not mean the whole task completed.
+
 The direct result of every write tool means only that Rin accepted or queued the
 request. It is not evidence that the game executed it. Callers copy `cursor`
 unchanged into `wait_operation`, or continue using `get_operation`:

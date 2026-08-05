@@ -488,6 +488,7 @@ func cloneOffers(values []host.ActionOffer) []host.ActionOffer {
 			append(json.RawMessage(nil), offer.Arguments...)
 		cloned[index].Targets =
 			append([]host.HostRef(nil), offer.Targets...)
+		cloned[index].Planning = clonePlanning(offer.Planning)
 	}
 	return cloned
 }

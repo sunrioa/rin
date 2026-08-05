@@ -116,7 +116,10 @@ func TestGatewayNegotiatesCurrentProtocolAndReadsPublishedState(t *testing.T) {
 	}, &offers)
 	if len(offers.Offers) != 1 ||
 		offers.Offers[0].OfferID != "offer.follow" ||
-		offers.Offers[0].Arguments["distance"] != json.Number("2") {
+		offers.Offers[0].Arguments["distance"] != json.Number("2") ||
+		offers.Offers[0].Planning == nil ||
+		offers.Offers[0].Planning.PlanID != "plan.follow.owner" ||
+		offers.Offers[0].Planning.Postconditions[0] != "actor follows the owner" {
 		t.Fatalf("list_actor_offers = %#v", offers)
 	}
 }
@@ -577,8 +580,17 @@ func publishedServiceWithLease(
 					DescriptorDigest: strings.Repeat("a", 64),
 					Description:      "Follow the owner",
 					Arguments:        json.RawMessage(`{"distance":2}`),
-					ExpectedEpoch:    epoch,
-					ObservationSeq:   1,
+					Planning: &host.ActionPlanMetadata{
+						Intent:         "Stay close to the owner",
+						PlanID:         "plan.follow.owner",
+						StepIndex:      0,
+						PlanRevision:   1,
+						Preconditions:  []string{"owner remains available"},
+						Postconditions: []string{"actor follows the owner"},
+						Risk:           host.RiskLow,
+					},
+					ExpectedEpoch:  epoch,
+					ObservationSeq: 1,
 					Deadline: host.Timepoint{
 						Clock: host.ClockStep,
 						Value: 100,

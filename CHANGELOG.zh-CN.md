@@ -9,6 +9,10 @@
 
 ### 新增
 
+- 新增可选、引擎无关的 `ActionOffer.planning` 有界长任务元数据，包含意图、计划
+  标识与修订、前后置条件、稳定阻塞原因和风险。Host 校验、Control Plane/MCP 输出、
+  OpenAPI 以及 JavaScript、C#、Java SDK 使用同一结构，同时不允许 Client 提交计划
+  节点或世界参数。
 - 新增 `rin mcp install`、`status`、`update` 与 `uninstall`，可从一个 CLI
   选择 Codex、Claude Code 和 OpenClaw。安装器调用各 Client 的官方 MCP 命令，
   只在一个本机私密文件保存 daemon Token，保护同名未托管注册，并在不重写

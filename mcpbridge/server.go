@@ -291,12 +291,23 @@ func (gateway *Gateway) listActorOffers(
 			Description:      offer.Description,
 			Arguments:        arguments,
 			Targets:          append([]host.HostRef(nil), offer.Targets...),
+			Planning:         clonePlanning(offer.Planning),
 			ExpectedEpoch:    offer.ExpectedEpoch,
 			ObservationSeq:   offer.ObservationSeq,
 			Deadline:         offer.Deadline,
 		}
 	}
 	return nil, output, nil
+}
+
+func clonePlanning(value *host.ActionPlanMetadata) *host.ActionPlanMetadata {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	cloned.Preconditions = append([]string(nil), value.Preconditions...)
+	cloned.Postconditions = append([]string(nil), value.Postconditions...)
+	return &cloned
 }
 
 func (gateway *Gateway) sendActorMessage(

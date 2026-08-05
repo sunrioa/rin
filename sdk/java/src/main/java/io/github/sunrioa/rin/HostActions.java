@@ -22,8 +22,22 @@ public final class HostActions {
             String description,
             Map<String, ?> arguments,
             Map<String, ?> decisionWindow) {
+        return offer(offerId, actorId, capabilityId, capabilityVersion,
+                descriptorDigest, description, arguments, decisionWindow, null);
+    }
+
+    public static Map<String, Object> offer(
+            String offerId,
+            String actorId,
+            String capabilityId,
+            String capabilityVersion,
+            String descriptorDigest,
+            String description,
+            Map<String, ?> arguments,
+            Map<String, ?> decisionWindow,
+            Map<String, ?> planning) {
         Objects.requireNonNull(decisionWindow, "decisionWindow");
-        return mapOf(
+        Map<String, Object> result = mapOf(
                 "offer_id", offerId,
                 "decision_window_id", decisionWindow.get("id"),
                 "actor_id", actorId,
@@ -34,6 +48,8 @@ public final class HostActions {
                 "expected_epoch", decisionWindow.get("epoch"),
                 "observation_seq", decisionWindow.get("observation_seq"),
                 "deadline", decisionWindow.get("deadline"));
+        if (planning != null) result.put("planning", planning);
+        return result;
     }
 
     public static Map<String, Object> immediateReport(

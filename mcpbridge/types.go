@@ -77,17 +77,18 @@ type ListActorOffersOutput struct {
 }
 
 type Offer struct {
-	OfferID          string             `json:"offer_id"`
-	DecisionWindowID string             `json:"decision_window_id"`
-	ActorID          string             `json:"actor_id"`
-	Capability       host.CapabilityRef `json:"capability"`
-	DescriptorDigest string             `json:"descriptor_digest"`
-	Description      string             `json:"description"`
-	Arguments        map[string]any     `json:"arguments"`
-	Targets          []host.HostRef     `json:"targets,omitempty"`
-	ExpectedEpoch    host.Epoch         `json:"expected_epoch"`
-	ObservationSeq   uint64             `json:"observation_seq"`
-	Deadline         host.Timepoint     `json:"deadline"`
+	OfferID          string                   `json:"offer_id"`
+	DecisionWindowID string                   `json:"decision_window_id"`
+	ActorID          string                   `json:"actor_id"`
+	Capability       host.CapabilityRef       `json:"capability"`
+	DescriptorDigest string                   `json:"descriptor_digest"`
+	Description      string                   `json:"description"`
+	Arguments        map[string]any           `json:"arguments"`
+	Targets          []host.HostRef           `json:"targets,omitempty"`
+	Planning         *host.ActionPlanMetadata `json:"planning,omitempty"`
+	ExpectedEpoch    host.Epoch               `json:"expected_epoch"`
+	ObservationSeq   uint64                   `json:"observation_seq"`
+	Deadline         host.Timepoint           `json:"deadline"`
 }
 
 type SendActorMessageInput struct {

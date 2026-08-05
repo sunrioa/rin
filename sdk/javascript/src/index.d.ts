@@ -137,9 +137,21 @@ export interface ActionOfferInput {
   description: string;
   arguments: unknown;
   targets?: HostRef[];
+  planning?: ActionPlanMetadata;
   expected_epoch: Epoch;
   observation_seq: number;
   deadline: Timepoint;
+}
+
+export interface ActionPlanMetadata {
+  intent: string;
+  plan_id: string;
+  step_index: number;
+  plan_revision: number;
+  preconditions?: string[];
+  postconditions?: string[];
+  blocked_reason?: string;
+  risk: "low" | "moderate" | "high" | "critical";
 }
 
 export interface CreateSessionRequest {

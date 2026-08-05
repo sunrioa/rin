@@ -96,6 +96,26 @@ public sealed record ActionOfferInput(
 {
     [JsonPropertyName("targets")]
     public IReadOnlyList<HostRef>? Targets { get; init; }
+
+    [JsonPropertyName("planning")]
+    public ActionPlanMetadata? Planning { get; init; }
+}
+
+public sealed record ActionPlanMetadata(
+    [property: JsonPropertyName("intent")] string Intent,
+    [property: JsonPropertyName("plan_id")] string PlanId,
+    [property: JsonPropertyName("step_index")] uint StepIndex,
+    [property: JsonPropertyName("plan_revision")] uint PlanRevision,
+    [property: JsonPropertyName("risk")] string Risk)
+{
+    [JsonPropertyName("preconditions")]
+    public IReadOnlyList<string>? Preconditions { get; init; }
+
+    [JsonPropertyName("postconditions")]
+    public IReadOnlyList<string>? Postconditions { get; init; }
+
+    [JsonPropertyName("blocked_reason")]
+    public string? BlockedReason { get; init; }
 }
 
 public sealed record CreateSessionRequest(
