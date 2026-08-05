@@ -5,6 +5,8 @@
 Rin `0.7.0` 是 Preview、pre-1.0 软件。文档按公共接口组织，不以某个使用方
 项目作为叙述中心，但 Preview minor 版本不提供 post-1.0 稳定性保证。
 
+首次了解完整链路可先阅读[总体流程图](flowchart.zh-CN.md)，再按下表进入各项协议与实现细节。
+
 | 主题 | 简体中文 | English |
 | --- | --- | --- |
 | Runtime HTTP Wire Schema | [`api/openapi.json`](../api/openapi.json) | [`api/openapi.json`](../api/openapi.json) |
