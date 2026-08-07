@@ -244,6 +244,7 @@ public sealed class ProposalAttemptCoordinator
             left.ExpectedEpoch != right.ExpectedEpoch ||
             left.ObservationSeq != right.ObservationSeq ||
             left.Deadline != right.Deadline ||
+            !PlanningEqual(left.Planning, right.Planning) ||
             !JsonValues.Equivalent(left.Arguments, right.Arguments))
         {
             return false;
@@ -254,6 +255,38 @@ public sealed class ProposalAttemptCoordinator
         for (var index = 0; index < leftTargets.Count; index++)
         {
             if (leftTargets[index] != rightTargets[index]) return false;
+        }
+        return true;
+    }
+
+    private static bool PlanningEqual(
+        ActionPlanMetadata? left,
+        ActionPlanMetadata? right)
+    {
+        if (ReferenceEquals(left, right)) return true;
+        if (left is null || right is null ||
+            left.Intent != right.Intent ||
+            left.PlanId != right.PlanId ||
+            left.StepIndex != right.StepIndex ||
+            left.PlanRevision != right.PlanRevision ||
+            left.BlockedReason != right.BlockedReason ||
+            left.Risk != right.Risk)
+        {
+            return false;
+        }
+        return StringListsEqual(left.Preconditions, right.Preconditions) &&
+            StringListsEqual(left.Postconditions, right.Postconditions);
+    }
+
+    private static bool StringListsEqual(
+        IReadOnlyList<string>? left,
+        IReadOnlyList<string>? right)
+    {
+        if (ReferenceEquals(left, right)) return true;
+        if (left is null || right is null || left.Count != right.Count) return false;
+        for (var index = 0; index < left.Count; index++)
+        {
+            if (left[index] != right[index]) return false;
         }
         return true;
     }

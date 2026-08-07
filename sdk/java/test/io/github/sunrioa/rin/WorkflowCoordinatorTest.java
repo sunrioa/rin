@@ -230,6 +230,15 @@ final class WorkflowCoordinatorTest {
                 pendingTurn,
                 numericEquivalent);
 
+        Map<String, Object> requestWithoutTick =
+                new LinkedHashMap<>(pendingTurn.request());
+        requestWithoutTick.remove("tick");
+        PendingTurn optionalTick = PendingTurn.create(
+                "operation.optional-tick", requestWithoutTick);
+        Map<String, Object> zeroTick = new LinkedHashMap<>(proposal);
+        zeroTick.put("tick", 0L);
+        WorkflowCoordinator.requireResolvedProposalMatches(optionalTick, zeroTick);
+
         Map<String, Object> changedActor = new LinkedHashMap<>(proposal);
         changedActor.put("actor_id", "actor.other");
         expectInvalidResolved(pendingTurn, changedActor, "changed actor");

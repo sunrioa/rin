@@ -279,7 +279,9 @@ public final class WorkflowCoordinator {
                 !JsonValues.equivalent(
                         proposal.get("request_id"), request.get("request_id")) ||
                 !JsonValues.equivalent(proposal.get("actor_id"), request.get("actor_id")) ||
-                !JsonValues.equivalent(proposal.get("tick"), request.get("tick")) ||
+                !JsonValues.equivalent(
+                        proposal.get("tick"),
+                        request.containsKey("tick") ? request.get("tick") : 0L) ||
                 !JsonValues.equivalent(
                         proposal.get("decision_window"), request.get("decision_window")) ||
                 !selectedAuthoredOffer) {

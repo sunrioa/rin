@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"testing"
 	"time"
@@ -179,6 +180,72 @@ func TestOperationFileRedeliversUnacknowledgedRequestWithStableID(t *testing.T) 
 		second.Requests[0].Request.OperationID != operation.OperationID ||
 		second.Requests[0].DeliveryAttempt != 2 {
 		t.Fatalf("redelivery = %#v", second)
+	}
+	if err := recovered.Close(); err != nil {
+		t.Fatalf("Close recovered service: %v", err)
+	}
+}
+
+func TestOperationFilePreservesOfferPlanningAcrossRestart(t *testing.T) {
+	root := t.TempDir()
+	now := time.UnixMilli(1_000_000)
+	service, err := OpenFile(root, fileTestOptions(&now, 0))
+	if err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+	lease := mustRegister(t, service, registration("instance.planning"))
+	publication := worldPublication(1, "ready")
+	want := &host.ActionPlanMetadata{
+		Intent:         "Collect nearby logs",
+		PlanID:         "plan.collect.logs",
+		StepIndex:      2,
+		PlanRevision:   4,
+		Preconditions:  []string{"actor ready", "tool available"},
+		Postconditions: []string{"logs collected"},
+		BlockedReason:  "",
+		Risk:           host.RiskModerate,
+	}
+	publication.Actors[0].Offers[0].Planning = want
+	if err := service.PublishWorld(
+		"test.host",
+		lease.LeaseID,
+		publication,
+	); err != nil {
+		t.Fatalf("PublishWorld: %v", err)
+	}
+	principal := operationPrincipal(ScopeActorExecute)
+	operation, err := service.ExecuteActorOffer(principal, ExecuteOfferInput{
+		RequestID: "request.persist.planning",
+		HostID:    "test.host",
+		WorldID:   "world.one",
+		ActorID:   "actor.one",
+		OfferID:   "offer.follow",
+	})
+	if err != nil {
+		t.Fatalf("ExecuteActorOffer: %v", err)
+	}
+	if err := service.Close(); err != nil {
+		t.Fatalf("Close before recovery: %v", err)
+	}
+
+	recovered, err := OpenFile(root, fileTestOptions(&now, 64))
+	if err != nil {
+		t.Fatalf("OpenFile after recovery: %v", err)
+	}
+	recoveryLease := mustRegister(t, recovered, registration("instance.planning.recovered"))
+	if err := recovered.PublishWorld(
+		"test.host",
+		recoveryLease.LeaseID,
+		publication,
+	); err != nil {
+		t.Fatalf("PublishWorld after recovery: %v", err)
+	}
+	batch := pollHost(t, recovered, recoveryLease, 1)
+	if len(batch.Requests) != 1 ||
+		batch.Requests[0].Request.OperationID != operation.OperationID ||
+		batch.Requests[0].Request.Offer == nil ||
+		!reflect.DeepEqual(batch.Requests[0].Request.Offer.Planning, want) {
+		t.Fatalf("recovered request = %#v", batch)
 	}
 	if err := recovered.Close(); err != nil {
 		t.Fatalf("Close recovered service: %v", err)

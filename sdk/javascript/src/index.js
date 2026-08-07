@@ -228,14 +228,7 @@ export class ProposalAttemptCoordinator {
       attempt = replacement;
       job = await this.client.waitForProposal(attempt.job_id, options);
     }
-    if (!isObject(job.proposal) ||
-        job.proposal.session_id !== attempt.request.session_id ||
-        job.proposal.request_id !== attempt.request.request_id) {
-      throw new RinProtocolError(
-        "invalid_job",
-        "Resolved Proposal does not match the durable Attempt",
-      );
-    }
+    requireResolvedProposalMatches(attempt, job.proposal);
     return {
       attempt: cloneProtocolObject(attempt),
       proposal: cloneProtocolObject(job.proposal),
@@ -891,6 +884,7 @@ function validateProposalAttempt(value) {
 function validateWorkflowSettlement(attempt, proposal, report) {
   const stableProposal = cloneProtocolObject(proposal);
   const stableReport = cloneProtocolObject(report);
+  requireResolvedProposalMatches(attempt, stableProposal);
   if (stableProposal.session_id !== attempt.request.session_id ||
       stableProposal.request_id !== attempt.request.request_id ||
       stableReport.session_id !== attempt.request.session_id ||
@@ -902,6 +896,44 @@ function validateWorkflowSettlement(attempt, proposal, report) {
   }
   requireIdentifier("request_id", stableReport.request_id);
   requireIdentifier("event_id", stableReport.report?.event_id);
+}
+
+function requireResolvedProposalMatches(attempt, proposal) {
+  const request = attempt.request;
+  const selectedAuthoredOffer = Array.isArray(request.offers) &&
+    request.offers.some((offer) => protocolValuesEquivalent(offer, proposal?.action));
+  if (!isObject(proposal) ||
+      !isProtocolIdentifier(proposal.id) ||
+      proposal.session_id !== request.session_id ||
+      proposal.request_id !== request.request_id ||
+      proposal.actor_id !== request.actor_id ||
+      !protocolValuesEquivalent(
+        proposal.tick,
+        Object.hasOwn(request, "tick") ? request.tick : 0,
+      ) ||
+      !protocolValuesEquivalent(proposal.decision_window, request.decision_window) ||
+      !selectedAuthoredOffer) {
+    throw new RinProtocolError(
+      "invalid_job",
+      "Resolved Proposal does not match the durable Attempt",
+    );
+  }
+}
+
+function protocolValuesEquivalent(left, right) {
+  if (left === right) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => protocolValuesEquivalent(value, right[index]));
+  }
+  if (!isObject(left) || !isObject(right)) return false;
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return leftKeys.length === rightKeys.length &&
+    leftKeys.every((key) => Object.hasOwn(right, key) &&
+      protocolValuesEquivalent(left[key], right[key]));
 }
 
 function serializeRequest(payload) {

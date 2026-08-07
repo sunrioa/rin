@@ -276,19 +276,60 @@ test("Proposal Attempt settles game effect and Outbox atomically", async () => {
       poll++;
       return response(200, {
         ok: true,
-        data: proposalJob("succeeded", { proposal: proposal() }),
+        data: proposalJob("succeeded", { proposal: proposal({ tick: 0 }) }),
       });
     },
     sleep: async () => {},
   });
   const coordinator = new ProposalAttemptCoordinator(client, store);
   const request = proposeRequest("request.fixture");
+  delete request.tick;
   await coordinator.begin("operation.fixture", request);
   request.intent = "mutated after persistence";
   assert.equal(attempt.request.intent, "Talk");
   const resolved = await coordinator.resume({ deadlineMs: 50, intervalMs: 10 });
   assert.equal(poll, 1);
   assert.equal(attempt.job_id, "job.fixture");
+  for (const changed of [
+    {
+      ...resolved.proposal,
+      action: {
+        ...resolved.proposal.action,
+        arguments: { injected: true },
+      },
+    },
+    {
+      ...resolved.proposal,
+      action: {
+        ...resolved.proposal.action,
+        planning: {
+          intent: "Injected plan",
+          plan_id: "plan.injected",
+          step_index: 0,
+          plan_revision: 1,
+          risk: "high",
+        },
+      },
+    },
+    {
+      ...resolved.proposal,
+      decision_window: {
+        ...resolved.proposal.decision_window,
+        deadline: { clock: "event", value: 7 },
+      },
+    },
+  ]) {
+    await assert.rejects(
+      coordinator.settle(
+        resolved.attempt,
+        changed,
+        rejectedReport("report.fixture", "event.fixture"),
+        async () => { applied++; },
+      ),
+      (error) => error instanceof RinProtocolError && error.code === "invalid_job",
+    );
+  }
+  assert.equal(applied, 0);
   await coordinator.settle(
     resolved.attempt,
     resolved.proposal,
@@ -428,12 +469,16 @@ function response(status, envelope, headers = {}) {
 }
 
 function proposal(overrides = {}) {
+  const requestId = overrides.request_id ?? "request.fixture";
+  const request = proposeRequest(requestId);
   return {
     id: "proposal.fixture",
     session_id: "session.fixture",
-    request_id: "request.fixture",
+    request_id: requestId,
     actor_id: "actor.fixture",
     tick: 7,
+    decision_window: request.decision_window,
+    action: request.offers[0],
     ...overrides,
   };
 }
@@ -460,6 +505,7 @@ function proposeRequest(requestId) {
     session_id: "session.fixture",
     request_id: requestId,
     actor_id: "actor.fixture",
+    tick: 7,
     intent: "Talk",
     decision_window: window,
     offers: [{

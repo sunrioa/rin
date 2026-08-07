@@ -179,6 +179,31 @@ func TestOpenAPIReferencesInputsAndResponseEvolutionRules(t *testing.T) {
 	}
 }
 
+func TestActionPlanOpenAPIBoundsMatchUint32Models(t *testing.T) {
+	for name, payload := range map[string][]byte{
+		"runtime": rinapi.Document(),
+		"control": rinapi.ControlDocument(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			var document map[string]any
+			if err := json.Unmarshal(payload, &document); err != nil {
+				t.Fatal(err)
+			}
+			schemas := document["components"].(map[string]any)["schemas"].(map[string]any)
+			properties := schemas["ActionPlanMetadata"].(map[string]any)["properties"].(map[string]any)
+			step := properties["step_index"].(map[string]any)
+			revision := properties["plan_revision"].(map[string]any)
+			const maxUint32 = 4294967295
+			if step["minimum"] != float64(0) ||
+				step["maximum"] != float64(maxUint32) ||
+				revision["minimum"] != float64(1) ||
+				revision["maximum"] != float64(maxUint32) {
+				t.Fatalf("ActionPlanMetadata bounds do not match uint32 models")
+			}
+		})
+	}
+}
+
 func TestContractExamplesStrictGoRoundTripAndPresence(t *testing.T) {
 	payload, err := os.ReadFile("examples/contract_examples.json")
 	if err != nil {

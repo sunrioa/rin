@@ -687,6 +687,21 @@ local helper_offer = rin.action_offer({
     description = "Say one line",
     arguments = { line = "hello" },
 }, helper_window)
+assert(rin.resolve_offered_action({
+    session_id = "session.helper",
+    request_id = "request.helper",
+    actor_id = "actor.helper",
+    decision_window = helper_window,
+    offers = { helper_offer },
+}, {
+    id = "proposal.helper.optional-tick",
+    session_id = "session.helper",
+    request_id = "request.helper",
+    actor_id = "actor.helper",
+    tick = 0,
+    decision_window = helper_window,
+    action = helper_offer,
+}) == helper_offer, "omitted request tick did not retain zero-value compatibility")
 local helper_report = rin.immediate_action_report({
     session_id = "session.helper",
     request_id = "report.helper",

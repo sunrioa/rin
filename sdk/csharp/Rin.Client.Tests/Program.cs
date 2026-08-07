@@ -345,6 +345,18 @@ using (var workflowClient = new RinClient(new RinClientOptions(), workflowHandle
         },
         resolved.Proposal with
         {
+            Action = resolved.Proposal.Action with
+            {
+                Planning = new ActionPlanMetadata(
+                    "Injected plan",
+                    "plan.injected",
+                    0,
+                    1,
+                    "high"),
+            },
+        },
+        resolved.Proposal with
+        {
             DecisionWindow = resolved.Proposal.DecisionWindow with
             {
                 Deadline = new Timepoint("event", 7),
