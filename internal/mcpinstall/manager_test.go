@@ -2,6 +2,7 @@ package mcpinstall
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -415,6 +416,16 @@ func assertRegistrationCommands(
 	configPath string,
 ) {
 	t.Helper()
+	openClawDefinition, err := json.Marshal(struct {
+		Command string   `json:"command"`
+		Args    []string `json:"args"`
+	}{
+		Command: serverPath,
+		Args:    []string{"--config", configPath},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	joined := make([]string, 0, len(commands))
 	for _, command := range commands {
 		joined = append(joined, filepath.Base(command.name)+" "+strings.Join(command.arguments, " "))
@@ -422,7 +433,7 @@ func assertRegistrationCommands(
 	expected := []string{
 		"codex mcp add rin -- " + serverPath + " --config " + configPath,
 		"claude mcp add --transport stdio --scope user rin -- " + serverPath + " --config " + configPath,
-		"openclaw mcp set rin {\"command\":\"" + serverPath + "\",\"args\":[\"--config\",\"" + configPath + "\"]}",
+		"openclaw mcp set rin " + string(openClawDefinition),
 	}
 	for _, value := range expected {
 		if !slices.Contains(joined, value) {

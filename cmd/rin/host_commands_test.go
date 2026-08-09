@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -47,8 +48,12 @@ func TestHostProjectCommands(t *testing.T) {
 	if err := runDoctor([]string{"host", "-path", root}, &output); err != nil {
 		t.Fatal(err)
 	}
+	pythonExecutable := "python3"
+	if runtime.GOOS == "windows" {
+		pythonExecutable = "python"
+	}
 	for _, fragment := range []string{
-		"conformance=pass", "runtime=python", "executable=python3",
+		"conformance=pass", "runtime=python", "executable=" + pythonExecutable,
 		"status=",
 	} {
 		if !strings.Contains(output.String(), fragment) {

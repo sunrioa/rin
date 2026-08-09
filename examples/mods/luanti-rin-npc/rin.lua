@@ -608,7 +608,7 @@ function rin.resolve_offered_action(request, proposal)
         proposal.request_id ~= request.request_id or
         proposal.actor_id ~= request.actor_id or
         not is_nonnegative_json_safe_integer(proposal.tick) or
-        proposal.tick ~= request.tick or
+        proposal.tick ~= (request.tick == nil and 0 or request.tick) or
         not semantic_equal(
             proposal.decision_window,
             request.decision_window) or
