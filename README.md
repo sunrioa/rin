@@ -96,6 +96,7 @@ go run ./cmd/rin init host --engine fabric --id guide_npc --name "Guide NPC" --n
 - [总体流程图](docs/flowchart.zh-CN.md)：Runtime、Host、模型与 MCP 控制面的完整链路
 - [Protocol v2](docs/protocol-v2.zh-CN.md)：字段、错误和重试语义
 - [动作生命周期](docs/action-lifecycle.zh-CN.md)：Proposal、执行、Outbox 和恢复
+- [有界任务计划 DSL](docs/planner.zh-CN.md)：条件、分支、有限循环与预算门禁
 - [MCP 快速接入](docs/mcp-control-plane.zh-CN.md)：官方版本协商、Host 发布和权限
 - [部署与监控](docs/operations.zh-CN.md)：Token、TLS、存储和运行限制
 - [发布指南](docs/release-guide.zh-CN.md)与[路线图](ROADMAP.md)
