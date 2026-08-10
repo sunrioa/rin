@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
@@ -367,7 +367,7 @@ func TestTransferImportHardQuotaFailsBeforePublication(t *testing.T) {
 	defer targetStore.Close()
 	target, err := rinruntime.OpenWithOptions(
 		targetStore,
-		policy.Deterministic{},
+		cognition.Deterministic{},
 		rinruntime.EngineOptions{SessionHardLimitBytes: 1},
 	)
 	if err != nil {
@@ -418,7 +418,7 @@ func TestTransferLimitsRejectBeforeUnboundedWork(t *testing.T) {
 	defer eventLimitedStore.Close()
 	eventLimited, err := rinruntime.OpenWithOptions(
 		eventLimitedStore,
-		policy.Deterministic{},
+		cognition.Deterministic{},
 		rinruntime.EngineOptions{MaxTransferEvents: 1},
 	)
 	if err != nil {
@@ -447,7 +447,7 @@ func TestTransferLimitsRejectBeforeUnboundedWork(t *testing.T) {
 	defer byteLimitedStore.Close()
 	byteLimited, err := rinruntime.OpenWithOptions(
 		byteLimitedStore,
-		policy.Deterministic{},
+		cognition.Deterministic{},
 		rinruntime.EngineOptions{MaxTransferBytes: byteLimit},
 	)
 	if err != nil {
@@ -474,7 +474,7 @@ func TestTransferLimitsRejectBeforeUnboundedWork(t *testing.T) {
 	defer identityLimitedStore.Close()
 	identityLimited, err := rinruntime.OpenWithOptions(
 		identityLimitedStore,
-		policy.Deterministic{},
+		cognition.Deterministic{},
 		rinruntime.EngineOptions{MaxTransferIdentityBytes: 1},
 	)
 	if err != nil {
@@ -511,7 +511,7 @@ func TestTransferConcurrencyIsGlobalAndPerSession(t *testing.T) {
 	createTransferSession(t, setup, secondSession)
 	engine, err := rinruntime.OpenWithOptions(
 		eventStore,
-		policy.Deterministic{},
+		cognition.Deterministic{},
 		rinruntime.EngineOptions{MaxConcurrentTransfers: 1},
 	)
 	if err != nil {
@@ -598,7 +598,7 @@ func TestTransferExportHonorsByteLimit(t *testing.T) {
 	}
 	engine, err := rinruntime.OpenWithOptions(
 		eventStore,
-		policy.Deterministic{},
+		cognition.Deterministic{},
 		rinruntime.EngineOptions{
 			MaxTransferBytes: uint64(
 				len(manifestPayload) + 1 + len(eventPayload),
@@ -697,7 +697,7 @@ func (s *failHeadOnceStore) Head(
 
 func transferEngine(t *testing.T, eventStore rinruntime.Store) *rinruntime.Engine {
 	t.Helper()
-	engine, err := rinruntime.Open(eventStore, policy.Deterministic{})
+	engine, err := rinruntime.Open(eventStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}

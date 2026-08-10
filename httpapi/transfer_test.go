@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/httpapi"
-	"github.com/sunrioa/rin/policy"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
@@ -207,7 +207,7 @@ func TestHTTPTransferByteLimitCountsOriginalWireWhitespace(t *testing.T) {
 	defer fileStore.Close()
 	engine, err := rinruntime.OpenWithOptions(
 		fileStore,
-		policy.Deterministic{},
+		cognition.Deterministic{},
 		rinruntime.EngineOptions{
 			MaxTransferBytes: uint64(export.Body.Len()),
 		},
@@ -286,7 +286,7 @@ func TestHTTPTransferExportEndsWithErrorAfterStreamingStarts(t *testing.T) {
 	memory := store.NewMemory()
 	engine, err := rinruntime.Open(
 		&failingRangeStore{Store: memory, ranges: memory},
-		policy.Deterministic{},
+		cognition.Deterministic{},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -348,7 +348,7 @@ func transferHTTPServer(t *testing.T) http.Handler {
 			t.Errorf("close transfer store: %v", err)
 		}
 	})
-	engine, err := rinruntime.Open(fileStore, policy.Deterministic{})
+	engine, err := rinruntime.Open(fileStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}

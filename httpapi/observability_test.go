@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/httpapi"
-	"github.com/sunrioa/rin/policy"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
@@ -99,7 +99,7 @@ func TestOperationalEndpointsAndRequestCorrelation(t *testing.T) {
 
 func TestReadinessFailsWhenStoreCannotBeListed(t *testing.T) {
 	eventStore := &readinessFailureStore{Store: store.NewMemory()}
-	engine, err := rinruntime.Open(eventStore, policy.Deterministic{})
+	engine, err := rinruntime.Open(eventStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}

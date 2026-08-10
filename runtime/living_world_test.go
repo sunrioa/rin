@@ -6,14 +6,14 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
 )
 
 func TestCandidateGoalIsAdoptedOnlyAfterSucceededAction(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	create := createRequest("session.goals")
 	create.Features = append(create.Features, protocol.FeatureGoalCandidates)
 	if _, err := engine.CreateSession(create); err != nil {
@@ -64,7 +64,7 @@ func TestCandidateGoalIsAdoptedOnlyAfterSucceededAction(t *testing.T) {
 }
 
 func TestDormantActorIsExcludedUntilGameWakesIt(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	create := createRequest("session.activity")
 	create.Features = append(create.Features, protocol.FeatureActorActivity)
 	if _, err := engine.CreateSession(create); err != nil {
@@ -105,7 +105,7 @@ func TestDormantActorIsExcludedUntilGameWakesIt(t *testing.T) {
 }
 
 func TestArbitrationIsDeterministicAndBatchReportIsAtomic(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	create := twoActorWorldRequest("session.arbitration")
 	if _, err := engine.CreateSession(create); err != nil {
 		t.Fatal(err)
@@ -171,7 +171,7 @@ func TestArbitrationIsDeterministicAndBatchReportIsAtomic(t *testing.T) {
 }
 
 func TestBatchReportRecordsOutcomeAfterWorldAdvances(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	create := twoActorWorldRequest("session.batch-late")
 	if _, err := engine.CreateSession(create); err != nil {
 		t.Fatal(err)
@@ -208,7 +208,7 @@ func TestBatchReportRecordsOutcomeAfterWorldAdvances(t *testing.T) {
 }
 
 func TestBatchReportRejectsMixedProposalBasesAtomically(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	create := twoActorWorldRequest("session.batch-mixed-base")
 	if _, err := engine.CreateSession(create); err != nil {
 		t.Fatal(err)

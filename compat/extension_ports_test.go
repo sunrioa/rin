@@ -7,14 +7,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/extension"
-	"github.com/sunrioa/rin/policy"
 	"github.com/sunrioa/rin/provider"
 	rinruntime "github.com/sunrioa/rin/runtime"
 )
 
 var (
-	_ rinruntime.DecisionProvider           = policy.Deterministic{}
+	_ rinruntime.DecisionProvider           = cognition.Deterministic{}
 	_ provider.StructuredGenerationProvider = (*structuredProviderFixture)(nil)
 	_ extension.MemoryIndex                 = (*memoryIndexPortFixture)(nil)
 	_ extension.SpeechProvider              = (*speechProviderPortFixture)(nil)

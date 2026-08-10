@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
@@ -17,7 +17,7 @@ func TestSessionStateLimitRejectsCreateBeforeStoreWrite(t *testing.T) {
 	eventStore := store.NewMemory()
 	engine, err := rinruntime.OpenWithOptions(
 		eventStore,
-		policy.Deterministic{},
+		cognition.Deterministic{},
 		rinruntime.EngineOptions{MaxSessionStateBytes: 1},
 	)
 	if err != nil {
@@ -39,7 +39,7 @@ func TestSessionStateLimitRejectsCreateBeforeStoreWrite(t *testing.T) {
 
 func TestSessionStateLimitRejectsMutationBeforeAppend(t *testing.T) {
 	eventStore := store.NewMemory()
-	setup := newEngine(t, eventStore, policy.Deterministic{})
+	setup := newEngine(t, eventStore, cognition.Deterministic{})
 	const sessionID = "session.state-limit-mutation"
 	if _, err := setup.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func TestSessionStateLimitRejectsMutationBeforeAppend(t *testing.T) {
 	}
 	engine, err := rinruntime.OpenWithOptions(
 		eventStore,
-		policy.Deterministic{},
+		cognition.Deterministic{},
 		rinruntime.EngineOptions{
 			MaxSessionStateBytes: uint64(len(encoded) + 100),
 		},
@@ -91,7 +91,7 @@ func TestSessionStateLimitRejectsMutationBeforeAppend(t *testing.T) {
 
 func TestSessionStateLimitRejectsOversizedDurableReplay(t *testing.T) {
 	eventStore := store.NewMemory()
-	setup := newEngine(t, eventStore, policy.Deterministic{})
+	setup := newEngine(t, eventStore, cognition.Deterministic{})
 	const sessionID = "session.state-limit-replay"
 	if _, err := setup.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
@@ -106,7 +106,7 @@ func TestSessionStateLimitRejectsOversizedDurableReplay(t *testing.T) {
 	}
 	engine, err := rinruntime.OpenWithOptions(
 		eventStore,
-		policy.Deterministic{},
+		cognition.Deterministic{},
 		rinruntime.EngineOptions{
 			MaxSessionStateBytes: uint64(len(encoded) - 1),
 		},
@@ -122,7 +122,7 @@ func TestSessionStateLimitRejectsOversizedDurableReplay(t *testing.T) {
 }
 
 func TestSessionStateLimitRejectsTransferEventBeforeStaging(t *testing.T) {
-	source := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	source := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	const sessionID = "session.state-limit-transfer"
 	if _, err := source.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
@@ -151,7 +151,7 @@ func TestSessionStateLimitRejectsTransferEventBeforeStaging(t *testing.T) {
 	defer targetStore.Close()
 	target, err := rinruntime.OpenWithOptions(
 		targetStore,
-		policy.Deterministic{},
+		cognition.Deterministic{},
 		rinruntime.EngineOptions{
 			MaxSessionStateBytes: uint64(len(encoded) - 1),
 		},

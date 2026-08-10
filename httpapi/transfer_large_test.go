@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/httpapi"
-	"github.com/sunrioa/rin/policy"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
@@ -27,7 +27,7 @@ func TestHTTPTransferRoundTripsLineageLargerThanInlineSnapshotLimit(t *testing.T
 	create.RequestID = "create.transfer-over-inline-limit"
 
 	seedStore := store.NewMemory()
-	seedEngine, err := rinruntime.Open(seedStore, policy.Deterministic{})
+	seedEngine, err := rinruntime.Open(seedStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestHTTPTransferRoundTripsLineageLargerThanInlineSnapshotLimit(t *testing.T
 	if err := sourceStore.Create(sessionID, event); err != nil {
 		t.Fatal(err)
 	}
-	sourceEngine, err := rinruntime.Open(sourceStore, policy.Deterministic{})
+	sourceEngine, err := rinruntime.Open(sourceStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestHTTPTransferRoundTripsLineageLargerThanInlineSnapshotLimit(t *testing.T
 		t.Fatal(err)
 	}
 	defer targetStore.Close()
-	targetEngine, err := rinruntime.Open(targetStore, policy.Deterministic{})
+	targetEngine, err := rinruntime.Open(targetStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}

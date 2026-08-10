@@ -6,14 +6,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/protocol"
 	rintime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
 )
 
 func TestTimelineIsBoundedAndRedacted(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	_, _ = engine.CreateSession(createRequest("session.timeline"))
 	observation := observeRequest("session.timeline", "observe.timeline", "event.timeline", 1)
 	observation.Summary = "SECRET_SUMMARY player disclosed a private concern"
@@ -68,7 +68,7 @@ func TestTimelineIsBoundedAndRedacted(t *testing.T) {
 }
 
 func TestReplayUsesExactRevisionWithoutMutatingCurrentState(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	_, _ = engine.CreateSession(createRequest("session.replay"))
 	_, _ = engine.Observe(observeRequest("session.replay", "observe.replay.1", "event.replay.1", 3))
 	_, _ = engine.Observe(observeRequest("session.replay", "observe.replay.2", "event.replay.2", 5))
@@ -101,7 +101,7 @@ func TestReplayUsesExactRevisionWithoutMutatingCurrentState(t *testing.T) {
 }
 
 func TestReplayStateAndSessionStateHashAvoidInlineSnapshotLimit(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	_, _ = engine.CreateSession(createRequest("session.replay-state"))
 	_, _ = engine.Observe(observeRequest(
 		"session.replay-state",

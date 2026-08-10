@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
@@ -15,7 +15,7 @@ import (
 
 func TestActionReportAppendFailureDoesNotMutateLiveStateAndRetryReplays(t *testing.T) {
 	eventStore := newFailOnceAppendStore(store.NewMemory())
-	engine := newEngine(t, eventStore, policy.Deterministic{})
+	engine := newEngine(t, eventStore, cognition.Deterministic{})
 	const sessionID = "session.atomic-action-report"
 
 	if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
@@ -66,7 +66,7 @@ func TestActionReportAppendFailureDoesNotMutateLiveStateAndRetryReplays(t *testi
 		t.Fatalf("persisted retry should return the original revision as duplicate: first=%+v repeated=%+v", result, repeated)
 	}
 
-	reopened := newEngine(t, eventStore, policy.Deterministic{})
+	reopened := newEngine(t, eventStore, cognition.Deterministic{})
 	assertAcceptedOutcomeOnce(t, reopened, sessionID, proposal.ActorID, proposal.ID, request.Report.EventID)
 	replayed, err := reopened.State(sessionRequest(sessionID))
 	if err != nil {
@@ -79,7 +79,7 @@ func TestActionReportAppendFailureDoesNotMutateLiveStateAndRetryReplays(t *testi
 
 func TestBatchActionReportAppendFailureDoesNotMutateLiveStateAndRetryReplays(t *testing.T) {
 	eventStore := newFailOnceAppendStore(store.NewMemory())
-	engine := newEngine(t, eventStore, policy.Deterministic{})
+	engine := newEngine(t, eventStore, cognition.Deterministic{})
 	create := twoActorWorldRequest("session.atomic-batch")
 
 	if _, err := engine.CreateSession(create); err != nil {
@@ -152,7 +152,7 @@ func TestBatchActionReportAppendFailureDoesNotMutateLiveStateAndRetryReplays(t *
 		t.Fatalf("persisted batch retry should return the original revision as duplicate: first=%+v repeated=%+v", result, repeated)
 	}
 
-	reopened := newEngine(t, eventStore, policy.Deterministic{})
+	reopened := newEngine(t, eventStore, cognition.Deterministic{})
 	assertAcceptedOutcomeOnce(t, reopened, create.SessionID, mira.ActorID, mira.ID, request.Reports[0].EventID)
 	assertAcceptedOutcomeOnce(t, reopened, create.SessionID, oren.ActorID, oren.ID, request.Reports[1].EventID)
 	replayed, err := reopened.State(sessionRequest(create.SessionID))
@@ -166,7 +166,7 @@ func TestBatchActionReportAppendFailureDoesNotMutateLiveStateAndRetryReplays(t *
 
 func TestActionReportReconcilesPostWriteAppendErrorWithoutDuplicateLogEntry(t *testing.T) {
 	eventStore := newFailAfterAppendOnceStore(store.NewMemory())
-	engine := newEngine(t, eventStore, policy.Deterministic{})
+	engine := newEngine(t, eventStore, cognition.Deterministic{})
 	const sessionID = "session.atomic-post-write"
 	if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
@@ -206,7 +206,7 @@ func TestActionReportReconcilesPostWriteAppendErrorWithoutDuplicateLogEntry(t *t
 	}
 	assertAcceptedOutcomeOnce(t, engine, sessionID, proposal.ActorID, proposal.ID, request.Report.EventID)
 
-	reopened := newEngine(t, eventStore, policy.Deterministic{})
+	reopened := newEngine(t, eventStore, cognition.Deterministic{})
 	assertAcceptedOutcomeOnce(t, reopened, sessionID, proposal.ActorID, proposal.ID, request.Report.EventID)
 }
 
@@ -215,7 +215,7 @@ func TestAppendReconciliationNeverPublishesUnverifiedLoadedEvent(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			delegate := store.NewMemory()
 			eventStore := &tamperedConfirmationStore{Store: delegate}
-			engine := newEngine(t, eventStore, policy.Deterministic{})
+			engine := newEngine(t, eventStore, cognition.Deterministic{})
 			sessionID := "session.atomic-append-tamper-" + test.name
 			if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
 				t.Fatal(err)
@@ -255,7 +255,7 @@ func TestAppendReconciliationNeverPublishesUnverifiedLoadedEvent(t *testing.T) {
 
 func TestActionReportRecoversWhenPostWriteConfirmationInitiallyFails(t *testing.T) {
 	eventStore := newFailAfterAppendAndConfirmationStore(store.NewMemory())
-	engine := newEngine(t, eventStore, policy.Deterministic{})
+	engine := newEngine(t, eventStore, cognition.Deterministic{})
 	const sessionID = "session.atomic-confirmation"
 	if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
@@ -332,13 +332,13 @@ func TestActionReportRecoversWhenPostWriteConfirmationInitiallyFails(t *testing.
 	if len(events) != 3 {
 		t.Fatalf("confirmation recovery left %d events, want 3", len(events))
 	}
-	reopened := newEngine(t, eventStore, policy.Deterministic{})
+	reopened := newEngine(t, eventStore, cognition.Deterministic{})
 	assertAcceptedOutcomeOnce(t, reopened, sessionID, proposal.ActorID, proposal.ID, request.Report.EventID)
 }
 
 func TestProposeReportsUnknownAndSameRequestRecoversAfterConfirmationFailure(t *testing.T) {
 	eventStore := newFailAfterAppendAndConfirmationStore(store.NewMemory())
-	engine := newEngine(t, eventStore, policy.Deterministic{})
+	engine := newEngine(t, eventStore, cognition.Deterministic{})
 	const sessionID = "session.atomic-proposal-confirmation"
 	if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
@@ -518,7 +518,7 @@ func TestExactUncertainMutationRetryUsesOriginalQuotaReservation(t *testing.T) {
 	}
 	engine, err := rinruntime.OpenWithOptions(
 		eventStore,
-		policy.Deterministic{},
+		cognition.Deterministic{},
 		rinruntime.EngineOptions{SessionHardLimitBytes: hardLimit},
 	)
 	if err != nil {
@@ -555,7 +555,7 @@ func TestExactUncertainMutationRetryUsesOriginalQuotaReservation(t *testing.T) {
 
 func TestProposalRequestHashRejectsAlteredRetriesAfterReplay(t *testing.T) {
 	eventStore := store.NewMemory()
-	engine := newEngine(t, eventStore, policy.Deterministic{})
+	engine := newEngine(t, eventStore, cognition.Deterministic{})
 	const sessionID = "session.proposal-request-hash"
 	if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
@@ -598,7 +598,7 @@ func TestProposalRequestHashRejectsAlteredRetriesAfterReplay(t *testing.T) {
 		t.Fatalf("altered live retry did not conflict: %v", err)
 	}
 
-	reopened := newEngine(t, eventStore, policy.Deterministic{})
+	reopened := newEngine(t, eventStore, cognition.Deterministic{})
 	if _, _, err := reopened.Propose(context.Background(), altered); err == nil ||
 		rinruntime.ErrorCode(err) != "request_id_conflict" {
 		t.Fatalf("altered replayed retry did not conflict: %v", err)
@@ -612,7 +612,7 @@ func TestProposalRequestHashRejectsAlteredRetriesAfterReplay(t *testing.T) {
 func TestCreateReconcilesPostWriteErrorWithoutRestart(t *testing.T) {
 	eventStore := newAmbiguousCreateStore(store.NewMemory())
 	eventStore.failAfterWrite(false)
-	engine := newEngine(t, eventStore, policy.Deterministic{})
+	engine := newEngine(t, eventStore, cognition.Deterministic{})
 	request := createRequest("session.atomic-create")
 
 	result, err := engine.CreateSession(request)
@@ -639,7 +639,7 @@ func TestCreateReconcilesPostWriteErrorWithoutRestart(t *testing.T) {
 	if !repeated.Duplicate || repeated.Revision != result.Revision {
 		t.Fatalf("registered create retry mismatch: first=%+v repeated=%+v", result, repeated)
 	}
-	reopened := newEngine(t, eventStore, policy.Deterministic{})
+	reopened := newEngine(t, eventStore, cognition.Deterministic{})
 	if _, err := reopened.State(sessionRequest(request.SessionID)); err != nil {
 		t.Fatalf("reconciled create did not replay after restart: %v", err)
 	}
@@ -647,7 +647,7 @@ func TestCreateReconcilesPostWriteErrorWithoutRestart(t *testing.T) {
 
 func TestDefiniteCreateFailureDoesNotLeavePendingIdentity(t *testing.T) {
 	eventStore := &definiteCreateFailureStore{Store: store.NewMemory(), fail: true}
-	engine := newEngine(t, eventStore, policy.Deterministic{})
+	engine := newEngine(t, eventStore, cognition.Deterministic{})
 	request := createRequest("session.atomic-definite-create-failure")
 	if _, err := engine.CreateSession(request); !errors.Is(err, errInjectedAppend) ||
 		rinruntime.ErrorCode(err) != "store_create_failed" {
@@ -667,7 +667,7 @@ func TestCreateReconciliationNeverPublishesUnverifiedLoadedEvent(t *testing.T) {
 			delegate := store.NewMemory()
 			eventStore := &tamperedConfirmationStore{Store: delegate}
 			eventStore.failAfterNextCreate(test.mutate)
-			engine := newEngine(t, eventStore, policy.Deterministic{})
+			engine := newEngine(t, eventStore, cognition.Deterministic{})
 			request := createRequest("session.atomic-create-tamper-" + test.name)
 
 			if _, err := engine.CreateSession(request); err == nil {
@@ -690,7 +690,7 @@ func TestCreateReconciliationNeverPublishesUnverifiedLoadedEvent(t *testing.T) {
 func TestCreateRetryRecoversAfterConfirmationFailure(t *testing.T) {
 	eventStore := newAmbiguousCreateStore(store.NewMemory())
 	eventStore.failAfterWrite(true)
-	engine := newEngine(t, eventStore, policy.Deterministic{})
+	engine := newEngine(t, eventStore, cognition.Deterministic{})
 	request := createRequest("session.atomic-create-retry")
 
 	if _, err := engine.CreateSession(request); !errors.Is(err, errInjectedAppend) ||
@@ -717,7 +717,7 @@ func TestCreateRetryRecoversAfterConfirmationFailure(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("create recovery persisted %d events, want 1", len(events))
 	}
-	reopened := newEngine(t, eventStore, policy.Deterministic{})
+	reopened := newEngine(t, eventStore, cognition.Deterministic{})
 	if _, err := reopened.State(sessionRequest(request.SessionID)); err != nil {
 		t.Fatalf("recovered create did not replay after restart: %v", err)
 	}
@@ -726,7 +726,7 @@ func TestCreateRetryRecoversAfterConfirmationFailure(t *testing.T) {
 func TestPendingCreateBlocksOtherMutationsWithOutcomeUnknown(t *testing.T) {
 	eventStore := newAmbiguousCreateStore(store.NewMemory())
 	eventStore.failAfterWrite(true)
-	engine := newEngine(t, eventStore, policy.Deterministic{})
+	engine := newEngine(t, eventStore, cognition.Deterministic{})
 	request := createRequest("session.atomic-create-barrier")
 
 	if _, err := engine.CreateSession(request); rinruntime.ErrorCode(err) != "mutation_outcome_unknown" {
@@ -750,7 +750,7 @@ func TestPendingCreateBlocksOtherMutationsWithOutcomeUnknown(t *testing.T) {
 
 func TestFreshRestoreRetryRecoversAfterConfirmationFailure(t *testing.T) {
 	const sessionID = "session.atomic-fresh-restore"
-	source := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	source := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	if _, err := source.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
 	}
@@ -761,7 +761,7 @@ func TestFreshRestoreRetryRecoversAfterConfirmationFailure(t *testing.T) {
 
 	eventStore := newAmbiguousCreateStore(store.NewMemory())
 	eventStore.failAfterWrite(true)
-	engine := newEngine(t, eventStore, policy.Deterministic{})
+	engine := newEngine(t, eventStore, cognition.Deterministic{})
 	request := protocol.RestoreRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       sessionID,
@@ -800,7 +800,7 @@ func TestFreshRestoreRetryRecoversAfterConfirmationFailure(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("fresh restore recovery persisted %d events, want 1", len(events))
 	}
-	reopened := newEngine(t, eventStore, policy.Deterministic{})
+	reopened := newEngine(t, eventStore, cognition.Deterministic{})
 	if _, err := reopened.State(sessionRequest(sessionID)); err != nil {
 		t.Fatalf("recovered fresh restore did not replay after restart: %v", err)
 	}

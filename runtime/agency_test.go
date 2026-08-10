@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
@@ -29,7 +29,7 @@ func (p *agencyCountingPolicy) Propose(
 
 func TestActorAgencyUpdateIsIdempotentAndReplayable(t *testing.T) {
 	eventStore := store.NewMemory()
-	engine := newEngine(t, eventStore, policy.Deterministic{})
+	engine := newEngine(t, eventStore, cognition.Deterministic{})
 	create := agencyCreateRequest("session.agency-update")
 	if _, err := engine.CreateSession(create); err != nil {
 		t.Fatal(err)
@@ -64,7 +64,7 @@ func TestActorAgencyUpdateIsIdempotentAndReplayable(t *testing.T) {
 		t.Fatalf("agency snapshot is invalid: %v", err)
 	}
 
-	reloaded := newEngine(t, eventStore, policy.Deterministic{})
+	reloaded := newEngine(t, eventStore, cognition.Deterministic{})
 	replayed, err := reloaded.State(sessionRequest(create.SessionID))
 	if err != nil || replayed.Actors["npc.mira"].Agency == nil ||
 		replayed.Actors["npc.mira"].Agency.Initiative != protocol.InitiativeActions {
@@ -74,7 +74,7 @@ func TestActorAgencyUpdateIsIdempotentAndReplayable(t *testing.T) {
 
 func TestActorAgencyUpdateRejectsInvalidSessionMutation(t *testing.T) {
 	t.Run("feature disabled", func(t *testing.T) {
-		engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+		engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 		create := createRequest("session.agency-disabled")
 		if _, err := engine.CreateSession(create); err != nil {
 			t.Fatal(err)
@@ -85,7 +85,7 @@ func TestActorAgencyUpdateRejectsInvalidSessionMutation(t *testing.T) {
 	})
 
 	t.Run("unknown actor", func(t *testing.T) {
-		engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+		engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 		create := agencyCreateRequest("session.agency-unknown")
 		if _, err := engine.CreateSession(create); err != nil {
 			t.Fatal(err)
@@ -98,7 +98,7 @@ func TestActorAgencyUpdateRejectsInvalidSessionMutation(t *testing.T) {
 	})
 
 	t.Run("tick regression", func(t *testing.T) {
-		engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+		engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 		create := agencyCreateRequest("session.agency-tick")
 		if _, err := engine.CreateSession(create); err != nil {
 			t.Fatal(err)
@@ -112,7 +112,7 @@ func TestActorAgencyUpdateRejectsInvalidSessionMutation(t *testing.T) {
 	})
 
 	t.Run("altered retry", func(t *testing.T) {
-		engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+		engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 		create := agencyCreateRequest("session.agency-retry")
 		if _, err := engine.CreateSession(create); err != nil {
 			t.Fatal(err)

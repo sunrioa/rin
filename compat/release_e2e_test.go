@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/httpapi"
-	"github.com/sunrioa/rin/policy"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
@@ -23,7 +23,7 @@ func TestReleaseGateFromEmptyDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sourceEngine, err := rinruntime.Open(sourceStore, policy.Deterministic{})
+	sourceEngine, err := rinruntime.Open(sourceStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestReleaseGateFromEmptyDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	targetEngine, err := rinruntime.Open(targetStore, policy.Deterministic{})
+	targetEngine, err := rinruntime.Open(targetStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,7 @@ func TestReleaseGateFromEmptyDirectories(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopenedStore.Close()
-	reopenedEngine, err := rinruntime.Open(reopenedStore, policy.Deterministic{})
+	reopenedEngine, err := rinruntime.Open(reopenedStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/generation"
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/httpapi"
 	"github.com/sunrioa/rin/jobs"
-	"github.com/sunrioa/rin/policy"
 	"github.com/sunrioa/rin/protocol"
 	"github.com/sunrioa/rin/provider"
 	rinruntime "github.com/sunrioa/rin/runtime"
@@ -386,7 +386,7 @@ func TestDefaultTransportBudgetRoundTripsSnapshotLargerThanLegacyClientLimit(t *
 
 func TestDefiniteCreateStorageFailureMapsToInternalServerError(t *testing.T) {
 	eventStore := &definiteCreateFailureStore{Store: store.NewMemory()}
-	engine, err := rinruntime.Open(eventStore, policy.Deterministic{})
+	engine, err := rinruntime.Open(eventStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -643,7 +643,7 @@ func TestTimelineAndReplayHTTPFlow(t *testing.T) {
 }
 
 func TestAsyncProposalJobHTTPFlow(t *testing.T) {
-	engine, err := rinruntime.Open(store.NewMemory(), policy.Deterministic{})
+	engine, err := rinruntime.Open(store.NewMemory(), cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -702,7 +702,7 @@ func TestAsyncProposalJobHTTPFlow(t *testing.T) {
 }
 
 func TestStructuredGenerationHTTPFlow(t *testing.T) {
-	engine, err := rinruntime.Open(store.NewMemory(), policy.Deterministic{})
+	engine, err := rinruntime.Open(store.NewMemory(), cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -796,7 +796,7 @@ func (s *definiteCreateFailureStore) Create(string, protocol.EventRecord) error 
 
 func newServer(t *testing.T, options httpapi.Options) http.Handler {
 	t.Helper()
-	engine, err := rinruntime.Open(store.NewMemory(), policy.Deterministic{})
+	engine, err := rinruntime.Open(store.NewMemory(), cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -102,7 +102,7 @@ Snapshot、保留的 Recent Action、Checkpoint 与持久化 exact-retry 结果�
 `summary`/`rationale`，同时保留原 Revision 与 Head。原始 Event 和 Restore
 Payload 仍可能含有旧私密字符串，升级不会擦除这些底层记录。
 
-内置 `policy.Deterministic` 是离线基线：
+内置 `cognition.Deterministic` 是离线决策基线：
 
 1. 标签命中边界时只选择对应的 `refuse`、`redirect` 或 `wait` 动作。
 2. 否则优先服务高优先级主动目标。

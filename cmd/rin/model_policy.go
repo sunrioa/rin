@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/provider"
 	"github.com/sunrioa/rin/provider/openai"
 	rinruntime "github.com/sunrioa/rin/runtime"
@@ -36,7 +36,7 @@ func buildModelRuntime(logger *slog.Logger) (modelRuntime, error) {
 	mode := strings.ToLower(envOr("RIN_POLICY", "deterministic"))
 	if mode == "deterministic" {
 		return modelRuntime{
-			DecisionProvider: policy.Deterministic{},
+			DecisionProvider: cognition.Deterministic{},
 			Mode:             "deterministic",
 		}, nil
 	}
@@ -85,16 +85,16 @@ func buildModelRuntime(logger *slog.Logger) (modelRuntime, error) {
 	if err != nil {
 		return modelRuntime{}, err
 	}
-	modelDecisionProvider := policy.Model{GenerationProvider: resilient}
-	cached, err := policy.NewCached(modelDecisionProvider, policy.CacheConfig{
+	modelDecisionProvider := cognition.Model{GenerationProvider: resilient}
+	cached, err := cognition.NewCached(modelDecisionProvider, cognition.CacheConfig{
 		MaxEntries: envInt("RIN_MODEL_CACHE_ENTRIES", 256),
 		TTL:        envDuration("RIN_MODEL_CACHE_TTL", 10*time.Minute),
 	})
 	if err != nil {
 		return modelRuntime{}, err
 	}
-	selectedProvider := policy.Failover{
-		Primary: cached, Fallback: policy.Deterministic{},
+	selectedProvider := cognition.Failover{
+		Primary: cached, Fallback: cognition.Deterministic{},
 		OnFallback: func(err error) {
 			logger.Warn("model policy used deterministic fallback", "error", err)
 		},

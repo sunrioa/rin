@@ -1,4 +1,4 @@
-package policy_test
+package cognition_test
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 )
@@ -50,7 +50,7 @@ func (p *countingPolicy) count() int {
 
 func TestCachedPolicyReusesSemanticRequest(t *testing.T) {
 	underlying := &countingPolicy{}
-	cached, err := policy.NewCached(underlying, policy.CacheConfig{MaxEntries: 4, TTL: time.Minute})
+	cached, err := cognition.NewCached(underlying, cognition.CacheConfig{MaxEntries: 4, TTL: time.Minute})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,9 +72,9 @@ func TestCachedPolicyReusesSemanticRequest(t *testing.T) {
 func TestPoliciesRejectNilContextBeforeDependencies(t *testing.T) {
 	underlying := &countingPolicy{}
 	modelClient := &completionClient{}
-	cached, err := policy.NewCached(
+	cached, err := cognition.NewCached(
 		underlying,
-		policy.CacheConfig{MaxEntries: 4, TTL: time.Minute},
+		cognition.CacheConfig{MaxEntries: 4, TTL: time.Minute},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -83,17 +83,17 @@ func TestPoliciesRejectNilContextBeforeDependencies(t *testing.T) {
 		name   string
 		policy rinruntime.DecisionProvider
 	}{
-		{name: "deterministic", policy: policy.Deterministic{}},
+		{name: "deterministic", policy: cognition.Deterministic{}},
 		{name: "cached", policy: cached},
 		{
 			name: "failover",
-			policy: policy.Failover{
+			policy: cognition.Failover{
 				Primary: underlying, Fallback: underlying,
 			},
 		},
 		{
 			name:   "model",
-			policy: policy.Model{GenerationProvider: modelClient},
+			policy: cognition.Model{GenerationProvider: modelClient},
 		},
 	}
 	for _, test := range policies {
@@ -113,7 +113,7 @@ func TestPoliciesRejectNilContextBeforeDependencies(t *testing.T) {
 
 func TestCachedPolicySeparatesCandidateGoalContracts(t *testing.T) {
 	underlying := &countingPolicy{}
-	cached, _ := policy.NewCached(underlying, policy.CacheConfig{MaxEntries: 4, TTL: time.Minute})
+	cached, _ := cognition.NewCached(underlying, cognition.CacheConfig{MaxEntries: 4, TTL: time.Minute})
 	input := modelInput()
 	input.State.WorldRevision = 3
 	input.Request.CandidateGoals = []protocol.Goal{{
@@ -134,9 +134,9 @@ func TestCachedPolicySeparatesCandidateGoalContracts(t *testing.T) {
 
 func TestCachedPolicySeparatesLineageHeadAndActorState(t *testing.T) {
 	underlying := &countingPolicy{}
-	cached, err := policy.NewCached(
+	cached, err := cognition.NewCached(
 		underlying,
-		policy.CacheConfig{MaxEntries: 8, TTL: time.Minute},
+		cognition.CacheConfig{MaxEntries: 8, TTL: time.Minute},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -191,9 +191,9 @@ func TestCachedPolicySeparatesLineageHeadAndActorState(t *testing.T) {
 
 func TestCachedPolicySeparatesAgencyContract(t *testing.T) {
 	underlying := &countingPolicy{}
-	cached, err := policy.NewCached(
+	cached, err := cognition.NewCached(
 		underlying,
-		policy.CacheConfig{MaxEntries: 8, TTL: time.Minute},
+		cognition.CacheConfig{MaxEntries: 8, TTL: time.Minute},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -226,7 +226,7 @@ func TestCachedPolicySeparatesAgencyContract(t *testing.T) {
 
 func TestCachedPolicyCollapsesConcurrentCalls(t *testing.T) {
 	underlying := &countingPolicy{started: make(chan struct{}), release: make(chan struct{})}
-	cached, _ := policy.NewCached(underlying, policy.CacheConfig{MaxEntries: 8, TTL: time.Minute})
+	cached, _ := cognition.NewCached(underlying, cognition.CacheConfig{MaxEntries: 8, TTL: time.Minute})
 	const callers = 8
 	errorsChannel := make(chan error, callers)
 	for index := 0; index < callers; index++ {
@@ -255,7 +255,7 @@ func TestCachedPolicyCollapsesConcurrentCalls(t *testing.T) {
 
 func TestCachedPolicyDoesNotCacheFailures(t *testing.T) {
 	underlying := &countingPolicy{err: errors.New("failed")}
-	cached, _ := policy.NewCached(underlying, policy.CacheConfig{})
+	cached, _ := cognition.NewCached(underlying, cognition.CacheConfig{})
 	for index := 0; index < 2; index++ {
 		if _, err := cached.Propose(context.Background(), modelInput()); err == nil {
 			t.Fatal("expected policy failure")

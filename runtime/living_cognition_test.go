@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
@@ -14,7 +14,7 @@ import (
 
 func TestLivingMemoryArchivesAndReplaysDeterministically(t *testing.T) {
 	eventStore := store.NewMemory()
-	engine := newEngine(t, eventStore, policy.Deterministic{})
+	engine := newEngine(t, eventStore, cognition.Deterministic{})
 	create := createRequest("session.archive")
 	create.Features = append(create.Features, protocol.FeatureMemoryArchive)
 	if _, err := engine.CreateSession(create); err != nil {
@@ -73,7 +73,7 @@ func TestLivingMemoryArchivesAndReplaysDeterministically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reopened := newEngine(t, eventStore, policy.Deterministic{})
+	reopened := newEngine(t, eventStore, cognition.Deterministic{})
 	after, err := reopened.Snapshot(sessionRequest("session.archive"))
 	if err != nil {
 		t.Fatal(err)
@@ -84,7 +84,7 @@ func TestLivingMemoryArchivesAndReplaysDeterministically(t *testing.T) {
 }
 
 func TestBeliefConflictsRemainActorLocal(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	create := createRequest("session.beliefs")
 	create.Features = append(create.Features, protocol.FeatureBeliefConflicts)
 	second := create.Actors[0]

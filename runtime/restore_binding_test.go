@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
@@ -48,7 +48,7 @@ func TestRestoreExpectedBindingRejectsEveryMismatchedDimension(t *testing.T) {
 			snapshot := bindingSnapshot(t, sessionID, createRequest(sessionID).Binding)
 			expected := snapshot.State.Binding
 			test.mutate(&expected)
-			target := newEngine(t, store.NewMemory(), policy.Deterministic{})
+			target := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 
 			_, err := target.Restore(protocol.RestoreRequest{
 				ProtocolVersion: protocol.Version,
@@ -65,7 +65,7 @@ func TestRestoreExpectedBindingRejectsEveryMismatchedDimension(t *testing.T) {
 
 		t.Run("existing/"+test.name, func(t *testing.T) {
 			sessionID := "session.restore-binding-existing-" + test.name
-			target := newEngine(t, store.NewMemory(), policy.Deterministic{})
+			target := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 			if _, err := target.CreateSession(createRequest(sessionID)); err != nil {
 				t.Fatal(err)
 			}
@@ -100,7 +100,7 @@ func TestRestoreExpectedBindingAllowsFreshAndExistingExactRetries(t *testing.T) 
 	t.Run("fresh", func(t *testing.T) {
 		const sessionID = "session.restore-binding-exact-fresh"
 		snapshot := bindingSnapshot(t, sessionID, createRequest(sessionID).Binding)
-		target := newEngine(t, store.NewMemory(), policy.Deterministic{})
+		target := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 		request := protocol.RestoreRequest{
 			ProtocolVersion: protocol.Version,
 			SessionID:       sessionID,
@@ -122,7 +122,7 @@ func TestRestoreExpectedBindingAllowsFreshAndExistingExactRetries(t *testing.T) 
 
 	t.Run("existing", func(t *testing.T) {
 		const sessionID = "session.restore-binding-exact-existing"
-		target := newEngine(t, store.NewMemory(), policy.Deterministic{})
+		target := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 		if _, err := target.CreateSession(createRequest(sessionID)); err != nil {
 			t.Fatal(err)
 		}
@@ -164,7 +164,7 @@ func bindingSnapshot(
 	binding protocol.Binding,
 ) protocol.Snapshot {
 	t.Helper()
-	source := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	source := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	request := createRequest(sessionID)
 	request.Binding = binding
 	if _, err := source.CreateSession(request); err != nil {

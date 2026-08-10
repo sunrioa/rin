@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 )
@@ -571,7 +571,7 @@ func TestFileStoreCreateRecoversLegacyEmptySessionDirectory(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(root, "sessions", sessionID), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	engine, err := rinruntime.Open(fileStore, policy.Deterministic{})
+	engine, err := rinruntime.Open(fileStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -662,7 +662,7 @@ func TestFileStoreCreatePropagatesCorruptExistingLog(t *testing.T) {
 
 func TestMemoryArtifactRetriesDoNotConsumeRetentionSlots(t *testing.T) {
 	memory := NewMemory()
-	engine, err := rinruntime.Open(memory, policy.Deterministic{})
+	engine, err := rinruntime.Open(memory, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -909,7 +909,7 @@ func TestFileStoreCreateParentFenceFailureIsRetriedByLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer fileStore.Close()
-	engine, err := rinruntime.Open(fileStore, policy.Deterministic{})
+	engine, err := rinruntime.Open(fileStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1071,7 +1071,7 @@ func TestFileStoreAppendRejectsCorruptActualTail(t *testing.T) {
 
 func TestMemorySnapshotRetentionUsesRevisionNotArrivalOrder(t *testing.T) {
 	source := NewMemory()
-	engine, err := rinruntime.Open(source, policy.Deterministic{})
+	engine, err := rinruntime.Open(source, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1235,7 +1235,7 @@ func TestFileStoreRepairsSameNameDerivedArtifacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	reopenedEngine, err := rinruntime.Open(reopened, policy.Deterministic{})
+	reopenedEngine, err := rinruntime.Open(reopened, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1701,7 +1701,7 @@ func newStep5FileEngine(
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := rinruntime.Open(fileStore, policy.Deterministic{})
+	engine, err := rinruntime.Open(fileStore, cognition.Deterministic{})
 	if err != nil {
 		_ = fileStore.Close()
 		t.Fatal(err)
@@ -1717,7 +1717,7 @@ func newStep5FileArtifactFixture(
 ) (*File, protocol.Snapshot, rinruntime.Checkpoint, protocol.EventRecord) {
 	t.Helper()
 	memory := NewMemory()
-	engine, err := rinruntime.Open(memory, policy.Deterministic{})
+	engine, err := rinruntime.Open(memory, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}

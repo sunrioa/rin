@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 )
@@ -129,7 +129,7 @@ func TestRuntimeTransferRecoversPublishedTargetAfterParentFenceFailure(t *testin
 				t.Fatal(err)
 			}
 			defer fileStore.Close()
-			engine, err := rinruntime.Open(fileStore, policy.Deterministic{})
+			engine, err := rinruntime.Open(fileStore, cognition.Deterministic{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -334,7 +334,7 @@ func fileTransferFixture(
 ) {
 	t.Helper()
 	memory := NewMemory()
-	engine, err := rinruntime.Open(memory, policy.Deterministic{})
+	engine, err := rinruntime.Open(memory, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}

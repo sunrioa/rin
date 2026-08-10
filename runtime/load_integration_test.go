@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
@@ -16,13 +16,13 @@ import (
 
 func TestOpenLazilySingleflightsFirstSessionLoad(t *testing.T) {
 	memory := store.NewMemory()
-	source := newEngine(t, memory, policy.Deterministic{})
+	source := newEngine(t, memory, cognition.Deterministic{})
 	const sessionID = "session.lazy-singleflight"
 	if _, err := source.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
 	}
 	blocking := newBlockingLoadStore(memory)
-	engine, err := rinruntime.Open(blocking, policy.Deterministic{})
+	engine, err := rinruntime.Open(blocking, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestOpenLazilySingleflightsFirstSessionLoad(t *testing.T) {
 
 func TestLazyLoadFailureIsIsolatedAndRetryable(t *testing.T) {
 	memory := store.NewMemory()
-	source := newEngine(t, memory, policy.Deterministic{})
+	source := newEngine(t, memory, cognition.Deterministic{})
 	const (
 		healthyID = "session.lazy-healthy"
 		failingID = "session.lazy-failing"
@@ -87,7 +87,7 @@ func TestLazyLoadFailureIsIsolatedAndRetryable(t *testing.T) {
 	failures := &failSessionLoadStore{
 		Store: memory, sessionID: failingID, remaining: 1,
 	}
-	engine, err := rinruntime.Open(failures, policy.Deterministic{})
+	engine, err := rinruntime.Open(failures, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestLazyLoadFailureIsIsolatedAndRetryable(t *testing.T) {
 func TestLazyRecoveryWritesMissingHeadCheckpointOnlyOnce(t *testing.T) {
 	eventStore := newRangeCheckpointStore()
 	legacyStore := &baseStoreOnly{Store: eventStore}
-	source := newEngine(t, legacyStore, policy.Deterministic{})
+	source := newEngine(t, legacyStore, cognition.Deterministic{})
 	const sessionID = "session.lazy-checkpoint-migration"
 	if _, err := source.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
@@ -138,7 +138,7 @@ func TestLazyRecoveryWritesMissingHeadCheckpointOnlyOnce(t *testing.T) {
 		t.Fatalf("legacy Store unexpectedly wrote checkpoints: %v", revisions)
 	}
 
-	firstRecovery, err := rinruntime.Open(eventStore, policy.Deterministic{})
+	firstRecovery, err := rinruntime.Open(eventStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestLazyRecoveryWritesMissingHeadCheckpointOnlyOnce(t *testing.T) {
 		t.Fatalf("lazy recovery checkpoint saves = %d, want 1", saves)
 	}
 
-	audit, err := rinruntime.Open(eventStore, policy.Deterministic{})
+	audit, err := rinruntime.Open(eventStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestLazyRecoveryWritesMissingHeadCheckpointOnlyOnce(t *testing.T) {
 	}
 
 	eventStore.resetRangeReads()
-	secondRecovery, err := rinruntime.Open(eventStore, policy.Deterministic{})
+	secondRecovery, err := rinruntime.Open(eventStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestLazyRecoveryWritesMissingHeadCheckpointOnlyOnce(t *testing.T) {
 
 func TestCheckpointTailReplayMatchesFullReplayAndFallsBackFromDamage(t *testing.T) {
 	eventStore := newRangeCheckpointStore()
-	engine := newEngine(t, eventStore, policy.Deterministic{})
+	engine := newEngine(t, eventStore, cognition.Deterministic{})
 	const sessionID = "session.checkpoint-tail"
 	if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
@@ -239,7 +239,7 @@ func TestCheckpointTailReplayMatchesFullReplayAndFallsBackFromDamage(t *testing.
 	}
 
 	eventStore.failNextRangeAfter(256)
-	reopened, err := rinruntime.Open(eventStore, policy.Deterministic{})
+	reopened, err := rinruntime.Open(eventStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +258,7 @@ func TestCheckpointTailReplayMatchesFullReplayAndFallsBackFromDamage(t *testing.
 	}
 
 	eventStore.damageOldPrefix(true)
-	checkpointOnly, err := rinruntime.Open(eventStore, policy.Deterministic{})
+	checkpointOnly, err := rinruntime.Open(eventStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +275,7 @@ func TestCheckpointTailReplayMatchesFullReplayAndFallsBackFromDamage(t *testing.
 	eventStore.damageOldPrefix(false)
 
 	eventStore.damageLatestCheckpoint(sessionID)
-	fallback, err := rinruntime.Open(eventStore, policy.Deterministic{})
+	fallback, err := rinruntime.Open(eventStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +297,7 @@ func TestCheckpointTailReplayMatchesFullReplayAndFallsBackFromDamage(t *testing.
 
 func TestTimelineAndReplayRangeIOReleaseMutationLock(t *testing.T) {
 	eventStore := newRangeCheckpointStore()
-	engine := newEngine(t, eventStore, policy.Deterministic{})
+	engine := newEngine(t, eventStore, cognition.Deterministic{})
 	const sessionID = "session.audit-lock-boundary"
 	if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
@@ -363,7 +363,7 @@ func TestTimelineAndReplayRangeIOReleaseMutationLock(t *testing.T) {
 func TestCheckpointFailureDoesNotReverseDurableCreate(t *testing.T) {
 	eventStore := newRangeCheckpointStore()
 	eventStore.failCheckpointSave = true
-	engine := newEngine(t, eventStore, policy.Deterministic{})
+	engine := newEngine(t, eventStore, cognition.Deterministic{})
 	const sessionID = "session.checkpoint-derived-cache"
 	result, err := engine.CreateSession(createRequest(sessionID))
 	if err != nil {
@@ -381,12 +381,12 @@ func TestCheckpointFailureDoesNotReverseDurableCreate(t *testing.T) {
 
 func TestCheckpointReplayRestoresWritableOmittedMaps(t *testing.T) {
 	eventStore := newRangeCheckpointStore()
-	source := newEngine(t, eventStore, policy.Deterministic{})
+	source := newEngine(t, eventStore, cognition.Deterministic{})
 	const sessionID = "session.checkpoint-writable-maps"
 	if _, err := source.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := rinruntime.Open(eventStore, policy.Deterministic{})
+	reopened, err := rinruntime.Open(eventStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,7 +412,7 @@ func TestCheckpointReplayRestoresWritableOmittedMaps(t *testing.T) {
 
 func TestBaseStoreRestoreMutationReopenNormalizesOmittedMaps(t *testing.T) {
 	const sessionID = "session.base-store-restore-maps"
-	source := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	source := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	if _, err := source.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
 	}
@@ -422,7 +422,7 @@ func TestBaseStoreRestoreMutationReopenNormalizesOmittedMaps(t *testing.T) {
 	}
 
 	legacy := &baseStoreOnly{Store: store.NewMemory()}
-	target := newEngine(t, legacy, policy.Deterministic{})
+	target := newEngine(t, legacy, cognition.Deterministic{})
 	if _, err := target.Restore(protocol.RestoreRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       sessionID,
@@ -451,7 +451,7 @@ func TestBaseStoreRestoreMutationReopenNormalizesOmittedMaps(t *testing.T) {
 		t.Fatalf("mutation after Restore could not write omitted actor maps: %v", err)
 	}
 
-	reopened, err := rinruntime.Open(legacy, policy.Deterministic{})
+	reopened, err := rinruntime.Open(legacy, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -467,7 +467,7 @@ func TestBaseStoreRestoreMutationReopenNormalizesOmittedMaps(t *testing.T) {
 
 func TestCreateStoreIODoesNotHoldEngineMapLock(t *testing.T) {
 	eventStore := newBlockingCreateStore(store.NewMemory())
-	engine := newEngine(t, eventStore, policy.Deterministic{})
+	engine := newEngine(t, eventStore, cognition.Deterministic{})
 	const existingID = "session.create-lock-existing"
 	if _, err := engine.CreateSession(createRequest(existingID)); err != nil {
 		t.Fatal(err)
@@ -495,7 +495,7 @@ func TestCreateStoreIODoesNotHoldEngineMapLock(t *testing.T) {
 
 func TestDifferentSessionCreatesDoNotShareLifecycleGate(t *testing.T) {
 	eventStore := newBlockingCreateStore(store.NewMemory())
-	engine := newEngine(t, eventStore, policy.Deterministic{})
+	engine := newEngine(t, eventStore, cognition.Deterministic{})
 
 	started, release := eventStore.blockNextCreate()
 	firstResult := make(chan error, 1)
@@ -529,7 +529,7 @@ func TestDifferentSessionCreatesDoNotShareLifecycleGate(t *testing.T) {
 
 func TestSameSessionCreatesShareLifecycleGate(t *testing.T) {
 	eventStore := newBlockingCreateStore(store.NewMemory())
-	engine := newEngine(t, eventStore, policy.Deterministic{})
+	engine := newEngine(t, eventStore, cognition.Deterministic{})
 	request := createRequest("session.lifecycle-shared")
 
 	type createOutcome struct {

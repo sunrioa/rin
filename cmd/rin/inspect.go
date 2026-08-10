@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/protocol"
 	rintime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
@@ -61,7 +61,7 @@ func runInspect(arguments []string, output io.Writer) (resultErr error) {
 	}()
 	engine, err := rintime.OpenWithOptions(
 		fileStore,
-		policy.Deterministic{},
+		cognition.Deterministic{},
 		rintime.EngineOptions{
 			MaxSessionStateBytes: rintime.MaxConfigurableSessionStateBytes,
 		},

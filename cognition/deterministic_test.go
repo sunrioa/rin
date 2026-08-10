@@ -1,4 +1,4 @@
-package policy_test
+package cognition_test
 
 import (
 	"context"
@@ -6,14 +6,14 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 )
 
 func TestDeterministicPolicyUsesGoalAndMemory(t *testing.T) {
 	input := policyInput()
-	draft, err := (policy.Deterministic{}).Propose(context.Background(), input)
+	draft, err := (cognition.Deterministic{}).Propose(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +23,7 @@ func TestDeterministicPolicyUsesGoalAndMemory(t *testing.T) {
 	if len(draft.RecalledMemoryIDs) != 2 || draft.RecalledMemoryIDs[0] != "memory.relevant" {
 		t.Fatalf("unexpected recall order: %v", draft.RecalledMemoryIDs)
 	}
-	repeated, err := (policy.Deterministic{}).Propose(context.Background(), input)
+	repeated, err := (cognition.Deterministic{}).Propose(context.Background(), input)
 	if err != nil || !reflect.DeepEqual(repeated, draft) {
 		t.Fatalf("policy should be deterministic: first=%+v second=%+v err=%v", draft, repeated, err)
 	}
@@ -42,7 +42,7 @@ func TestDeterministicPolicyLetsRecalledMemoryInfluenceAction(t *testing.T) {
 		Summary: "The player chose tea.", Tags: []string{"tea"}, Importance: 4,
 	}}
 
-	draft, err := (policy.Deterministic{}).Propose(context.Background(), input)
+	draft, err := (cognition.Deterministic{}).Propose(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestDeterministicPolicyDoesNotScoreUnrecalledMemory(t *testing.T) {
 		},
 	}
 
-	draft, err := (policy.Deterministic{MemoryLimit: 1}).Propose(context.Background(), input)
+	draft, err := (cognition.Deterministic{MemoryLimit: 1}).Propose(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestDeterministicPolicyDoesNotScoreUnrecalledMemory(t *testing.T) {
 		t.Fatalf("unexpected bounded recall: %+v", draft)
 	}
 	input.Actor.Memories = input.Actor.Memories[:1]
-	withoutUnrecalled, err := (policy.Deterministic{MemoryLimit: 1}).Propose(context.Background(), input)
+	withoutUnrecalled, err := (cognition.Deterministic{MemoryLimit: 1}).Propose(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestDeterministicPolicyProtectsBoundary(t *testing.T) {
 			input := policyInput()
 			input.Request.Tags = []string{"private"}
 			input.Request.Offers = []protocol.ActionOffer{test.action}
-			draft, err := (policy.Deterministic{}).Propose(context.Background(), input)
+			draft, err := (cognition.Deterministic{}).Propose(context.Background(), input)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -119,7 +119,7 @@ func TestDeterministicPolicyProtectsBoundary(t *testing.T) {
 	input := policyInput()
 	input.Request.Tags = []string{"private"}
 	input.Request.Offers = input.Request.Offers[:1]
-	if _, err := (policy.Deterministic{}).Propose(context.Background(), input); !errors.Is(err, rinruntime.ErrNoSafeAction) {
+	if _, err := (cognition.Deterministic{}).Propose(context.Background(), input); !errors.Is(err, rinruntime.ErrNoSafeAction) {
 		t.Fatalf("expected no safe action, got %v", err)
 	}
 }
@@ -127,7 +127,7 @@ func TestDeterministicPolicyProtectsBoundary(t *testing.T) {
 func TestDeterministicPolicyObeysBoundDirectiveOffer(t *testing.T) {
 	input := policyInput()
 	input.Agency = obeyDirective("wait")
-	draft, err := (policy.Deterministic{}).Propose(context.Background(), input)
+	draft, err := (cognition.Deterministic{}).Propose(context.Background(), input)
 	if err != nil || draft.OfferID != "wait" {
 		t.Fatalf("directive was not obeyed: %+v err=%v", draft, err)
 	}
@@ -137,7 +137,7 @@ func TestDeterministicPolicyKeepsBoundaryAheadOfDirective(t *testing.T) {
 	input := policyInput()
 	input.Request.Tags = []string{"private"}
 	input.Agency = obeyDirective("talk")
-	draft, err := (policy.Deterministic{}).Propose(context.Background(), input)
+	draft, err := (cognition.Deterministic{}).Propose(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestDeterministicDraftKeepsOnlyStructuredPrivateAuditEvidence(t *testing.T)
 	input.Actor.Memories[1].Summary = canary
 	input.Actor.Memories[1].Quote = canary
 	input.Request.Tags = []string{"private"}
-	draft, err := (policy.Deterministic{}).Propose(context.Background(), input)
+	draft, err := (cognition.Deterministic{}).Propose(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestDeterministicDraftKeepsOnlyStructuredPrivateAuditEvidence(t *testing.T)
 func TestDeterministicPolicyHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := (policy.Deterministic{}).Propose(ctx, policyInput()); !errors.Is(err, context.Canceled) {
+	if _, err := (cognition.Deterministic{}).Propose(ctx, policyInput()); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected canceled policy, got %v", err)
 	}
 }

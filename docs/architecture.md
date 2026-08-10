@@ -136,7 +136,7 @@ retry of a pre-v2 Proposal can therefore return upgraded `summary` and
 Restore payloads may still contain the old private strings and are not erased
 by upgrading.
 
-The built-in `policy.Deterministic` is the offline baseline:
+The built-in `cognition.Deterministic` is the offline decision baseline:
 
 1. If tags trigger a boundary, choose only its matching `refuse`, `redirect`,
    or `wait` action.

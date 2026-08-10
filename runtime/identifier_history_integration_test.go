@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
@@ -19,7 +19,7 @@ import (
 
 func TestIdentifierHistoryObserveRetryReturnsOriginalResult(t *testing.T) {
 	const sessionID = "session.identifier-observe-retry"
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestIdentifierHistoryObserveRetryReturnsOriginalResult(t *testing.T) {
 func TestIdentifierHistorySurvivesReceiptAndMemoryEviction(t *testing.T) {
 	const sessionID = "session.identifier-retention"
 	eventStore := store.NewMemory()
-	engine := newEngine(t, eventStore, policy.Deterministic{})
+	engine := newEngine(t, eventStore, cognition.Deterministic{})
 	create := createRequest(sessionID)
 	create.Features = append(create.Features, protocol.FeatureActorActivity)
 	if _, err := engine.CreateSession(create); err != nil {
@@ -177,7 +177,7 @@ func TestIdentifierHistorySurvivesReceiptAndMemoryEviction(t *testing.T) {
 
 func TestIdentifierHistoryRestoreKeepsFutureIdentifiers(t *testing.T) {
 	const sessionID = "session.identifier-restore"
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func TestIdentifierHistoryRestoreKeepsFutureIdentifiers(t *testing.T) {
 
 func TestSnapshotIdentifierHistoryTamperIsRejected(t *testing.T) {
 	const sessionID = "session.identifier-snapshot-tamper"
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +300,7 @@ func TestSnapshotIdentifierHistoryTamperIsRejected(t *testing.T) {
 
 func TestSnapshotIdentifierHistoryRejectsRehashedCrossProjectionTampering(t *testing.T) {
 	const sessionID = "session.identifier-cross-projection"
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	create := twoActorWorldRequest(sessionID)
 	if _, err := engine.CreateSession(create); err != nil {
 		t.Fatal(err)
@@ -480,7 +480,7 @@ func TestSnapshotIdentifierHistoryRejectsRehashedCrossProjectionTampering(t *tes
 
 func TestSnapshotIdentifierHistoryRejectsWrongRetainedEventRole(t *testing.T) {
 	const sessionID = "session.identifier-event-role"
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	create := createRequest(sessionID)
 	create.Features = append(create.Features, protocol.FeatureActorActivity)
 	if _, err := engine.CreateSession(create); err != nil {
@@ -530,7 +530,7 @@ func TestSnapshotIdentifierHistoryRejectsWrongRetainedEventRole(t *testing.T) {
 func TestIdentifierHistoryRetrySurvivesOpen(t *testing.T) {
 	const sessionID = "session.identifier-reopen"
 	eventStore := store.NewMemory()
-	engine := newEngine(t, eventStore, policy.Deterministic{})
+	engine := newEngine(t, eventStore, cognition.Deterministic{})
 	if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
 	}
@@ -554,7 +554,7 @@ func TestIdentifierHistoryRetrySurvivesOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reopened := newEngine(t, eventStore, policy.Deterministic{})
+	reopened := newEngine(t, eventStore, cognition.Deterministic{})
 	repeated, err := reopened.Observe(original)
 	if err != nil {
 		t.Fatal(err)
@@ -577,7 +577,7 @@ func TestIdentifierHistoryRetrySurvivesOpen(t *testing.T) {
 func TestIdentifierHistoryReturnsEvictedArbitrationResult(t *testing.T) {
 	const sessionID = "session.identifier-arbitration-eviction"
 	eventStore := store.NewMemory()
-	engine := newEngine(t, eventStore, policy.Deterministic{})
+	engine := newEngine(t, eventStore, cognition.Deterministic{})
 	create := twoActorWorldRequest(sessionID)
 	if _, err := engine.CreateSession(create); err != nil {
 		t.Fatal(err)
@@ -637,7 +637,7 @@ func TestIdentifierHistoryReturnsEvictedArbitrationResult(t *testing.T) {
 		assertIdentifierRequestConflict(t, err)
 	}
 
-	reopened := newEngine(t, eventStore, policy.Deterministic{})
+	reopened := newEngine(t, eventStore, cognition.Deterministic{})
 	replayed, duplicate, err := reopened.Arbitrate(original)
 	if err != nil || !duplicate || !reflect.DeepEqual(replayed, first) {
 		t.Fatalf("reopened arbitration was not replayed: record=%+v duplicate=%v err=%v", replayed, duplicate, err)
@@ -646,7 +646,7 @@ func TestIdentifierHistoryReturnsEvictedArbitrationResult(t *testing.T) {
 
 func TestIdentifierHistoryReplayRetainsLaterLineageTombstones(t *testing.T) {
 	const sessionID = "session.identifier-replay-tombstones"
-	source := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	source := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	if _, err := source.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
 	}
@@ -674,7 +674,7 @@ func TestIdentifierHistoryReplayRetainsLaterLineageTombstones(t *testing.T) {
 		t.Fatalf("replay snapshot omitted later lineage tombstone: %+v", replayed)
 	}
 
-	target := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	target := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	if _, err := target.Restore(protocol.RestoreRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       sessionID,
@@ -703,7 +703,7 @@ func TestIdentifierHistoryReplayRetainsLaterLineageTombstones(t *testing.T) {
 
 func TestLegacySnapshotImportsStickyPartialHistory(t *testing.T) {
 	const sessionID = "session.identifier-legacy-partial"
-	source := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	source := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	if _, err := source.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
 	}
@@ -769,7 +769,7 @@ func TestLegacySnapshotImportsStickyPartialHistory(t *testing.T) {
 				rinruntime.ErrorCode(err) != "invalid_snapshot" {
 				t.Fatalf("invalid legacy identifier projection validated: %v", err)
 			}
-			rejectingTarget := newEngine(t, store.NewMemory(), policy.Deterministic{})
+			rejectingTarget := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 			if _, err := rejectingTarget.Restore(protocol.RestoreRequest{
 				ProtocolVersion: protocol.Version,
 				SessionID:       sessionID,
@@ -785,7 +785,7 @@ func TestLegacySnapshotImportsStickyPartialHistory(t *testing.T) {
 		})
 	}
 
-	target := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	target := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	if _, err := target.Restore(protocol.RestoreRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       sessionID,
@@ -832,7 +832,7 @@ func TestLegacySnapshotImportsStickyPartialHistory(t *testing.T) {
 	}
 
 	t.Run("overlap remains snapshotable", func(t *testing.T) {
-		overlap := newEngine(t, store.NewMemory(), policy.Deterministic{})
+		overlap := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 		overlapSessionID := "session.identifier-legacy-overlap"
 		if _, err := overlap.CreateSession(createRequest(overlapSessionID)); err != nil {
 			t.Fatal(err)
@@ -872,7 +872,7 @@ func TestLegacySnapshotImportsStickyPartialHistory(t *testing.T) {
 
 func TestLegacySnapshotSeedsTypedRequestIDsAfterReceiptEviction(t *testing.T) {
 	const sessionID = "session.identifier-legacy-typed-tombstones"
-	source := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	source := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	create := twoActorWorldRequest(sessionID)
 	create.Features = append(create.Features, protocol.FeatureActorActivity)
 	if _, err := source.CreateSession(create); err != nil {
@@ -935,7 +935,7 @@ func TestLegacySnapshotSeedsTypedRequestIDsAfterReceiptEviction(t *testing.T) {
 	legacy.IdentifierHistory = nil
 	legacy.IdentifierHistoryHash = ""
 
-	target := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	target := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	if _, err := target.Restore(protocol.RestoreRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       sessionID,
@@ -960,7 +960,7 @@ func TestLegacySnapshotSeedsTypedRequestIDsAfterReceiptEviction(t *testing.T) {
 func TestIdentifierHistoryRejectsAlteredPayloadForEveryMutation(t *testing.T) {
 	t.Run("create", func(t *testing.T) {
 		const sessionID = "session.identifier-altered-create"
-		engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+		engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 		request := createRequest(sessionID)
 		if _, err := engine.CreateSession(request); err != nil {
 			t.Fatal(err)
@@ -976,7 +976,7 @@ func TestIdentifierHistoryRejectsAlteredPayloadForEveryMutation(t *testing.T) {
 
 	t.Run("activity", func(t *testing.T) {
 		const sessionID = "session.identifier-altered-activity"
-		engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+		engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 		create := createRequest(sessionID)
 		create.Features = append(create.Features, protocol.FeatureActorActivity)
 		if _, err := engine.CreateSession(create); err != nil {
@@ -1005,7 +1005,7 @@ func TestIdentifierHistoryRejectsAlteredPayloadForEveryMutation(t *testing.T) {
 
 	t.Run("report", func(t *testing.T) {
 		const sessionID = "session.identifier-altered-report"
-		engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+		engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 		if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
 			t.Fatal(err)
 		}
@@ -1044,7 +1044,7 @@ func TestIdentifierHistoryRejectsAlteredPayloadForEveryMutation(t *testing.T) {
 
 	t.Run("batch", func(t *testing.T) {
 		const sessionID = "session.identifier-altered-batch"
-		engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+		engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 		create := twoActorWorldRequest(sessionID)
 		if _, err := engine.CreateSession(create); err != nil {
 			t.Fatal(err)
@@ -1098,7 +1098,7 @@ func TestIdentifierHistoryRejectsAlteredPayloadForEveryMutation(t *testing.T) {
 
 	t.Run("restore", func(t *testing.T) {
 		const sessionID = "session.identifier-altered-restore"
-		source := newEngine(t, store.NewMemory(), policy.Deterministic{})
+		source := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 		if _, err := source.CreateSession(createRequest(sessionID)); err != nil {
 			t.Fatal(err)
 		}
@@ -1118,7 +1118,7 @@ func TestIdentifierHistoryRejectsAlteredPayloadForEveryMutation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		target := newEngine(t, store.NewMemory(), policy.Deterministic{})
+		target := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 		request := protocol.RestoreRequest{
 			ProtocolVersion: protocol.Version,
 			SessionID:       sessionID,
@@ -1152,9 +1152,9 @@ func TestProposeRejectsRestoreEvenWhenWorldRevisionRepeats(t *testing.T) {
 		started: make(chan struct{}),
 		release: make(chan struct{}),
 	}
-	cached, err := policy.NewCached(
+	cached, err := cognition.NewCached(
 		blocking,
-		policy.CacheConfig{MaxEntries: 8, TTL: time.Minute},
+		cognition.CacheConfig{MaxEntries: 8, TTL: time.Minute},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1254,7 +1254,7 @@ func TestIdentifierHistoryFileStoreRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := newEngine(t, fileStore, policy.Deterministic{})
+	engine := newEngine(t, fileStore, cognition.Deterministic{})
 	if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
 	}
@@ -1285,7 +1285,7 @@ func TestIdentifierHistoryFileStoreRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reopened := newEngine(t, reopenedStore, policy.Deterministic{})
+	reopened := newEngine(t, reopenedStore, cognition.Deterministic{})
 	repeated, err := reopened.Observe(original)
 	if err != nil || !repeated.Duplicate ||
 		repeated.Revision != first.Revision ||

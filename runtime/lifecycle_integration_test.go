@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
@@ -35,7 +35,7 @@ func TestFileSessionLifecycleSurvivesRestart(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer reopened.Close()
-		engine, err := rinruntime.Open(reopened, policy.Deterministic{})
+		engine, err := rinruntime.Open(reopened, cognition.Deterministic{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -60,7 +60,7 @@ func TestSessionQuotaFailsBeforeAppendButKeepsExactRetry(t *testing.T) {
 		rinruntime.Store
 		rinruntime.LifecycleStore
 	}{Store: memory, LifecycleStore: memory}
-	initial, err := rinruntime.Open(quotaStore, policy.Deterministic{})
+	initial, err := rinruntime.Open(quotaStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestSessionQuotaFailsBeforeAppendButKeepsExactRetry(t *testing.T) {
 	}
 	limited, err := rinruntime.OpenWithOptions(
 		quotaStore,
-		policy.Deterministic{},
+		cognition.Deterministic{},
 		rinruntime.EngineOptions{
 			SessionSoftLimitBytes: before.Bytes.Total - 1,
 			SessionHardLimitBytes: before.Bytes.Total + 1,
@@ -143,7 +143,7 @@ func assertSessionLifecycle(
 	afterDelete func(*testing.T, protocol.DeleteSessionRequest),
 ) {
 	t.Helper()
-	engine, err := rinruntime.Open(eventStore, policy.Deterministic{})
+	engine, err := rinruntime.Open(eventStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}

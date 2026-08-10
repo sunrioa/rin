@@ -9,16 +9,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/jobs"
-	"github.com/sunrioa/rin/policy"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
 )
 
 func TestProposalJobSucceedsAndIsIdempotent(t *testing.T) {
-	engine := jobEngine(t, policy.Deterministic{}, "session.jobs")
+	engine := jobEngine(t, cognition.Deterministic{}, "session.jobs")
 	manager := jobManager(t, engine, jobs.Config{Workers: 1, QueueSize: 4, MaxJobs: 8})
 	defer closeManager(t, manager)
 	request := jobRequest("session.jobs", "request.jobs")
@@ -64,7 +64,7 @@ func TestProposalJobCancellation(t *testing.T) {
 }
 
 func TestProposalJobCloseRejectsNilContextWithoutClosing(t *testing.T) {
-	engine := jobEngine(t, policy.Deterministic{}, "session.close-nil-context")
+	engine := jobEngine(t, cognition.Deterministic{}, "session.close-nil-context")
 	manager := jobManager(
 		t,
 		engine,
@@ -89,7 +89,7 @@ func TestProposalJobCloseRejectsNilContextWithoutClosing(t *testing.T) {
 
 func TestProposalJobCancelWaitsForPersistedProposal(t *testing.T) {
 	eventStore := newBlockingProposalAppendStore(store.NewMemory())
-	engine, err := rinruntime.Open(eventStore, policy.Deterministic{})
+	engine, err := rinruntime.Open(eventStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestProposalJobCancelWaitsForPersistedProposal(t *testing.T) {
 
 func TestProposalJobExposesUnknownOutcomeAndSameRequestRecovers(t *testing.T) {
 	eventStore := newUnknownProposalAppendStore(store.NewMemory())
-	engine, err := rinruntime.Open(eventStore, policy.Deterministic{})
+	engine, err := rinruntime.Open(eventStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}

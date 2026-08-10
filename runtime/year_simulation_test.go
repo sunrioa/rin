@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
@@ -30,7 +30,7 @@ func TestAcceleratedYearSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := rinruntime.Open(fileStore, policy.Deterministic{})
+	engine, err := rinruntime.Open(fileStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestAcceleratedYearSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopenedStore.Close()
-	reopened, err := rinruntime.Open(reopenedStore, policy.Deterministic{})
+	reopened, err := rinruntime.Open(reopenedStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}

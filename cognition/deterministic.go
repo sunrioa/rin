@@ -1,5 +1,5 @@
-// Package policy provides lightweight policies for Rin runtimes.
-package policy
+// Package cognition provides decision providers for Rin agent runtimes.
+package cognition
 
 import (
 	"context"

@@ -11,15 +11,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/host"
-	"github.com/sunrioa/rin/policy"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
 )
 
 func TestEngineEndToEnd(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	created, err := engine.CreateSession(createRequest("session.flow"))
 	if err != nil {
 		t.Fatal(err)
@@ -134,7 +134,7 @@ func (provider *countingDecisionProvider) Propose(
 }
 
 func TestActionReportsRejectAmbiguousEffectUpdates(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	const sessionID = "session.outcome-update-validation"
 	if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
@@ -177,7 +177,7 @@ func TestActionReportsRejectAmbiguousEffectUpdates(t *testing.T) {
 }
 
 func TestBoundaryRequiresSafeCandidate(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	_, _ = engine.CreateSession(createRequest("session.boundary"))
 	request := proposeRequest("session.boundary", "propose.boundary", 0, []string{"private"})
 	proposal, _, err := engine.Propose(context.Background(), request)
@@ -197,7 +197,7 @@ func TestBoundaryRequiresSafeCandidate(t *testing.T) {
 }
 
 func TestActionReportRecordsAcceptedOutcomeAfterStateAdvances(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	_, _ = engine.CreateSession(createRequest("session.late-accepted"))
 	proposal, _, err := engine.Propose(context.Background(), proposeRequest("session.late-accepted", "propose.late", 0, nil))
 	if err != nil {
@@ -241,7 +241,7 @@ func TestActionReportRecordsAcceptedOutcomeAfterStateAdvances(t *testing.T) {
 }
 
 func TestActionReportRecordsRejectedOutcomeAfterStateAdvances(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	_, _ = engine.CreateSession(createRequest("session.late-rejected"))
 	proposal, _, err := engine.Propose(context.Background(), proposeRequest("session.late-rejected", "propose.reject", 0, nil))
 	if err != nil {
@@ -273,7 +273,7 @@ func TestActionReportRecordsRejectedOutcomeAfterStateAdvances(t *testing.T) {
 }
 
 func TestActionReportRejectsTickBeforeProposal(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	_, _ = engine.CreateSession(createRequest("session.report-tick"))
 	proposal, _, err := engine.Propose(context.Background(), proposeRequest("session.report-tick", "propose.tick", 2, nil))
 	if err != nil {
@@ -297,7 +297,7 @@ func TestActionReportRejectsTickBeforeProposal(t *testing.T) {
 }
 
 func TestSnapshotTamperAndFreshRestore(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	_, _ = engine.CreateSession(createRequest("session.snapshot"))
 	newerObservation := observeRequest("session.snapshot", "observe.snapshot", "event.snapshot", 4)
 	newerObservation.Facts = []protocol.Fact{{
@@ -325,7 +325,7 @@ func TestSnapshotTamperAndFreshRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	restoredEngine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	restoredEngine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	result, err := restoredEngine.Restore(protocol.RestoreRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       "session.snapshot",
@@ -379,7 +379,7 @@ func TestSnapshotTamperAndFreshRestore(t *testing.T) {
 }
 
 func TestFreshRestoreRetainsPendingProposalForSavedOutcomeOutbox(t *testing.T) {
-	source := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	source := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	const sessionID = "session.restore-outbox"
 	if _, err := source.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
@@ -413,7 +413,7 @@ func TestFreshRestoreRetainsPendingProposalForSavedOutcomeOutbox(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	restored := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	restored := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	restoreRequest := protocol.RestoreRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       sessionID,
@@ -499,7 +499,7 @@ func TestFreshRestoreRetainsPendingProposalForSavedOutcomeOutbox(t *testing.T) {
 }
 
 func TestFreshRestoreRebasesArrivalRevisionsWithinTheNewEventChain(t *testing.T) {
-	source := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	source := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	const sessionID = "session.restore-revision-generation"
 	create := createRequest(sessionID)
 	create.Features = append(create.Features, protocol.FeatureBeliefConflicts)
@@ -529,7 +529,7 @@ func TestFreshRestoreRebasesArrivalRevisionsWithinTheNewEventChain(t *testing.T)
 		t.Fatal(err)
 	}
 
-	restored := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	restored := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	if _, err := restored.Restore(protocol.RestoreRequest{
 		ProtocolVersion: protocol.Version,
 		SessionID:       sessionID,
@@ -590,7 +590,7 @@ func TestFreshRestoreRebasesArrivalRevisionsWithinTheNewEventChain(t *testing.T)
 }
 
 func TestMemoryIsBounded(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	_, _ = engine.CreateSession(createRequest("session.memory"))
 	for index := 1; index <= 130; index++ {
 		request := observeRequest("session.memory", fmt.Sprintf("observe.%d", index), fmt.Sprintf("event.%d", index), int64(index))
@@ -609,7 +609,7 @@ func TestMemoryIsBounded(t *testing.T) {
 }
 
 func TestPendingProposalCapacityFailsClosedAndSnapshotRemainsValid(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	const sessionID = "session.pending-proposal-capacity"
 	create := createRequest(sessionID)
 	create.Features = append(create.Features, protocol.FeatureArbitration)

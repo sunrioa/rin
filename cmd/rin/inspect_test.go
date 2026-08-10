@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/protocol"
 	rintime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
@@ -20,7 +20,7 @@ func TestRunInspectPrintsVerifiedRedactedSummary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := rintime.Open(fileStore, policy.Deterministic{})
+	engine, err := rintime.Open(fileStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestRunInspectSupportsStateAboveInlineSnapshotLimit(t *testing.T) {
 	}
 	engine, err := rintime.OpenWithOptions(
 		fileStore,
-		policy.Deterministic{},
+		cognition.Deterministic{},
 		rintime.EngineOptions{
 			MaxSessionStateBytes: rintime.MaxConfigurableSessionStateBytes,
 		},
@@ -209,7 +209,7 @@ func largeInspectCreateRequest() protocol.CreateSessionRequest {
 
 func TestInspectTimelineReadsOnlyRequestedTail(t *testing.T) {
 	counted := &inspectRangeCountingStore{Memory: store.NewMemory()}
-	engine, err := rintime.Open(counted, policy.Deterministic{})
+	engine, err := rintime.Open(counted, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}

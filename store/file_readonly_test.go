@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 )
@@ -57,7 +57,7 @@ func TestReadOnlyFileInspectsWithoutRepairingDerivedFiles(t *testing.T) {
 	if _, ok := any(readOnly).(rinruntime.TransferStore); ok {
 		t.Fatal("read-only Store exposed Transfer writes")
 	}
-	inspection, err := rinruntime.Open(readOnly, policy.Deterministic{})
+	inspection, err := rinruntime.Open(readOnly, cognition.Deterministic{})
 	if err != nil {
 		_ = readOnly.Close()
 		t.Fatal(err)

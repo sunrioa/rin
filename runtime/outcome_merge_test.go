@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
@@ -28,7 +28,7 @@ func TestSafeBaselineSupportsEveryOptionalFeatureCombination(t *testing.T) {
 				create.Features = append(create.Features, feature)
 			}
 		}
-		engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+		engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 		if _, err := engine.CreateSession(create); err != nil {
 			t.Fatalf("mask %02d Create: %v", mask, err)
 		}
@@ -43,7 +43,7 @@ func TestSafeBaselineSupportsEveryOptionalFeatureCombination(t *testing.T) {
 }
 
 func TestLateActionReportMergesDerivedStateByOccurrenceTick(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	const sessionID = "session.late-merge"
 	create := createRequest(sessionID)
 	create.Features = append(create.Features, protocol.FeatureBeliefConflicts)
@@ -141,7 +141,7 @@ func TestLateActionReportMergesDerivedStateByOccurrenceTick(t *testing.T) {
 }
 
 func TestBeliefConflictCapacityKeepsNewestOccurrences(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	const sessionID = "session.belief-occurrence-capacity"
 	create := createRequest(sessionID)
 	create.Features = append(create.Features, protocol.FeatureBeliefConflicts)
@@ -194,7 +194,7 @@ func TestBeliefConflictCapacityKeepsNewestOccurrences(t *testing.T) {
 }
 
 func TestLateBatchReportMergesByOccurrenceTick(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	create := twoActorWorldRequest("session.late-batch-merge")
 	if _, err := engine.CreateSession(create); err != nil {
 		t.Fatal(err)
@@ -308,7 +308,7 @@ func TestGoalProgressDeltasAreIndependentOfOutcomeArrivalOrder(t *testing.T) {
 
 	for index, order := range orders {
 		sessionID := "session.goal-delta-order-" + string(rune('a'+index))
-		engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+		engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 		create := createRequest(sessionID)
 		create.Actors[0].Goals[0].Progress = 1
 		if _, err := engine.CreateSession(create); err != nil {
@@ -378,7 +378,7 @@ func TestGoalStatusOrderingIsIndependentFromProgressOnlyUpdates(t *testing.T) {
 
 	for index, order := range orders {
 		sessionID := "session.goal-status-order-" + string(rune('a'+index))
-		engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+		engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 		create := createRequest(sessionID)
 		create.Actors[0].Goals[0].TargetProgress = 100
 		if _, err := engine.CreateSession(create); err != nil {
@@ -441,7 +441,7 @@ func TestGoalStatusSameTickUsesStableEventIDTieBreak(t *testing.T) {
 	zulu := statusSpec{name: "zulu", status: "completed"}
 	for index, order := range [][]statusSpec{{alpha, zulu}, {zulu, alpha}} {
 		sessionID := "session.goal-status-tie-" + string(rune('a'+index))
-		engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+		engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 		if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
 			t.Fatal(err)
 		}
@@ -486,7 +486,7 @@ func TestGoalStatusSameTickUsesStableEventIDTieBreak(t *testing.T) {
 }
 
 func TestTickZeroAutomaticGoalStatusDoesNotBecomeExplicitMidReport(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	const sessionID = "session.goal-tick-zero"
 	create := createRequest(sessionID)
 	create.Actors[0].Goals[0].TargetProgress = 1
@@ -530,7 +530,7 @@ func TestTickZeroAutomaticGoalStatusDoesNotBecomeExplicitMidReport(t *testing.T)
 }
 
 func TestActionReportEventIDsAreUniqueAcrossMutationKinds(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	const sessionID = "session.event-id-unique"
 	if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
@@ -583,7 +583,7 @@ func TestActionReportEventIDsAreUniqueAcrossMutationKinds(t *testing.T) {
 }
 
 func TestBatchReportEventIDsAreUniqueWithinBatchAndAcrossKinds(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	create := twoActorWorldRequest("session.batch-event-id-unique")
 	if _, err := engine.CreateSession(create); err != nil {
 		t.Fatal(err)
@@ -678,7 +678,7 @@ func TestBatchReportEventIDsAreUniqueWithinBatchAndAcrossKinds(t *testing.T) {
 }
 
 func TestActionReportRejectsNextThinkTickOverflow(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	const sessionID = "session.tick-overflow"
 	if _, err := engine.CreateSession(createRequest(sessionID)); err != nil {
 		t.Fatal(err)
@@ -711,7 +711,7 @@ func TestActionReportRejectsNextThinkTickOverflow(t *testing.T) {
 }
 
 func TestBatchReportRejectsNextThinkTickOverflow(t *testing.T) {
-	engine := newEngine(t, store.NewMemory(), policy.Deterministic{})
+	engine := newEngine(t, store.NewMemory(), cognition.Deterministic{})
 	create := twoActorWorldRequest("session.batch-tick-overflow")
 	if _, err := engine.CreateSession(create); err != nil {
 		t.Fatal(err)

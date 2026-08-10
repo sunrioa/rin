@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
@@ -22,7 +22,7 @@ func TestFileStoreReplaysAndDetectsTamper(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer fileStore.Close()
-	engine, err := rinruntime.Open(fileStore, policy.Deterministic{})
+	engine, err := rinruntime.Open(fileStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestFileStoreReplaysAndDetectsTamper(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := rinruntime.Open(fileStore, policy.Deterministic{})
+	reopened, err := rinruntime.Open(fileStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestFileStoreReplaysAndDetectsTamper(t *testing.T) {
 	if err := os.WriteFile(logPath, []byte(corrupted), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	tamperedEngine, err := rinruntime.Open(fileStore, policy.Deterministic{})
+	tamperedEngine, err := rinruntime.Open(fileStore, cognition.Deterministic{})
 	if err == nil {
 		err = tamperedEngine.VerifyAll()
 	}
@@ -111,7 +111,7 @@ func TestFileStoreAppendIsIdempotentAndChecksExpectedHead(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer fileStore.Close()
-	engine, err := rinruntime.Open(fileStore, policy.Deterministic{})
+	engine, err := rinruntime.Open(fileStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestFileStoreLoadRejectsIncompleteTail(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer fileStore.Close()
-	engine, err := rinruntime.Open(fileStore, policy.Deterministic{})
+	engine, err := rinruntime.Open(fileStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +218,7 @@ func TestFileStoreLoadRejectsIncompleteTail(t *testing.T) {
 
 func TestMemoryStoreAppendIsIdempotentAndChecksExpectedHead(t *testing.T) {
 	memoryStore := store.NewMemory()
-	engine, err := rinruntime.Open(memoryStore, policy.Deterministic{})
+	engine, err := rinruntime.Open(memoryStore, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +287,7 @@ func TestSnapshotFileIsPrivate(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer fileStore.Close()
-	engine, _ := rinruntime.Open(fileStore, policy.Deterministic{})
+	engine, _ := rinruntime.Open(fileStore, cognition.Deterministic{})
 	request := fileCreateRequest()
 	_, _ = engine.CreateSession(request)
 	if _, err := engine.Snapshot(protocol.SessionRequest{ProtocolVersion: protocol.Version, SessionID: request.SessionID}); err != nil {

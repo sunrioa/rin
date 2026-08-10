@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/protocol"
 	rinruntime "github.com/sunrioa/rin/runtime"
 	"github.com/sunrioa/rin/store"
@@ -36,7 +36,7 @@ type longSessionBenchmarkFixture struct {
 
 func TestEngineOpenEnumeratesWithoutReadingSessionLogs(t *testing.T) {
 	spy := newOpenEnumerationSpy(1_000)
-	engine, err := rinruntime.Open(spy, policy.Deterministic{})
+	engine, err := rinruntime.Open(spy, cognition.Deterministic{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func BenchmarkEngineOpenEnumeratesSessions(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for index := 0; index < b.N; index++ {
-		engine, err := rinruntime.Open(spy, policy.Deterministic{})
+		engine, err := rinruntime.Open(spy, cognition.Deterministic{})
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -617,7 +617,7 @@ func (s *benchmarkRangeOnlyStore) Close() error {
 func buildLongFileSessionFixture(b *testing.B) longSessionBenchmarkFixture {
 	b.Helper()
 	memory := store.NewMemory()
-	engine, err := rinruntime.Open(memory, policy.Deterministic{})
+	engine, err := rinruntime.Open(memory, cognition.Deterministic{})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -848,7 +848,7 @@ func openCountedFileEngine(
 		tb.Fatal(err)
 	}
 	counted := &benchmarkReadCountingStore{File: fileStore}
-	engine, err := rinruntime.Open(counted, policy.Deterministic{})
+	engine, err := rinruntime.Open(counted, cognition.Deterministic{})
 	if err != nil {
 		_ = counted.Close()
 		tb.Fatal(err)
@@ -892,7 +892,7 @@ func openRangeOnlyFileEngine(
 		tb.Fatal(err)
 	}
 	counted := &benchmarkRangeOnlyStore{file: fileStore}
-	engine, err := rinruntime.Open(counted, policy.Deterministic{})
+	engine, err := rinruntime.Open(counted, cognition.Deterministic{})
 	if err != nil {
 		_ = counted.Close()
 		tb.Fatal(err)
