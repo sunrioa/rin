@@ -326,8 +326,9 @@ The Control contract is
 The `/control/v2/*` client routes used by `rin-mcp` and language SDKs cover
 discovery, controller leases, actions, Operations, and emergency stop. Client
 request bodies never carry a Principal; the daemon always injects its fixed
-startup Principal to prevent identity spoofing. Some `/control/v1` routes remain
-during migration, but new integrations must not depend on them.
+startup Principal to prevent identity spoofing. Legacy `/control/v1/client/*`
+routes are not exposed. Temporary `/control/v1` aliases apply only to the Host
+migration transport; new Host integrations must use `/control/v2/host/*`.
 
 Error responses always contain a human-readable `error` and may include a stable
 machine-readable `code`. Current service codes are `invalid`, `forbidden`,

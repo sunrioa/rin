@@ -154,74 +154,6 @@ func (client *HTTPClient) WaitActor(
 	return update, err
 }
 
-// ListActorOffers returns exact Host-published offers for one actor.
-func (client *HTTPClient) ListActorOffers(
-	ctx context.Context,
-	hostID, worldID, actorID string,
-) ([]host.ActionOffer, error) {
-	var offers []host.ActionOffer
-	if err := client.request(
-		ctx,
-		http.MethodPost,
-		"offers",
-		actorTargetRequest{
-			HostID: hostID, WorldID: worldID, ActorID: actorID,
-		},
-		&offers,
-	); err != nil {
-		return nil, err
-	}
-	return offers, nil
-}
-
-// SendActorMessage queues plain conversation.
-func (client *HTTPClient) SendActorMessage(
-	ctx context.Context,
-	input ActorTextInput,
-) (OperationView, error) {
-	return client.operation(ctx, "message", input)
-}
-
-// SendActorDirective queues a negotiable goal.
-func (client *HTTPClient) SendActorDirective(
-	ctx context.Context,
-	input ActorTextInput,
-) (OperationView, error) {
-	return client.operation(ctx, "directive", input)
-}
-
-// SubmitActorUtterance queues dialogue from the current external controller.
-func (client *HTTPClient) SubmitActorUtterance(
-	ctx context.Context,
-	input ActorUtteranceInput,
-) (OperationView, error) {
-	var operation OperationView
-	err := client.request(
-		ctx,
-		http.MethodPost,
-		"utterance",
-		input,
-		&operation,
-	)
-	return operation, err
-}
-
-// ExecuteActorOffer selects one exact Host-published Offer.
-func (client *HTTPClient) ExecuteActorOffer(
-	ctx context.Context,
-	input ExecuteOfferInput,
-) (OperationView, error) {
-	var operation OperationView
-	err := client.request(
-		ctx,
-		http.MethodPost,
-		"execute-offer",
-		input,
-		&operation,
-	)
-	return operation, err
-}
-
 // GetOperation returns one operation visible to the fixed principal.
 func (client *HTTPClient) GetOperation(
 	ctx context.Context,
@@ -399,37 +331,6 @@ func (client *HTTPClient) SetEmergencyStop(
 	return stop, err
 }
 
-func (client *HTTPClient) operation(
-	ctx context.Context,
-	action string,
-	input ActorTextInput,
-) (OperationView, error) {
-	var operation OperationView
-	err := client.request(
-		ctx,
-		http.MethodPost,
-		action,
-		input,
-		&operation,
-	)
-	return operation, err
-}
-
-func (client *HTTPClient) operationTarget(
-	ctx context.Context,
-	action, operationID string,
-) (OperationView, error) {
-	var operation OperationView
-	err := client.request(
-		ctx,
-		http.MethodPost,
-		action,
-		operationTargetRequest{OperationID: operationID},
-		&operation,
-	)
-	return operation, err
-}
-
 func (client *HTTPClient) operationTargetV2(
 	ctx context.Context,
 	action, operationID string,
@@ -458,20 +359,6 @@ func (client *HTTPClient) requestV2(
 		ctx,
 		method,
 		"/control/v2/"+action,
-		input,
-		output,
-	)
-}
-
-func (client *HTTPClient) request(
-	ctx context.Context,
-	method, action string,
-	input, output any,
-) error {
-	return client.requestAt(
-		ctx,
-		method,
-		"/control/v1/client/"+action,
 		input,
 		output,
 	)

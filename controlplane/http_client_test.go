@@ -91,66 +91,6 @@ func TestHTTPClientUsesDaemonBoundPrincipal(t *testing.T) {
 		update.Actor.ObservationSeq != actor.ObservationSeq {
 		t.Fatalf("WaitActor = %#v, %v", update, err)
 	}
-	offers, err := client.ListActorOffers(
-		ctx,
-		"test.host",
-		"world.one",
-		"actor.one",
-	)
-	if err != nil || len(offers) != 1 || offers[0].OfferID != "offer.follow" {
-		t.Fatalf("ListActorOffers = %#v, %v", offers, err)
-	}
-
-	message, err := client.SendActorMessage(ctx, ActorTextInput{
-		RequestID: "request.client.message",
-		HostID:    "test.host",
-		WorldID:   "world.one",
-		ActorID:   "actor.one",
-		Text:      "Hello from the thin client.",
-	})
-	if err != nil || message.Status != OperationQueued {
-		t.Fatalf("SendActorMessage = %#v, %v", message, err)
-	}
-	operationUpdate, err := client.WaitOperation(ctx, WaitOperationInput{
-		OperationID: message.OperationID,
-		AfterCursor: message.Cursor,
-		WaitMillis:  0,
-	})
-	if err != nil || operationUpdate.Changed ||
-		operationUpdate.Operation.Terminal ||
-		operationUpdate.Operation.ExecutionConfirmed {
-		t.Fatalf("WaitOperation = %#v, %v", operationUpdate, err)
-	}
-	utterance, err := client.SubmitActorUtterance(ctx, ActorUtteranceInput{
-		RequestID: "request.client.utterance",
-		HostID:    "test.host",
-		WorldID:   "world.one",
-		ActorID:   "actor.one",
-		TurnID:    "turn.client.one",
-		Text:      "I am ready.",
-	})
-	if err != nil || utterance.Kind != ControlUtterance ||
-		utterance.TurnID != "turn.client.one" {
-		t.Fatalf("SubmitActorUtterance = %#v, %v", utterance, err)
-	}
-	view, err := client.GetOperation(ctx, message.OperationID)
-	if err != nil || view.OperationID != message.OperationID {
-		t.Fatalf("GetOperation = %#v, %v", view, err)
-	}
-	cancelled, err := client.CancelOperation(ctx, message.OperationID)
-	if err != nil || cancelled.Status != OperationCancelled {
-		t.Fatalf("CancelOperation = %#v, %v", cancelled, err)
-	}
-	offerOperation, err := client.ExecuteActorOffer(ctx, ExecuteOfferInput{
-		RequestID: "request.client.offer",
-		HostID:    "test.host",
-		WorldID:   "world.one",
-		ActorID:   "actor.one",
-		OfferID:   "offer.follow",
-	})
-	if err != nil || offerOperation.Kind != ControlOffer {
-		t.Fatalf("ExecuteActorOffer = %#v, %v", offerOperation, err)
-	}
 }
 
 type handlerRoundTripper struct {

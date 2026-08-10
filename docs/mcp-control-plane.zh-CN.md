@@ -284,7 +284,8 @@ Control 契约由
 
 `/control/v2/*` Client 路由供 `rin-mcp` 和语言 SDK 使用，覆盖发现、控制租约、动作、
 Operation 与急停。Client 请求体不携带 Principal；daemon 始终注入启动时固定的
-Principal，避免身份伪造。迁移期仍保留部分 `/control/v1` 路由，但新接入不得依赖。
+Principal，避免身份伪造。旧 `/control/v1/client/*` 路由已不再暴露。迁移期的
+`/control/v1` 别名仅用于 Host 传输；新 Host 必须使用 `/control/v2/host/*`。
 
 错误响应始终包含供人阅读的 `error`，并可包含稳定的机器可读 `code`。当前服务码为
 `invalid`、`forbidden`、`not_found`、`lease_expired`、`unavailable`、

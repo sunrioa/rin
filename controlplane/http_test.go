@@ -93,7 +93,7 @@ func TestHTTPHandlerRequiresTokenAndStrictJSON(t *testing.T) {
 
 	clientInfo := httptest.NewRequest(
 		http.MethodGet,
-		"/control/v1/client/info",
+		"/control/v2/info",
 		nil,
 	)
 	clientInfo.Header.Set("Authorization", "Bearer "+testControlToken)
@@ -101,6 +101,49 @@ func TestHTTPHandlerRequiresTokenAndStrictJSON(t *testing.T) {
 	handler.ServeHTTP(response, clientInfo)
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("unconfigured client API status = %d", response.Code)
+	}
+}
+
+func TestHTTPHandlerDoesNotExposeLegacyClientRoutes(t *testing.T) {
+	service := New(Options{})
+	principal := operationPrincipal(
+		ScopeActorRead,
+		ScopeActorConverse,
+		ScopeActorDirect,
+		ScopeActorSpeak,
+		ScopeActorExecute,
+		ScopeOperationCancel,
+	)
+	handler, err := NewHTTPHandler(service, HTTPOptions{
+		Token:           testControlToken,
+		ClientPrincipal: &principal,
+	})
+	if err != nil {
+		t.Fatalf("NewHTTPHandler: %v", err)
+	}
+	for _, path := range []string{
+		"/control/v1/client/info",
+		"/control/v1/client/worlds",
+		"/control/v1/client/actors",
+		"/control/v1/client/actor",
+		"/control/v1/client/wait-actor",
+		"/control/v1/client/offers",
+		"/control/v1/client/message",
+		"/control/v1/client/directive",
+		"/control/v1/client/utterance",
+		"/control/v1/client/execute-offer",
+		"/control/v1/client/operation",
+		"/control/v1/client/wait-operation",
+		"/control/v1/client/cancel",
+	} {
+		request := httptest.NewRequest(http.MethodPost, path, bytes.NewReader([]byte(`{}`)))
+		request.Header.Set("Authorization", "Bearer "+testControlToken)
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusNotFound {
+			t.Errorf("legacy route %s status = %d", path, response.Code)
+		}
 	}
 }
 
