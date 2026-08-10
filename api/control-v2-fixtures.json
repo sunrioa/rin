@@ -1,0 +1,112 @@
+{
+  "contract_version": "rin.control/v2",
+  "actor_target": {
+    "host_id": "host.fixture",
+    "world_id": "world.fixture",
+    "actor_id": "actor.fixture"
+  },
+  "world_target": {
+    "host_id": "host.fixture",
+    "world_id": "world.fixture"
+  },
+  "wait_actor": {
+    "host_id": "host.fixture",
+    "world_id": "world.fixture",
+    "actor_id": "actor.fixture",
+    "after_observation_seq": 7,
+    "after_authority_revision": 3,
+    "after_controller_lease_id": "controller-lease.fixture",
+    "after_emergency_stop_revision": 2,
+    "wait_millis": 25000
+  },
+  "describe_capability": {
+    "host_id": "host.fixture",
+    "world_id": "world.fixture",
+    "actor_id": "actor.fixture",
+    "capability": {
+      "id": "companion.navigation.move",
+      "version": "2.0.0"
+    }
+  },
+  "acquire_controller": {
+    "host_id": "host.fixture",
+    "world_id": "world.fixture",
+    "actor_id": "actor.fixture",
+    "controller_id": "controller.fixture",
+    "lease_ttl_millis": 30000
+  },
+  "renew_controller": {
+    "host_id": "host.fixture",
+    "world_id": "world.fixture",
+    "actor_id": "actor.fixture",
+    "lease_id": "controller-lease.fixture",
+    "lease_ttl_millis": 30000
+  },
+  "release_controller": {
+    "host_id": "host.fixture",
+    "world_id": "world.fixture",
+    "actor_id": "actor.fixture",
+    "lease_id": "controller-lease.fixture"
+  },
+  "submit_action": {
+    "host_id": "host.fixture",
+    "world_id": "world.fixture",
+    "action_request": {
+      "request_id": "request.fixture",
+      "controller_id": "controller.fixture",
+      "actor_id": "actor.fixture",
+      "capability": {
+        "id": "companion.navigation.move",
+        "version": "2.0.0"
+      },
+      "spec_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "arguments": {
+        "destination": {
+          "x": 12,
+          "y": 64,
+          "z": -4
+        }
+      },
+      "target_refs": [
+        {
+          "namespace": "fixture.world",
+          "type": "position",
+          "key": "world.fixture:12,64,-4",
+          "ephemeral": false,
+          "epoch": {
+            "session_id": "session.fixture",
+            "world_id": "world.fixture",
+            "host": 2,
+            "world": 4,
+            "timeline": 1
+          }
+        }
+      ],
+      "expected_epoch": {
+        "session_id": "session.fixture",
+        "world_id": "world.fixture",
+        "host": 2,
+        "world": 4,
+        "timeline": 1
+      },
+      "observation_sequence": 7,
+      "task_id": "task.fixture",
+      "idempotency_key": "action.fixture"
+    },
+    "parent_operation_id": "operation.parent.fixture"
+  },
+  "operation_target": {
+    "operation_id": "operation.fixture"
+  },
+  "wait_operation": {
+    "operation_id": "operation.fixture",
+    "after_cursor": "op2:queued:0:false:1000::0:false:0",
+    "wait_millis": 25000
+  },
+  "emergency_stop": {
+    "host_id": "host.fixture",
+    "world_id": "world.fixture",
+    "actor_id": "actor.fixture",
+    "active": true
+  }
+}

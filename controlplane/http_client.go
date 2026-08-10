@@ -18,7 +18,10 @@ import (
 	"github.com/sunrioa/rin/internal/jsonwire"
 )
 
-const defaultControlClientTimeout = 30 * time.Second
+const (
+	defaultControlClientTimeout          = 30 * time.Second
+	defaultControlClientMaxResponseBytes = int64(8 << 20)
+)
 
 // HTTPClient connects a thin external-control client to one Control Daemon.
 type HTTPClient struct {
@@ -509,12 +512,12 @@ func (client *HTTPClient) requestAt(
 	defer response.Body.Close()
 	payload, err := io.ReadAll(io.LimitReader(
 		response.Body,
-		defaultHTTPMaxBodyBytes+1,
+		defaultControlClientMaxResponseBytes+1,
 	))
 	if err != nil {
 		return fmt.Errorf("%w: read Control Daemon response: %v", ErrUnavailable, err)
 	}
-	if int64(len(payload)) > defaultHTTPMaxBodyBytes {
+	if int64(len(payload)) > defaultControlClientMaxResponseBytes {
 		return fmt.Errorf("%w: Control Daemon response is too large", ErrUnavailable)
 	}
 	contentType, _, contentTypeErr := mime.ParseMediaType(

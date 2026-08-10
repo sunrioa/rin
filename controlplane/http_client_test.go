@@ -3,10 +3,12 @@ package controlplane
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -206,6 +208,51 @@ func TestHTTPClientCannotBypassDaemonToken(t *testing.T) {
 		context.Background(),
 	); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("Info wrong-token error = %v", err)
+	}
+}
+
+func TestHTTPClientAcceptsBoundedV2ResponsesAboveLegacyLimit(t *testing.T) {
+	client, err := NewHTTPClient("http://127.0.0.1:7375", testControlToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := string(bytes.Repeat([]byte{'a'}, 2<<20))
+	client.client = &http.Client{Transport: handlerRoundTripper{
+		handler: http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+			response.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(response).Encode(map[string]string{"value": value})
+		}),
+	}}
+	var output map[string]string
+	if err := client.requestV2(
+		context.Background(), http.MethodPost, "fixture", emptyRequest{}, &output,
+	); err != nil {
+		t.Fatalf("bounded V2 response: %v", err)
+	}
+	if output["value"] != value {
+		t.Fatal("bounded V2 response was truncated")
+	}
+}
+
+func TestHTTPClientRejectsResponsesAboveV2Limit(t *testing.T) {
+	client, err := NewHTTPClient("http://127.0.0.1:7375", testControlToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.client = &http.Client{Transport: handlerRoundTripper{
+		handler: http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+			response.Header().Set("Content-Type", "application/json")
+			_, _ = response.Write(bytes.Repeat(
+				[]byte{' '}, int(defaultControlClientMaxResponseBytes)+1,
+			))
+		}),
+	}}
+	var output map[string]any
+	err = client.requestV2(
+		context.Background(), http.MethodPost, "fixture", emptyRequest{}, &output,
+	)
+	if err == nil || !strings.Contains(err.Error(), "response is too large") {
+		t.Fatalf("oversized V2 response error = %v", err)
 	}
 }
 
