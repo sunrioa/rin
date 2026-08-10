@@ -20,6 +20,21 @@ RinClient rin = new RinClient(
 rin.health().thenAccept(data -> System.out.println(data.get("status")));
 ```
 
+External controllers use `RinControlClient` with a host-supplied
+`JsonValueCodec` capable of decoding both JSON objects and arrays:
+
+```java
+RinControlClient control = new RinControlClient(
+        "a-local-secret-containing-at-least-32-bytes",
+        jsonValueCodec);
+control.listWorlds().thenAccept(System.out::println).join();
+```
+
+It covers actor observation, capability discovery, controller leases, action
+submission and confirmation, Operation wait/cancel, and emergency stop. It is
+loopback-only, requires a token, and treats only a terminal Operation with a
+Host Outcome as proof of execution.
+
 `JsonCodec.decodeObject` must reject a non-object root. Calls return
 `CompletableFuture`; schedule any Minecraft or other engine mutation back on
 the owning game thread. The configured deadline is the JDK

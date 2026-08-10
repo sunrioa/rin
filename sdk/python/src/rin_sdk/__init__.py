@@ -10,6 +10,12 @@ from .client import (
     RinProtocolError,
     RinTransportError,
 )
+from .control import (
+    CONTROL_CONTRACT_VERSION,
+    CONTROL_DEFAULT_BASE_URL,
+    CONTROL_MAX_RESPONSE_BYTES,
+    RinControlClient,
+)
 
 __all__ = (
     "DEFAULT_BASE_URL",
@@ -22,4 +28,8 @@ __all__ = (
     "RinError",
     "RinProtocolError",
     "RinTransportError",
+    "CONTROL_CONTRACT_VERSION",
+    "CONTROL_DEFAULT_BASE_URL",
+    "CONTROL_MAX_RESPONSE_BYTES",
+    "RinControlClient",
 )

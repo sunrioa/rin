@@ -2,7 +2,8 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Thin, source-first clients for the `rin.protocol/v2` HTTP boundary.
+Thin, source-first clients for the `rin.protocol/v2` cognition boundary and
+the engine-neutral `rin.control/v2` control boundary.
 
 The SDKs remove transport boilerplate without moving game authority into the
 client library.
@@ -18,12 +19,29 @@ provide.
 
 | Language/target | Runtime | SDK profiles | Async guidance |
 | --- | --- | --- | --- |
-| Python | 3.9+ | `transport` | call from a worker in real-time games |
-| JavaScript | Node 18+ / modern Fetch host | `transport`, `streaming` | Promise-based |
-| C# | .NET 6+ | `transport`, `streaming` | `Task`-based |
-| C# compatibility | .NET Standard 2.0 | `transport` | `Task`-based |
-| Java | 17+ | `transport` | `CompletableFuture`-based |
+| Python | 3.9+ | `transport`, `control-v2` | call from a worker in real-time games |
+| JavaScript | Node 18+ / modern Fetch host | `transport`, `streaming`, `control-v2` | Promise-based |
+| C# | .NET 6+ | `transport`, `streaming`, `control-v2` | `Task`-based |
+| C# compatibility | .NET Standard 2.0 | `transport`, `control-v2` | `Task`-based |
+| Java | 17+ | `transport`, `control-v2` | `CompletableFuture`-based |
 | Lua | 5.1+ host | `transport` | callback-based |
+
+## Control V2 clients
+
+Python, JavaScript, C#, and Java expose a dedicated `RinControlClient` for the
+loopback Control Daemon on port `7375`. This is the same application surface
+used by the MCP bridge: observe an actor, inspect capability specifications,
+acquire a controller lease, submit or confirm an action, wait for its
+authoritative Operation outcome, cancel work, and activate the emergency stop.
+
+Control clients accept only plain loopback HTTP origins with an explicit port,
+always require a bearer token containing at least 32 UTF-8 bytes, reject
+redirects and non-JSON responses, and cap responses at 8 MiB. A submitted or
+queued Operation is not proof of execution; only a terminal Host Outcome can
+confirm the world effect. The machine contract is
+[`api/control-openapi.json`](../api/control-openapi.json), with shared request
+examples in
+[`api/control-v2-fixtures.json`](../api/control-v2-fixtures.json).
 
 All clients follow these rules:
 

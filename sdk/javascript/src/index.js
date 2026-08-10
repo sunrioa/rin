@@ -2,6 +2,9 @@ export const SDK_VERSION = "0.7.0";
 export const PROTOCOL_VERSION = "rin.protocol/v2";
 export const DEFAULT_BASE_URL = "http://127.0.0.1:7374";
 export const DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
+export const CONTROL_CONTRACT_VERSION = "rin.control/v2";
+export const CONTROL_DEFAULT_BASE_URL = "http://127.0.0.1:7375";
+export const CONTROL_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 export const INLINE_SNAPSHOT_MAX_BYTES = 16 * 1024 * 1024;
 export const TRANSFER_CONTROL_FRAME_MAX_BYTES = 32 * 1024;
 export const TRANSFER_EVENT_FRAME_MAX_BYTES = 64 * 1024 * 1024 + TRANSFER_CONTROL_FRAME_MAX_BYTES;
@@ -806,6 +809,175 @@ export class RinClient {
   }
 }
 
+/** Thin client for the loopback Control V2 daemon. */
+export class RinControlClient {
+  constructor(baseUrlOrOptions = CONTROL_DEFAULT_BASE_URL, providedOptions) {
+    const baseUrl = isObject(baseUrlOrOptions)
+      ? CONTROL_DEFAULT_BASE_URL
+      : baseUrlOrOptions;
+    const options = isObject(baseUrlOrOptions)
+      ? baseUrlOrOptions
+      : providedOptions ?? {};
+    const {
+      token = "",
+      timeoutMs = 30000,
+      maxResponseBytes = CONTROL_MAX_RESPONSE_BYTES,
+      fetch: fetchImplementation = globalThis.fetch,
+    } = options;
+    this.token = validateControlToken(token);
+    this.baseUrl = normalizeControlBaseUrl(baseUrl);
+    this.timeoutMs = Number(timeoutMs);
+    if (!Number.isSafeInteger(this.timeoutMs) || this.timeoutMs < 50 || this.timeoutMs > 120000) {
+      throw new RinConfigurationError(
+        "invalid_timeout",
+        "Control timeoutMs must be between 50 and 120000",
+      );
+    }
+    this.maxResponseBytes = Number(maxResponseBytes);
+    if (!Number.isSafeInteger(this.maxResponseBytes) ||
+        this.maxResponseBytes < 1024 ||
+        this.maxResponseBytes > CONTROL_MAX_RESPONSE_BYTES) {
+      throw new RinConfigurationError(
+        "invalid_response_limit",
+        "Control response limit must be between 1 KiB and 8 MiB",
+      );
+    }
+    if (typeof fetchImplementation !== "function") {
+      throw new RinConfigurationError("missing_fetch", "a Fetch API implementation is required");
+    }
+    this.fetch = fetchImplementation;
+  }
+
+  async info() {
+    const info = await this.request("GET", "/control/v2/info");
+    if (!isObject(info) || info.contract_version !== CONTROL_CONTRACT_VERSION) {
+      throw new RinProtocolError(
+        "control_contract_mismatch",
+        "Control Daemon returned an unsupported contract",
+      );
+    }
+    return info;
+  }
+
+  listWorlds() { return this.post("/control/v2/worlds", {}); }
+  listActors(input) { return this.post("/control/v2/actors", input); }
+  getActor(input) { return this.post("/control/v2/actor", input); }
+  waitActor(input) { return this.post("/control/v2/wait-actor", input); }
+  observeActor(input) { return this.post("/control/v2/observe", input); }
+  listCapabilities(input) { return this.post("/control/v2/capabilities", input); }
+  describeCapability(input) { return this.post("/control/v2/capability", input); }
+  acquireController(input) { return this.post("/control/v2/controllers/acquire", input); }
+  renewController(input) { return this.post("/control/v2/controllers/renew", input); }
+  releaseController(input) { return this.post("/control/v2/controllers/release", input); }
+  getController(input) { return this.post("/control/v2/controllers/get", input); }
+  submitAction(input) { return this.post("/control/v2/actions/submit", input); }
+  confirmAction(input) { return this.post("/control/v2/actions/confirm", input); }
+  getOperation(input) { return this.post("/control/v2/operations/get", input); }
+  waitOperation(input) { return this.post("/control/v2/operations/wait", input); }
+  cancelOperation(input) { return this.post("/control/v2/operations/cancel", input); }
+  setEmergencyStop(input) { return this.post("/control/v2/emergency-stop", input); }
+
+  post(path, input) {
+    return this.request("POST", path, input);
+  }
+
+  async request(method, path, input) {
+    if (typeof path !== "string" || !path.startsWith("/control/v2/") ||
+        path.includes("//") || path.includes("..")) {
+      throw new RinConfigurationError("invalid_path", "Control request path is invalid");
+    }
+    const headers = {
+      Accept: "application/json",
+      Authorization: `Bearer ${this.token}`,
+      "User-Agent": `rin-control-javascript/${SDK_VERSION}`,
+    };
+    let body;
+    if (input !== undefined) {
+      body = serializeRequest(input);
+      headers["Content-Type"] = "application/json";
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const response = await this.fetch(`${this.baseUrl}${path}`, {
+        method,
+        headers,
+        body,
+        signal: controller.signal,
+        redirect: "error",
+      });
+      if (response.status >= 300 && response.status < 400) {
+        await cancelBody(response);
+        throw new RinTransportError(
+          "redirect_rejected",
+          "Control Daemon attempted to redirect",
+        );
+      }
+      const contentType = response.headers?.get?.("content-type") ?? "";
+      if (contentType.split(";", 1)[0].trim().toLowerCase() !== "application/json") {
+        await cancelBody(response);
+        throw new RinProtocolError(
+          "invalid_response",
+          "Control Daemon response must be application/json",
+        );
+      }
+      const declared = response.headers?.get?.("content-length");
+      if (declared !== null && declared !== undefined && declared !== "") {
+        const length = Number(declared);
+        if (!Number.isSafeInteger(length) || length < 0) {
+          throw new RinProtocolError(
+            "invalid_response",
+            "Control Daemon returned an invalid Content-Length",
+          );
+        }
+        if (length > this.maxResponseBytes) {
+          await cancelBody(response);
+          throw new RinProtocolError(
+            "response_too_large",
+            "Control Daemon response exceeds the configured limit",
+          );
+        }
+      }
+      const raw = await readBoundedBody(response, this.maxResponseBytes);
+      let value;
+      try {
+        value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw));
+      } catch (cause) {
+        throw new RinProtocolError(
+          "invalid_response",
+          "Control Daemon returned invalid JSON",
+          { cause },
+        );
+      }
+      if (!isObject(value) && !Array.isArray(value)) {
+        throw new RinProtocolError(
+          "invalid_response",
+          "Control Daemon response must be an object or array",
+        );
+      }
+      if (response.status < 200 || response.status >= 300) {
+        const error = isObject(value) ? value : {};
+        throw new RinAPIError(
+          safeText(error.code, 96) || controlErrorCode(response.status),
+          safeText(error.error, 500) || "Control Daemon request failed",
+          { status: response.status },
+        );
+      }
+      return value;
+    } catch (cause) {
+      if (cause instanceof RinError) throw cause;
+      const timedOut = controller.signal.aborted;
+      throw new RinTransportError(
+        timedOut ? "transport_timeout" : "transport_failed",
+        timedOut ? "Control Daemon request timed out" : "Control Daemon is unavailable",
+        { cause },
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
 function secureRandomBytes(length) {
   const crypto = globalThis.crypto;
   if (!crypto || typeof crypto.getRandomValues !== "function") {
@@ -1241,6 +1413,49 @@ function normalizeBaseUrl(value, token) {
     throw new RinConfigurationError("missing_token", "remote Rin endpoints require a token");
   }
   return parsed.origin;
+}
+
+function normalizeControlBaseUrl(value) {
+  let parsed;
+  try {
+    parsed = new URL(String(value || CONTROL_DEFAULT_BASE_URL).trim());
+  } catch (cause) {
+    throw new RinConfigurationError(
+      "invalid_base_url",
+      "Control Daemon URL must be a plain loopback HTTP origin",
+      { cause },
+    );
+  }
+  if (parsed.protocol !== "http:" || parsed.username || parsed.password ||
+      parsed.search || parsed.hash || (parsed.pathname !== "/" && parsed.pathname !== "") ||
+      !parsed.port || !isLoopback(parsed.hostname)) {
+    throw new RinConfigurationError(
+      "invalid_base_url",
+      "Control Daemon URL must be a plain loopback HTTP origin with an explicit port",
+    );
+  }
+  return parsed.origin;
+}
+
+function validateControlToken(value) {
+  const token = validateToken(value);
+  if (new TextEncoder().encode(token).byteLength < 32) {
+    throw new RinConfigurationError(
+      "invalid_token",
+      "Control token must contain at least 32 bytes",
+    );
+  }
+  return token;
+}
+
+function controlErrorCode(status) {
+  if (status === 400) return "invalid";
+  if (status === 401 || status === 403) return "forbidden";
+  if (status === 404) return "not_found";
+  if (status === 409) return "conflict";
+  if (status === 410) return "unavailable";
+  if (status === 429) return "capacity";
+  return "unavailable";
 }
 
 function isLoopback(hostname) {

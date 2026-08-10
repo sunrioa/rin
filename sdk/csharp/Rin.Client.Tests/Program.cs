@@ -1104,6 +1104,8 @@ catch (RinProtocolException exception)
     Require(exception.Code == "invalid_job", "malformed DELETE returned the wrong error");
 }
 
+await ControlClientTests.RunAsync();
+
 Console.WriteLine("Rin C# SDK tests passed");
 
 static void Require(bool condition, string message)
@@ -1332,6 +1334,269 @@ sealed class RecordingHandler : HttpMessageHandler
                     "application/x-ndjson");
         }
         if (DeclaredLength.HasValue) content.Headers.ContentLength = DeclaredLength.Value;
+        return new HttpResponseMessage(status) { Content = content };
+    }
+}
+
+static class ControlClientTests
+{
+    private sealed record RequestCase(
+        Func<Task<JsonElement>> Call,
+        HttpMethod Method,
+        string Path,
+        JsonElement? Input);
+
+    internal static async Task RunAsync()
+    {
+        using var fixture = JsonDocument.Parse(
+            File.ReadAllText(ControlFixturePath()));
+        var root = fixture.RootElement;
+        Require(
+            root.GetProperty("contract_version").GetString() ==
+            RinControlClient.ContractVersion,
+            "shared Control fixture has the wrong contract");
+
+        var handler = new ControlRecordingHandler();
+        using var client = new RinControlClient(
+            new RinControlClientOptions
+            {
+                Token = "control-fixture-token-32-bytes!!",
+            },
+            handler);
+        var world = root.GetProperty("world_target");
+        var actor = root.GetProperty("actor_target");
+        var operation = root.GetProperty("operation_target");
+        var empty = JsonSerializer.SerializeToElement(
+            new Dictionary<string, object>());
+        var requests = new[]
+        {
+            new RequestCase(() => client.InfoAsync(), HttpMethod.Get, "/control/v2/info", null),
+            new RequestCase(() => client.ListWorldsAsync(), HttpMethod.Post, "/control/v2/worlds", empty),
+            new RequestCase(() => client.ListActorsAsync(world), HttpMethod.Post, "/control/v2/actors", world),
+            new RequestCase(() => client.GetActorAsync(actor), HttpMethod.Post, "/control/v2/actor", actor),
+            new RequestCase(() => client.WaitActorAsync(root.GetProperty("wait_actor")), HttpMethod.Post, "/control/v2/wait-actor", root.GetProperty("wait_actor")),
+            new RequestCase(() => client.ObserveActorAsync(actor), HttpMethod.Post, "/control/v2/observe", actor),
+            new RequestCase(() => client.ListCapabilitiesAsync(actor), HttpMethod.Post, "/control/v2/capabilities", actor),
+            new RequestCase(() => client.DescribeCapabilityAsync(root.GetProperty("describe_capability")), HttpMethod.Post, "/control/v2/capability", root.GetProperty("describe_capability")),
+            new RequestCase(() => client.AcquireControllerAsync(root.GetProperty("acquire_controller")), HttpMethod.Post, "/control/v2/controllers/acquire", root.GetProperty("acquire_controller")),
+            new RequestCase(() => client.RenewControllerAsync(root.GetProperty("renew_controller")), HttpMethod.Post, "/control/v2/controllers/renew", root.GetProperty("renew_controller")),
+            new RequestCase(() => client.ReleaseControllerAsync(root.GetProperty("release_controller")), HttpMethod.Post, "/control/v2/controllers/release", root.GetProperty("release_controller")),
+            new RequestCase(() => client.GetControllerAsync(actor), HttpMethod.Post, "/control/v2/controllers/get", actor),
+            new RequestCase(() => client.SubmitActionAsync(root.GetProperty("submit_action")), HttpMethod.Post, "/control/v2/actions/submit", root.GetProperty("submit_action")),
+            new RequestCase(() => client.ConfirmActionAsync(operation), HttpMethod.Post, "/control/v2/actions/confirm", operation),
+            new RequestCase(() => client.GetOperationAsync(operation), HttpMethod.Post, "/control/v2/operations/get", operation),
+            new RequestCase(() => client.WaitOperationAsync(root.GetProperty("wait_operation")), HttpMethod.Post, "/control/v2/operations/wait", root.GetProperty("wait_operation")),
+            new RequestCase(() => client.CancelOperationAsync(operation), HttpMethod.Post, "/control/v2/operations/cancel", operation),
+            new RequestCase(() => client.SetEmergencyStopAsync(root.GetProperty("emergency_stop")), HttpMethod.Post, "/control/v2/emergency-stop", root.GetProperty("emergency_stop")),
+        };
+
+        foreach (var request in requests)
+        {
+            var response = await request.Call();
+            Require(
+                handler.Method == request.Method,
+                $"Control method changed for {request.Path}");
+            Require(
+                handler.Path == request.Path,
+                $"Control route changed for {request.Path}");
+            Require(
+                handler.Authorization ==
+                "Bearer control-fixture-token-32-bytes!!",
+                "Control bearer token was not sent");
+            if (request.Input is JsonElement expected)
+            {
+                using var body = JsonDocument.Parse(handler.Body);
+                Require(
+                    JsonValues.Equivalent(body.RootElement, expected),
+                    $"Control body changed for {request.Path}");
+            }
+            if (request.Path is "/control/v2/worlds" or "/control/v2/actors")
+            {
+                Require(
+                    response.ValueKind == JsonValueKind.Array,
+                    $"Control list response changed for {request.Path}");
+            }
+        }
+
+        handler.Mode = ControlResponseMode.ApiError;
+        await RequireCodeAsync<RinApiException>(
+            () => client.GetActorAsync(actor),
+            "stale");
+        handler.Mode = ControlResponseMode.WrongContentType;
+        await RequireCodeAsync<RinProtocolException>(
+            () => client.GetActorAsync(actor),
+            "invalid_response");
+        handler.Mode = ControlResponseMode.Redirect;
+        await RequireCodeAsync<RinTransportException>(
+            () => client.GetActorAsync(actor),
+            "redirect_rejected");
+
+        var boundedHandler = new ControlRecordingHandler
+        {
+            Mode = ControlResponseMode.Oversized,
+        };
+        using var bounded = new RinControlClient(
+            new RinControlClientOptions
+            {
+                Token = "control-fixture-token-32-bytes!!",
+                MaxResponseBytes = 1024,
+            },
+            boundedHandler);
+        await RequireCodeAsync<RinProtocolException>(
+            () => bounded.GetActorAsync(actor),
+            "response_too_large");
+
+        var slowHandler = new ControlRecordingHandler
+        {
+            Mode = ControlResponseMode.Slow,
+        };
+        using var slow = new RinControlClient(
+            new RinControlClientOptions
+            {
+                Token = "control-fixture-token-32-bytes!!",
+                Timeout = TimeSpan.FromMilliseconds(50),
+            },
+            slowHandler);
+        await RequireCodeAsync<RinTransportException>(
+            () => slow.GetActorAsync(actor),
+            "transport_timeout");
+
+        RequireCode<RinConfigurationException>(
+            () => new RinControlClient(new RinControlClientOptions
+            {
+                Token = "short",
+            }),
+            "invalid_token");
+        RequireCode<RinConfigurationException>(
+            () => new RinControlClient(new RinControlClientOptions
+            {
+                BaseUrl = "https://example.com:7375",
+                Token = "control-fixture-token-32-bytes!!",
+            }),
+            "invalid_base_url");
+    }
+
+    private static async Task RequireCodeAsync<TException>(
+        Func<Task<JsonElement>> operation,
+        string code)
+        where TException : RinException
+    {
+        try
+        {
+            await operation();
+            throw new InvalidOperationException($"expected {code}");
+        }
+        catch (TException exception)
+        {
+            Require(exception.Code == code, $"unexpected Control error: {exception.Code}");
+        }
+    }
+
+    private static void RequireCode<TException>(Action operation, string code)
+        where TException : RinException
+    {
+        try
+        {
+            operation();
+            throw new InvalidOperationException($"expected {code}");
+        }
+        catch (TException exception)
+        {
+            Require(exception.Code == code, $"unexpected Control error: {exception.Code}");
+        }
+    }
+
+    private static string ControlFixturePath()
+    {
+        foreach (var start in new[]
+        {
+            Directory.GetCurrentDirectory(),
+            AppContext.BaseDirectory,
+        })
+        {
+            for (DirectoryInfo? directory = new(start);
+                 directory is not null;
+                 directory = directory.Parent)
+            {
+                var candidate = Path.Combine(
+                    directory.FullName,
+                    "api",
+                    "control-v2-fixtures.json");
+                if (File.Exists(candidate)) return candidate;
+            }
+        }
+        throw new FileNotFoundException(
+            "cannot locate api/control-v2-fixtures.json");
+    }
+
+    private static void Require(bool condition, string message)
+    {
+        if (!condition) throw new InvalidOperationException(message);
+    }
+}
+
+enum ControlResponseMode
+{
+    Normal,
+    ApiError,
+    WrongContentType,
+    Redirect,
+    Oversized,
+    Slow,
+}
+
+sealed class ControlRecordingHandler : HttpMessageHandler
+{
+    public ControlResponseMode Mode { get; set; }
+
+    public HttpMethod? Method { get; private set; }
+
+    public string Path { get; private set; } = string.Empty;
+
+    public string Authorization { get; private set; } = string.Empty;
+
+    public string Body { get; private set; } = string.Empty;
+
+    protected override async Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        Method = request.Method;
+        Path = request.RequestUri?.AbsolutePath ?? string.Empty;
+        Authorization = request.Headers.Authorization?.ToString() ?? string.Empty;
+        Body = request.Content is null
+            ? string.Empty
+            : await request.Content.ReadAsStringAsync(cancellationToken);
+        if (Mode == ControlResponseMode.Slow)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+        }
+
+        var status = Mode switch
+        {
+            ControlResponseMode.ApiError => HttpStatusCode.Conflict,
+            ControlResponseMode.Redirect => HttpStatusCode.Found,
+            _ => HttpStatusCode.OK,
+        };
+        var responseBody = Mode switch
+        {
+            ControlResponseMode.ApiError =>
+                "{\"code\":\"stale\",\"error\":\"world changed\"}",
+            ControlResponseMode.Oversized =>
+                "{\"padding\":\"" + new string('x', 2048) + "\"}",
+            _ when Path == "/control/v2/info" =>
+                "{\"contract_version\":\"rin.control/v2\"," +
+                "\"principal\":{\"id\":\"principal.fixture\"}}",
+            _ when Path is "/control/v2/worlds" or "/control/v2/actors" =>
+                "[{\"id\":\"fixture\"}]",
+            _ => "{\"status\":\"ok\"}",
+        };
+        var content = new ByteArrayContent(Encoding.UTF8.GetBytes(responseBody));
+        content.Headers.ContentType =
+            new System.Net.Http.Headers.MediaTypeHeaderValue(
+                Mode == ControlResponseMode.WrongContentType
+                    ? "text/plain"
+                    : "application/json");
         return new HttpResponseMessage(status) { Content = content };
     }
 }

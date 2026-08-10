@@ -336,7 +336,7 @@ func TestCSharpCIMatrixPreservesSupportedTargets(t *testing.T) {
 			`<TargetFramework Condition="'$(RinTargetFramework)' != ''">$(RinTargetFramework)</TargetFramework>`,
 		},
 		"../sdk/csharp/Rin.Client.Tests/Rin.Client.Tests.csproj": {
-			`<RinTargetFramework Condition="'$(RinTargetFramework)' == ''">net6.0</RinTargetFramework>`,
+			`<RinTargetFramework Condition="'$(RinTargetFramework)' == ''">net8.0</RinTargetFramework>`,
 			`<TargetFramework>$(RinTargetFramework)</TargetFramework>`,
 		},
 	}

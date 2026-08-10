@@ -25,3 +25,18 @@ Socket deadlines are reported as `RinTransportError("transport_timeout", ...)`;
 other connection failures use `transport_failed`. Bounded response-body reads
 spend from a monotonic deadline started before connection setup; a slowly
 dripping body cannot restart that budget.
+
+Use `RinControlClient` when an external application needs the same Control V2
+surface as MCP:
+
+```python
+from rin_sdk import RinControlClient
+
+control = RinControlClient(token="a-local-secret-containing-at-least-32-bytes")
+worlds = control.list_worlds()
+```
+
+The Control client connects only to an explicit loopback HTTP port (default
+`7375`). It covers actor observation, capability discovery, controller leases,
+action submission and confirmation, Operation wait/cancel, and emergency stop.
+Treat only a terminal Operation with a Host Outcome as executed.

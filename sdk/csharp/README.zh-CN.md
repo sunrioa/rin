@@ -22,6 +22,20 @@ var capabilities = await rin.NegotiateCapabilitiesAsync();
 Console.WriteLine(capabilities.ReleaseVersion);
 ```
 
+外部控制器使用与 MCP 共用的 Control V2 客户端：
+
+```csharp
+using var control = new RinControlClient(new RinControlClientOptions
+{
+    Token = "a-local-secret-containing-at-least-32-bytes",
+});
+var worlds = await control.ListWorldsAsync();
+```
+
+它覆盖角色观察、能力发现、控制租约、行动提交与确认、Operation 等待/取消和
+急停；只允许本机回环连接并强制使用 Token。只有带 Host Outcome 的 Operation
+终态才能证明游戏已执行。
+
 能力协商会在 Runtime 不是 `rin.protocol/v2` 或不支持权威 Outcome Reporting
 preset 时 Fail Closed。请通过 `RinIds.Create("request")` 和
 `RinIds.Create("event")` 生成一次稳定 ID，将其随操作持久化，并在每次 exact

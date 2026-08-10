@@ -22,6 +22,21 @@ var capabilities = await rin.NegotiateCapabilitiesAsync();
 Console.WriteLine(capabilities.ReleaseVersion);
 ```
 
+External controllers use the Control V2 client shared with MCP:
+
+```csharp
+using var control = new RinControlClient(new RinControlClientOptions
+{
+    Token = "a-local-secret-containing-at-least-32-bytes",
+});
+var worlds = await control.ListWorldsAsync();
+```
+
+It covers actor observation, capability discovery, controller leases, action
+submission and confirmation, Operation wait/cancel, and emergency stop. It is
+loopback-only, requires a token, and treats only a terminal Operation with a
+Host Outcome as proof of execution.
+
 Capability negotiation fails closed unless the Runtime speaks
 `rin.protocol/v2` and supports the authoritative outcome-reporting preset.
 Create stable identities once with `RinIds.Create("request")` and

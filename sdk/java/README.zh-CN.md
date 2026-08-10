@@ -20,6 +20,20 @@ RinClient rin = new RinClient(
 rin.health().thenAccept(data -> System.out.println(data.get("status")));
 ```
 
+外部控制器使用 `RinControlClient`，并提供能够同时解码 JSON Object 与 Array
+的宿主 `JsonValueCodec`：
+
+```java
+RinControlClient control = new RinControlClient(
+        "a-local-secret-containing-at-least-32-bytes",
+        jsonValueCodec);
+control.listWorlds().thenAccept(System.out::println).join();
+```
+
+它覆盖角色观察、能力发现、控制租约、行动提交与确认、Operation 等待/取消和
+急停；只允许本机回环连接并强制使用 Token。只有带 Host Outcome 的 Operation
+终态才能证明游戏已执行。
+
 `JsonCodec.decodeObject` 必须拒绝非 Object 根节点。调用返回
 `CompletableFuture`；Minecraft 或其他引擎状态修改必须重新安排到引擎
 拥有的游戏线程。配置的 Deadline 直接使用 JDK `HttpRequest.timeout`；取消返回的

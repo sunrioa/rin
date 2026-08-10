@@ -2,6 +2,9 @@ export const SDK_VERSION: "0.7.0";
 export const PROTOCOL_VERSION: "rin.protocol/v2";
 export const DEFAULT_BASE_URL: string;
 export const DEFAULT_MAX_RESPONSE_BYTES: number;
+export const CONTROL_CONTRACT_VERSION: "rin.control/v2";
+export const CONTROL_DEFAULT_BASE_URL: string;
+export const CONTROL_MAX_RESPONSE_BYTES: number;
 export const INLINE_SNAPSHOT_MAX_BYTES: number;
 export const TRANSFER_CONTROL_FRAME_MAX_BYTES: number;
 export const TRANSFER_EVENT_FRAME_MAX_BYTES: number;
@@ -37,6 +40,15 @@ export interface RinClientOptions {
   now?: () => number;
   sleep?: (milliseconds: number) => Promise<void>;
 }
+
+export interface RinControlClientOptions {
+  token: string;
+  timeoutMs?: number;
+  maxResponseBytes?: number;
+  fetch?: FetchImplementation;
+}
+
+export type ControlResponse = RinObject | unknown[];
 
 export interface RinPollingOptions {
   deadlineMs?: number;
@@ -605,4 +617,28 @@ export class RinClient {
   dueAgents(payload: RinObject): Promise<RinObject>;
   waitForProposal(jobId: string, options?: RinPollingOptions): Promise<RinObject>;
   waitForGeneration(jobId: string, options?: RinPollingOptions): Promise<RinObject>;
+}
+
+export class RinControlClient {
+  constructor(options: RinControlClientOptions);
+  constructor(baseUrl: string | undefined, options: RinControlClientOptions);
+  readonly baseUrl: string;
+  info(): Promise<RinObject>;
+  listWorlds(): Promise<ControlResponse>;
+  listActors(input: RinObject): Promise<ControlResponse>;
+  getActor(input: RinObject): Promise<ControlResponse>;
+  waitActor(input: RinObject): Promise<ControlResponse>;
+  observeActor(input: RinObject): Promise<ControlResponse>;
+  listCapabilities(input: RinObject): Promise<ControlResponse>;
+  describeCapability(input: RinObject): Promise<ControlResponse>;
+  acquireController(input: RinObject): Promise<ControlResponse>;
+  renewController(input: RinObject): Promise<ControlResponse>;
+  releaseController(input: RinObject): Promise<ControlResponse>;
+  getController(input: RinObject): Promise<ControlResponse>;
+  submitAction(input: RinObject): Promise<ControlResponse>;
+  confirmAction(input: RinObject): Promise<ControlResponse>;
+  getOperation(input: RinObject): Promise<ControlResponse>;
+  waitOperation(input: RinObject): Promise<ControlResponse>;
+  cancelOperation(input: RinObject): Promise<ControlResponse>;
+  setEmergencyStop(input: RinObject): Promise<ControlResponse>;
 }

@@ -14,6 +14,21 @@ const capabilities = await rin.negotiateCapabilities();
 console.log(capabilities.release_version);
 ```
 
+外部控制器使用与 MCP 共用的独立 Control V2 客户端：
+
+```js
+import { RinControlClient } from "@sunrioa/rin-sdk";
+
+const control = new RinControlClient("http://127.0.0.1:7375", {
+  token: "a-local-secret-containing-at-least-32-bytes",
+});
+const worlds = await control.listWorlds();
+```
+
+它覆盖角色观察、能力发现、控制租约、行动提交与确认、Operation 等待/取消和
+急停；只允许本机回环连接并强制使用 Token。只有带 Host Outcome 的 Operation
+终态才能证明游戏已执行。
+
 `negotiateCapabilities()` 会在 Runtime 不是 `rin.protocol/v2` 时 Fail Closed。
 请用 `createRinId("request")` 与
 `createRinId("event")` 生成一次 ID，将其随操作持久化，并在每次 exact retry

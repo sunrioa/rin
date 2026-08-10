@@ -2,7 +2,8 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-面向 `rin.protocol/v2` HTTP 边界的轻量、源码优先客户端。
+面向 `rin.protocol/v2` 认知边界与引擎中立 `rin.control/v2` 控制边界的
+轻量、源码优先客户端。
 
 这些 SDK 消除传输样板代码，不会把游戏权威移动到客户端库。
 
@@ -15,12 +16,26 @@ SDK Workflow Helper 会校验接入声明的
 
 | 语言/Target | Runtime | SDK Profile | 异步建议 |
 | --- | --- | --- | --- |
-| Python | 3.9+ | `transport` | 实时游戏从 Worker 调用 |
-| JavaScript | Node 18+ / 现代 Fetch 宿主 | `transport`、`streaming` | 基于 Promise |
-| C# | .NET 6+ | `transport`、`streaming` | 基于 `Task` |
-| C# 兼容构建 | .NET Standard 2.0 | `transport` | 基于 `Task` |
-| Java | 17+ | `transport` | 基于 `CompletableFuture` |
+| Python | 3.9+ | `transport`、`control-v2` | 实时游戏从 Worker 调用 |
+| JavaScript | Node 18+ / 现代 Fetch 宿主 | `transport`、`streaming`、`control-v2` | 基于 Promise |
+| C# | .NET 6+ | `transport`、`streaming`、`control-v2` | 基于 `Task` |
+| C# 兼容构建 | .NET Standard 2.0 | `transport`、`control-v2` | 基于 `Task` |
+| Java | 17+ | `transport`、`control-v2` | 基于 `CompletableFuture` |
 | Lua | 5.1+ 宿主 | `transport` | 基于 Callback |
+
+## Control V2 客户端
+
+Python、JavaScript、C# 与 Java 提供独立的 `RinControlClient`，连接本机
+`7375` 端口的 Control Daemon。它与 MCP Bridge 使用同一应用接口，可观察角色、
+读取能力规格、取得控制租约、提交或确认行动、等待权威 Operation 结果、取消任务
+并触发急停。
+
+Control 客户端只接受带显式端口的明文本机回环 Origin，始终要求至少 32 个
+UTF-8 字节的 Bearer Token，拒绝重定向和非 JSON 响应，并把响应限制为 8 MiB。
+`submitted` 或 `queued` 不能证明游戏已执行；只有带 Host Outcome 的终态才能确认
+世界效果。机器契约见
+[`api/control-openapi.json`](../api/control-openapi.json)，共享请求样例见
+[`api/control-v2-fixtures.json`](../api/control-v2-fixtures.json)。
 
 所有客户端遵循以下规则：
 
