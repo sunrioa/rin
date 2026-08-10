@@ -1,16 +1,23 @@
 package planner
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
 	"testing"
+
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 func validPlan() Plan {
 	return Plan{
-		ID:       "plan.survival",
-		Revision: 1,
-		Goal:     "prepare survival basics",
-		Budget:   Budget{MaxSteps: 32, MaxWorldMutations: 16, MaxTicks: 6000},
+		SchemaVersion: CurrentSchemaVersion,
+		ID:            "plan.survival",
+		Revision:      1,
+		Goal:          "prepare survival basics",
+		Budget:        Budget{MaxSteps: 32, MaxWorldMutations: 16, MaxTicks: 6000},
 		Nodes: []Node{
 			{ID: "collect", Kind: Action, Capability: "resource.harvest", MaxAttempts: 3, WorldMutations: 1, Risk: "high"},
 			{ID: "check", Kind: Branch, DependsOn: []string{"collect"}, When: []string{"has_material"}, Then: []string{"build"}, Else: []string{"wait"}, MaxAttempts: 1, Risk: "low"},
@@ -47,10 +54,11 @@ func TestAdvanceSelectsOnlyOneBranchPath(t *testing.T) {
 
 func TestAdvanceRunsABoundedLoop(t *testing.T) {
 	plan := Plan{
-		ID:       "plan.loop",
-		Revision: 1,
-		Goal:     "repeat a bounded action",
-		Budget:   Budget{MaxSteps: 8, MaxWorldMutations: 4, MaxTicks: 100},
+		SchemaVersion: CurrentSchemaVersion,
+		ID:            "plan.loop",
+		Revision:      1,
+		Goal:          "repeat a bounded action",
+		Budget:        Budget{MaxSteps: 8, MaxWorldMutations: 4, MaxTicks: 100},
 		Nodes: []Node{
 			{ID: "prepare", Kind: Action, Capability: "activity.wait", MaxAttempts: 1, Risk: "low"},
 			{ID: "repeat", Kind: Action, Capability: "resource.harvest", MaxAttempts: 1, WorldMutations: 1, Risk: "high"},
@@ -69,6 +77,9 @@ func TestAdvanceRunsABoundedLoop(t *testing.T) {
 	if state.Loops["loop"] != 1 || !state.ActiveLoops["loop"] {
 		t.Fatalf("first loop iteration did not restart: %#v", state)
 	}
+	if state.RetiredSteps != 1 {
+		t.Fatalf("completed loop attempts were not retired: %#v", state)
+	}
 	assertReady(t, plan, state, "repeat")
 	state = mustApply(t, plan, state, "repeat", 1004, 1)
 	state = mustAdvance(t, plan, state, map[string]bool{"continue": true}, 1005)
@@ -83,12 +94,89 @@ func TestAdvanceRunsABoundedLoop(t *testing.T) {
 	}
 }
 
+func TestNestedLoopsRetireCompletedAttempts(t *testing.T) {
+	plan := Plan{
+		SchemaVersion: CurrentSchemaVersion,
+		ID:            "plan.nested-loop",
+		Revision:      1,
+		Goal:          "validate nested loop accounting",
+		Budget:        Budget{MaxSteps: 16, MaxWorldMutations: 0, MaxTicks: 100},
+		Nodes: []Node{
+			{ID: "repeat", Kind: Action, Capability: "activity.wait",
+				MaxAttempts: 1, Risk: "low"},
+			{ID: "inner", Kind: Loop, When: []string{"continue_inner"},
+				Children: []string{"repeat"}, MaxAttempts: 1,
+				MaxIterations: 2, Risk: "low"},
+			{ID: "outer", Kind: Loop, When: []string{"continue_outer"},
+				Children: []string{"inner"}, MaxAttempts: 1,
+				MaxIterations: 2, Risk: "low"},
+		},
+	}
+	facts := map[string]bool{"continue_inner": true, "continue_outer": true}
+	state := mustAdvance(t, plan, State{}, facts, 100)
+	for iteration := 0; iteration < 4; iteration++ {
+		assertReady(t, plan, state, "repeat")
+		state = mustApply(t, plan, state, "repeat", uint64(101+iteration*2), 0)
+		state = mustAdvance(t, plan, state, facts, uint64(102+iteration*2))
+	}
+	if !state.Completed["outer"] || !state.Completed["inner"] ||
+		state.Loops["outer"] != 2 || state.Loops["inner"] != 2 ||
+		state.Steps != 4 || state.Attempts["repeat"] != 1 ||
+		state.RetiredSteps != 3 || !plan.Done(state) || !plan.Succeeded(state) {
+		t.Fatalf("nested loop accounting is inconsistent: %#v", state)
+	}
+	forged := cloneState(state)
+	forged.Steps++
+	forged.RetiredSteps++
+	if err := plan.ValidateState(forged); err == nil {
+		t.Fatal("nested loop accepted retired steps beyond its execution history")
+	}
+}
+
+func TestAdvanceSkipsLoopBodyWhenConditionIsFalse(t *testing.T) {
+	plan := Plan{
+		SchemaVersion: CurrentSchemaVersion,
+		ID:            "plan.zero-loop",
+		Revision:      1,
+		Goal:          "continue after an optional loop",
+		Budget:        Budget{MaxSteps: 2, MaxWorldMutations: 0, MaxTicks: 20},
+		Nodes: []Node{
+			{ID: "repeat", Kind: Action, Capability: "activity.wait",
+				MaxAttempts: 1, Risk: "low"},
+			{ID: "loop", Kind: Loop, When: []string{"continue"},
+				Children: []string{"repeat"}, MaxAttempts: 1,
+				MaxIterations: 2, Risk: "low"},
+			{ID: "finish", Kind: Action, Capability: "activity.wait",
+				DependsOn: []string{"repeat"}, MaxAttempts: 1, Risk: "low"},
+		},
+	}
+	forged := State{
+		Started:   true,
+		StartedAt: 100,
+		Tick:      100,
+		Completed: map[string]bool{"loop": true},
+	}
+	if err := plan.ValidateState(forged); err == nil {
+		t.Fatal("zero-iteration loop accepted an unaccounted child subtree")
+	}
+	state := mustAdvance(t, plan, State{}, map[string]bool{}, 100)
+	if !state.Completed["loop"] || !state.Skipped["repeat"] || state.Loops["loop"] != 0 {
+		t.Fatalf("zero-iteration loop did not skip its body: %#v", state)
+	}
+	assertReady(t, plan, state, "finish")
+	state = mustApply(t, plan, state, "finish", 101, 0)
+	if !plan.Done(state) || !plan.Succeeded(state) {
+		t.Fatalf("plan deadlocked after a zero-iteration loop: %#v", state)
+	}
+}
+
 func TestFailConsumesAttemptsAndStepBudget(t *testing.T) {
 	plan := Plan{
-		ID:       "plan.retry",
-		Revision: 1,
-		Goal:     "retry a bounded action",
-		Budget:   Budget{MaxSteps: 3, MaxWorldMutations: 2, MaxTicks: 20},
+		SchemaVersion: CurrentSchemaVersion,
+		ID:            "plan.retry",
+		Revision:      1,
+		Goal:          "retry a bounded action",
+		Budget:        Budget{MaxSteps: 3, MaxWorldMutations: 2, MaxTicks: 20},
 		Nodes: []Node{{
 			ID: "try", Kind: Action, Capability: "resource.harvest",
 			MaxAttempts: 2, WorldMutations: 1, Risk: "high",
@@ -132,6 +220,20 @@ func TestApplyUsesAbsoluteTicksAndDoesNotMutateInput(t *testing.T) {
 }
 
 func TestValidateRejectsAmbiguousOrUnsafePlansAndStates(t *testing.T) {
+	unicodeGoal := validPlan()
+	unicodeGoal.Goal = strings.Repeat("界", MaxConditionLen)
+	if err := unicodeGoal.Validate(); err != nil {
+		t.Fatalf("Unicode goal used bytes instead of characters: %v", err)
+	}
+	unicodeGoal.Goal += "界"
+	if err := unicodeGoal.Validate(); err == nil {
+		t.Fatal("overlong Unicode goal was accepted")
+	}
+	wrongVersion := validPlan()
+	wrongVersion.SchemaVersion++
+	if err := wrongVersion.Validate(); err == nil {
+		t.Fatal("unsupported plan schema version was accepted")
+	}
 	cycle := validPlan()
 	cycle.Nodes[0].DependsOn = []string{"finish"}
 	if err := cycle.Validate(); err == nil {
@@ -145,6 +247,22 @@ func TestValidateRejectsAmbiguousOrUnsafePlansAndStates(t *testing.T) {
 	if err := unbounded.Validate(); err == nil {
 		t.Fatal("unbounded loop was accepted")
 	}
+	deadlockedLoop := Plan{
+		SchemaVersion: CurrentSchemaVersion,
+		ID:            "plan.deadlocked-loop",
+		Revision:      1,
+		Goal:          "reject a child waiting for its active loop",
+		Budget:        Budget{MaxSteps: 4, MaxWorldMutations: 0, MaxTicks: 20},
+		Nodes: []Node{
+			{ID: "repeat", Kind: Action, Capability: "activity.wait",
+				DependsOn: []string{"loop"}, MaxAttempts: 1, Risk: "low"},
+			{ID: "loop", Kind: Loop, Children: []string{"repeat"},
+				MaxAttempts: 1, MaxIterations: 2, Risk: "low"},
+		},
+	}
+	if err := deadlockedLoop.Validate(); err == nil {
+		t.Fatal("a loop child depending on its unfinished loop was accepted")
+	}
 	invalidRisk := validPlan()
 	invalidRisk.Nodes[0].Risk = "unrestricted"
 	if err := invalidRisk.Validate(); err == nil {
@@ -154,6 +272,19 @@ func TestValidateRejectsAmbiguousOrUnsafePlansAndStates(t *testing.T) {
 	ambiguous.Nodes[1].Else = []string{"build"}
 	if err := ambiguous.Validate(); err == nil {
 		t.Fatal("node controlled by two branch paths was accepted")
+	}
+	duplicateDependency := validPlan()
+	duplicateDependency.Nodes[2].DependsOn = []string{"check", "check"}
+	if err := duplicateDependency.Validate(); err == nil {
+		t.Fatal("duplicate dependency was accepted")
+	}
+	tooManyConditions := validPlan()
+	tooManyConditions.Nodes[1].When = make([]string, MaxConditions+1)
+	for index := range tooManyConditions.Nodes[1].When {
+		tooManyConditions.Nodes[1].When[index] = fmt.Sprintf("fact_%d", index)
+	}
+	if err := tooManyConditions.Validate(); err == nil {
+		t.Fatal("unbounded condition list was accepted")
 	}
 	if err := validPlan().ValidateState(State{
 		Attempts: map[string]uint32{"missing": 1},
@@ -167,6 +298,127 @@ func TestValidateRejectsAmbiguousOrUnsafePlansAndStates(t *testing.T) {
 	if err := validPlan().ValidateState(forged); err == nil {
 		t.Fatal("a root action was forged as skipped")
 	}
+	forgedBranch := State{
+		Started:   true,
+		StartedAt: 1,
+		Tick:      1,
+		Completed: map[string]bool{"check": true},
+		Branches:  map[string]string{"check": "then"},
+	}
+	if err := validPlan().ValidateState(forgedBranch); err == nil {
+		t.Fatal("a branch was completed before its dependency")
+	}
+	forgedSteps := State{
+		Started:   true,
+		StartedAt: 1,
+		Tick:      1,
+		Attempts:  map[string]uint32{"collect": 1},
+	}
+	if err := validPlan().ValidateState(forgedSteps); err == nil {
+		t.Fatal("attempts without matching step count were accepted")
+	}
+	forgedStepBudget := State{
+		Started:   true,
+		StartedAt: 1,
+		Tick:      1,
+		Steps:     validPlan().Budget.MaxSteps,
+	}
+	if err := validPlan().ValidateState(forgedStepBudget); err == nil {
+		t.Fatal("step budget without matching attempts was accepted")
+	}
+	loopPlan := Plan{
+		SchemaVersion: CurrentSchemaVersion,
+		ID:            "plan.loop-state",
+		Revision:      1,
+		Goal:          "validate persisted loop state",
+		Budget:        Budget{MaxSteps: 4, MaxWorldMutations: 0, MaxTicks: 20},
+		Nodes: []Node{
+			{ID: "repeat", Kind: Action, Capability: "activity.wait",
+				MaxAttempts: 1, Risk: "low"},
+			{ID: "loop", Kind: Loop, Children: []string{"repeat"},
+				MaxAttempts: 1, MaxIterations: 2, Risk: "low"},
+		},
+	}
+	if err := loopPlan.ValidateState(State{
+		Started: true, StartedAt: 1, Tick: 1,
+		Loops: map[string]uint32{"loop": 1},
+	}); err == nil {
+		t.Fatal("an unreachable between-iterations loop state was accepted")
+	}
+}
+
+func TestStepBudgetExhaustionIsTerminalButNotSuccessful(t *testing.T) {
+	plan := validPlan()
+	plan.Budget.MaxSteps = 1
+	state := mustApply(t, plan, State{}, "collect", 100, 1)
+	if ready := plan.Ready(state, nil); len(ready) != 0 {
+		t.Fatalf("step-exhausted plan returned ready actions: %#v", ready)
+	}
+	if !plan.Done(state) || plan.Succeeded(state) {
+		t.Fatalf("step-exhausted incomplete plan has wrong terminal state: %#v", state)
+	}
+}
+
+func TestPlanV1FixtureMatchesSchemaAndRuntime(t *testing.T) {
+	schemaDocument, err := os.ReadFile("schema/plan-v1.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture, err := os.ReadFile("testdata/plan-v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled := compileFixtureSchema(t, schemaDocument)
+	instance, err := jsonschema.UnmarshalJSON(bytes.NewReader(fixture))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := compiled.Validate(instance); err != nil {
+		t.Fatalf("plan fixture does not match plan-v1 schema: %v", err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(fixture))
+	decoder.DisallowUnknownFields()
+	var plan Plan
+	if err := decoder.Decode(&plan); err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.Validate(); err != nil {
+		t.Fatalf("plan fixture does not match runtime validation: %v", err)
+	}
+	assertReady(t, plan, State{}, "collect")
+
+	duplicate := validPlan()
+	duplicate.Nodes[2].DependsOn = []string{"check", "check"}
+	encoded, err := json.Marshal(duplicate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalidInstance, err := jsonschema.UnmarshalJSON(bytes.NewReader(encoded))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := compiled.Validate(invalidInstance); err == nil {
+		t.Fatal("plan-v1 schema accepted duplicate references")
+	}
+}
+
+func compileFixtureSchema(t *testing.T, document []byte) *jsonschema.Schema {
+	t.Helper()
+	value, err := jsonschema.UnmarshalJSON(bytes.NewReader(document))
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiler := jsonschema.NewCompiler()
+	compiler.DefaultDraft(jsonschema.Draft2020)
+	const location = "https://sunrioa.github.io/rin/schema/planner/plan-v1.schema.json"
+	if err := compiler.AddResource(location, value); err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := compiler.Compile(location)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return compiled
 }
 
 func ExamplePlan_Advance() {

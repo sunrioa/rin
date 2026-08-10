@@ -5,14 +5,17 @@ package planner
 import (
 	"fmt"
 	"sort"
+	"unicode/utf8"
 )
 
 const (
-	MaxNodes          = 64
-	MaxDepth          = 16
-	MaxConditionLen   = 160
-	MaxAttempts       = 8
-	MaxLoopIterations = 32
+	CurrentSchemaVersion uint32 = 1
+	MaxNodes                    = 64
+	MaxDepth                    = 16
+	MaxConditionLen             = 160
+	MaxConditions               = 16
+	MaxAttempts                 = 8
+	MaxLoopIterations           = 32
 )
 
 type NodeKind string
@@ -46,11 +49,12 @@ type Budget struct {
 }
 
 type Plan struct {
-	ID       string `json:"plan_id"`
-	Revision uint32 `json:"revision"`
-	Goal     string `json:"goal"`
-	Nodes    []Node `json:"nodes"`
-	Budget   Budget `json:"budget"`
+	SchemaVersion uint32 `json:"schema_version"`
+	ID            string `json:"plan_id"`
+	Revision      uint32 `json:"revision"`
+	Goal          string `json:"goal"`
+	Nodes         []Node `json:"nodes"`
+	Budget        Budget `json:"budget"`
 }
 
 type State struct {
@@ -62,6 +66,7 @@ type State struct {
 	Branches       map[string]string `json:"branches,omitempty"`
 	ActiveLoops    map[string]bool   `json:"active_loops,omitempty"`
 	Steps          uint32            `json:"steps,omitempty"`
+	RetiredSteps   uint32            `json:"retired_steps,omitempty"`
 	WorldMutations uint32            `json:"world_mutations,omitempty"`
 	Started        bool              `json:"started,omitempty"`
 	StartedAt      uint64            `json:"started_at,omitempty"`
@@ -71,6 +76,9 @@ type State struct {
 // Validate checks only the bounded, engine-neutral plan shape. Capability
 // existence, arguments, facts and postconditions remain Host responsibilities.
 func (p Plan) Validate() error {
+	if p.SchemaVersion != CurrentSchemaVersion {
+		return fmt.Errorf("unsupported plan schema version %d", p.SchemaVersion)
+	}
 	if !identifier(p.ID) || p.Revision == 0 || !text(p.Goal, MaxConditionLen) {
 		return fmt.Errorf("invalid plan identity")
 	}
@@ -102,6 +110,13 @@ func (p Plan) Validate() error {
 		}
 		if node.Priority < -1000 || node.Priority > 1000 {
 			return fmt.Errorf("invalid priority for %q", node.ID)
+		}
+		if len(node.DependsOn) > MaxNodes || len(node.When) > MaxConditions ||
+			len(node.Then) > MaxNodes || len(node.Else) > MaxNodes ||
+			len(node.Children) > MaxNodes || !uniqueStrings(node.DependsOn) ||
+			!uniqueStrings(node.When) || !uniqueStrings(node.Then) ||
+			!uniqueStrings(node.Else) || !uniqueStrings(node.Children) {
+			return fmt.Errorf("invalid references for %q", node.ID)
 		}
 		switch node.Kind {
 		case Action:
@@ -152,6 +167,23 @@ func (p Plan) Validate() error {
 			}
 		}
 	}
+	parents := p.controlParents()
+	for _, node := range p.Nodes {
+		for _, dependency := range node.DependsOn {
+			for current := node.ID; ; {
+				parent, ok := parents[current]
+				if !ok {
+					break
+				}
+				if parent.kind == Loop && dependency == parent.id {
+					return fmt.Errorf(
+						"node %q depends on its unfinished loop %q",
+						node.ID, parent.id)
+				}
+				current = parent.id
+			}
+		}
+	}
 	if hasCycle(p.Nodes) {
 		return fmt.Errorf("plan graph contains a cycle")
 	}
@@ -168,6 +200,9 @@ func (p Plan) Ready(state State, facts map[string]bool) []Node {
 		return nil
 	}
 	if stateFailed(state) {
+		return nil
+	}
+	if state.Steps >= p.Budget.MaxSteps {
 		return nil
 	}
 	parents := p.controlParents()
@@ -274,7 +309,18 @@ func identifier(value string) bool {
 }
 
 func text(value string, max int) bool {
-	return value != "" && len(value) <= max
+	return value != "" && utf8.ValidString(value) && utf8.RuneCountInString(value) <= max
+}
+
+func uniqueStrings(values []string) bool {
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if _, exists := seen[value]; exists {
+			return false
+		}
+		seen[value] = struct{}{}
+	}
+	return true
 }
 
 func validRisk(value string) bool {

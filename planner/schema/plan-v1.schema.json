@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sunrioa.github.io/rin/schema/planner/plan-v1.schema.json",
+  "title": "Rin bounded task plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "plan_id", "revision", "goal", "nodes", "budget"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "plan_id": { "$ref": "#/$defs/identifier" },
+    "revision": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+    "goal": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/node" }
+    },
+    "budget": { "$ref": "#/$defs/budget" }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 96,
+      "pattern": "^[a-z][a-z0-9._-]*$"
+    },
+    "identifier_list": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/identifier" }
+    },
+    "condition_list": {
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 160 }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "max_attempts", "risk"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "kind": { "enum": ["action", "branch", "loop"] },
+        "capability": { "$ref": "#/$defs/identifier" },
+        "depends_on": { "$ref": "#/$defs/identifier_list" },
+        "when": { "$ref": "#/$defs/condition_list" },
+        "then": { "$ref": "#/$defs/identifier_list" },
+        "else": { "$ref": "#/$defs/identifier_list" },
+        "children": { "$ref": "#/$defs/identifier_list" },
+        "priority": { "type": "integer", "minimum": -1000, "maximum": 1000 },
+        "max_attempts": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "max_iterations": { "type": "integer", "minimum": 1, "maximum": 32 },
+        "world_mutations": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "risk": { "enum": ["low", "moderate", "high", "critical"] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "action" } }, "required": ["kind"] },
+          "then": {
+            "required": ["capability"],
+            "not": { "anyOf": [
+              { "required": ["when"] }, { "required": ["then"] },
+              { "required": ["else"] }, { "required": ["children"] },
+              { "required": ["max_iterations"] }
+            ] }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "branch" } }, "required": ["kind"] },
+          "then": {
+            "required": ["then", "else"],
+            "properties": {
+              "then": { "minItems": 1 },
+              "else": { "minItems": 1 },
+              "max_attempts": { "const": 1 }
+            },
+            "not": { "anyOf": [
+              { "required": ["capability"] }, { "required": ["children"] },
+              { "required": ["max_iterations"] }, { "required": ["world_mutations"] }
+            ] }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "loop" } }, "required": ["kind"] },
+          "then": {
+            "required": ["children", "max_iterations"],
+            "properties": {
+              "children": { "minItems": 1 },
+              "max_attempts": { "const": 1 }
+            },
+            "not": { "anyOf": [
+              { "required": ["capability"] }, { "required": ["then"] },
+              { "required": ["else"] }, { "required": ["world_mutations"] }
+            ] }
+          }
+        }
+      ]
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_steps", "max_world_mutations", "max_ticks"],
+      "properties": {
+        "max_steps": { "type": "integer", "minimum": 1, "maximum": 4096 },
+        "max_world_mutations": { "type": "integer", "minimum": 0, "maximum": 4096 },
+        "max_ticks": { "type": "integer", "minimum": 1, "maximum": 18446744073709551615 }
+      }
+    }
+  }
+}

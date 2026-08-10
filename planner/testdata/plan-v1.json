@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "plan_id": "plan.survival",
+  "revision": 1,
+  "goal": "prepare survival basics",
+  "nodes": [
+    {
+      "id": "collect",
+      "kind": "action",
+      "capability": "resource.harvest",
+      "max_attempts": 3,
+      "world_mutations": 1,
+      "risk": "high"
+    },
+    {
+      "id": "check",
+      "kind": "branch",
+      "depends_on": ["collect"],
+      "when": ["has_material"],
+      "then": ["build"],
+      "else": ["wait"],
+      "max_attempts": 1,
+      "risk": "low"
+    },
+    {
+      "id": "build",
+      "kind": "action",
+      "capability": "inventory.place",
+      "depends_on": ["check"],
+      "priority": 5,
+      "max_attempts": 3,
+      "world_mutations": 1,
+      "risk": "high"
+    },
+    {
+      "id": "wait",
+      "kind": "action",
+      "capability": "activity.wait",
+      "depends_on": ["check"],
+      "priority": 1,
+      "max_attempts": 1,
+      "risk": "low"
+    },
+    {
+      "id": "finish",
+      "kind": "action",
+      "capability": "activity.wait",
+      "depends_on": ["build", "wait"],
+      "max_attempts": 1,
+      "risk": "low"
+    }
+  ],
+  "budget": {
+    "max_steps": 32,
+    "max_world_mutations": 16,
+    "max_ticks": 6000
+  }
+}

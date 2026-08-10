@@ -12,6 +12,9 @@ type controlParent struct {
 
 // ValidateState rejects forged or internally inconsistent execution state.
 func (p Plan) ValidateState(state State) error {
+	if err := p.Validate(); err != nil {
+		return err
+	}
 	if state.Steps > p.Budget.MaxSteps ||
 		state.WorldMutations > p.Budget.MaxWorldMutations {
 		return fmt.Errorf("plan state exceeds its budget")
@@ -20,6 +23,7 @@ func (p Plan) ValidateState(state State) error {
 		return fmt.Errorf("plan state has ticks before it started")
 	}
 	if !state.Started && (state.Steps != 0 || state.WorldMutations != 0 ||
+		state.RetiredSteps != 0 ||
 		len(state.Completed) != 0 || len(state.Skipped) != 0 || len(state.Failed) != 0 ||
 		len(state.Attempts) != 0 || len(state.Loops) != 0 || len(state.Branches) != 0 ||
 		len(state.ActiveLoops) != 0) {
@@ -36,8 +40,13 @@ func (p Plan) ValidateState(state State) error {
 		node, ok := p.node(id)
 		if !completed || !ok || state.Skipped[id] || state.Failed[id] ||
 			node.Kind == Action && state.Attempts[id] == 0 ||
-			node.Kind == Branch && state.Branches[id] == "" {
+			node.Kind == Branch && state.Branches[id] == "" ||
+			!dependenciesDone(state, node.DependsOn) ||
+			!p.controlReached(state, id, parents) {
 			return fmt.Errorf("invalid completed node %q", id)
+		}
+		if node.Kind == Loop && !p.controlSubtreesDone(state, node.Children) {
+			return fmt.Errorf("incomplete loop state for %q", id)
 		}
 	}
 	for id, skipped := range state.Skipped {
@@ -48,34 +57,49 @@ func (p Plan) ValidateState(state State) error {
 	for id, failed := range state.Failed {
 		node, ok := p.node(id)
 		if !failed || !ok || node.Kind != Action || state.Completed[id] || state.Skipped[id] ||
-			state.Attempts[id] != node.MaxAttempts {
+			state.Attempts[id] != node.MaxAttempts ||
+			!dependenciesDone(state, node.DependsOn) ||
+			!p.controlReached(state, id, parents) {
 			return fmt.Errorf("invalid failed node %q", id)
 		}
 	}
+	var recordedSteps uint64
 	for id, attempts := range state.Attempts {
 		node, ok := p.node(id)
 		if !ok || node.Kind != Action || attempts == 0 || attempts > node.MaxAttempts ||
-			attempts == node.MaxAttempts && !state.Completed[id] && !state.Failed[id] {
+			attempts == node.MaxAttempts && !state.Completed[id] && !state.Failed[id] ||
+			!dependenciesDone(state, node.DependsOn) ||
+			!p.controlReached(state, id, parents) {
 			return fmt.Errorf("invalid attempts for %q", id)
 		}
+		recordedSteps += uint64(attempts)
+	}
+	if recordedSteps+uint64(state.RetiredSteps) != uint64(state.Steps) ||
+		uint64(state.RetiredSteps) > p.maxRetiredSteps(state) {
+		return fmt.Errorf("plan state step count does not match recorded attempts")
 	}
 	for id, iterations := range state.Loops {
 		node, ok := p.node(id)
-		if !ok || node.Kind != Loop || iterations > node.MaxIterations {
+		if !ok || node.Kind != Loop || iterations == 0 || iterations > node.MaxIterations ||
+			!state.ActiveLoops[id] && !state.Completed[id] {
 			return fmt.Errorf("invalid loop state for %q", id)
 		}
 	}
 	for id, path := range state.Branches {
 		node, ok := p.node(id)
 		if !ok || node.Kind != Branch || (path != "then" && path != "else") ||
-			!state.Completed[id] || state.Skipped[id] {
+			!state.Completed[id] || state.Skipped[id] ||
+			!dependenciesDone(state, node.DependsOn) ||
+			!p.controlReached(state, id, parents) {
 			return fmt.Errorf("invalid branch state for %q", id)
 		}
 	}
 	for id, active := range state.ActiveLoops {
 		node, ok := p.node(id)
 		if !ok || node.Kind != Loop || !active || state.Completed[id] ||
-			state.Skipped[id] || state.Loops[id] >= node.MaxIterations {
+			state.Skipped[id] || state.Loops[id] >= node.MaxIterations ||
+			!dependenciesDone(state, node.DependsOn) ||
+			!p.controlReached(state, id, parents) {
 			return fmt.Errorf("invalid active loop %q", id)
 		}
 	}
@@ -145,11 +169,16 @@ func (p Plan) Advance(state State, facts map[string]bool, tick uint64) (State, e
 			}
 			if next.Loops[node.ID] >= node.MaxIterations ||
 				!conditionsTrue(node.When, facts) {
+				if next.Loops[node.ID] == 0 {
+					for _, child := range node.Children {
+						p.skipSubtree(&next, child)
+					}
+				}
 				next.Completed[node.ID] = true
 			} else {
 				next.ActiveLoops[node.ID] = true
 				for _, child := range node.Children {
-					p.resetSubtree(&next, child)
+					next.RetiredSteps += p.resetSubtree(&next, child)
 				}
 			}
 			changed = true
@@ -179,6 +208,13 @@ func (p Plan) Done(state State) bool {
 	if stateFailed(state) {
 		return true
 	}
+	if state.Steps >= p.Budget.MaxSteps {
+		return true
+	}
+	return p.rootsDone(state)
+}
+
+func (p Plan) rootsDone(state State) bool {
 	parents := p.controlParents()
 	for _, node := range p.Nodes {
 		if _, controlled := parents[node.ID]; !controlled && !p.subtreeDone(state, node.ID) {
@@ -191,7 +227,10 @@ func (p Plan) Done(state State) bool {
 // Succeeded reports whether the plan completed every required root without an
 // exhausted action.
 func (p Plan) Succeeded(state State) bool {
-	return p.Done(state) && !stateFailed(state)
+	if p.Validate() != nil || p.ValidateState(state) != nil || stateFailed(state) {
+		return false
+	}
+	return p.rootsDone(state)
 }
 
 func (p Plan) recordAction(
@@ -249,6 +288,7 @@ func cloneState(state State) State {
 		Branches:       cloneStringMap(state.Branches),
 		ActiveLoops:    cloneBoolMap(state.ActiveLoops),
 		Steps:          state.Steps,
+		RetiredSteps:   state.RetiredSteps,
 		WorldMutations: state.WorldMutations,
 		Started:        state.Started,
 		StartedAt:      state.StartedAt,
@@ -290,6 +330,25 @@ func (p Plan) controlEnabled(
 	return state.ActiveLoops[parent.id]
 }
 
+func (p Plan) controlReached(
+	state State,
+	nodeID string,
+	parents map[string]controlParent,
+) bool {
+	parent, controlled := parents[nodeID]
+	if !controlled {
+		return true
+	}
+	if !p.controlReached(state, parent.id, parents) {
+		return false
+	}
+	if parent.kind == Branch {
+		return state.Completed[parent.id] && state.Branches[parent.id] == parent.path
+	}
+	return state.ActiveLoops[parent.id] ||
+		state.Completed[parent.id] && state.Loops[parent.id] > 0
+}
+
 func (p Plan) skipAuthorized(
 	state State,
 	nodeID string,
@@ -306,6 +365,8 @@ func (p Plan) skipAuthorized(
 			if selected != "" && selected != parent.path {
 				return true
 			}
+		} else if state.Completed[parent.id] && state.Loops[parent.id] == 0 {
+			return true
 		}
 		current = parent.id
 	}
@@ -345,11 +406,12 @@ func (p Plan) subtreeDone(state State, nodeID string) bool {
 	}
 }
 
-func (p Plan) resetSubtree(state *State, nodeID string) {
+func (p Plan) resetSubtree(state *State, nodeID string) uint32 {
 	node, ok := p.node(nodeID)
 	if !ok {
-		return
+		return 0
 	}
+	retired := state.Attempts[nodeID]
 	delete(state.Completed, nodeID)
 	delete(state.Skipped, nodeID)
 	delete(state.Failed, nodeID)
@@ -358,8 +420,9 @@ func (p Plan) resetSubtree(state *State, nodeID string) {
 	delete(state.ActiveLoops, nodeID)
 	delete(state.Loops, nodeID)
 	for _, child := range append(append(append([]string{}, node.Then...), node.Else...), node.Children...) {
-		p.resetSubtree(state, child)
+		retired += p.resetSubtree(state, child)
 	}
+	return retired
 }
 
 func (p Plan) skipSubtree(state *State, nodeID string) {
@@ -399,4 +462,47 @@ func stateFailed(state State) bool {
 		}
 	}
 	return false
+}
+
+func (p Plan) maxRetiredSteps(state State) uint64 {
+	var result uint64
+	for _, node := range p.Nodes {
+		if node.Kind != Loop {
+			continue
+		}
+		iterations := uint64(state.Loops[node.ID])
+		if !state.ActiveLoops[node.ID] {
+			if iterations == 0 {
+				continue
+			}
+			iterations--
+		}
+		result += iterations * p.maxSubtreeSteps(node.Children)
+	}
+	return result
+}
+
+func (p Plan) maxSubtreeSteps(roots []string) uint64 {
+	var result uint64
+	for _, root := range roots {
+		node, ok := p.node(root)
+		if !ok {
+			continue
+		}
+		switch node.Kind {
+		case Action:
+			result += uint64(node.MaxAttempts)
+		case Branch:
+			thenSteps := p.maxSubtreeSteps(node.Then)
+			elseSteps := p.maxSubtreeSteps(node.Else)
+			if thenSteps > elseSteps {
+				result += thenSteps
+			} else {
+				result += elseSteps
+			}
+		case Loop:
+			result += uint64(node.MaxIterations) * p.maxSubtreeSteps(node.Children)
+		}
+	}
+	return result
 }
