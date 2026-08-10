@@ -1,98 +1,55 @@
-# Last Station 终端故事
+# 终端故事
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-这个可安装的 Node.js 18+ 纵向切片使用优先 JavaScript SDK、强制安全语义基线、
-持久 Proposal Attempt 和权威 Outcome Outbox，可在 Windows、macOS 与 Linux
-运行。Mira 会记住玩家选择茶或咖啡，但只能选择游戏编写的白名单文本。
+终端故事是一个零外部依赖、嵌入式的 Control V2 示例。它用于证明非战斗类游戏也能
+通过引擎无关的 Adapter、Effect Policy、控制权租约、Operation 和权威 Outcome
+接入 Rin，并与其他游戏适配器共用同一条执行链。
 
-它是证据，不是刻意让 Rin 显得更好的展示。公平对照组会把同一偏好持久化到游戏
-存档；对于这个单规则故事，它能以更少代码、更低延迟产生相同的玩家可见结果。
-下产品结论前请阅读[玩家价值报告](../../docs/player-value.zh-CN.md)。
+参考场景提供四个强类型能力：
 
-## 安装与游玩
+- `story.character.speak`
+- `story.topic.change`
+- `story.task.accept`
+- `story.scene.wait`
 
-在仓库根目录构建并启动 Sidecar：
+Rin 核心不包含对白、章节、好感度或视觉小说规则。Story Adapter 把游戏状态转换为
+`social.dialogue`、`relation.update` 和 `story.progress` Effect。密封信件话题会被
+标记为 `story.character-boundary`，因此内部与外部控制器都会被同一个 Policy 拒绝。
 
-```bash
-go build -o bin/rin ./cmd/rin
-./bin/rin serve -data ./rin-data
-```
+## 运行
 
-另开终端：
-
-```bash
-cd examples/terminal-story
-npm install --ignore-scripts --offline
-npm start
-```
-
-Windows PowerShell：
-
-```powershell
-go build -o bin\rin.exe .\cmd\rin
-.\bin\rin.exe serve -data .\rin-data
-```
-
-再打开第二个 PowerShell：
-
-```powershell
-Set-Location examples\terminal-story
-npm install --ignore-scripts --offline
-npm start
-```
-
-`--mode baseline` 运行持久化规则树。默认 `--mode auto` 仅在启动健康检查证明尚未
-发生任何 Rin 变更时回退；进入操作后的传输不确定性会 Fail Closed，等待精确恢复。
-
-权威动作是故事存档中的 `applied_action_ids` 变更；该变更、Outcome Outbox Entry
-与清除 Proposal Attempt 会通过一次文件替换共同发布。`presentAction` 只允许
-执行非权威的终端/UI 呈现，并且仅在文件替换成功后运行；它不得修改世界状态。
-Store 使用 Copy-on-write：Write 或 Rename 失败时，内存 Document 与旧存档都
-保持不变，临时文件会被清理，Proposal Attempt 则保留用于精确重试。
-
-在 POSIX 上，发布会同步临时文件、每一层新建目录的 Entry，并在 Rename 后同步
-目标目录。Node.js 的可移植 API 不能在 Windows 上打开目录句柄执行
-`FlushFileBuffers`，因此 Windows 会同步临时文件，并重新打开、同步 Rename 后的
-目标文件。需要严格掉电事务的游戏必须把效果、Operation Marker 和 Outbox 放进
-自己的权威数据库/存档事务。Save Schema 2 会拒绝使用 `shown_action_ids` 的早期
-Preview 存档，因为旧字段错误地把持久游戏效果与稍后的 UI 呈现混为一谈。
-
-如果 Rename 已成功但最终持久化栅栏失败，Store 会在内存中采用已发布 Document，
-并拒绝后续所有变更，直到 `load()` 重新读取文件并成功重试该栅栏；它不会继续从
-Rename 前的旧 Document 写入。Outcome ACK 还会比较完整的持久化条目，因此迟到
-ACK 不能删除请求在途期间发生变化的同 Key Report。
-
-每次变更都会取得一个短时、跨进程的 Hard-link Lease，并在持有期间重新读取当前
-文件，使完整条目比较成为磁盘 CAS，而不是内存检查。Store 不会抢占已有 Lock：
-按 PID 自动恢复会受到 PID 复用和检查/使用竞态影响，因此任何已有 Lock 都会以
-`story_save_busy` Fail Closed。进程崩溃后，只有在确认没有 Writer 仍使用该存档时，
-才能由运维人员删除准确的 `<存档路径>.lock` 文件。如果 Lock Release 的结果不确定，
-已成功的提交仍按成功返回，但后续写入会被冻结，直到 `load()` 重新取得 Lease 并
-刷新存档。
-
-Rule-tree Fallback 也会在同一 Lease 内重新读取磁盘，并原子保存偏好与动作。一旦
-存档中出现任何 Rin Session 或未完成 Rin 工作，Fallback 就会 Fail Closed；旧
-进程不能覆盖另一进程刚开始的 Rin Turn。
-
-非交互运行：
+需要 Go 1.25 或更高版本。在仓库根目录执行：
 
 ```bash
-npm start -- --preference tea --json
+go run ./examples/terminal-story
 ```
 
-默认存档位于 Windows 的 `LOCALAPPDATA`，其他平台位于 `XDG_DATA_HOME` 或
-`~/.local/share`。可用 `--save PATH` 隔离测试存档。
-
-## 复现基准
-
-在仓库根目录：
+确定性冒烟运行：
 
 ```bash
-go build -o bin/rin ./cmd/rin
-cd examples/terminal-story
-npm run benchmark -- --rin-bin ../../bin/rin --iterations 100
+go run ./examples/terminal-story \
+  --line "The light in this photograph feels familiar." \
+  --topic festival \
+  --task prepare-exhibit \
+  --json
 ```
 
-Windows 应传入 `--rin-bin ..\..\bin\rin.exe`。结果与机器相关，不要因为另一台
-机器更快或更慢就覆盖仓库证据；应同时审查行为、成本与存储投影。
+查看权威角色边界拒绝：
+
+```bash
+go run ./examples/terminal-story \
+  --line "Let us begin with the photograph." \
+  --topic sealed-letter \
+  --task restore-photograph
+```
+
+该命令运行嵌入式 Host 和外部语义控制器，不会调用模型，也不需要 API Key。集成测试
+还会使用内部 Agent Runtime 和真实的 MCP 内存会话驱动同一个场景：
+
+```bash
+go test ./examples/adapters/story
+```
+
+这些结果证明的是通用契约与集成链路，不代表其他引擎的线程、持久化或打包已经达到
+生产可用状态。

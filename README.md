@@ -39,7 +39,9 @@ curl http://127.0.0.1:7374/health
 go run ./examples/basic
 ```
 
-该示例只演示 Session 创建和 Observe。带有 Proposal Attempt、崩溃恢复和 Outcome Outbox 的完整切片在 [`examples/terminal-story`](examples/terminal-story/README.zh-CN.md)。
+该示例只演示 Session 创建和 Observe。使用 V2 Adapter、Effect Policy、内部 Agent
+与外部 MCP 共用执行链的完整参考在
+[`examples/terminal-story`](examples/terminal-story/README.zh-CN.md)。
 
 构建常驻控制 daemon 和 MCP 薄代理（默认优先协商 `2026-07-28`）：
 

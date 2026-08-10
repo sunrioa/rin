@@ -7,9 +7,10 @@ creating a Session and recording one observation against a running Sidecar.
 Its process-local IDs make it a development smoke test, not a production save
 architecture.
 
-Use the installable Node.js 18+ [`terminal-story`](terminal-story/) for the
-Windows/macOS/Linux playable vertical slice, safe JavaScript SDK workflow,
-reproducible Sidecar benchmark, and honest persistent-rule-tree comparison.
+Use the dependency-free Go [`terminal-story`](terminal-story/) for a runnable
+V2 dialogue and story-progression slice. Its integration tests prove that an
+internal Agent Runtime and an external MCP client share the same policy and
+authoritative operation path.
 
 [`adapters/grid`](adapters/grid/) is the engine-neutral V2 reference Adapter.
 Its tests drive observation, binding, effect policy, resource collection,
@@ -18,6 +19,13 @@ outcomes through the same HostKit and Control Plane used by real games:
 
 ```sh
 go test ./examples/adapters/grid
+```
+
+[`adapters/story`](adapters/story/) applies the same contract to dialogue,
+relationship changes, story progress, and an enforceable character boundary:
+
+```sh
+go test ./examples/adapters/story
 ```
 
 The engine and mod directories demonstrate host-specific threading and

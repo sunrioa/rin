@@ -18,7 +18,7 @@ Rin `0.7.0` 是 Preview 软件。编译通过、模拟引擎 API 和面向重启
 | Unreal | Runtime Plugin 结构、不安全入口与 Windows 路径测试 | Unreal Header Tool/编译器、Editor 加载、打包、SaveGame 与导航 Runtime |
 | Ren'Py | Linux CI 运行 Python Adapter/Epoch 测试；本地 macOS 运行 Ren'Py 8.5.3 Lint 与 Rollback Harness | Windows Adapter 执行、可见引擎 Save/Load、Interaction Restart 与打包 Build |
 | OpenSpiel | macOS/Linux/Windows 上真实 2.0.1 顺序/同时/Chance/隐藏信息游戏 | 仅作语义 Oracle；不含引擎线程、存档、Sidecar 或长世界动作生命周期 |
-| Terminal Story | Windows、macOS、Linux 上真实 Sidecar 100 回合 CI | 它是参考游戏，不能证明另一款游戏的 Mod 生命周期 |
+| Terminal Story | Windows、macOS、Linux 上的 V2 Adapter 一致性、内部 Agent 与外部 MCP 集成测试 | 它是内存参考游戏，不能证明另一款引擎的 Mod 生命周期 |
 
 ## 通用崩溃与恢复矩阵
 

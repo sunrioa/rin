@@ -39,7 +39,9 @@ Run the small example:
 go run ./examples/basic
 ```
 
-It covers Session creation and Observe only. The complete vertical slice with Proposal Attempt persistence, crash recovery, and an Outcome Outbox is [`examples/terminal-story`](examples/terminal-story/README.md).
+It covers Session creation and Observe only. The complete V2 reference using
+one Adapter, Effect Policy, and shared internal-Agent/external-MCP execution
+path is [`examples/terminal-story`](examples/terminal-story/README.md).
 
 Build the long-lived control daemon and MCP thin proxy (prefers `2026-07-28`
 by default):

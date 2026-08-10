@@ -74,7 +74,8 @@ test-sdk-lua:
 	$(LUA) sdk/lua/test_client.lua
 
 test-terminal-story:
-	cd examples/terminal-story && $(NPM) ci --ignore-scripts --offline && $(NODE) --test
+	$(GO) test ./examples/adapters/story ./examples/terminal-story
+	$(GO) run ./examples/terminal-story --line "The light in this photograph feels familiar." --topic festival --task prepare-exhibit --json
 
 race:
 	$(GO) test -race ./...

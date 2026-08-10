@@ -19,7 +19,7 @@ evidence, the engine and Mod examples remain `advisory`.
 | Unreal | Runtime Plugin structure, forbidden-surface, and Windows path tests | Unreal Header Tool/compiler, Editor load, packaged builds, SaveGame and navigation runtime |
 | Ren'Py | Linux CI runs the Python adapter/Epoch tests; local macOS runs Ren'Py 8.5.3 lint and the rollback harness | Windows adapter execution, visible engine save/load, interaction restart, and packaged builds |
 | OpenSpiel | Real 2.0.1 sequential/simultaneous/chance/hidden-information games on macOS/Linux/Windows | Semantic oracle only; no engine thread, save, Sidecar, or long-world-action lifecycle |
-| Terminal Story | Real Sidecar 100-turn CI on Windows, macOS, and Linux | It is a reference game, not evidence for another game's Mod lifecycle |
+| Terminal Story | V2 Adapter conformance plus internal Agent and external MCP integration on Windows, macOS, and Linux | It is an in-memory reference game, not evidence for another engine's Mod lifecycle |
 
 ## Shared crash and recovery matrix
 

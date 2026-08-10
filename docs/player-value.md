@@ -1,76 +1,37 @@
-# Player-value evidence and release gates
+# Reference value and evidence
 
 [English](player-value.md) | [简体中文](player-value.zh-CN.md)
 
-## What was tested
+Rin `0.7.0` is Preview software. The checked-in examples demonstrate contract
+behavior; they do not prove that an AI-controlled character is more enjoyable,
+cheaper, or faster than a game-specific rule system.
 
-The supported runtime is the installable Node.js 18+ terminal story
-[`Last Station`](../examples/terminal-story/README.md), using the priority
-JavaScript SDK on the real File Store Sidecar. A player tells Mira a drink
-preference; after a time skip, bounded memory recall influences a game-authored
-allowlisted action. The comparison is a persistent deterministic rule tree,
-not a deliberately stateless baseline.
+## What is automated
 
-The checked-in 100-turn measurement was captured on darwin/arm64 with Node
-22.23.1 and the deterministic policy. It is reproducible, not a universal
-performance promise. The raw evidence is
-[`benchmark-darwin-arm64.json`](../examples/terminal-story/evidence/benchmark-darwin-arm64.json).
+The engine-neutral Grid and Story adapters run through the same V2 HostKit,
+Effect Policy, controller lease, Operation lifecycle, and authoritative Outcome
+path:
 
-| Measure | Rin safe turn | Persistent rule tree |
-| --- | ---: | ---: |
-| Integration nonblank lines | 158 | 19 |
-| P50 | 68.87 ms | 10.79 ms |
-| P95 | 82.32 ms | 12.98 ms |
-| Player-visible choice | tea | tea |
-| Provider calls / cost | 0 / USD 0 | 0 / USD 0 |
+```bash
+go test ./examples/adapters/grid ./examples/adapters/story
+```
 
-The benchmark reloads the game save between every turn. Sidecar readiness took
-73.28 ms. Rin retained 536,612 bytes after 100 turns;
-the deliberately conservative linear projection at 60 turns/hour is
-32,196,720 bytes for 100 hours. Startup-only local mode completed in 125.83 ms
-and preserved the authored tea result. A failure after Rin mutation begins
-fails closed because absence of a response is not proof of absence.
+The Story suite verifies both an internal Agent Runtime and an external MCP
+client against the same authoritative scene. It also verifies stale-state
+rejection, idempotent replay, cancellation, restart fencing, and a character
+boundary denied by Policy.
 
-## Honest conclusion
+## What is not claimed
 
-Rin now produces observable offline memory behavior: the recalled
-`preference.tea` tag selects `offer.tea` without leaking private memory text.
-It also supplies generalized history, audit, bounded recall, exact retry, and
-crash-safe outcome reconciliation.
+- No checked-in microbenchmark is presented as player value.
+- The reference stories are not a usability or narrative-quality study.
+- In-memory reference adapters do not prove an engine's threading, save, or
+  crash-recovery behavior.
+- A model can add expressive variation, but deterministic rules may remain the
+  better implementation for small, fixed behaviors.
 
-It does **not** beat a purpose-built persistent rule tree for one preference.
-The measured slice requires 139 more integration lines and roughly 6.3x P95
-latency for identical visible output. Rin is therefore unjustified for this
-small rule. The value hypothesis is only plausible when a game has enough
-independent memories, actors, and authored actions that bespoke persistence
-and branching stop being cheaper.
-
-## Scope correction
-
-Only the mandatory outcome-reporting transaction and behaviorally relevant
-bounded recall belong to the current player-value proof. Memory archive,
-belief conflicts, candidate goals, actor activity, arbitration, structured
-generation, and online-model quality are removed from the release value claim.
-They remain explicit Preview capabilities for compatibility and experiments,
-not recommended defaults. No paid-provider value or quality result is claimed;
-deterministic provider cost is exactly zero.
-
-## Release gates
-
-A release may retain the current narrow claim only when:
-
-1. the terminal slice installs and its tests pass on Windows, macOS, and Linux;
-2. the real-Sidecar benchmark still recalls the authored preference, reports
-   zero deterministic provider calls, and fails closed after mutation starts;
-3. 100-hour projected managed storage remains below 50 MiB at the documented
-   workload, while operators can configure a lower hard quota;
-4. deterministic local P95 remains below 100 ms on at least one documented
-   reference machine; and
-5. every public value statement links to raw, dated evidence.
-
-A broader “worth the complexity” or Stable claim additionally requires a
-separate multi-domain slice and a preregistered, blinded playtest against an
-equally persistent authored baseline. At least 20 players, a majority
-preference for the Rin condition, no increase in continuity errors, and
-measured provider spend are required. Until then, optional cognition features
-cannot be promoted into the recommended preset.
+Before a stable release, measure complete player workflows in each target game:
+task completion, false actions, intervention rate, perceived character
+consistency, latency, provider cost, save growth, and recovery after process or
+network failure. Keep machine-specific benchmark artifacts outside the source
+tree unless the methodology and workload are versioned and reproducible.

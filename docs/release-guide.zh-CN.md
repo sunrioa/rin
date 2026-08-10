@@ -43,8 +43,9 @@ make build VERSION=0.7.0
 - 迁移清单覆盖安全整数、`accepted` 必填、UTF-8、错误层次、Proposal
   Attempt/Outbox 恢复和 Restore Binding；
 - 没有跟踪文件声称 SDK 已发布到语言 Registry；
-- `terminal-story` 安装/测试与真实 Sidecar 100 回合门禁在 Windows、macOS、
-  Linux CI 均通过，且公开价值主张不超出[实测范围](player-value.zh-CN.md)；
+- `terminal-story` 的 V2 Adapter、内部 Agent、外部 MCP 与 CLI 冒烟门禁在
+  Windows、macOS、Linux CI 均通过，且公开价值主张不超出
+  [已记录证据范围](player-value.zh-CN.md)；
 - [真实宿主验收矩阵](host-integration-validation.zh-CN.md)中尚未完成的行作为
   Preview 限制可见，没有被写成已经通过的测试。
 
