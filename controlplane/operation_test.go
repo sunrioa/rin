@@ -568,7 +568,7 @@ func TestLeaseExpiryMakesUndeliveredWorkStaleAndAcceptedWorkUnknown(
 	}
 }
 
-func TestLeaseExpiryRedeliversAcceptedWorkWithoutExecutionEvidence(
+func TestLeaseExpiryDoesNotRedeliverAcceptedWorkWithoutExecutionEvidence(
 	t *testing.T,
 ) {
 	service, lease, now := operationTestService(t, Options{})
@@ -599,15 +599,20 @@ func TestLeaseExpiryRedeliversAcceptedWorkWithoutExecutionEvidence(
 		"instance.accepted.redelivery",
 	)
 	view, err := service.GetOperation(principal, operation.OperationID)
-	if err != nil || view.Status != OperationAccepted || view.Terminal ||
-		view.ReconciliationPending {
+	if err != nil || view.Status != OperationOutcomeUnknown || view.Terminal ||
+		!view.ReconciliationPending || view.ExecutionConfirmed {
 		t.Fatalf("accepted operation after lease replacement = %#v, %v", view, err)
 	}
-	batch := pollHost(t, service, recoveryLease, 1)
-	if len(batch.Requests) != 1 ||
-		batch.Requests[0].Request.OperationID != operation.OperationID ||
-		batch.Requests[0].DeliveryAttempt != 2 {
-		t.Fatalf("accepted lease-recovery delivery = %#v", batch)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	batch, err := service.PollHost(
+		ctx,
+		"test.host",
+		recoveryLease.LeaseID,
+		1,
+	)
+	if !errors.Is(err, context.DeadlineExceeded) || len(batch.Requests) != 0 {
+		t.Fatalf("accepted work was redelivered = %#v, %v", batch, err)
 	}
 }
 

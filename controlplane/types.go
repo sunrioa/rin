@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/policy"
 )
 
 const (
@@ -17,6 +18,7 @@ const (
 	ScopeActorDirect     = "actor.direct"
 	ScopeActorSpeak      = "actor.speak"
 	ScopeActorExecute    = "actor.execute"
+	ScopeActorControl    = "actor.control"
 	ScopeOperationCancel = "operation.cancel"
 	ScopeHostAdmin       = "host.admin"
 )
@@ -29,6 +31,7 @@ const (
 	ControlDirective ControlKind = "directive"
 	ControlUtterance ControlKind = "utterance"
 	ControlOffer     ControlKind = "offer"
+	ControlAction    ControlKind = "action"
 )
 
 // DecisionSource identifies the one deliberative controller currently allowed
@@ -61,21 +64,65 @@ type DecisionAuthority struct {
 	PersonaMode           PersonaMode    `json:"persona_mode"`
 }
 
+// ActorControlTarget identifies one Actor without exposing an engine object.
+type ActorControlTarget struct {
+	HostID  string `json:"host_id"`
+	WorldID string `json:"world_id"`
+	ActorID string `json:"actor_id"`
+}
+
+// AcquireControllerInput requests exclusive deliberative control of one Actor.
+// The Host-authored DecisionAuthority still decides whether an internal or
+// external controller is eligible to acquire the lease.
+type AcquireControllerInput struct {
+	ActorControlTarget
+	ControllerID   string `json:"controller_id"`
+	LeaseTTLMillis uint32 `json:"lease_ttl_millis"`
+}
+
+// ControllerLease is the exclusive, epoch-bound right to author ActionRequest
+// values for an Actor. It never grants gameplay effects by itself.
+type ControllerLease struct {
+	LeaseID              string         `json:"lease_id"`
+	ControllerID         string         `json:"controller_id"`
+	PrincipalID          string         `json:"principal_id"`
+	HostID               string         `json:"host_id"`
+	WorldID              string         `json:"world_id"`
+	ActorID              string         `json:"actor_id"`
+	Source               DecisionSource `json:"source"`
+	PersonaMode          PersonaMode    `json:"persona_mode"`
+	AuthorityRevision    uint64         `json:"authority_revision"`
+	Epoch                host.Epoch     `json:"epoch"`
+	AcquiredAtUnixMillis int64          `json:"acquired_at_unix_millis"`
+	ExpiresAtUnixMillis  int64          `json:"expires_at_unix_millis"`
+}
+
+// ActorEmergencyStop is an owner-controlled safety latch. It survives
+// controller changes and blocks every deliberative source equally.
+type ActorEmergencyStop struct {
+	ActorControlTarget
+	Active               bool   `json:"active"`
+	Revision             uint64 `json:"revision"`
+	UpdatedByPrincipalID string `json:"updated_by_principal_id"`
+	UpdatedAtUnixMillis  int64  `json:"updated_at_unix_millis"`
+}
+
 // OperationStatus describes delivery and authoritative Host execution state.
 type OperationStatus string
 
 const (
-	OperationQueued         OperationStatus = "queued"
-	OperationDelivered      OperationStatus = "delivered"
-	OperationAccepted       OperationStatus = "accepted"
-	OperationRunning        OperationStatus = "running"
-	OperationSucceeded      OperationStatus = "succeeded"
-	OperationFailed         OperationStatus = "failed"
-	OperationCancelled      OperationStatus = "cancelled"
-	OperationInterrupted    OperationStatus = "interrupted"
-	OperationStale          OperationStatus = "stale"
-	OperationOutcomeUnknown OperationStatus = "outcome-unknown"
-	OperationRejected       OperationStatus = "rejected"
+	OperationQueued               OperationStatus = "queued"
+	OperationAwaitingConfirmation OperationStatus = "awaiting-confirmation"
+	OperationDelivered            OperationStatus = "delivered"
+	OperationAccepted             OperationStatus = "accepted"
+	OperationRunning              OperationStatus = "running"
+	OperationSucceeded            OperationStatus = "succeeded"
+	OperationFailed               OperationStatus = "failed"
+	OperationCancelled            OperationStatus = "cancelled"
+	OperationInterrupted          OperationStatus = "interrupted"
+	OperationStale                OperationStatus = "stale"
+	OperationOutcomeUnknown       OperationStatus = "outcome-unknown"
+	OperationRejected             OperationStatus = "rejected"
 )
 
 // HostRegistration starts or resumes one authoritative host connection.
@@ -127,29 +174,34 @@ type WorldView struct {
 
 // ActorView is a defensive copy of one principal-visible actor snapshot.
 type ActorView struct {
-	HostID               string            `json:"host_id"`
-	WorldID              string            `json:"world_id"`
-	ActorID              string            `json:"actor_id"`
-	OwnerPrincipalID     string            `json:"owner_principal_id"`
-	DisplayName          string            `json:"display_name"`
-	ObservationSeq       uint64            `json:"observation_seq"`
-	Epoch                host.Epoch        `json:"epoch"`
-	Authority            DecisionAuthority `json:"decision_authority"`
-	State                json.RawMessage   `json:"state"`
-	Online               bool              `json:"online"`
-	LeaseExpiresAtMillis int64             `json:"lease_expires_at_unix_millis"`
+	HostID                string            `json:"host_id"`
+	WorldID               string            `json:"world_id"`
+	ActorID               string            `json:"actor_id"`
+	OwnerPrincipalID      string            `json:"owner_principal_id"`
+	DisplayName           string            `json:"display_name"`
+	ObservationSeq        uint64            `json:"observation_seq"`
+	Epoch                 host.Epoch        `json:"epoch"`
+	Authority             DecisionAuthority `json:"decision_authority"`
+	Controller            *ControllerLease  `json:"controller_lease,omitempty"`
+	EmergencyStopped      bool              `json:"emergency_stopped"`
+	EmergencyStopRevision uint64            `json:"emergency_stop_revision,omitempty"`
+	State                 json.RawMessage   `json:"state"`
+	Online                bool              `json:"online"`
+	LeaseExpiresAtMillis  int64             `json:"lease_expires_at_unix_millis"`
 }
 
 // WaitActorInput identifies the last actor cursor observed by a client.
 // Waiting is bounded and returns the same principal-filtered ActorView used by
 // ordinary reads.
 type WaitActorInput struct {
-	HostID                 string `json:"host_id"`
-	WorldID                string `json:"world_id"`
-	ActorID                string `json:"actor_id"`
-	AfterObservationSeq    uint64 `json:"after_observation_seq"`
-	AfterAuthorityRevision uint64 `json:"after_authority_revision"`
-	WaitMillis             uint32 `json:"wait_millis"`
+	HostID                     string `json:"host_id"`
+	WorldID                    string `json:"world_id"`
+	ActorID                    string `json:"actor_id"`
+	AfterObservationSeq        uint64 `json:"after_observation_seq"`
+	AfterAuthorityRevision     uint64 `json:"after_authority_revision"`
+	AfterControllerLeaseID     string `json:"after_controller_lease_id,omitempty"`
+	AfterEmergencyStopRevision uint64 `json:"after_emergency_stop_revision,omitempty"`
+	WaitMillis                 uint32 `json:"wait_millis"`
 }
 
 // ActorUpdate reports whether the actor cursor changed before the bounded wait
@@ -196,21 +248,26 @@ type ControlBinding struct {
 	Epoch             host.Epoch `json:"epoch"`
 	ObservationSeq    uint64     `json:"observation_seq"`
 	AuthorityRevision uint64     `json:"authority_revision"`
+	ControllerLeaseID string     `json:"controller_lease_id,omitempty"`
 }
 
 // HostControlRequest is trusted queue data delivered to an authoritative Host.
 type HostControlRequest struct {
-	OperationID string            `json:"operation_id"`
-	RequestID   string            `json:"request_id"`
-	Principal   host.Principal    `json:"principal"`
-	HostID      string            `json:"host_id"`
-	WorldID     string            `json:"world_id"`
-	ActorID     string            `json:"actor_id"`
-	Kind        ControlKind       `json:"kind"`
-	TurnID      string            `json:"turn_id,omitempty"`
-	Text        string            `json:"text,omitempty"`
-	Binding     *ControlBinding   `json:"binding,omitempty"`
-	Offer       *host.ActionOffer `json:"offer,omitempty"`
+	OperationID       string              `json:"operation_id"`
+	RequestID         string              `json:"request_id"`
+	Principal         host.Principal      `json:"principal"`
+	HostID            string              `json:"host_id"`
+	WorldID           string              `json:"world_id"`
+	ActorID           string              `json:"actor_id"`
+	Kind              ControlKind         `json:"kind"`
+	TurnID            string              `json:"turn_id,omitempty"`
+	Text              string              `json:"text,omitempty"`
+	Binding           *ControlBinding     `json:"binding,omitempty"`
+	Offer             *host.ActionOffer   `json:"offer,omitempty"`
+	ActionRequest     *host.ActionRequest `json:"action_request,omitempty"`
+	BoundAction       *host.BoundAction   `json:"bound_action,omitempty"`
+	PolicyDecision    *policy.Decision    `json:"policy_decision,omitempty"`
+	ParentOperationID string              `json:"parent_operation_id,omitempty"`
 	// Invocation is retained only to load v1 operation files. New requests
 	// never populate it and legacy unfinished work is never redelivered.
 	Invocation  *host.ActionInvocation `json:"invocation,omitempty"`
@@ -246,6 +303,12 @@ type OperationView struct {
 	ActorID               string              `json:"actor_id"`
 	Kind                  ControlKind         `json:"kind"`
 	TurnID                string              `json:"turn_id,omitempty"`
+	ControllerLeaseID     string              `json:"controller_lease_id,omitempty"`
+	ParentOperationID     string              `json:"parent_operation_id,omitempty"`
+	ChildOperationIDs     []string            `json:"child_operation_ids,omitempty"`
+	ActionRequest         *host.ActionRequest `json:"action_request,omitempty"`
+	BoundAction           *host.BoundAction   `json:"bound_action,omitempty"`
+	PolicyDecision        *policy.Decision    `json:"policy_decision,omitempty"`
 	Status                OperationStatus     `json:"status"`
 	Cursor                string              `json:"cursor"`
 	Terminal              bool                `json:"terminal"`

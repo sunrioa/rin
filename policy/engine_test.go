@@ -235,6 +235,36 @@ func TestConfirmationIsApprovedBoundAndIdempotent(t *testing.T) {
 	}
 }
 
+func TestDiscardConfirmationRevokesOnlyExactChallenge(t *testing.T) {
+	engine := newTestEngine(t, testConfig(ProfileOpen))
+	effect := testEffect()
+	effect.Risk = host.RiskCritical
+	action := testBoundAction(t, effect)
+	context := testContext(action)
+	decision, err := engine.Evaluate(action, context)
+	if err != nil || decision.Confirmation == nil {
+		t.Fatalf("Evaluate = %#v, %v", decision, err)
+	}
+	tampered := *decision.Confirmation
+	tampered.ActorID = "actor.other"
+	if engine.DiscardConfirmation(tampered) {
+		t.Fatal("DiscardConfirmation removed a different challenge")
+	}
+	if !engine.DiscardConfirmation(*decision.Confirmation) {
+		t.Fatal("DiscardConfirmation did not remove the exact challenge")
+	}
+	if engine.DiscardConfirmation(*decision.Confirmation) {
+		t.Fatal("DiscardConfirmation removed an already discarded challenge")
+	}
+	if _, err := engine.Approve(
+		decision.Confirmation.ChallengeID,
+		host.Principal{ID: "principal.owner", GrantedScopes: []string{"rin.policy.confirm"}},
+		context.Now,
+	); err == nil {
+		t.Fatal("discarded challenge was approved")
+	}
+}
+
 func TestConfirmationExpiresAndPolicyUpdateInvalidatesIt(t *testing.T) {
 	config := testConfig(ProfileOpen)
 	engine := newTestEngine(t, config)

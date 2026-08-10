@@ -12,14 +12,17 @@ import (
 
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/internal/jsonwire"
+	"github.com/sunrioa/rin/policy"
 )
 
 const (
-	operationFileVersion       = "rin.control.operations/v2"
-	legacyOperationFileVersion = "rin.control.operations/v1"
-	operationFileName          = "operations.json"
-	maxOperationFileBytes      = 64 << 20
-	maxQueuedStateBytes        = 32 << 20
+	operationFileVersion         = "rin.control.operations/v4"
+	previousOperationFileVersion = "rin.control.operations/v3"
+	olderOperationFileVersion    = "rin.control.operations/v2"
+	legacyOperationFileVersion   = "rin.control.operations/v1"
+	operationFileName            = "operations.json"
+	maxOperationFileBytes        = 64 << 20
+	maxQueuedStateBytes          = 32 << 20
 )
 
 var errOperationFileTooLarge = errors.New("operation state exceeds its size limit")
@@ -31,8 +34,11 @@ type operationFile struct {
 }
 
 type persistedOperations struct {
-	Version    string               `json:"version"`
-	Operations []persistedOperation `json:"operations"`
+	Version        string               `json:"version"`
+	Operations     []persistedOperation `json:"operations"`
+	Controllers    []ControllerLease    `json:"controller_leases,omitempty"`
+	EmergencyStops []ActorEmergencyStop `json:"emergency_stops,omitempty"`
+	PolicyState    *policy.State        `json:"policy_state,omitempty"`
 }
 
 type persistedOperation struct {
@@ -181,6 +187,8 @@ func (file *operationFile) read() (persistedOperations, error) {
 		)
 	}
 	if state.Version != operationFileVersion &&
+		state.Version != previousOperationFileVersion &&
+		state.Version != olderOperationFileVersion &&
 		state.Version != legacyOperationFileVersion {
 		return persistedOperations{}, fmt.Errorf(
 			"%w: unsupported operation state version %q",
@@ -244,6 +252,17 @@ func (service *Service) restoreOperations(state persistedOperations) error {
 			service.maxOperations,
 		)
 	}
+	if state.PolicyState != nil {
+		if service.policyEngine == nil {
+			return fmt.Errorf("%w: policy state requires a configured Policy Engine", ErrPersistence)
+		}
+		if err := policy.ValidateState(*state.PolicyState); err != nil {
+			return fmt.Errorf("%w: validate policy state: %v", ErrPersistence, err)
+		}
+	}
+	hasV2Action := false
+	actionDecisionIDs := make(map[string]struct{})
+	requiredReservationIDs := make(map[string]struct{})
 	for index, persisted := range state.Operations {
 		operation, err := restoreOperation(persisted, state.Version)
 		if err != nil {
@@ -270,6 +289,232 @@ func (service *Service) restoreOperations(state persistedOperations) error {
 		}
 		service.operations[operationID] = operation
 		service.requests[operation.idempotency] = operationID
+		hasV2Action = hasV2Action || operation.request.Kind == ControlAction
+		if operation.request.Kind == ControlAction &&
+			operation.request.PolicyDecision != nil &&
+			operation.request.PolicyDecision.Result == policy.Allow {
+			decision := operation.request.PolicyDecision
+			actionDecisionIDs[decision.DecisionID] = struct{}{}
+			if len(decision.EffectiveLimits) != 0 &&
+				operationPolicyReservationPending(persisted.Status) {
+				requiredReservationIDs[decision.DecisionID] = struct{}{}
+			}
+		}
+	}
+	if hasV2Action && (service.policyEngine == nil || state.PolicyState == nil) {
+		return fmt.Errorf("%w: V2 actions require persisted policy state", ErrPersistence)
+	}
+	if state.PolicyState != nil {
+		reservationIDs := make(map[string]struct{}, len(state.PolicyState.Reservations))
+		for _, reservation := range state.PolicyState.Reservations {
+			if _, exists := actionDecisionIDs[reservation.DecisionID]; !exists {
+				return fmt.Errorf(
+					"%w: policy reservation %q has no matching V2 action",
+					ErrPersistence,
+					reservation.DecisionID,
+				)
+			}
+			reservationIDs[reservation.DecisionID] = struct{}{}
+		}
+		for decisionID := range requiredReservationIDs {
+			if _, exists := reservationIDs[decisionID]; !exists {
+				return fmt.Errorf(
+					"%w: active V2 action decision %q is missing its policy reservation",
+					ErrPersistence,
+					decisionID,
+				)
+			}
+		}
+	}
+	for _, operation := range service.operations {
+		parentID := operation.request.ParentOperationID
+		if parentID == "" {
+			continue
+		}
+		parent := service.operations[parentID]
+		if parent == nil || parent.request.Kind != ControlAction ||
+			operation.request.Kind != ControlAction ||
+			parent.request.HostID != operation.request.HostID ||
+			parent.request.WorldID != operation.request.WorldID ||
+			parent.request.ActorID != operation.request.ActorID ||
+			parent.request.Principal.ID != operation.request.Principal.ID ||
+			controllerLeaseIDFromRequest(parent.request) !=
+				controllerLeaseIDFromRequest(operation.request) {
+			return fmt.Errorf("%w: invalid parent operation relation", ErrPersistence)
+		}
+		if len(parent.children) >= maxChildOperations {
+			return fmt.Errorf("%w: parent has too many child operations", ErrPersistence)
+		}
+		parent.children = append(parent.children, operation.request.OperationID)
+	}
+	if err := validateOperationParentGraph(service.operations); err != nil {
+		return fmt.Errorf("%w: %v", ErrPersistence, err)
+	}
+	for _, operation := range service.operations {
+		slices.SortFunc(operation.children, func(left, right string) int {
+			leftOperation := service.operations[left]
+			rightOperation := service.operations[right]
+			if leftOperation.createdAt != rightOperation.createdAt {
+				if leftOperation.createdAt < rightOperation.createdAt {
+					return -1
+				}
+				return 1
+			}
+			return compare(left, right)
+		})
+	}
+	leaseIDs := make(map[string]struct{}, len(state.Controllers))
+	now := service.now().UnixMilli()
+	for index, lease := range state.Controllers {
+		if err := validatePersistedControllerLease(lease); err != nil {
+			return fmt.Errorf(
+				"%w: controller_leases[%d]: %v",
+				ErrPersistence,
+				index,
+				err,
+			)
+		}
+		key := actorControlKey{
+			hostID:  lease.HostID,
+			worldID: lease.WorldID,
+			actorID: lease.ActorID,
+		}
+		if _, exists := service.controllers[key]; exists {
+			return fmt.Errorf("%w: duplicate controller actor", ErrPersistence)
+		}
+		if _, exists := leaseIDs[lease.LeaseID]; exists {
+			return fmt.Errorf("%w: duplicate controller lease_id", ErrPersistence)
+		}
+		leaseIDs[lease.LeaseID] = struct{}{}
+		if lease.ExpiresAtUnixMillis > now {
+			service.controllers[key] = lease
+		}
+	}
+	for index, stop := range state.EmergencyStops {
+		if err := validatePersistedEmergencyStop(stop); err != nil {
+			return fmt.Errorf(
+				"%w: emergency_stops[%d]: %v",
+				ErrPersistence,
+				index,
+				err,
+			)
+		}
+		key := controlKey(stop.ActorControlTarget)
+		if _, exists := service.emergencyStops[key]; exists {
+			return fmt.Errorf("%w: duplicate emergency stop actor", ErrPersistence)
+		}
+		service.emergencyStops[key] = stop
+	}
+	if state.PolicyState != nil {
+		if err := service.policyEngine.RestoreState(*state.PolicyState); err != nil {
+			return fmt.Errorf("%w: restore policy state: %v", ErrPersistence, err)
+		}
+	}
+	if hasV2Action {
+		for _, operation := range service.operations {
+			if operation.request.Kind != ControlAction ||
+				operation.request.PolicyDecision == nil ||
+				operation.request.PolicyDecision.Result != policy.Allow {
+				continue
+			}
+			switch operation.status {
+			case OperationSucceeded, OperationOutcomeUnknown:
+				service.finalizeOperationPolicyLocked(operation, true)
+			case OperationFailed, OperationCancelled, OperationInterrupted,
+				OperationStale, OperationRejected:
+				service.finalizeOperationPolicyLocked(operation, false)
+			}
+		}
+		service.operationDirty = true
+	}
+	return nil
+}
+
+func operationPolicyReservationPending(status OperationStatus) bool {
+	return status == OperationQueued || status == OperationDelivered ||
+		status == OperationAccepted || status == OperationRunning
+}
+
+func validateOperationParentGraph(operations map[string]*operationState) error {
+	complete := make(map[string]struct{}, len(operations))
+	for operationID := range operations {
+		chain := make(map[string]struct{})
+		currentID := operationID
+		for currentID != "" {
+			if _, done := complete[currentID]; done {
+				break
+			}
+			if _, cycle := chain[currentID]; cycle {
+				return errors.New("operation parent relation contains a cycle")
+			}
+			chain[currentID] = struct{}{}
+			current := operations[currentID]
+			if current == nil {
+				break
+			}
+			currentID = current.request.ParentOperationID
+		}
+		for chainID := range chain {
+			complete[chainID] = struct{}{}
+		}
+	}
+	return nil
+}
+
+func validatePersistedControllerLease(value ControllerLease) error {
+	if err := validateID("lease_id", value.LeaseID); err != nil {
+		return err
+	}
+	if err := validateID("controller_id", value.ControllerID); err != nil {
+		return err
+	}
+	if err := validateID("principal_id", value.PrincipalID); err != nil {
+		return err
+	}
+	if err := validateActorControlTarget(ActorControlTarget{
+		HostID: value.HostID, WorldID: value.WorldID, ActorID: value.ActorID,
+	}); err != nil {
+		return err
+	}
+	if value.Source != DecisionInternal && value.Source != DecisionExternal {
+		return errors.New("unsupported controller source")
+	}
+	if value.PersonaMode != PersonaCharacterBound &&
+		value.PersonaMode != PersonaAgentAvatar {
+		return errors.New("unsupported controller persona mode")
+	}
+	if value.Source == DecisionInternal && value.PersonaMode != PersonaCharacterBound {
+		return errors.New("internal controller must be character-bound")
+	}
+	if value.AuthorityRevision == 0 || value.AuthorityRevision > maxJSONSafeInteger {
+		return errors.New("invalid controller authority revision")
+	}
+	if err := value.Epoch.Validate("epoch"); err != nil {
+		return err
+	}
+	if value.Epoch.WorldID != value.WorldID {
+		return errors.New("controller epoch does not match world_id")
+	}
+	if value.AcquiredAtUnixMillis < 0 ||
+		value.ExpiresAtUnixMillis <= value.AcquiredAtUnixMillis ||
+		value.ExpiresAtUnixMillis > maxJSONSafeInteger {
+		return errors.New("invalid controller lease timestamps")
+	}
+	return nil
+}
+
+func validatePersistedEmergencyStop(value ActorEmergencyStop) error {
+	if err := validateActorControlTarget(value.ActorControlTarget); err != nil {
+		return err
+	}
+	if value.Revision == 0 || value.Revision > maxJSONSafeInteger {
+		return errors.New("invalid emergency stop revision")
+	}
+	if err := validateID("updated_by_principal_id", value.UpdatedByPrincipalID); err != nil {
+		return err
+	}
+	if value.UpdatedAtUnixMillis < 0 || value.UpdatedAtUnixMillis > maxJSONSafeInteger {
+		return errors.New("invalid emergency stop timestamp")
 	}
 	return nil
 }
@@ -325,26 +570,33 @@ func restoreOperation(
 
 	request := cloneControlRequest(value.Request)
 	operation := &operationState{
-		request:  request,
-		status:   value.Status,
-		attempts: value.Attempts,
-		cancel:   value.Cancel,
-		ack:      cloneAcknowledgement(value.Ack),
-		run:      cloneRunPointer(value.Run),
-		outcome:  cloneOutcomePointer(value.Outcome),
-		output:   append(json.RawMessage(nil), value.Output...),
-		idempotency: operationRequestKey(
-			request.Principal.ID,
-			request.RequestID,
-		),
-		createdAt: value.CreatedAt,
-		updatedAt: value.UpdatedAt,
+		request:     request,
+		status:      value.Status,
+		attempts:    value.Attempts,
+		cancel:      value.Cancel,
+		ack:         cloneAcknowledgement(value.Ack),
+		run:         cloneRunPointer(value.Run),
+		outcome:     cloneOutcomePointer(value.Outcome),
+		output:      append(json.RawMessage(nil), value.Output...),
+		idempotency: operationIdempotencyKey(request),
+		createdAt:   value.CreatedAt,
+		updatedAt:   value.UpdatedAt,
 	}
 	if operation.ack != nil && !operation.ack.Accepted {
 		operation.rejection = *operation.ack
 		operation.status = OperationRejected
 	} else if operation.outcome != nil {
 		operation.status = operationStatusFromRun(operation.outcome.Status)
+	} else if request.Kind == ControlAction &&
+		request.PolicyDecision != nil &&
+		request.PolicyDecision.Result == policy.Deny {
+		operation.status = OperationRejected
+		operation.rejection = HostAcknowledgement{
+			OperationID: request.OperationID,
+			Accepted:    false,
+			Code:        request.PolicyDecision.ReasonCode,
+			Message:     request.PolicyDecision.HumanSummary,
+		}
 	} else if operation.status == OperationCancelled &&
 		operation.attempts == 0 &&
 		operation.ack == nil {
@@ -356,7 +608,8 @@ func restoreOperation(
 		} else {
 			operation.status = OperationOutcomeUnknown
 		}
-	} else if legacyUnbound || value.Status == OperationStale {
+	} else if legacyUnbound || value.Status == OperationStale ||
+		request.Kind == ControlAction {
 		operation.status = OperationStale
 	} else {
 		operation.status = OperationQueued
@@ -404,6 +657,14 @@ func validateStoredRequest(request HostControlRequest, allowLegacy bool) error {
 		} else if request.Binding.AuthorityRevision > maxJSONSafeInteger {
 			return errors.New("invalid binding authority_revision")
 		}
+		if request.Binding.ControllerLeaseID != "" {
+			if err := validateID(
+				"binding.controller_lease_id",
+				request.Binding.ControllerLeaseID,
+			); err != nil {
+				return err
+			}
+		}
 	}
 	if request.TurnID != "" {
 		if err := validateID("turn_id", request.TurnID); err != nil {
@@ -412,8 +673,11 @@ func validateStoredRequest(request HostControlRequest, allowLegacy bool) error {
 	}
 	switch request.Kind {
 	case ControlMessage, ControlDirective, ControlUtterance:
-		if request.Invocation != nil || request.Offer != nil {
-			return errors.New("text request must not contain an offer or invocation")
+		if request.Invocation != nil || request.Offer != nil ||
+			request.ActionRequest != nil || request.BoundAction != nil ||
+			request.PolicyDecision != nil || request.ParentOperationID != "" ||
+			(request.Binding != nil && request.Binding.ControllerLeaseID != "") {
+			return errors.New("text request contains action-only fields")
 		}
 		if err := validateText(
 			"text",
@@ -440,8 +704,11 @@ func validateStoredRequest(request HostControlRequest, allowLegacy bool) error {
 			return errors.New("principal is missing the request scope")
 		}
 	case ControlOffer:
-		if request.Text != "" {
-			return errors.New("offer request must not contain text")
+		if request.Text != "" || request.ActionRequest != nil ||
+			request.BoundAction != nil || request.PolicyDecision != nil ||
+			request.ParentOperationID != "" ||
+			(request.Binding != nil && request.Binding.ControllerLeaseID != "") {
+			return errors.New("offer request contains action-only fields")
 		}
 		if request.Offer != nil {
 			if request.Invocation != nil {
@@ -472,13 +739,111 @@ func validateStoredRequest(request HostControlRequest, allowLegacy bool) error {
 			!hasScope(request.Principal, ScopeActorExecute) {
 			return errors.New("principal is missing actor.execute")
 		}
+	case ControlAction:
+		if err := validateStoredActionRequest(request); err != nil {
+			return err
+		}
 	default:
 		return errors.New("unsupported control kind")
 	}
 	return nil
 }
 
+func validateStoredActionRequest(request HostControlRequest) error {
+	if request.Text != "" || request.TurnID != "" || request.Offer != nil ||
+		request.Invocation != nil {
+		return errors.New("action request contains legacy control fields")
+	}
+	if request.Binding == nil || request.Binding.ControllerLeaseID == "" {
+		return errors.New("action request requires a controller-bound binding")
+	}
+	if request.ActionRequest == nil || request.BoundAction == nil ||
+		request.PolicyDecision == nil {
+		return errors.New("action request requires intent, binding, and policy decision")
+	}
+	if err := host.ValidateActionRequest(*request.ActionRequest); err != nil {
+		return fmt.Errorf("action_request: %w", err)
+	}
+	if err := host.ValidateBoundAction(*request.BoundAction); err != nil {
+		return fmt.Errorf("bound_action: %w", err)
+	}
+	if err := policy.ValidateDecision(*request.PolicyDecision); err != nil {
+		return fmt.Errorf("policy_decision: %w", err)
+	}
+	actionRequest := request.ActionRequest
+	bound := request.BoundAction
+	decision := request.PolicyDecision
+	digest, err := host.ActionRequestDigest(*actionRequest)
+	if err != nil {
+		return err
+	}
+	if actionRequest.RequestID != request.RequestID ||
+		actionRequest.ActorID != request.ActorID ||
+		actionRequest.ExpectedEpoch != request.Binding.Epoch ||
+		actionRequest.ObservationSeq != request.Binding.ObservationSeq ||
+		bound.RequestDigest != digest || bound.RequestID != actionRequest.RequestID ||
+		bound.ControllerID != actionRequest.ControllerID ||
+		bound.ActorID != actionRequest.ActorID ||
+		bound.Capability != actionRequest.Capability ||
+		bound.SpecDigest != actionRequest.SpecDigest ||
+		bound.ExpectedEpoch != actionRequest.ExpectedEpoch ||
+		bound.ObservationSeq != actionRequest.ObservationSeq ||
+		bound.TaskID != actionRequest.TaskID ||
+		bound.IdempotencyKey != actionRequest.IdempotencyKey ||
+		!slices.Equal(bound.RequestedTargets, actionRequest.Targets) {
+		return errors.New("action request, binding, and control target do not match")
+	}
+	if decision.ControllerID != bound.ControllerID ||
+		decision.ActorID != bound.ActorID ||
+		decision.PrincipalID != request.Principal.ID ||
+		decision.EffectDigest != bound.EffectDigest {
+		return errors.New("policy decision does not match bound action")
+	}
+	if request.ParentOperationID != "" {
+		if err := validateID("parent_operation_id", request.ParentOperationID); err != nil {
+			return err
+		}
+		if request.ParentOperationID == request.OperationID {
+			return errors.New("operation cannot be its own parent")
+		}
+	}
+	if !hasScope(request.Principal, ScopeHostAdmin) &&
+		!hasScope(request.Principal, ScopeActorExecute) {
+		return errors.New("principal is missing actor.execute")
+	}
+	return nil
+}
+
 func validatePersistedOperationRelations(value persistedOperation) error {
+	if value.Request.Kind == ControlAction {
+		decision := value.Request.PolicyDecision
+		if decision == nil {
+			return errors.New("action operation is missing policy decision")
+		}
+		switch decision.Result {
+		case policy.Deny:
+			if value.Status != OperationRejected || value.Attempts != 0 ||
+				value.Ack != nil || value.Run != nil || value.Outcome != nil ||
+				len(value.Output) != 0 {
+				return errors.New("denied action has execution state")
+			}
+			return nil
+		case policy.RequireConfirmation:
+			validStatus := value.Status == OperationAwaitingConfirmation ||
+				value.Status == OperationCancelled || value.Status == OperationStale
+			if !validStatus || value.Attempts != 0 || value.Ack != nil ||
+				value.Run != nil || value.Outcome != nil || len(value.Output) != 0 {
+				return errors.New("unconfirmed action has execution state")
+			}
+			return nil
+		case policy.Allow:
+			if value.Status == OperationAwaitingConfirmation {
+				return errors.New("allowed action cannot await confirmation")
+			}
+		default:
+			return errors.New("unsupported action policy result")
+		}
+	}
 	if value.Ack != nil && value.Attempts == 0 {
 		return errors.New("acknowledgement requires a delivery attempt")
 	}
@@ -539,6 +904,7 @@ func validatePersistedOperationRelations(value persistedOperation) error {
 			return errors.New("delivered operation requires a delivery attempt")
 		}
 		valid := value.Status == OperationQueued ||
+			value.Status == OperationAwaitingConfirmation ||
 			value.Status == OperationDelivered ||
 			value.Status == OperationStale ||
 			(value.Status == OperationCancelled && value.Attempts == 0)
@@ -564,8 +930,25 @@ func (service *Service) persistedOperationsLocked() persistedOperations {
 		return compare(left.request.OperationID, right.request.OperationID)
 	})
 	state := persistedOperations{
-		Version:    operationFileVersion,
-		Operations: make([]persistedOperation, len(operations)),
+		Version:        operationFileVersion,
+		Operations:     make([]persistedOperation, len(operations)),
+		Controllers:    make([]ControllerLease, 0, len(service.controllers)),
+		EmergencyStops: make([]ActorEmergencyStop, 0, len(service.emergencyStops)),
+	}
+	if service.policyEngine != nil {
+		decisionIDs := make([]string, 0, len(service.operations))
+		for _, operation := range service.operations {
+			if operation.request.Kind == ControlAction &&
+				operation.request.PolicyDecision != nil &&
+				operation.request.PolicyDecision.Result == policy.Allow {
+				decisionIDs = append(
+					decisionIDs,
+					operation.request.PolicyDecision.DecisionID,
+				)
+			}
+		}
+		checkpoint := service.policyEngine.SnapshotStateFor(decisionIDs)
+		state.PolicyState = &checkpoint
 	}
 	for index, operation := range operations {
 		state.Operations[index] = persistedOperation{
@@ -581,6 +964,30 @@ func (service *Service) persistedOperationsLocked() persistedOperations {
 			UpdatedAt: operation.updatedAt,
 		}
 	}
+	for _, controller := range service.controllers {
+		state.Controllers = append(state.Controllers, controller)
+	}
+	slices.SortFunc(state.Controllers, func(left, right ControllerLease) int {
+		if left.HostID != right.HostID {
+			return compare(left.HostID, right.HostID)
+		}
+		if left.WorldID != right.WorldID {
+			return compare(left.WorldID, right.WorldID)
+		}
+		return compare(left.ActorID, right.ActorID)
+	})
+	for _, stop := range service.emergencyStops {
+		state.EmergencyStops = append(state.EmergencyStops, stop)
+	}
+	slices.SortFunc(state.EmergencyStops, func(left, right ActorEmergencyStop) int {
+		if left.HostID != right.HostID {
+			return compare(left.HostID, right.HostID)
+		}
+		if left.WorldID != right.WorldID {
+			return compare(left.WorldID, right.WorldID)
+		}
+		return compare(left.ActorID, right.ActorID)
+	})
 	return state
 }
 
@@ -616,6 +1023,7 @@ func (service *Service) writeOperationsLocked(maximumBytes int64) error {
 		service.operationCheckpointDirty = false
 		return nil
 	}
+	service.expireControllersLocked(service.now().UnixMilli())
 	if err := service.operationFile.write(
 		service.persistedOperationsLocked(),
 		maximumBytes,
@@ -681,6 +1089,7 @@ func cloneOutcomePointer(value *host.ActionOutcome) *host.ActionOutcome {
 
 func validOperationStatus(value OperationStatus) bool {
 	return value == OperationQueued ||
+		value == OperationAwaitingConfirmation ||
 		value == OperationDelivered ||
 		value == OperationAccepted ||
 		value == OperationRunning ||

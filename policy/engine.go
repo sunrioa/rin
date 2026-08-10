@@ -23,7 +23,8 @@ const (
 type Engine struct {
 	mu sync.Mutex
 
-	config Config
+	config       Config
+	configDigest string
 
 	challenges     map[string]*challengeState
 	challengeKeys  map[string]string
@@ -65,8 +66,13 @@ func New(config Config) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
+	digest, err := configStateDigest(sealed)
+	if err != nil {
+		return nil, err
+	}
 	return &Engine{
 		config:         sealed,
+		configDigest:   digest,
 		challenges:     make(map[string]*challengeState),
 		challengeKeys:  make(map[string]string),
 		usage:          make(map[string]budgetUsage),
@@ -90,12 +96,17 @@ func (engine *Engine) Update(config Config) error {
 	if err != nil {
 		return err
 	}
+	digest, err := configStateDigest(sealed)
+	if err != nil {
+		return err
+	}
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
 	if sealed.Revision <= engine.config.Revision {
 		return errors.New("policy revision must increase")
 	}
 	engine.config = sealed
+	engine.configDigest = digest
 	clear(engine.challenges)
 	clear(engine.challengeKeys)
 	clear(engine.authorizations)
@@ -294,6 +305,24 @@ func (engine *Engine) Finalize(decisionID string, committed bool) bool {
 		delete(engine.authorizations, key)
 	}
 	delete(engine.decisionKeys, decisionID)
+	return true
+}
+
+// DiscardConfirmation removes one exact challenge when its owning operation is
+// abandoned before approval. A different or already-consumed challenge is not
+// affected.
+func (engine *Engine) DiscardConfirmation(challenge ConfirmationChallenge) bool {
+	if err := validateConfirmationChallenge(challenge); err != nil {
+		return false
+	}
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	state, exists := engine.challenges[challenge.ChallengeID]
+	if !exists || state.challenge != challenge {
+		return false
+	}
+	delete(engine.challenges, challenge.ChallengeID)
+	delete(engine.challengeKeys, challengeKeyFromChallenge(challenge))
 	return true
 }
 

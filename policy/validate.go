@@ -14,6 +14,7 @@ import (
 const maxJSONSafeInteger = 9_007_199_254_740_991
 
 var safeIDPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$`)
+var digestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // SealConfig validates and deterministically normalizes one policy revision.
 func SealConfig(config Config) (Config, error) {
@@ -75,6 +76,155 @@ func (config Config) Validate() error {
 		return errors.New("policy config must be normalized with SealConfig")
 	}
 	return nil
+}
+
+// ValidateDecision verifies one persisted or transported policy decision.
+func ValidateDecision(decision Decision) error {
+	identifiers := []struct{ field, value string }{
+		{field: "decision_id", value: decision.DecisionID},
+		{field: "controller_id", value: decision.ControllerID},
+		{field: "actor_id", value: decision.ActorID},
+		{field: "principal_id", value: decision.PrincipalID},
+	}
+	for _, identifier := range identifiers {
+		if err := validateID(identifier.field, identifier.value, false); err != nil {
+			return err
+		}
+	}
+	if !validResult(decision.Result) {
+		return errors.New("decision result is not supported")
+	}
+	if !digestPattern.MatchString(decision.EffectDigest) {
+		return errors.New("effect_digest must be a lowercase SHA-256 digest")
+	}
+	if decision.PolicyRevision == 0 || decision.PolicyRevision > maxJSONSafeInteger {
+		return errors.New("policy_revision must be a positive JSON-safe integer")
+	}
+	if len(decision.MatchedRuleIDs) == 0 || len(decision.MatchedRuleIDs) > 1_024 {
+		return errors.New("matched_rule_ids must contain between 1 and 1024 values")
+	}
+	seenRules := make(map[string]struct{}, len(decision.MatchedRuleIDs))
+	for index, ruleID := range decision.MatchedRuleIDs {
+		if err := validateID(fmt.Sprintf("matched_rule_ids[%d]", index), ruleID, true); err != nil {
+			return err
+		}
+		if _, duplicate := seenRules[ruleID]; duplicate {
+			return errors.New("matched_rule_ids must not contain duplicates")
+		}
+		seenRules[ruleID] = struct{}{}
+	}
+	if err := validateID("reason_code", decision.ReasonCode, true); err != nil {
+		return err
+	}
+	if err := validateText("human_summary", decision.HumanSummary, 500, true); err != nil {
+		return err
+	}
+	if err := decision.EvaluatedAt.Validate("evaluated_at"); err != nil {
+		return err
+	}
+	if len(decision.EffectiveLimits) > 128 {
+		return errors.New("effective_limits must contain at most 128 values")
+	}
+	seenLimits := make(map[string]struct{}, len(decision.EffectiveLimits))
+	for index, limit := range decision.EffectiveLimits {
+		field := fmt.Sprintf("effective_limits[%d]", index)
+		if err := validateID(field+".budget_id", limit.BudgetID, true); err != nil {
+			return err
+		}
+		if err := validateID(field+".usage_key", limit.UsageKey, true); err != nil {
+			return err
+		}
+		if _, duplicate := seenLimits[limit.BudgetID]; duplicate {
+			return errors.New("effective_limits must not contain duplicate budget_id values")
+		}
+		seenLimits[limit.BudgetID] = struct{}{}
+		counters := []uint64{
+			limit.MaxActions,
+			limit.ActionsUsed,
+			limit.ActionsRemaining,
+			limit.MaxQuantity,
+			limit.QuantityUsed,
+			limit.QuantityRemaining,
+		}
+		for _, counter := range counters {
+			if counter > maxJSONSafeInteger {
+				return fmt.Errorf("%s counters must be JSON-safe integers", field)
+			}
+		}
+		if limit.MaxActions == 0 {
+			if limit.ActionsRemaining != 0 {
+				return fmt.Errorf("%s unbounded action counter has remaining capacity", field)
+			}
+		} else if limit.ActionsUsed > limit.MaxActions ||
+			limit.ActionsRemaining != limit.MaxActions-limit.ActionsUsed {
+			return fmt.Errorf("%s action counters are inconsistent", field)
+		}
+		if limit.MaxQuantity == 0 {
+			if limit.QuantityRemaining != 0 {
+				return fmt.Errorf("%s unbounded quantity counter has remaining capacity", field)
+			}
+		} else if limit.QuantityUsed > limit.MaxQuantity ||
+			limit.QuantityRemaining != limit.MaxQuantity-limit.QuantityUsed {
+			return fmt.Errorf("%s quantity counters are inconsistent", field)
+		}
+	}
+	if decision.Result != Allow && len(decision.EffectiveLimits) != 0 {
+		return errors.New("only allow decisions may contain effective_limits")
+	}
+	if decision.Result == RequireConfirmation {
+		if decision.Confirmation == nil {
+			return errors.New("confirmation decision requires a challenge")
+		}
+		if err := validateConfirmationChallenge(*decision.Confirmation); err != nil {
+			return err
+		}
+		challenge := decision.Confirmation
+		if challenge.ControllerID != decision.ControllerID ||
+			challenge.ActorID != decision.ActorID ||
+			challenge.PrincipalID != decision.PrincipalID ||
+			challenge.EffectDigest != decision.EffectDigest ||
+			challenge.PolicyRevision != decision.PolicyRevision {
+			return errors.New("confirmation challenge does not match decision")
+		}
+	} else if decision.Confirmation != nil {
+		return errors.New("only require_confirmation decisions may contain a challenge")
+	}
+	return nil
+}
+
+func validateConfirmationChallenge(challenge ConfirmationChallenge) error {
+	identifiers := []struct{ field, value string }{
+		{field: "confirmation.challenge_id", value: challenge.ChallengeID},
+		{field: "confirmation.controller_id", value: challenge.ControllerID},
+		{field: "confirmation.actor_id", value: challenge.ActorID},
+		{field: "confirmation.principal_id", value: challenge.PrincipalID},
+	}
+	for _, identifier := range identifiers {
+		if err := validateID(identifier.field, identifier.value, false); err != nil {
+			return err
+		}
+	}
+	if !digestPattern.MatchString(challenge.EffectDigest) {
+		return errors.New("confirmation.effect_digest must be a lowercase SHA-256 digest")
+	}
+	if err := challenge.Epoch.Validate("confirmation.epoch"); err != nil {
+		return err
+	}
+	if err := challenge.ExpiresAt.Validate("confirmation.expires_at"); err != nil {
+		return err
+	}
+	if challenge.PolicyRevision == 0 || challenge.PolicyRevision > maxJSONSafeInteger {
+		return errors.New("confirmation.policy_revision is invalid")
+	}
+	if !challenge.SingleUse {
+		return errors.New("confirmation challenge must be single-use")
+	}
+	return nil
+}
+
+// CloneDecision returns a defensive copy suitable for transport or storage.
+func CloneDecision(decision Decision) Decision {
+	return cloneDecision(decision)
 }
 
 func validateConfig(config Config) error {

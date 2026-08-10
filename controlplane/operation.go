@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/policy"
 )
 
 const (
@@ -37,6 +38,7 @@ type operationState struct {
 	idempotency string
 	createdAt   int64
 	updatedAt   int64
+	children    []string
 }
 
 // SendActorMessage queues plain conversation without directly authorizing a
@@ -101,6 +103,11 @@ func (service *Service) SubmitActorUtterance(
 	if !authorityAllowsExternal(actor, principal.ID) {
 		return OperationView{}, ErrForbidden
 	}
+	if service.emergencyStops[actorControlKey{
+		hostID: input.HostID, worldID: input.WorldID, actorID: input.ActorID,
+	}].Active {
+		return OperationView{}, ErrForbidden
+	}
 	operationID, err := service.prepareOperationLocked()
 	if err != nil {
 		return OperationView{}, err
@@ -163,6 +170,11 @@ func (service *Service) ExecuteActorOffer(
 		return OperationView{}, err
 	}
 	if !authorityAllowsExternal(actor, principal.ID) {
+		return OperationView{}, ErrForbidden
+	}
+	if service.emergencyStops[actorControlKey{
+		hostID: input.HostID, worldID: input.WorldID, actorID: input.ActorID,
+	}].Active {
 		return OperationView{}, ErrForbidden
 	}
 	var selected *host.ActionOffer
@@ -277,6 +289,7 @@ func (service *Service) PollHost(
 			service.mu.Unlock()
 			return HostControlBatch{}, err
 		}
+		service.expireControllersLocked(service.now().UnixMilli())
 		service.pruneOperationsLocked(service.now().UnixMilli())
 		if err := service.persistOperationsLocked(); err != nil {
 			service.mu.Unlock()
@@ -349,6 +362,7 @@ func (service *Service) AcknowledgeHost(
 	} else {
 		operation.status = OperationRejected
 		operation.rejection = acknowledgement
+		service.finalizeOperationPolicyLocked(operation, false)
 	}
 	service.markOperationsDirtyLocked()
 	return service.persistOperationsLocked()
@@ -477,6 +491,10 @@ func (service *Service) ReportHostResult(
 	operation.output = append(json.RawMessage(nil), output...)
 	operation.status = expected
 	operation.updatedAt = service.now().UnixMilli()
+	service.finalizeOperationPolicyLocked(
+		operation,
+		outcome.Status == host.ActionSucceeded,
+	)
 	service.markOperationsDirtyLocked()
 	return service.persistOperationsLocked()
 }
@@ -617,6 +635,17 @@ func (service *Service) CancelOperation(
 	if operation.status == OperationQueued {
 		operation.status = OperationCancelled
 		operation.updatedAt = service.now().UnixMilli()
+		service.finalizeOperationPolicyLocked(operation, false)
+		service.markOperationsDirtyLocked()
+		if err := service.persistOperationsLocked(); err != nil {
+			return OperationView{}, err
+		}
+		return operationView(operation), nil
+	}
+	if operation.status == OperationAwaitingConfirmation {
+		operation.status = OperationCancelled
+		operation.updatedAt = service.now().UnixMilli()
+		service.finalizeOperationPolicyLocked(operation, false)
 		service.markOperationsDirtyLocked()
 		if err := service.persistOperationsLocked(); err != nil {
 			return OperationView{}, err
@@ -863,15 +892,17 @@ func (service *Service) expireHostOperationsLocked(hostID string, now int64) {
 			continue
 		}
 		if operation.ack != nil && operation.ack.Accepted {
-			if operation.run != nil && operation.status != OperationOutcomeUnknown {
+			if operation.status != OperationOutcomeUnknown {
 				operation.status = OperationOutcomeUnknown
 				operation.updatedAt = now
+				service.finalizeOperationPolicyLocked(operation, true)
 				changed = true
 			}
 		} else {
 			if operation.status != OperationStale {
 				operation.status = OperationStale
 				operation.updatedAt = now
+				service.finalizeOperationPolicyLocked(operation, false)
 				changed = true
 			}
 		}
@@ -891,8 +922,18 @@ func (service *Service) pruneOperationsLocked(now int64) {
 		if !completeOperation(operation) || operation.updatedAt > cutoff {
 			continue
 		}
+		if len(operation.children) != 0 {
+			continue
+		}
 		delete(service.operations, operationID)
 		delete(service.requests, operation.idempotency)
+		if parent := service.operations[operation.request.ParentOperationID]; parent != nil {
+			parent.children = slices.DeleteFunc(
+				parent.children,
+				func(childID string) bool { return childID == operationID },
+			)
+			parent.updatedAt = now
+		}
 		changed = true
 	}
 	if changed {
@@ -910,8 +951,10 @@ func (service *Service) expireOperationByTTLLocked(
 	}
 	if operation.ack != nil && operation.ack.Accepted {
 		operation.status = OperationOutcomeUnknown
+		service.finalizeOperationPolicyLocked(operation, true)
 	} else {
 		operation.status = OperationStale
+		service.finalizeOperationPolicyLocked(operation, false)
 	}
 	operation.updatedAt = now
 	return true
@@ -931,6 +974,9 @@ func operationView(operation *operationState) OperationView {
 		ActorID:               operation.request.ActorID,
 		Kind:                  operation.request.Kind,
 		TurnID:                operation.request.TurnID,
+		ControllerLeaseID:     controllerLeaseID(operation.request.Binding),
+		ParentOperationID:     operation.request.ParentOperationID,
+		ChildOperationIDs:     append([]string(nil), operation.children...),
 		Status:                operation.status,
 		Cursor:                operationCursor(operation),
 		Terminal:              settledOperation(operation),
@@ -943,6 +989,18 @@ func operationView(operation *operationState) OperationView {
 		RejectionMessage: operation.rejection.Message,
 		CreatedAt:        operation.createdAt,
 		UpdatedAt:        operation.updatedAt,
+	}
+	if operation.request.ActionRequest != nil {
+		cloned := cloneActionRequest(*operation.request.ActionRequest)
+		view.ActionRequest = &cloned
+	}
+	if operation.request.BoundAction != nil {
+		cloned := cloneBoundAction(*operation.request.BoundAction)
+		view.BoundAction = &cloned
+	}
+	if operation.request.PolicyDecision != nil {
+		cloned := policy.CloneDecision(*operation.request.PolicyDecision)
+		view.PolicyDecision = &cloned
 	}
 	if operation.run != nil {
 		cloned := cloneRun(*operation.run)
@@ -964,7 +1022,7 @@ func operationCursor(operation *operationState) string {
 		progressSequence = operation.run.ProgressSeq
 	}
 	return fmt.Sprintf(
-		"op1:%s:%d:%t:%d:%s:%d:%t",
+		"op2:%s:%d:%t:%d:%s:%d:%t:%d",
 		operation.status,
 		operation.attempts,
 		operation.cancel,
@@ -972,6 +1030,7 @@ func operationCursor(operation *operationState) string {
 		runStatus,
 		progressSequence,
 		operation.outcome != nil,
+		len(operation.children),
 	)
 }
 
@@ -1022,7 +1081,26 @@ func cloneControlRequest(value HostControlRequest) HostControlRequest {
 		invocation.Targets = append([]host.HostRef(nil), value.Invocation.Targets...)
 		cloned.Invocation = &invocation
 	}
+	if value.ActionRequest != nil {
+		action := cloneActionRequest(*value.ActionRequest)
+		cloned.ActionRequest = &action
+	}
+	if value.BoundAction != nil {
+		action := cloneBoundAction(*value.BoundAction)
+		cloned.BoundAction = &action
+	}
+	if value.PolicyDecision != nil {
+		decision := policy.CloneDecision(*value.PolicyDecision)
+		cloned.PolicyDecision = &decision
+	}
 	return cloned
+}
+
+func controllerLeaseID(binding *ControlBinding) string {
+	if binding == nil {
+		return ""
+	}
+	return binding.ControllerLeaseID
 }
 
 func cloneOffer(value host.ActionOffer) host.ActionOffer {

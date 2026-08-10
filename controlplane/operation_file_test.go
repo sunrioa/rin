@@ -128,6 +128,81 @@ func TestOperationFileRecoversUnknownWorkAndTerminalOutcome(t *testing.T) {
 	}
 }
 
+func TestOperationFilePersistsControllerLeaseAndEmergencyStop(t *testing.T) {
+	root := t.TempDir()
+	now := time.UnixMilli(1_000_000)
+	service, _ := openPublishedOperationService(t, root, &now, 0)
+	principal := operationPrincipal(ScopeActorRead, ScopeActorControl)
+	controller, err := service.AcquireController(
+		principal,
+		AcquireControllerInput{
+			ActorControlTarget: testActorControlTarget(),
+			ControllerID:       "controller.persisted.one",
+			LeaseTTLMillis:     5_000,
+		},
+	)
+	if err != nil {
+		t.Fatalf("AcquireController: %v", err)
+	}
+	stop, err := service.SetActorEmergencyStop(
+		principal,
+		testActorControlTarget(),
+		true,
+	)
+	if err != nil {
+		t.Fatalf("SetActorEmergencyStop: %v", err)
+	}
+	if err := service.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	recovered, err := OpenFile(root, fileTestOptions(&now, 64))
+	if err != nil {
+		t.Fatalf("OpenFile: %v", err)
+	}
+	registerAndPublishOperationHost(t, recovered, "instance.controller.recovered")
+	restored, err := recovered.GetController(principal, testActorControlTarget())
+	if err != nil || restored.LeaseID != controller.LeaseID {
+		t.Fatalf("restored controller = %#v, %v", restored, err)
+	}
+	actor, err := recovered.GetActor(
+		principal,
+		"test.host",
+		"world.one",
+		"actor.one",
+	)
+	if err != nil || !actor.EmergencyStopped ||
+		actor.EmergencyStopRevision != stop.Revision {
+		t.Fatalf("restored emergency stop = %#v, %v", actor, err)
+	}
+	now = now.Add(5_001 * time.Millisecond)
+	if err := recovered.Close(); err != nil {
+		t.Fatalf("Close recovered: %v", err)
+	}
+
+	expired, err := OpenFile(root, fileTestOptions(&now, 128))
+	if err != nil {
+		t.Fatalf("OpenFile expired: %v", err)
+	}
+	defer expired.Close()
+	registerAndPublishOperationHost(t, expired, "instance.controller.expired")
+	if _, err := expired.GetController(
+		principal,
+		testActorControlTarget(),
+	); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expired controller error = %v", err)
+	}
+	actor, err = expired.GetActor(
+		principal,
+		"test.host",
+		"world.one",
+		"actor.one",
+	)
+	if err != nil || !actor.EmergencyStopped {
+		t.Fatalf("persistent emergency stop = %#v, %v", actor, err)
+	}
+}
+
 func TestOperationFileRedeliversUnacknowledgedRequestWithStableID(t *testing.T) {
 	root := t.TempDir()
 	now := time.UnixMilli(1_000_000)
@@ -700,6 +775,26 @@ func TestOperationFileRejectsAmbiguousOrInsecureState(t *testing.T) {
 		Options{},
 	); !errors.Is(err, ErrPersistence) {
 		t.Fatalf("insecure OpenFile error = %v", err)
+	}
+}
+
+func TestOperationFileRejectsCyclicParentGraph(t *testing.T) {
+	operations := map[string]*operationState{
+		"operation.one": {
+			request: HostControlRequest{
+				OperationID:       "operation.one",
+				ParentOperationID: "operation.two",
+			},
+		},
+		"operation.two": {
+			request: HostControlRequest{
+				OperationID:       "operation.two",
+				ParentOperationID: "operation.one",
+			},
+		},
+	}
+	if err := validateOperationParentGraph(operations); err == nil {
+		t.Fatal("cyclic operation parent graph was accepted")
 	}
 }
 

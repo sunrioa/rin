@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/policy"
 )
 
 // Options contains deterministic seams used by tests and embedders.
@@ -22,14 +23,22 @@ type Options struct {
 	Random        io.Reader
 	MaxOperations int
 	OperationTTL  time.Duration
+	ActionHost    ActionHost
+	PolicyEngine  *policy.Engine
 }
 
 // Service owns host leases and principal-filtered read models.
 type Service struct {
-	mu     sync.RWMutex
-	now    func() time.Time
-	random io.Reader
-	hosts  map[string]*hostState
+	mu             sync.RWMutex
+	now            func() time.Time
+	random         io.Reader
+	hosts          map[string]*hostState
+	controllers    map[actorControlKey]ControllerLease
+	emergencyStops map[actorControlKey]ActorEmergencyStop
+	actionHost     ActionHost
+	policyEngine   *policy.Engine
+	actionFlights  map[string]*actionFlight
+	confirming     map[string]struct{}
 
 	maxOperations            int
 	operationTTL             time.Duration
@@ -70,14 +79,20 @@ func New(options Options) *Service {
 		operationTTL = defaultOperationTTL
 	}
 	return &Service{
-		now:           now,
-		random:        random,
-		hosts:         make(map[string]*hostState),
-		maxOperations: maxOperations,
-		operationTTL:  operationTTL,
-		operations:    make(map[string]*operationState),
-		requests:      make(map[string]string),
-		changed:       make(chan struct{}),
+		now:            now,
+		random:         random,
+		hosts:          make(map[string]*hostState),
+		maxOperations:  maxOperations,
+		operationTTL:   operationTTL,
+		operations:     make(map[string]*operationState),
+		requests:       make(map[string]string),
+		controllers:    make(map[actorControlKey]ControllerLease),
+		emergencyStops: make(map[actorControlKey]ActorEmergencyStop),
+		actionHost:     options.ActionHost,
+		policyEngine:   options.PolicyEngine,
+		actionFlights:  make(map[string]*actionFlight),
+		confirming:     make(map[string]struct{}),
+		changed:        make(chan struct{}),
 	}
 }
 
@@ -220,6 +235,11 @@ func (service *Service) PublishWorld(
 		publication.WorldID,
 		publication,
 	)
+	service.reconcileControllersLocked(
+		hostID,
+		publication.WorldID,
+		publication,
+	)
 	current.worlds[publication.WorldID] = clonePublication(publication)
 	service.notifyLocked()
 	return nil
@@ -279,7 +299,7 @@ func (service *Service) ListActors(
 	result := make([]ActorView, 0, len(world.Actors))
 	for _, actor := range world.Actors {
 		if canAccessActor(principal, actor, ScopeActorRead) {
-			result = append(result, actorView(
+			result = append(result, service.actorViewLocked(
 				hostID, worldID, current.lease, online, actor,
 			))
 		}
@@ -339,8 +359,7 @@ func (service *Service) WaitActor(
 		if err != nil {
 			return ActorUpdate{}, err
 		}
-		cursorChanged := view.ObservationSeq != input.AfterObservationSeq ||
-			view.Authority.Revision != input.AfterAuthorityRevision
+		cursorChanged := actorCursorChanged(view, input)
 		if cursorChanged || input.WaitMillis == 0 {
 			return ActorUpdate{Actor: view, Changed: cursorChanged}, nil
 		}
@@ -359,12 +378,22 @@ func (service *Service) WaitActor(
 			if err != nil {
 				return ActorUpdate{}, err
 			}
-			cursorChanged = view.ObservationSeq != input.AfterObservationSeq ||
-				view.Authority.Revision != input.AfterAuthorityRevision
+			cursorChanged = actorCursorChanged(view, input)
 			return ActorUpdate{Actor: view, Changed: cursorChanged}, nil
 		case <-changed:
 		}
 	}
+}
+
+func actorCursorChanged(view ActorView, input WaitActorInput) bool {
+	leaseID := ""
+	if view.Controller != nil {
+		leaseID = view.Controller.LeaseID
+	}
+	return view.ObservationSeq != input.AfterObservationSeq ||
+		view.Authority.Revision != input.AfterAuthorityRevision ||
+		leaseID != input.AfterControllerLeaseID ||
+		view.EmergencyStopRevision != input.AfterEmergencyStopRevision
 }
 
 func (service *Service) getActorLocked(
@@ -383,7 +412,7 @@ func (service *Service) getActorLocked(
 			return ActorView{}, ErrForbidden
 		}
 		online := current.lease.ExpiresAtUnixMillis > service.now().UnixMilli()
-		return actorView(hostID, worldID, current.lease, online, actor), nil
+		return service.actorViewLocked(hostID, worldID, current.lease, online, actor), nil
 	}
 	return ActorView{}, ErrNotFound
 }
@@ -493,24 +522,35 @@ func cloneOffers(values []host.ActionOffer) []host.ActionOffer {
 	return cloned
 }
 
-func actorView(
+func (service *Service) actorViewLocked(
 	hostID, worldID string,
 	lease HostLease,
 	online bool,
 	actor ActorPublication,
 ) ActorView {
+	key := actorControlKey{hostID: hostID, worldID: worldID, actorID: actor.ActorID}
+	var controller *ControllerLease
+	if current, exists := service.controllers[key]; exists &&
+		current.ExpiresAtUnixMillis > service.now().UnixMilli() {
+		cloned := current
+		controller = &cloned
+	}
+	stop := service.emergencyStops[key]
 	return ActorView{
-		HostID:               hostID,
-		WorldID:              worldID,
-		ActorID:              actor.ActorID,
-		OwnerPrincipalID:     actor.OwnerPrincipalID,
-		DisplayName:          actor.DisplayName,
-		ObservationSeq:       actor.ObservationSeq,
-		Epoch:                actor.Epoch,
-		Authority:            effectiveAuthority(actor),
-		State:                append(json.RawMessage(nil), actor.State...),
-		Online:               online,
-		LeaseExpiresAtMillis: lease.ExpiresAtUnixMillis,
+		HostID:                hostID,
+		WorldID:               worldID,
+		ActorID:               actor.ActorID,
+		OwnerPrincipalID:      actor.OwnerPrincipalID,
+		DisplayName:           actor.DisplayName,
+		ObservationSeq:        actor.ObservationSeq,
+		Epoch:                 actor.Epoch,
+		Authority:             effectiveAuthority(actor),
+		Controller:            controller,
+		EmergencyStopped:      stop.Active,
+		EmergencyStopRevision: stop.Revision,
+		State:                 append(json.RawMessage(nil), actor.State...),
+		Online:                online,
+		LeaseExpiresAtMillis:  lease.ExpiresAtUnixMillis,
 	}
 }
 
@@ -560,7 +600,12 @@ func (service *Service) fenceSupersededAuthorityLocked(
 			revision == operation.request.Binding.AuthorityRevision {
 			continue
 		}
-		operation.status = OperationStale
+		if operation.attempts == 0 {
+			operation.status = OperationStale
+			service.finalizeOperationPolicyLocked(operation, false)
+		} else {
+			operation.cancel = true
+		}
 		operation.updatedAt = now
 		changed = true
 	}

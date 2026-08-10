@@ -5,6 +5,8 @@ package policy
 
 import "github.com/sunrioa/rin/host"
 
+const StateVersion = "rin.policy.state/v1"
+
 // Result is the only possible policy outcome.
 type Result string
 
@@ -133,4 +135,28 @@ type Decision struct {
 	EffectiveLimits []EffectiveLimit       `json:"effective_limits,omitempty"`
 	Confirmation    *ConfirmationChallenge `json:"confirmation_challenge,omitempty"`
 	EvaluatedAt     host.Timepoint         `json:"evaluated_at"`
+}
+
+// UsageCheckpoint stores one opaque internal budget bucket. Bucket keys are
+// never accepted from a controller and are only written by Engine.
+type UsageCheckpoint struct {
+	Key      string `json:"key"`
+	Actions  uint64 `json:"actions"`
+	Quantity uint64 `json:"quantity"`
+}
+
+// ReservationCheckpoint preserves one not-yet-finalized decision reservation.
+type ReservationCheckpoint struct {
+	DecisionID string            `json:"decision_id"`
+	Deltas     []UsageCheckpoint `json:"deltas"`
+}
+
+// State is a bounded restart checkpoint for policy usage and reservations.
+// Confirmations and reusable authorization caches intentionally never survive.
+type State struct {
+	Version        string                  `json:"version"`
+	PolicyRevision uint64                  `json:"policy_revision"`
+	ConfigDigest   string                  `json:"config_digest"`
+	Usage          []UsageCheckpoint       `json:"usage,omitempty"`
+	Reservations   []ReservationCheckpoint `json:"reservations,omitempty"`
 }
