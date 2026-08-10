@@ -282,8 +282,48 @@ type HostControlDelivery struct {
 
 // HostControlBatch is returned by one bounded Host poll.
 type HostControlBatch struct {
-	Requests      []HostControlDelivery `json:"requests"`
-	Cancellations []string              `json:"cancellations"`
+	GatewayRequests []HostGatewayDelivery `json:"gateway_requests"`
+	Requests        []HostControlDelivery `json:"requests"`
+	Cancellations   []string              `json:"cancellations"`
+}
+
+// HostGatewayKind identifies one read-only, pre-execution request that must be
+// answered by the authoritative game adapter. These requests never mutate the
+// game world and never become Operations by themselves.
+type HostGatewayKind string
+
+const (
+	HostGatewayBind     HostGatewayKind = "bind"
+	HostGatewaySnapshot HostGatewayKind = "snapshot"
+)
+
+// HostGatewayRequest asks the connected Host to bind one controller request
+// or return a fresh authority-thread snapshot. GatewayRequestID is an opaque
+// delivery identifier and must be used for Host-side deduplication.
+type HostGatewayRequest struct {
+	GatewayRequestID string              `json:"gateway_request_id"`
+	Kind             HostGatewayKind     `json:"kind"`
+	Target           ActorControlTarget  `json:"target"`
+	ActionRequest    *host.ActionRequest `json:"action_request,omitempty"`
+	SubmittedAt      int64               `json:"submitted_at_unix_millis"`
+}
+
+// HostGatewayDelivery carries a stable request and its redelivery attempt.
+// A Host may receive the same GatewayRequestID more than once until it reports
+// a result and therefore must replay its cached result instead of rebinding.
+type HostGatewayDelivery struct {
+	Request         HostGatewayRequest `json:"request"`
+	DeliveryAttempt uint32             `json:"delivery_attempt"`
+}
+
+// HostGatewayResult completes one pre-execution request. Exactly one of
+// Binding, Snapshot, or ErrorCode is present according to the request kind.
+type HostGatewayResult struct {
+	GatewayRequestID string               `json:"gateway_request_id"`
+	Binding          *ActionBindingResult `json:"binding,omitempty"`
+	Snapshot         *ActionHostSnapshot  `json:"snapshot,omitempty"`
+	ErrorCode        string               `json:"error_code,omitempty"`
+	ErrorMessage     string               `json:"error_message,omitempty"`
 }
 
 // HostAcknowledgement records whether a delivered request was accepted.

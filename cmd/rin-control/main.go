@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -16,15 +18,19 @@ import (
 
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/internal/jsonwire"
+	"github.com/sunrioa/rin/policy"
 )
 
 const shutdownTimeout = 5 * time.Second
+const maxPolicyBytes int64 = 1 << 20
 
 type configuration struct {
 	address   string
 	dataDir   string
 	token     string
 	principal host.Principal
+	policy    string
 }
 
 func main() {
@@ -49,9 +55,13 @@ func run(
 	if err != nil {
 		return err
 	}
+	policyEngine, err := loadPolicyEngine(config.policy)
+	if err != nil {
+		return err
+	}
 	service, err := controlplane.OpenFile(
 		config.dataDir,
-		controlplane.Options{},
+		controlplane.Options{PolicyEngine: policyEngine},
 	)
 	if err != nil {
 		return err
@@ -143,6 +153,11 @@ func parseConfiguration(
 		envOr(lookupEnv, "RIN_CONTROL_SCOPES", controlplane.ScopeActorRead),
 		"comma-separated Control Plane scopes",
 	)
+	policyPath := flags.String(
+		"policy",
+		envOr(lookupEnv, "RIN_CONTROL_POLICY", ""),
+		"optional gameplay policy JSON file; the built-in default denies unknown effects",
+	)
 	if err := flags.Parse(arguments); err != nil {
 		return configuration{}, err
 	}
@@ -182,7 +197,56 @@ func parseConfiguration(
 		dataDir:   *dataDirectory,
 		token:     token,
 		principal: principal,
+		policy:    strings.TrimSpace(*policyPath),
 	}, nil
+}
+
+func loadPolicyEngine(path string) (*policy.Engine, error) {
+	config := policy.Config{
+		Revision:         1,
+		Profile:          policy.ProfileGuarded,
+		KnownEffectKinds: []string{},
+		KnownScopes:      []string{},
+		ConfirmationTTL: host.Duration{
+			Clock: host.ClockRealtime,
+			Value: 30_000,
+		},
+		ConfirmationScopes: []string{"rin.policy.confirm"},
+	}
+	if path != "" {
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, fmt.Errorf("open gameplay policy: %w", err)
+		}
+		payload, readErr := io.ReadAll(io.LimitReader(file, maxPolicyBytes+1))
+		closeErr := file.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("read gameplay policy: %w", readErr)
+		}
+		if closeErr != nil {
+			return nil, fmt.Errorf("close gameplay policy: %w", closeErr)
+		}
+		if int64(len(payload)) > maxPolicyBytes {
+			return nil, errors.New("gameplay policy exceeds 1 MiB")
+		}
+		if err := jsonwire.Validate(payload); err != nil {
+			return nil, fmt.Errorf("invalid gameplay policy JSON: %w", err)
+		}
+		decoder := json.NewDecoder(bytes.NewReader(payload))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&config); err != nil {
+			return nil, fmt.Errorf("decode gameplay policy: %w", err)
+		}
+		var trailing any
+		if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+			return nil, errors.New("gameplay policy must contain one JSON value")
+		}
+	}
+	engine, err := policy.New(config)
+	if err != nil {
+		return nil, fmt.Errorf("validate gameplay policy: %w", err)
+	}
+	return engine, nil
 }
 
 func parseScopes(value string) ([]string, error) {

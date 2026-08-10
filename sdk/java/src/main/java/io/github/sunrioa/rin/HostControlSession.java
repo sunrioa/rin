@@ -34,6 +34,10 @@ public final class HostControlSession {
             "succeeded", "failed", "cancelled", "interrupted", "stale",
             "outcome-unknown");
     private static final Set<String> TIMEPOINT_KEYS = Set.of("clock", "value");
+    private static final Set<String> GATEWAY_RESULT_REQUIRED_KEYS = Set.of(
+            "gateway_request_id");
+    private static final Set<String> GATEWAY_RESULT_ALLOWED_KEYS = Set.of(
+            "gateway_request_id", "binding", "snapshot", "error_code", "error_message");
 
     private final HostControlTransport transport;
     private final LongSupplier now;
@@ -162,6 +166,41 @@ public final class HostControlSession {
             request.put("output", copyObject(map));
         }
         transport.post("/control/v1/outcome", request);
+    }
+
+    /**
+     * Reports one authoritative bind or snapshot result returned from
+     * {@link #poll(int, int)} under {@code gateway_requests}. The Host must
+     * cache results by {@code gateway_request_id} so redelivery does not bind
+     * the same request twice.
+     */
+    public synchronized void reportGatewayResult(Map<String, ?> result)
+            throws IOException, InterruptedException {
+        ensureCurrentLease();
+        requireShape(result, GATEWAY_RESULT_REQUIRED_KEYS,
+                GATEWAY_RESULT_ALLOWED_KEYS, "gateway result");
+        identifier(inputText(result.get("gateway_request_id"),
+                "gateway_request_id"), "gatewayRequestId");
+        boolean hasBinding = result.containsKey("binding");
+        boolean hasSnapshot = result.containsKey("snapshot");
+        boolean hasError = result.containsKey("error_code");
+        if ((hasBinding ? 1 : 0) + (hasSnapshot ? 1 : 0) + (hasError ? 1 : 0) != 1) {
+            throw new IllegalArgumentException(
+                    "Host gateway result must contain exactly one result variant");
+        }
+        if (hasBinding) inputObject(result.get("binding"), "binding");
+        if (hasSnapshot) inputObject(result.get("snapshot"), "snapshot");
+        if (hasError) {
+            identifier(inputText(result.get("error_code"), "error_code"), "errorCode");
+            boundedText(inputText(result.get("error_message"), "error_message"),
+                    500, "errorMessage");
+        } else if (result.containsKey("error_message")) {
+            throw new IllegalArgumentException("Host gateway error_message requires error_code");
+        }
+        transport.post("/control/v1/gateway-result", mapOf(
+                "host_id", hostId(),
+                "lease_id", leaseId(),
+                "result", copyObject(result)));
     }
 
     public synchronized void unregister() throws IOException, InterruptedException {

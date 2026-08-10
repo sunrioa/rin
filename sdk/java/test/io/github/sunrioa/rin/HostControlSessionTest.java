@@ -23,7 +23,10 @@ final class HostControlSessionTest {
                         "expires_at_unix_millis", now[0] + 15_000L);
             }
             if (path.equals("/control/v1/poll")) {
-                return Map.of("requests", List.of(), "cancellations", List.of());
+                return Map.of(
+                        "gateway_requests", List.of(),
+                        "requests", List.of(),
+                        "cancellations", List.of());
             }
             return Map.of();
         };
@@ -61,9 +64,21 @@ final class HostControlSessionTest {
                 "world_seq", 2L,
                 "occurred_at", Map.of("clock", "step", "value", 3L),
                 "output", Map.of("effect_state", "applied")));
+        session.reportGatewayResult(Map.of(
+                "gateway_request_id", "gateway.fixture",
+                "snapshot", Map.of(
+                        "now", Map.of("clock", "step", "value", 3L),
+                        "epoch", Map.of(
+                                "session_id", "session.fixture",
+                                "world_id", "world.fixture",
+                                "host", 1L,
+                                "world", 1L,
+                                "timeline", 1L),
+                        "observation_sequence", 2L)));
         require(paths.containsAll(List.of(
                         "/control/v1/poll", "/control/v1/ack",
-                        "/control/v1/run", "/control/v1/outcome")),
+                        "/control/v1/run", "/control/v1/outcome",
+                        "/control/v1/gateway-result")),
                 "Host operation lifecycle was incomplete");
         Map<String, ?> outcomeRequest = bodies.get(paths.indexOf("/control/v1/outcome"));
         require(outcomeRequest.get("output") instanceof Map<?, ?>
@@ -83,6 +98,8 @@ final class HostControlSessionTest {
                 "epoch", Map.of(),
                 "world_seq", 3L,
                 "occurred_at", Map.of("clock", "step", "value", 3L))));
+        requireRejected(() -> session.reportGatewayResult(Map.of(
+                "gateway_request_id", "gateway.fixture")));
 
         now[0] += 11_000L;
         session.poll(8, 0);

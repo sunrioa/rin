@@ -2,9 +2,12 @@ package main
 
 import (
 	"io"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/sunrioa/rin/controlplane"
+	"github.com/sunrioa/rin/policy"
 )
 
 func TestParseConfigurationUsesBoundedReadPrincipal(t *testing.T) {
@@ -100,6 +103,52 @@ func TestValidateLoopbackAddress(t *testing.T) {
 		if err := validateLoopbackAddress(address); err != nil {
 			t.Fatalf("%s: %v", address, err)
 		}
+	}
+}
+
+func TestLoadPolicyEngineDefaultsToFailClosedCatalog(t *testing.T) {
+	engine, err := loadPolicyEngine("")
+	if err != nil {
+		t.Fatalf("loadPolicyEngine: %v", err)
+	}
+	config := engine.Config()
+	if config.Profile != policy.ProfileGuarded ||
+		len(config.KnownEffectKinds) != 0 || len(config.KnownScopes) != 0 {
+		t.Fatalf("default policy = %#v", config)
+	}
+}
+
+func TestLoadPolicyEngineUsesStrictConfiguredPolicy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "policy.json")
+	if err := os.WriteFile(path, []byte(`{
+  "revision": 7,
+  "profile": "open",
+  "known_effect_kinds": ["world.position"],
+  "known_scopes": ["world.public"],
+  "confirmation_ttl": {"clock": "step", "value": 20},
+  "confirmation_scopes": ["rin.policy.confirm"]
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	engine, err := loadPolicyEngine(path)
+	if err != nil {
+		t.Fatalf("loadPolicyEngine: %v", err)
+	}
+	if config := engine.Config(); config.Revision != 7 ||
+		config.Profile != policy.ProfileOpen {
+		t.Fatalf("configured policy = %#v", config)
+	}
+	if err := os.WriteFile(path, []byte(`{
+  "revision": 7,
+  "profile": "open",
+  "unknown": true,
+  "confirmation_ttl": {"clock": "step", "value": 20},
+  "confirmation_scopes": ["rin.policy.confirm"]
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadPolicyEngine(path); err == nil {
+		t.Fatal("policy with unknown field was accepted")
 	}
 }
 

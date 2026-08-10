@@ -71,6 +71,12 @@ type outcomeRequest struct {
 	Output  json.RawMessage    `json:"output,omitempty"`
 }
 
+type gatewayResultRequest struct {
+	HostID  string            `json:"host_id"`
+	LeaseID string            `json:"lease_id"`
+	Result  HostGatewayResult `json:"result"`
+}
+
 // ClientInfo describes the fixed identity exposed by one Control Daemon.
 type ClientInfo struct {
 	ContractVersion string         `json:"contract_version"`
@@ -149,6 +155,7 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 	mux.HandleFunc("POST /control/v1/ack", server.acknowledge)
 	mux.HandleFunc("POST /control/v1/run", server.reportRun)
 	mux.HandleFunc("POST /control/v1/outcome", server.reportOutcome)
+	mux.HandleFunc("POST /control/v1/gateway-result", server.reportGatewayResult)
 	if clientPrincipal != nil {
 		mux.HandleFunc("GET /control/v1/client/info", server.clientInfo)
 		mux.HandleFunc("POST /control/v1/client/worlds", server.clientWorlds)
@@ -305,8 +312,9 @@ func (server *hostHTTPHandler) poll(
 	)
 	if errors.Is(err, context.DeadlineExceeded) {
 		writeJSON(response, http.StatusOK, HostControlBatch{
-			Requests:      []HostControlDelivery{},
-			Cancellations: []string{},
+			GatewayRequests: []HostGatewayDelivery{},
+			Requests:        []HostControlDelivery{},
+			Cancellations:   []string{},
 		})
 		return
 	}
@@ -374,6 +382,26 @@ func (server *hostHTTPHandler) reportOutcome(
 		input.LeaseID,
 		input.Outcome,
 		input.Output,
+	); err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]string{"status": "recorded"})
+}
+
+func (server *hostHTTPHandler) reportGatewayResult(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input gatewayResultRequest
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := server.service.ReportHostGatewayResult(
+		input.HostID,
+		input.LeaseID,
+		input.Result,
 	); err != nil {
 		writeServiceError(response, err)
 		return

@@ -39,6 +39,7 @@ type Service struct {
 	policyEngine   *policy.Engine
 	actionFlights  map[string]*actionFlight
 	confirming     map[string]struct{}
+	hostGateway    map[string]*hostGatewayState
 
 	maxOperations            int
 	operationTTL             time.Duration
@@ -55,6 +56,17 @@ type hostState struct {
 	registration HostRegistration
 	lease        HostLease
 	worlds       map[string]WorldPublication
+}
+
+type hostGatewayState struct {
+	request  HostGatewayRequest
+	attempts uint32
+	result   chan hostGatewayResponse
+}
+
+type hostGatewayResponse struct {
+	result HostGatewayResult
+	err    error
 }
 
 // New creates an in-memory Control Plane service.
@@ -78,7 +90,7 @@ func New(options Options) *Service {
 	if operationTTL <= 0 {
 		operationTTL = defaultOperationTTL
 	}
-	return &Service{
+	service := &Service{
 		now:            now,
 		random:         random,
 		hosts:          make(map[string]*hostState),
@@ -92,8 +104,13 @@ func New(options Options) *Service {
 		policyEngine:   options.PolicyEngine,
 		actionFlights:  make(map[string]*actionFlight),
 		confirming:     make(map[string]struct{}),
+		hostGateway:    make(map[string]*hostGatewayState),
 		changed:        make(chan struct{}),
 	}
+	if service.actionHost == nil {
+		service.actionHost = &pollingActionHost{service: service}
+	}
+	return service
 }
 
 // Close flushes persistent operation state and releases the data-directory
@@ -106,6 +123,7 @@ func (service *Service) Close() error {
 	}
 	persistErr := service.flushOperationsLocked()
 	service.closed = true
+	service.failAllHostGatewayLocked(ErrClosed)
 	var closeErr error
 	if service.operationFile != nil {
 		closeErr = service.operationFile.close()
@@ -144,6 +162,7 @@ func (service *Service) RegisterHost(request HostRegistration) (HostLease, error
 			return current.lease, nil
 		}
 		service.expireHostOperationsLocked(request.HostID, now)
+		service.failHostGatewayLocked(request.HostID, ErrUnavailable)
 		if err := service.persistOperationsLocked(); err != nil {
 			return HostLease{}, err
 		}
@@ -199,6 +218,7 @@ func (service *Service) UnregisterHost(hostID, leaseID string) error {
 		hostID,
 		current.lease.ExpiresAtUnixMillis,
 	)
+	service.failHostGatewayLocked(hostID, ErrUnavailable)
 	service.notifyLocked()
 	return service.persistOperationsLocked()
 }

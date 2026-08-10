@@ -3,6 +3,7 @@ package controlplane
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -311,6 +312,64 @@ func TestHTTPHandlerReturnsStableNotFoundCodeForMissingOutcome(t *testing.T) {
 	}
 	if remote.Code != "not_found" || remote.Error == "" {
 		t.Fatalf("missing outcome error = %#v", remote)
+	}
+}
+
+func TestHTTPHandlerDeliversAndRecordsHostGatewayResult(t *testing.T) {
+	service, lease, _ := operationTestService(t, Options{})
+	handler, err := NewHTTPHandler(service, HTTPOptions{Token: testControlToken})
+	if err != nil {
+		t.Fatalf("NewHTTPHandler: %v", err)
+	}
+	state, err := service.enqueueHostGateway(HostGatewayRequest{
+		Kind:   HostGatewaySnapshot,
+		Target: testActorControlTarget(),
+	})
+	if err != nil {
+		t.Fatalf("enqueueHostGateway: %v", err)
+	}
+	response := requestJSON(t, handler, "/control/v1/poll", pollRequest{
+		HostID:     "test.host",
+		LeaseID:    lease.LeaseID,
+		Limit:      1,
+		WaitMillis: 0,
+	})
+	if response.Code != http.StatusOK {
+		t.Fatalf("poll status = %d, body = %s", response.Code, response.Body)
+	}
+	var batch HostControlBatch
+	if err := json.Unmarshal(response.Body.Bytes(), &batch); err != nil {
+		t.Fatalf("decode poll: %v", err)
+	}
+	if len(batch.GatewayRequests) != 1 ||
+		batch.GatewayRequests[0].Request.GatewayRequestID !=
+			state.request.GatewayRequestID {
+		t.Fatalf("gateway batch = %#v", batch)
+	}
+	response = requestJSON(
+		t,
+		handler,
+		"/control/v1/gateway-result",
+		gatewayResultRequest{
+			HostID:  "test.host",
+			LeaseID: lease.LeaseID,
+			Result: HostGatewayResult{
+				GatewayRequestID: state.request.GatewayRequestID,
+				ErrorCode:        "unavailable",
+				ErrorMessage:     "The authority thread is stopping.",
+			},
+		},
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("gateway result status = %d, body = %s", response.Code, response.Body)
+	}
+	select {
+	case result := <-state.result:
+		if !errors.Is(result.err, ErrUnavailable) {
+			t.Fatalf("gateway result error = %v", result.err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("gateway result did not reach waiting ActionHost")
 	}
 }
 

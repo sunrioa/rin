@@ -296,7 +296,8 @@ func (service *Service) PollHost(
 			return HostControlBatch{}, err
 		}
 		batch := service.collectHostWorkLocked(hostID, limit)
-		if len(batch.Requests) != 0 || len(batch.Cancellations) != 0 {
+		if len(batch.GatewayRequests) != 0 || len(batch.Requests) != 0 ||
+			len(batch.Cancellations) != 0 {
 			if err := service.persistOperationsLocked(); err != nil {
 				service.mu.Unlock()
 				return HostControlBatch{}, err
@@ -796,8 +797,9 @@ func (service *Service) collectHostWorkLocked(
 	})
 
 	batch := HostControlBatch{
-		Requests:      make([]HostControlDelivery, 0),
-		Cancellations: make([]string, 0),
+		GatewayRequests: make([]HostGatewayDelivery, 0),
+		Requests:        make([]HostControlDelivery, 0),
+		Cancellations:   make([]string, 0),
 	}
 	now := service.now().UnixMilli()
 	deliveryChanged := false
@@ -812,8 +814,13 @@ func (service *Service) collectHostWorkLocked(
 			)
 		}
 	}
+	batch.GatewayRequests = service.collectHostGatewayWorkLocked(
+		hostID,
+		limit-len(batch.Cancellations),
+	)
 	for _, operation := range operations {
-		if len(batch.Requests)+len(batch.Cancellations) >= limit {
+		if len(batch.GatewayRequests)+len(batch.Requests)+
+			len(batch.Cancellations) >= limit {
 			break
 		}
 		if operation.cancel {
