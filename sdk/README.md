@@ -12,6 +12,12 @@ The type-checked Go reference under [`hostkit`](hostkit) defines the common
 Host ports and restartable Coordinator. Its ownership and lifecycle contract
 is documented in the [Universal Host SDK guide](../docs/host-sdk.md).
 
+HostKit also provides the V2 `Adapter` and `AdapterCoordinator`: game code
+supplies trusted observation, binding, effect preview, execution, cancellation,
+and verification while Rin retains policy and Operation authority. The reusable
+contract suite lives under [`hostkit/conformance`](hostkit/conformance), with a
+working neutral implementation in [`examples/adapters/grid`](../examples/adapters/grid).
+
 SDK workflow helpers validate the integration's declared
 [host durability profile](../docs/host-durability.md). A client library
 cannot manufacture durability or a world transaction that the game does not

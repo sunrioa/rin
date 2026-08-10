@@ -11,6 +11,15 @@ Use the installable Node.js 18+ [`terminal-story`](terminal-story/) for the
 Windows/macOS/Linux playable vertical slice, safe JavaScript SDK workflow,
 reproducible Sidecar benchmark, and honest persistent-rule-tree comparison.
 
+[`adapters/grid`](adapters/grid/) is the engine-neutral V2 reference Adapter.
+Its tests drive observation, binding, effect policy, resource collection,
+container transfer, cancellation, restart rejection, and authoritative
+outcomes through the same HostKit and Control Plane used by real games:
+
+```sh
+go test ./examples/adapters/grid
+```
+
 The engine and mod directories demonstrate host-specific threading and
 packaging. They persist stable workflow recovery state, but remain
 `advisory`: a real integration must connect effect application and operation

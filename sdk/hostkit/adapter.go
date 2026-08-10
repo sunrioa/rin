@@ -229,6 +229,13 @@ func (coordinator *AdapterCoordinator) BindAction(
 			if err := validateAdapterSnapshot(snapshot, adapterTarget); err != nil {
 				return err
 			}
+			if err := coordinator.registry.ValidateRequest(
+				request,
+				snapshot.Epoch,
+				snapshot.ObservationSeq,
+			); err != nil {
+				return err
+			}
 			binding, bindErr := coordinator.adapter.Bind(
 				authorityContext,
 				adapterTarget,

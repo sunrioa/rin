@@ -10,6 +10,11 @@
 [`hostkit`](hostkit) 下的类型化 Go 参考实现定义通用 Host 端口与可重启
 Coordinator；所有权和生命周期契约见[通用 Host SDK 指南](../docs/host-sdk.zh-CN.md)。
 
+HostKit 同时提供 V2 `Adapter` 与 `AdapterCoordinator`：游戏代码负责可信观察、
+绑定、Effect Preview、执行、取消和验证，Rin 继续掌握 Policy 与 Operation 权威。
+可复用契约套件位于 [`hostkit/conformance`](hostkit/conformance)，可运行的中立实现
+位于 [`examples/adapters/grid`](../examples/adapters/grid)。
+
 SDK Workflow Helper 会校验接入声明的
 [宿主持久 Profile](../docs/host-durability.zh-CN.md)。客户端库不能凭空
 创造游戏没有提供的持久性或世界事务。

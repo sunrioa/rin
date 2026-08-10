@@ -126,6 +126,32 @@ func TestAdapterCoordinatorRejectsInvalidAdapterResult(t *testing.T) {
 	}
 }
 
+func TestAdapterCoordinatorValidatesRequestBeforeAdapterBinding(t *testing.T) {
+	adapter := newAdapterFixture(t)
+	coordinator, err := NewAdapterCoordinator(
+		context.Background(), adapter, &adapterDispatcher{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := adapterRequest(
+		coordinator.Capabilities().Specs[0],
+		adapter.snapshot,
+		"request.adapter.invalid",
+		"action.adapter.invalid",
+	)
+	request.Arguments = json.RawMessage(`{"steps":99}`)
+	if _, err := coordinator.BindAction(
+		context.Background(), adapterControlTarget(), request,
+	); err == nil {
+		t.Fatal("invalid request reached adapter binding")
+	}
+	if adapter.bindCalls != 0 || adapter.previewCalls != 0 {
+		t.Fatalf("invalid request calls = bind %d, preview %d",
+			adapter.bindCalls, adapter.previewCalls)
+	}
+}
+
 func TestAdapterCoordinatorObservesAndNormalizesPolicyFacts(t *testing.T) {
 	adapter := newAdapterFixture(t)
 	coordinator, err := NewAdapterCoordinator(

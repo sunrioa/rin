@@ -10,6 +10,14 @@ Test，不是生产存档架构。
 Windows/macOS/Linux 的可玩纵向切片，包含安全 JavaScript SDK 工作流、可复现
 Sidecar 基准，以及不回避结果的持久化规则树对照。
 
+[`adapters/grid`](adapters/grid/) 是不依赖游戏引擎的 V2 参考 Adapter。测试会通过
+真实 HostKit 与 Control Plane 走通观察、绑定、Effect Policy、资源采集、容器转移、
+取消、重启拒绝和权威 Outcome：
+
+```sh
+go test ./examples/adapters/grid
+```
+
 各引擎与 Mod 目录演示宿主特有的线程和打包方式，并已持久化稳定的 Workflow
 恢复状态，但仍属于 `advisory`。真实接入必须把效果 Apply 与 Operation Marker
 连接到游戏自己的权威存档或幂等边界；声明生产稳定前应执行
