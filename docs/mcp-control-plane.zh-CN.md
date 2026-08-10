@@ -170,49 +170,51 @@ Principal 和 Scope 只由 `rin-control` 启动配置决定，不能由 MCP Tool
 
 ## Tool
 
-`actor.read` 注册五个只读 Tool：
+`actor.read` 注册以下只读 Tool：
 
 | Tool | 作用 |
 | --- | --- |
 | `list_worlds` | 列出当前 Principal 可见的世界 |
 | `list_actors` | 列出一个世界中可见的 Actor |
-| `get_actor_state` | 读取 Host 已脱敏发布的 Actor 状态 |
-| `wait_actor_update` | 按观察序号与控制权修订号长轮询，最长等待 25 秒 |
-| `list_actor_offers` | 读取在线 Host 当前发布的精确 Offer |
+| `get_actor_state` | 读取 Host 已脱敏发布的 Actor 摘要、控制权和急停状态 |
+| `wait_actor_update` | 按观察、控制权和急停游标长轮询，最长等待 25 秒 |
+| `observe_actor` | 读取 Host 发布的完整 V2 Observation 与不透明对象引用 |
+| `list_actor_capabilities` | 列出 Actor 当前可发现的强类型能力摘要 |
+| `describe_actor_capability` | 读取指定能力的输入、输出和效果 Schema |
 
-按 daemon Scope 还可注册：
+所有已授权的 MCP Client 还可以查询 `get_operation` 和 `wait_operation`。其余 Tool
+按 daemon Scope 注册：
 
 | Tool | 最低 Scope | 作用 |
 | --- | --- | --- |
-| `send_actor_message` | `actor.converse` | 发送对白，不直接授权世界修改 |
-| `send_actor_directive` | `actor.direct` | 提交 Actor 或 Host 可以拒绝的目标 |
-| `speak_as_actor` | `actor.speak` | 由当前绑定的外部控制器提交角色对白 |
-| `execute_actor_offer` | `actor.execute` | 选择一个完整、精确的当前 Offer |
-| `get_operation` | 任一控制 Scope | 查询投递、运行和 Outcome |
-| `wait_operation` | 任一控制 Scope | 按不透明 Cursor 等待 Operation 变化或可报告终态，最长 25 秒 |
+| `acquire_actor_control` | `actor.control` | 获取唯一、绑定 Epoch 的语义控制租约 |
+| `renew_actor_control` | `actor.control` | 续租同一个控制器 |
+| `release_actor_control` | `actor.control` | 释放控制器并隔离未完成工作 |
+| `get_actor_control` | `actor.control` | 读取当前有效控制器 |
+| `confirm_action` | `actor.control` | 确认一次高风险策略挑战并使用最新 Host 快照复验 |
+| `set_actor_emergency_stop` | `actor.control` | 由角色所有者或 Host 管理员设置、解除急停 |
+| `submit_actor_action` | `actor.execute` | 提交一个严格符合 Host Capability Schema 的动作请求 |
 | `cancel_operation` | `operation.cancel` | 请求取消，不表示回滚 |
 
-例如需要对话和精确动作时：
+例如允许外部 Agent 观察、控制并执行 Host 已注册能力：
 
 ```bash
-export RIN_CONTROL_SCOPES="actor.read,actor.speak,actor.execute,operation.cancel"
+export RIN_CONTROL_SCOPES="actor.read,actor.control,actor.execute,operation.cancel"
 ```
 
-修改 Scope 后重启 `rin-control`。外部角色循环通常先读取一次
-`get_actor_state`，再以返回的 `observation_seq` 和 `decision_authority.revision`
-调用 `wait_actor_update`；状态变化后可在同一个 `turn_id` 中调用
-`speak_as_actor`，并按需选择一条 `execute_actor_offer`。两个 Operation 的安全视图
-都会回显 `turn_id`，便于结果关联。
+修改 Scope 后重启 `rin-control`。标准循环为：
 
-`execute_actor_offer` 不接受任意动作参数、坐标、物品 ID 或方法名。Operation 保存
-Host 发布的完整 Offer 及其 Epoch、Observation 和 Authority Revision Binding；
-游戏在权威线程执行前仍要复验 Offer、Deadline、权限和当前世界状态。
+1. 用 `get_actor_state`、`observe_actor` 读取当前 Epoch 与观察序号。
+2. 用 `list_actor_capabilities`、`describe_actor_capability` 发现强类型能力。
+3. 用 `acquire_actor_control` 获取短期独占控制租约，并在持续控制时定期续租。
+4. 用精确的能力版本、Digest、观察游标和 HostRef 调用 `submit_actor_action`。
+5. 若策略要求确认，调用 `confirm_action`；随后用 `wait_operation` 等待权威结果。
 
-连续任务的 Offer 可以带可选 `planning`：计划意图、计划 ID、步骤/修订号、前置条件、
-后置条件、阻塞原因和风险。它只帮助 Agent 判断“为何可执行、正在做什么、为何暂停”；
-Agent 不能修改这些字段，也不能借此提交计划节点或世界参数。任务启动后应从
-`get_actor_state`/`wait_actor_update` 读取 Host 发布的活动计划状态，不能把
-`execute_actor_offer` 的 `started` 误报为整项任务完成。
+MCP 不能提交 Principal、Scope、效果预览、风险等级或策略结论。参数只表达意图；Host
+在权威线程解析不透明引用、规范化参数并绑定真实效果，Rin 再按效果策略批准、拒绝或
+要求确认。对白、采集、导航和建造在协议层没有特权，均由具体游戏以 Capability 注册。
+复合任务可以创建带 `parent_operation_id` 的可审计子 Operation，但计划不能绕过相同
+的绑定、策略和最终授权。
 
 所有写 Tool 的直接返回只表示 Rin 已接收或排队，不能证明游戏已经执行。调用方必须
 把返回的 `cursor` 原样交给 `wait_operation`，或继续调用 `get_operation`：
@@ -238,9 +240,9 @@ Host 主动报告且带 Outcome 的 `outcome-unknown` 则是稳定的不确定�
 
 Host 可以为 Actor 发布 `decision_authority`：
 
-- `source=internal` 时，外部 Client 只能观察，不能代角色说话或选择 Offer；
+- `source=internal` 时，普通外部 Client 只能观察；只有 Host 管理员能取得内部控制租约；
 - `source=external` 时，只有 `controller_principal_id` 精确匹配 daemon Principal
-  的 Client 可以控制该 Actor，`host.admin` 也不能绕过这一绑定；
+  的 Client 可以取得普通控制租约；
 - `persona_mode=character-bound` 要求外部 Agent 扮演 Host 定义的角色；
 - `persona_mode=agent-avatar` 允许外部 Agent 使用自己的性格与私有记忆来表现角色；
 - 每次转交都会单调增加 `revision`。尚未被 Host 接受的旧修订 Operation 会失效，
@@ -254,11 +256,11 @@ Host 可以为 Actor 发布 `decision_authority`：
 游戏 Host 使用相同的 `RIN_CONTROL_URL` 和 Token：
 
 1. `register` 获取 Lease。
-2. `publish` 原子发布 World、Actor 与当前 Offer。
-3. `poll` 长轮询领取消息、Directive、精确 Offer 和取消请求。
-4. `ack` 表示接受或拒绝稳定 Operation ID。
-5. 可选 `run` 上报单调进度。
-6. `outcome` 上报唯一权威终态与最多 64 KiB 的严格 JSON `output`。
+2. `publish` 原子发布 World、Actor、完整 Observation 与 Capability Snapshot。
+3. `poll` 长轮询领取动作绑定/快照请求、已授权 Operation 和取消请求。
+4. `gateway-result` 返回 Host 生成的 BoundAction 或最新权威快照。
+5. Host 在权威线程再次校验 BoundAction 后用 `ack` 接受或拒绝稳定 Operation ID。
+6. 可选 `run` 上报单调进度，`outcome` 上报唯一权威终态与严格 JSON `output`。
 7. 周期性 `renew`，退出时 `unregister`。
 
 Host 必须在游戏所属线程完成最终授权和世界修改。MCP、内部 AI 或游戏命令都应调用
@@ -269,20 +271,20 @@ Control 契约由
 
 | Method 与路径 | 作用 |
 | --- | --- |
-| `GET /control/v1/health` | 无鉴权存活检查 |
-| `POST /control/v1/register` | 注册 Host 并取得 Lease |
-| `POST /control/v1/renew` | 续租 |
-| `POST /control/v1/unregister` | 主动离线 |
-| `POST /control/v1/publish` | 发布一个 World Read Model |
-| `POST /control/v1/poll` | 领取工作和取消通知 |
-| `POST /control/v1/ack` | 接受或拒绝投递 |
-| `POST /control/v1/run` | 上报运行进度 |
-| `POST /control/v1/outcome` | 上报权威终态和结构化输出 |
+| `GET /control/v2/health` | 无鉴权存活检查 |
+| `POST /control/v2/host/register` | 注册 Host 并取得 Lease |
+| `POST /control/v2/host/renew` | 续租 |
+| `POST /control/v2/host/unregister` | 主动离线 |
+| `POST /control/v2/host/publish` | 发布一个 World Read Model |
+| `POST /control/v2/host/poll` | 领取网关请求、Operation 和取消通知 |
+| `POST /control/v2/host/gateway-result` | 返回动作绑定或权威快照 |
+| `POST /control/v2/host/ack` | 接受或拒绝投递 |
+| `POST /control/v2/host/run` | 上报运行进度 |
+| `POST /control/v2/host/outcome` | 上报权威终态和结构化输出 |
 
-Client 路径 `POST /control/v1/client/wait-operation` 提供相同的有界长轮询语义。
-
-`/control/v1/client/*` 路由供 `rin-mcp` 的类型化 HTTP Client 使用。Client 请求体
-不携带 Principal；daemon 始终注入启动时固定的 Principal，避免身份伪造。
+`/control/v2/*` Client 路由供 `rin-mcp` 和语言 SDK 使用，覆盖发现、控制租约、动作、
+Operation 与急停。Client 请求体不携带 Principal；daemon 始终注入启动时固定的
+Principal，避免身份伪造。迁移期仍保留部分 `/control/v1` 路由，但新接入不得依赖。
 
 错误响应始终包含供人阅读的 `error`，并可包含稳定的机器可读 `code`。当前服务码为
 `invalid`、`forbidden`、`not_found`、`lease_expired`、`unavailable`、

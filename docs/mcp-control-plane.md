@@ -188,53 +188,59 @@ reserved for MCP wire traffic; diagnostics go to standard error.
 
 ## Tools
 
-`actor.read` registers five read-only tools:
+`actor.read` registers these read-only tools:
 
 | Tool | Purpose |
 | --- | --- |
 | `list_worlds` | List worlds visible to the fixed Principal |
 | `list_actors` | List visible Actors in one world |
-| `get_actor_state` | Read the Host's redacted Actor publication |
-| `wait_actor_update` | Long-poll by observation and authority revision for up to 25 seconds |
-| `list_actor_offers` | Read exact Offers from an online Host |
+| `get_actor_state` | Read the Host's redacted Actor, controller, and emergency-stop summary |
+| `wait_actor_update` | Long-poll observation, authority, controller, and stop cursors for up to 25 seconds |
+| `observe_actor` | Read the complete Host-authored V2 Observation and opaque references |
+| `list_actor_capabilities` | List compact summaries of currently published typed capabilities |
+| `describe_actor_capability` | Read one capability's input, output, and effect schemas |
 
-Daemon scopes may also register:
+Every authorized MCP client can also use `get_operation` and `wait_operation`.
+Daemon scopes register the remaining tools:
 
 | Tool | Minimum scope | Purpose |
 | --- | --- | --- |
-| `send_actor_message` | `actor.converse` | Send dialogue without authorizing a world mutation |
-| `send_actor_directive` | `actor.direct` | Submit a goal the Actor or Host may reject |
-| `speak_as_actor` | `actor.speak` | Submit Actor dialogue as the bound external controller |
-| `execute_actor_offer` | `actor.execute` | Select one complete current Offer |
-| `get_operation` | any control scope | Inspect delivery, run, and Outcome state |
-| `wait_operation` | any control scope | Wait by opaque cursor for a change or reportable terminal state, up to 25 seconds |
+| `acquire_actor_control` | `actor.control` | Acquire the sole epoch-bound deliberative controller lease |
+| `renew_actor_control` | `actor.control` | Renew the same controller lease |
+| `release_actor_control` | `actor.control` | Release control and fence unfinished work |
+| `get_actor_control` | `actor.control` | Read the current live controller |
+| `confirm_action` | `actor.control` | Confirm one policy challenge after a fresh Host snapshot check |
+| `set_actor_emergency_stop` | `actor.control` | Let the Actor owner or Host administrator change the safety latch |
+| `submit_actor_action` | `actor.execute` | Submit arguments matching an exact Host capability schema |
 | `cancel_operation` | `operation.cancel` | Request cancellation; this is not rollback |
 
-For conversation and exact actions, for example:
+For an external Agent that may observe, control, and execute registered Host
+capabilities:
 
 ```bash
-export RIN_CONTROL_SCOPES="actor.read,actor.speak,actor.execute,operation.cancel"
+export RIN_CONTROL_SCOPES="actor.read,actor.control,actor.execute,operation.cancel"
 ```
 
-Restart `rin-control` after changing scopes. An external character loop normally
-reads `get_actor_state` once, then calls `wait_actor_update` with the returned
-`observation_seq` and `decision_authority.revision`. After a change it may call
-`speak_as_actor` and, when appropriate, `execute_actor_offer` with the same
-`turn_id`. Both principal-safe Operation views echo that ID for correlation.
+Restart `rin-control` after changing scopes. The standard loop is:
 
-`execute_actor_offer` does not accept arbitrary action parameters, coordinates,
-item IDs, or method names. The Operation retains the complete Host Offer and its
-Epoch, Observation, and Authority Revision bindings. The game still revalidates
-the Offer, deadline, permissions, and current world state on its authoritative
-thread.
+1. Read the current Epoch and observation sequence through `get_actor_state` and
+   `observe_actor`.
+2. Discover exact typed actions with `list_actor_capabilities` and
+   `describe_actor_capability`.
+3. Acquire a short exclusive lease through `acquire_actor_control`, renewing it
+   while continuous control is required.
+4. Call `submit_actor_action` with the exact capability version, digest,
+   observation cursor, and opaque Host references.
+5. Call `confirm_action` only when policy requires it, then use
+   `wait_operation` for the authoritative result.
 
-An offer that starts or advances continuous work may include optional
-`planning` metadata: intent, plan ID, step and revision, preconditions,
-postconditions, a blocked reason, and risk. This helps an agent understand why
-work is available or paused. It cannot edit those fields or submit plan nodes
-or world parameters. After an offer reports `started`, clients inspect the
-Host-published active-plan state through `get_actor_state` or
-`wait_actor_update`; `started` does not mean the whole task completed.
+MCP cannot submit a Principal, scope, effect preview, risk level, or policy
+decision. Its arguments express intent. The Host resolves opaque references,
+normalizes arguments, and binds real effects on the authority thread before Rin
+policy allows, denies, or requests confirmation. Dialogue, gathering,
+navigation, and building are all ordinary game-registered capabilities. A
+macro may create auditable children with `parent_operation_id`, but planning
+never bypasses binding, policy, or final authorization.
 
 The direct result of every write tool means only that Rin accepted or queued the
 request. It is not evidence that the game executed it. Callers copy `cursor`
@@ -265,11 +271,10 @@ retention period, then becomes eligible for pruning. A Host-reported
 
 A Host may publish `decision_authority` for an Actor:
 
-- With `source=internal`, external clients may observe but cannot speak as the
-  Actor or select its Offers.
+- With `source=internal`, ordinary external clients may only observe. A Host
+  administrator is the only external Principal allowed to acquire that lease.
 - With `source=external`, only a daemon Principal exactly matching
-  `controller_principal_id` may control the Actor. `host.admin` cannot bypass
-  this binding.
+  `controller_principal_id` may acquire the ordinary controller lease.
 - `persona_mode=character-bound` asks the external agent to portray the
   Host-defined character.
 - `persona_mode=agent-avatar` lets the external agent use its own personality
@@ -286,12 +291,16 @@ frame-by-frame movement nor copies either controller's private memory.
 The game Host uses the same `RIN_CONTROL_URL` and token:
 
 1. `register` obtains a Lease.
-2. `publish` atomically replaces the World, Actor, and current Offer read model.
-3. `poll` long-polls for messages, directives, exact offers, and cancellation.
-4. `ack` accepts or rejects a stable Operation ID.
-5. Optional `run` calls report monotonic progress.
-6. `outcome` reports one authoritative terminal result and up to 64 KiB of strict
-   JSON `output`.
+2. `publish` atomically replaces the World, Actor, complete Observation, and
+   Capability Snapshot.
+3. `poll` long-polls for binding/snapshot gateway requests, authorized
+   Operations, and cancellation.
+4. `gateway-result` returns a Host-created BoundAction or fresh authority
+   snapshot.
+5. The Host revalidates the BoundAction on its authority thread, then uses
+   `ack` to accept or reject the stable Operation ID.
+6. Optional `run` calls report monotonic progress; `outcome` reports the sole
+   authoritative terminal result and strict JSON output.
 7. The Host periodically calls `renew` and calls `unregister` on shutdown.
 
 Final authorization and every world mutation must run on the game-owned thread.
@@ -303,22 +312,22 @@ The Control contract is
 
 | Method and path | Purpose |
 | --- | --- |
-| `GET /control/v1/health` | Unauthenticated liveness check |
-| `POST /control/v1/register` | Register a Host and acquire a Lease |
-| `POST /control/v1/renew` | Renew the Lease |
-| `POST /control/v1/unregister` | Go offline explicitly |
-| `POST /control/v1/publish` | Publish one World read model |
-| `POST /control/v1/poll` | Receive work and cancellation |
-| `POST /control/v1/ack` | Accept or reject a delivery |
-| `POST /control/v1/run` | Report action progress |
-| `POST /control/v1/outcome` | Report the authoritative result and output |
+| `GET /control/v2/health` | Unauthenticated liveness check |
+| `POST /control/v2/host/register` | Register a Host and acquire a Lease |
+| `POST /control/v2/host/renew` | Renew the Lease |
+| `POST /control/v2/host/unregister` | Go offline explicitly |
+| `POST /control/v2/host/publish` | Publish one World read model |
+| `POST /control/v2/host/poll` | Receive gateway requests, Operations, and cancellation |
+| `POST /control/v2/host/gateway-result` | Return an action binding or authority snapshot |
+| `POST /control/v2/host/ack` | Accept or reject a delivery |
+| `POST /control/v2/host/run` | Report action progress |
+| `POST /control/v2/host/outcome` | Report the authoritative result and output |
 
-The client route `POST /control/v1/client/wait-operation` exposes the same
-bounded long-poll semantics.
-
-`/control/v1/client/*` routes are used by the typed `rin-mcp` HTTP client. Client
+The `/control/v2/*` client routes used by `rin-mcp` and language SDKs cover
+discovery, controller leases, actions, Operations, and emergency stop. Client
 request bodies never carry a Principal; the daemon always injects its fixed
-startup Principal to prevent identity spoofing.
+startup Principal to prevent identity spoofing. Some `/control/v1` routes remain
+during migration, but new integrations must not depend on them.
 
 Error responses always contain a human-readable `error` and may include a stable
 machine-readable `code`. Current service codes are `invalid`, `forbidden`,
