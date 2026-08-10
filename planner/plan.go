@@ -55,10 +55,16 @@ type Plan struct {
 
 type State struct {
 	Completed      map[string]bool   `json:"completed,omitempty"`
+	Skipped        map[string]bool   `json:"skipped,omitempty"`
+	Failed         map[string]bool   `json:"failed,omitempty"`
 	Attempts       map[string]uint32 `json:"attempts,omitempty"`
 	Loops          map[string]uint32 `json:"loops,omitempty"`
+	Branches       map[string]string `json:"branches,omitempty"`
+	ActiveLoops    map[string]bool   `json:"active_loops,omitempty"`
 	Steps          uint32            `json:"steps,omitempty"`
 	WorldMutations uint32            `json:"world_mutations,omitempty"`
+	Started        bool              `json:"started,omitempty"`
+	StartedAt      uint64            `json:"started_at,omitempty"`
 	Tick           uint64            `json:"tick,omitempty"`
 }
 
@@ -76,8 +82,9 @@ func (p Plan) Validate() error {
 		return fmt.Errorf("invalid plan budget")
 	}
 	seen := make(map[string]struct{}, len(p.Nodes))
+	controlled := make(map[string]string)
 	for _, node := range p.Nodes {
-		if !identifier(node.ID) || node.Risk == "" {
+		if !identifier(node.ID) || !validRisk(node.Risk) {
 			return fmt.Errorf("invalid node %q", node.ID)
 		}
 		if node.Kind != Action && node.Kind != Branch && node.Kind != Loop {
@@ -96,24 +103,46 @@ func (p Plan) Validate() error {
 		if node.Priority < -1000 || node.Priority > 1000 {
 			return fmt.Errorf("invalid priority for %q", node.ID)
 		}
-		if node.Kind == Action && !identifier(node.Capability) {
-			return fmt.Errorf("action %q has no capability", node.ID)
+		switch node.Kind {
+		case Action:
+			if !identifier(node.Capability) || len(node.When) != 0 ||
+				len(node.Then) != 0 || len(node.Else) != 0 || len(node.Children) != 0 ||
+				node.MaxIterations != 0 {
+				return fmt.Errorf("invalid action node %q", node.ID)
+			}
+		case Branch:
+			if node.Capability != "" || len(node.Then) == 0 || len(node.Else) == 0 ||
+				len(node.Children) != 0 || node.MaxIterations != 0 ||
+				node.WorldMutations != 0 || node.MaxAttempts != 1 {
+				return fmt.Errorf("invalid branch node %q", node.ID)
+			}
+		case Loop:
+			if node.Capability != "" || len(node.Then) != 0 || len(node.Else) != 0 ||
+				len(node.Children) == 0 || node.MaxIterations == 0 ||
+				node.WorldMutations != 0 || node.MaxAttempts != 1 {
+				return fmt.Errorf("invalid loop node %q", node.ID)
+			}
 		}
-		if node.Kind == Loop && (node.MaxIterations == 0 || len(node.Children) == 0) {
-			return fmt.Errorf("loop %q must have children and a bound", node.ID)
-		}
-		if node.Kind == Branch && (len(node.Then) == 0 || len(node.Else) == 0) {
-			return fmt.Errorf("branch %q must have both paths", node.ID)
-		}
-		for _, condition := range append(append([]string{}, node.When...), node.DependsOn...) {
-			if condition != "" && !text(condition, MaxConditionLen) {
+		for _, condition := range node.When {
+			if !text(condition, MaxConditionLen) {
 				return fmt.Errorf("invalid condition in %q", node.ID)
 			}
+		}
+		for _, dependency := range node.DependsOn {
+			if !identifier(dependency) {
+				return fmt.Errorf("invalid dependency in %q", node.ID)
+			}
+		}
+		for _, child := range append(append(append([]string{}, node.Then...), node.Else...), node.Children...) {
+			if owner, exists := controlled[child]; exists {
+				return fmt.Errorf("node %q is controlled by both %q and %q", child, owner, node.ID)
+			}
+			controlled[child] = node.ID
 		}
 	}
 	for _, node := range p.Nodes {
 		for _, dependency := range append(append(append([]string{}, node.DependsOn...), node.Then...), node.Else...) {
-			if dependency != "" && dependency != node.ID && !containsNode(seen, dependency) {
+			if !identifier(dependency) || dependency == node.ID || !containsNode(seen, dependency) {
 				return fmt.Errorf("node %q references unknown node %q", node.ID, dependency)
 			}
 		}
@@ -132,27 +161,28 @@ func (p Plan) Validate() error {
 	return nil
 }
 
-// Ready returns deterministic action nodes whose dependencies and Host facts
-// are satisfied. The Host decides how a branch or loop selects its children.
+// Ready returns deterministic action nodes whose dependencies and control path
+// are satisfied. Call Advance first to resolve ready branches and bounded loops.
 func (p Plan) Ready(state State, facts map[string]bool) []Node {
+	if p.Validate() != nil || p.ValidateState(state) != nil {
+		return nil
+	}
+	if stateFailed(state) {
+		return nil
+	}
+	parents := p.controlParents()
 	ready := make([]Node, 0)
 	for _, node := range p.Nodes {
-		if state.Completed[node.ID] || state.Attempts[node.ID] >= node.MaxAttempts {
+		if node.Kind != Action || state.Completed[node.ID] || state.Skipped[node.ID] ||
+			state.Attempts[node.ID] >= node.MaxAttempts ||
+			!p.controlEnabled(state, node.ID, parents) {
 			continue
 		}
 		ok := true
 		for _, dependency := range node.DependsOn {
-			if !state.Completed[dependency] {
+			if !state.Completed[dependency] && !state.Skipped[dependency] {
 				ok = false
 				break
-			}
-		}
-		if ok {
-			for _, condition := range node.When {
-				if !facts[condition] {
-					ok = false
-					break
-				}
 			}
 		}
 		if ok {
@@ -174,12 +204,24 @@ func (p Plan) Allows(state State, nodeID string, tick uint64, worldMutations uin
 	if err := p.Validate(); err != nil {
 		return err
 	}
+	if err := p.ValidateState(state); err != nil {
+		return err
+	}
+	if stateFailed(state) {
+		return fmt.Errorf("plan is already failed")
+	}
 	node, ok := p.node(nodeID)
 	if !ok {
 		return fmt.Errorf("unknown node %q", nodeID)
 	}
+	if node.Kind != Action {
+		return fmt.Errorf("node %q is not an action", nodeID)
+	}
 	if state.Completed[nodeID] {
 		return fmt.Errorf("node %q is already completed", nodeID)
+	}
+	if state.Skipped[nodeID] || !p.controlEnabled(state, nodeID, p.controlParents()) {
+		return fmt.Errorf("node %q is not on the active control path", nodeID)
 	}
 	if state.Attempts[nodeID] >= node.MaxAttempts {
 		return fmt.Errorf("node %q exceeded its attempt budget", nodeID)
@@ -190,14 +232,19 @@ func (p Plan) Allows(state State, nodeID string, tick uint64, worldMutations uin
 	if worldMutations > node.WorldMutations {
 		return fmt.Errorf("node %q exceeded its declared mutation budget", nodeID)
 	}
-	if state.WorldMutations+worldMutations > p.Budget.MaxWorldMutations {
+	if worldMutations > p.Budget.MaxWorldMutations-state.WorldMutations {
 		return fmt.Errorf("plan world mutation budget exceeded")
 	}
-	if tick > p.Budget.MaxTicks {
-		return fmt.Errorf("plan tick budget exceeded")
+	if state.Started {
+		if tick < state.Tick {
+			return fmt.Errorf("plan tick moved backwards")
+		}
+		if tick-state.StartedAt > p.Budget.MaxTicks {
+			return fmt.Errorf("plan tick budget exceeded")
+		}
 	}
 	for _, dependency := range node.DependsOn {
-		if !state.Completed[dependency] {
+		if !state.Completed[dependency] && !state.Skipped[dependency] {
 			return fmt.Errorf("node %q is not ready", nodeID)
 		}
 	}
@@ -207,21 +254,7 @@ func (p Plan) Allows(state State, nodeID string, tick uint64, worldMutations uin
 // Apply records one verified node result and returns a new immutable-like State.
 // It does not mutate the caller's maps.
 func (p Plan) Apply(state State, nodeID string, tick uint64, worldMutations uint32) (State, error) {
-	if err := p.Allows(state, nodeID, tick, worldMutations); err != nil {
-		return state, err
-	}
-	completed := cloneBoolMap(state.Completed)
-	completed[nodeID] = true
-	attempts := cloneUintMap(state.Attempts)
-	loops := cloneUintMap(state.Loops)
-	return State{
-		Completed:      completed,
-		Attempts:       attempts,
-		Loops:          loops,
-		Steps:          state.Steps + 1,
-		WorldMutations: state.WorldMutations + worldMutations,
-		Tick:           tick,
-	}, nil
+	return p.recordAction(state, nodeID, tick, worldMutations, true)
 }
 
 func identifier(value string) bool {
@@ -242,6 +275,15 @@ func identifier(value string) bool {
 
 func text(value string, max int) bool {
 	return value != "" && len(value) <= max
+}
+
+func validRisk(value string) bool {
+	switch value {
+	case "low", "moderate", "high", "critical":
+		return true
+	default:
+		return false
+	}
 }
 
 func containsNode(seen map[string]struct{}, value string) bool {
@@ -342,6 +384,14 @@ func cloneBoolMap(source map[string]bool) map[string]bool {
 
 func cloneUintMap(source map[string]uint32) map[string]uint32 {
 	result := make(map[string]uint32, len(source))
+	for key, value := range source {
+		result[key] = value
+	}
+	return result
+}
+
+func cloneStringMap(source map[string]string) map[string]string {
+	result := make(map[string]string, len(source))
 	for key, value := range source {
 		result[key] = value
 	}
