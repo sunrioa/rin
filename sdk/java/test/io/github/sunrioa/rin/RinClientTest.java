@@ -28,6 +28,7 @@ public final class RinClientTest {
     public static void main(String[] args) throws Exception {
         WorkflowCoordinatorTest.run();
         HostControlSessionTest.run();
+        HostActionContractTest.run();
         RinControlClientTest.run();
         require(
                 RinClient.DEFAULT_MAX_RESPONSE_BYTES == 32 * 1024 * 1024,

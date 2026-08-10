@@ -46,6 +46,11 @@ SDK 与具体引擎无关。`HostControlSession` 通过注入的 `HostControlTra
 Poll、ACK、进度、权威 Outcome 和注销。Minecraft、RPG、视觉小说或其他接入方
 自行提供 Manifest、Observation、游戏线程执行器及 JSON/HTTP Transport。
 
+`HostActionContract` 提供无第三方依赖的 Java V2 observe-bind-effect 契约工具：
+规范化 Schema、密封 CapabilitySpec/BoundAction，并生成与 Go Host Contract 完全
+一致的摘要。Adapter 在绑定前仍须按自身能力解析并校验参数；该工具不会授权 Effect，
+也不会调用任何游戏引擎 API。
+
 `WorkflowCoordinator` 负责可复用的 Pending Turn、Job 恢复、结算与 Outcome
 Outbox 状态机。接入方提供持久 `WorkflowStore` 和已校验的
 `HostDurability`。`idempotent-action` Apply Callback 会收到稳定 Operation

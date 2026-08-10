@@ -50,6 +50,12 @@ report an authoritative outcome, and unregister. Minecraft, RPG, visual novel,
 or other adapters provide their own manifest, observations, game-thread
 executor, and JSON/HTTP transport.
 
+`HostActionContract` supplies the dependency-free Java side of the V2
+observe-bind-effect contract. It canonicalizes schemas, seals capability specs
+and bound actions, and produces digests identical to the Go Host Contract.
+Adapters must still parse and validate capability-specific arguments before
+binding; this helper does not authorize effects or call engine APIs.
+
 `WorkflowCoordinator` owns the reusable Pending Turn, Job recovery, settlement,
 and Outcome Outbox state machine. Supply a persistent `WorkflowStore` and a
 validated `HostDurability` value. `idempotent-action` apply callbacks receive
