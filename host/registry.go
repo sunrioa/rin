@@ -28,6 +28,8 @@ type Registry struct {
 	manifest HostManifest
 	revision uint64
 	entries  map[CapabilityRef]registeredCapability
+	specs    map[CapabilityRef]registeredCapabilitySpec
+	bindings map[string]registeredBoundAction
 }
 
 // NewRegistry validates a manifest and creates an empty capability registry.
@@ -38,6 +40,8 @@ func NewRegistry(manifest HostManifest) (*Registry, error) {
 	return &Registry{
 		manifest: manifest,
 		entries:  make(map[CapabilityRef]registeredCapability),
+		specs:    make(map[CapabilityRef]registeredCapabilitySpec),
+		bindings: make(map[string]registeredBoundAction),
 	}, nil
 }
 

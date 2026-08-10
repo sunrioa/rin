@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sunrioa.github.io/rin/schema/action-request-v2.json",
+  "type": "object",
+  "properties": {
+    "request_id": { "$ref": "#/$defs/id" },
+    "controller_id": { "$ref": "#/$defs/id" },
+    "actor_id": { "$ref": "#/$defs/id" },
+    "capability": { "$ref": "#/$defs/capability" },
+    "spec_digest": { "$ref": "#/$defs/digest" },
+    "arguments": {
+      "type": "object",
+      "maxProperties": 256
+    },
+    "target_refs": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/host_ref" }
+    },
+    "expected_epoch": { "$ref": "#/$defs/epoch" },
+    "observation_sequence": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "task_id": { "$ref": "#/$defs/id" },
+    "idempotency_key": { "$ref": "#/$defs/id" }
+  },
+  "required": [
+    "request_id",
+    "controller_id",
+    "actor_id",
+    "capability",
+    "spec_digest",
+    "arguments",
+    "expected_epoch",
+    "observation_sequence",
+    "idempotency_key"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 96,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "capability": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "allOf": [
+            { "$ref": "#/$defs/id" },
+            { "pattern": "\\." }
+          ]
+        },
+        "version": { "$ref": "#/$defs/semver" }
+      },
+      "required": ["id", "version"],
+      "additionalProperties": false
+    },
+    "epoch": {
+      "type": "object",
+      "properties": {
+        "session_id": { "$ref": "#/$defs/id" },
+        "world_id": { "$ref": "#/$defs/id" },
+        "host": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "world": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "timeline": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+      },
+      "required": ["session_id", "world_id", "host", "world", "timeline"],
+      "additionalProperties": false
+    },
+    "host_ref": {
+      "type": "object",
+      "properties": {
+        "namespace": {
+          "allOf": [
+            { "$ref": "#/$defs/id" },
+            { "pattern": "\\." }
+          ]
+        },
+        "type": { "$ref": "#/$defs/id" },
+        "key": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "ephemeral": { "type": "boolean" },
+        "epoch": { "$ref": "#/$defs/epoch" }
+      },
+      "required": ["namespace", "type", "key", "ephemeral", "epoch"],
+      "additionalProperties": false
+    }
+  }
+}

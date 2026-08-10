@@ -1,0 +1,111 @@
+{
+  "contract_version": "rin.host/v2",
+  "capability_spec_digest": "eb6781411eb3558d55c01dd710952c06111f0d1c3d0a220eef0824f6b5806f38",
+  "action_request": {
+    "request_id": "request.move.1",
+    "controller_id": "controller.external.1",
+    "actor_id": "actor.guide",
+    "capability": {
+      "id": "rin.navigation.move-to",
+      "version": "2.0.0"
+    },
+    "spec_digest": "eb6781411eb3558d55c01dd710952c06111f0d1c3d0a220eef0824f6b5806f38",
+    "arguments": {
+      "count": 2,
+      "target": "dock"
+    },
+    "target_refs": [
+      {
+        "namespace": "test.world",
+        "type": "location",
+        "key": "dock",
+        "ephemeral": false,
+        "epoch": {
+          "session_id": "session.test",
+          "world_id": "world.test",
+          "host": 1,
+          "world": 2,
+          "timeline": 3
+        }
+      }
+    ],
+    "expected_epoch": {
+      "session_id": "session.test",
+      "world_id": "world.test",
+      "host": 1,
+      "world": 2,
+      "timeline": 3
+    },
+    "observation_sequence": 7,
+    "task_id": "task.reach.dock",
+    "idempotency_key": "request.move.1"
+  },
+  "action_request_digest": "8227d8c696b50aeb5c74323d3bb3c978576c617c516a72628db730d4ee1d69d7",
+  "effect_preview": [
+    {
+      "effect_id": "effect.move.position",
+      "kind": "world.position",
+      "operation": "update",
+      "subject_ref": {
+        "namespace": "test.world",
+        "type": "location",
+        "key": "dock",
+        "ephemeral": false,
+        "epoch": {
+          "session_id": "session.test",
+          "world_id": "world.test",
+          "host": 1,
+          "world": 2,
+          "timeline": 3
+        }
+      },
+      "tags": [
+        "actor.movement",
+        "world.travel"
+      ],
+      "ownership": "actor",
+      "scope": "world.public",
+      "quantity": 12,
+      "unit": "block",
+      "reversible": true,
+      "risk": "moderate",
+      "attributes": {
+        "distance": 12,
+        "mode": "walk"
+      }
+    },
+    {
+      "effect_id": "effect.move.stamina",
+      "kind": "actor.stamina",
+      "operation": "consume",
+      "subject_ref": {
+        "namespace": "test.world",
+        "type": "location",
+        "key": "dock",
+        "ephemeral": false,
+        "epoch": {
+          "session_id": "session.test",
+          "world_id": "world.test",
+          "host": 1,
+          "world": 2,
+          "timeline": 3
+        }
+      },
+      "tags": [
+        "actor.resource",
+        "world.travel"
+      ],
+      "ownership": "actor",
+      "scope": "actor.self",
+      "quantity": 1,
+      "unit": "point",
+      "reversible": false,
+      "risk": "moderate",
+      "attributes": {
+        "distance": 12,
+        "mode": "walk"
+      }
+    }
+  ],
+  "effect_digest": "de4b9b1f3329993edcf4e9cdd045f1a6a558db48a025b2a0fa9597431f530619"
+}
