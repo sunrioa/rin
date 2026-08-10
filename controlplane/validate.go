@@ -12,14 +12,16 @@ import (
 )
 
 const (
-	minLeaseTTLMillis  = 5_000
-	maxLeaseTTLMillis  = 300_000
-	maxWorldsPerHost   = 64
-	maxActorsPerWorld  = 4_096
-	maxOffersPerActor  = 64
-	maxActorStateBytes = 64 << 10
-	maxOperationOutput = 64 << 10
-	maxJSONSafeInteger = 9_007_199_254_740_991
+	minLeaseTTLMillis   = 5_000
+	maxLeaseTTLMillis   = 300_000
+	maxWorldsPerHost    = 64
+	maxActorsPerWorld   = 4_096
+	maxOffersPerActor   = 64
+	maxCapabilitySpecs  = 512
+	maxActorStateBytes  = 64 << 10
+	maxPublicationBytes = 8 << 20
+	maxOperationOutput  = 64 << 10
+	maxJSONSafeInteger  = 9_007_199_254_740_991
 )
 
 func validateRegistration(value HostRegistration) error {
@@ -42,7 +44,11 @@ func validateRegistration(value HostRegistration) error {
 	return nil
 }
 
-func validatePublication(value WorldPublication, manifest host.HostManifest) error {
+func validatePublication(
+	value WorldPublication,
+	manifest host.HostManifest,
+	hostID string,
+) error {
 	if err := validateID("world_id", value.WorldID); err != nil {
 		return err
 	}
@@ -65,14 +71,25 @@ func validatePublication(value WorldPublication, manifest host.HostManifest) err
 			return invalid("actors", "must not contain duplicate actor_id values")
 		}
 		actors[actor.ActorID] = struct{}{}
-		if err := validateActor(actor, value.WorldID, index); err != nil {
+		if err := validateActor(actor, hostID, value.WorldID, index); err != nil {
 			return err
 		}
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return invalid("publication", "cannot encode: "+err.Error())
+	}
+	if len(encoded) > maxPublicationBytes {
+		return invalid("publication", "must contain at most 8388608 bytes")
 	}
 	return nil
 }
 
-func validateActor(value ActorPublication, worldID string, index int) error {
+func validateActor(
+	value ActorPublication,
+	hostID, worldID string,
+	index int,
+) error {
 	prefix := fmt.Sprintf("actors[%d]", index)
 	if err := validateID(prefix+".actor_id", value.ActorID); err != nil {
 		return err
@@ -103,6 +120,49 @@ func validateActor(value ActorPublication, worldID string, index int) error {
 	if err := validateJSONObject(prefix+".state", value.State, maxActorStateBytes); err != nil {
 		return err
 	}
+	if value.Observation != nil {
+		if err := host.ValidateObservationEnvelope(*value.Observation); err != nil {
+			return invalid(prefix+".observation", err.Error())
+		}
+		if value.Observation.HostID != hostID ||
+			value.Observation.WorldID != worldID ||
+			value.Observation.ActorID != value.ActorID ||
+			value.Observation.Epoch != value.Epoch ||
+			value.Observation.Sequence != value.ObservationSeq {
+			return invalid(
+				prefix+".observation",
+				"must match the enclosing Host, world, Actor, Epoch, and sequence",
+			)
+		}
+	}
+	if value.Capabilities != nil {
+		if value.Capabilities.Revision > maxJSONSafeInteger {
+			return invalid(
+				prefix+".capabilities.revision",
+				"must be a JSON-safe integer",
+			)
+		}
+		if len(value.Capabilities.Specs) > maxCapabilitySpecs {
+			return invalid(
+				prefix+".capabilities.specs",
+				"must contain at most 512 values",
+			)
+		}
+		var previous host.CapabilityRef
+		for specIndex, spec := range value.Capabilities.Specs {
+			field := fmt.Sprintf("%s.capabilities.specs[%d]", prefix, specIndex)
+			if err := spec.Validate(); err != nil {
+				return invalid(field, err.Error())
+			}
+			if specIndex > 0 && !capabilityRefLess(previous, spec.Capability) {
+				return invalid(
+					prefix+".capabilities.specs",
+					"must be sorted by capability ID and version without duplicates",
+				)
+			}
+			previous = spec.Capability
+		}
+	}
 	if len(value.Offers) > maxOffersPerActor {
 		return invalid(prefix+".offers", "must contain at most 64 values")
 	}
@@ -127,6 +187,10 @@ func validateActor(value ActorPublication, worldID string, index int) error {
 		offers[offer.OfferID] = struct{}{}
 	}
 	return nil
+}
+
+func capabilityRefLess(left, right host.CapabilityRef) bool {
+	return left.ID < right.ID || left.ID == right.ID && left.Version < right.Version
 }
 
 func validateDecisionAuthority(

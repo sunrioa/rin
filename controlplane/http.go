@@ -31,6 +31,7 @@ type hostHTTPHandler struct {
 	token           string
 	maxBodyBytes    int64
 	clientPrincipal *host.Principal
+	client          *ClientService
 	handler         http.Handler
 }
 
@@ -77,12 +78,6 @@ type gatewayResultRequest struct {
 	Result  HostGatewayResult `json:"result"`
 }
 
-// ClientInfo describes the fixed identity exposed by one Control Daemon.
-type ClientInfo struct {
-	ContractVersion string         `json:"contract_version"`
-	Principal       host.Principal `json:"principal"`
-}
-
 type emptyRequest struct{}
 
 type worldTargetRequest struct {
@@ -121,6 +116,7 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 		return nil, fmt.Errorf("%w: max body must not exceed 8 MiB", ErrInvalid)
 	}
 	var clientPrincipal *host.Principal
+	var client *ClientService
 	if options.ClientPrincipal != nil {
 		if err := host.ValidatePrincipal(*options.ClientPrincipal); err != nil {
 			return nil, fmt.Errorf(
@@ -137,16 +133,23 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 		}
 		principal := clonePrincipalValue(*options.ClientPrincipal)
 		clientPrincipal = &principal
+		createdClient, err := NewClientService(service, principal)
+		if err != nil {
+			return nil, err
+		}
+		client = createdClient
 	}
 	server := &hostHTTPHandler{
 		service:         service,
 		token:           options.Token,
 		maxBodyBytes:    maxBodyBytes,
 		clientPrincipal: clientPrincipal,
+		client:          client,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", server.health)
 	mux.HandleFunc("GET /control/v1/health", server.health)
+	mux.HandleFunc("GET /control/v2/health", server.health)
 	mux.HandleFunc("POST /control/v1/register", server.register)
 	mux.HandleFunc("POST /control/v1/renew", server.renew)
 	mux.HandleFunc("POST /control/v1/unregister", server.unregister)
@@ -156,6 +159,15 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 	mux.HandleFunc("POST /control/v1/run", server.reportRun)
 	mux.HandleFunc("POST /control/v1/outcome", server.reportOutcome)
 	mux.HandleFunc("POST /control/v1/gateway-result", server.reportGatewayResult)
+	mux.HandleFunc("POST /control/v2/host/register", server.register)
+	mux.HandleFunc("POST /control/v2/host/renew", server.renew)
+	mux.HandleFunc("POST /control/v2/host/unregister", server.unregister)
+	mux.HandleFunc("POST /control/v2/host/publish", server.publish)
+	mux.HandleFunc("POST /control/v2/host/poll", server.poll)
+	mux.HandleFunc("POST /control/v2/host/ack", server.acknowledge)
+	mux.HandleFunc("POST /control/v2/host/run", server.reportRun)
+	mux.HandleFunc("POST /control/v2/host/outcome", server.reportOutcome)
+	mux.HandleFunc("POST /control/v2/host/gateway-result", server.reportGatewayResult)
 	if clientPrincipal != nil {
 		mux.HandleFunc("GET /control/v1/client/info", server.clientInfo)
 		mux.HandleFunc("POST /control/v1/client/worlds", server.clientWorlds)
@@ -170,6 +182,24 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 		mux.HandleFunc("POST /control/v1/client/operation", server.clientOperation)
 		mux.HandleFunc("POST /control/v1/client/wait-operation", server.clientWaitOperation)
 		mux.HandleFunc("POST /control/v1/client/cancel", server.clientCancel)
+		mux.HandleFunc("GET /control/v2/info", server.clientInfo)
+		mux.HandleFunc("POST /control/v2/worlds", server.clientWorlds)
+		mux.HandleFunc("POST /control/v2/actors", server.clientActors)
+		mux.HandleFunc("POST /control/v2/actor", server.clientActor)
+		mux.HandleFunc("POST /control/v2/wait-actor", server.clientWaitActor)
+		mux.HandleFunc("POST /control/v2/observe", server.clientObservation)
+		mux.HandleFunc("POST /control/v2/capabilities", server.clientCapabilities)
+		mux.HandleFunc("POST /control/v2/capability", server.clientCapability)
+		mux.HandleFunc("POST /control/v2/controllers/acquire", server.clientAcquireController)
+		mux.HandleFunc("POST /control/v2/controllers/renew", server.clientRenewController)
+		mux.HandleFunc("POST /control/v2/controllers/release", server.clientReleaseController)
+		mux.HandleFunc("POST /control/v2/controllers/get", server.clientGetController)
+		mux.HandleFunc("POST /control/v2/actions/submit", server.clientSubmitAction)
+		mux.HandleFunc("POST /control/v2/actions/confirm", server.clientConfirmAction)
+		mux.HandleFunc("POST /control/v2/operations/get", server.clientOperation)
+		mux.HandleFunc("POST /control/v2/operations/wait", server.clientWaitOperation)
+		mux.HandleFunc("POST /control/v2/operations/cancel", server.clientCancel)
+		mux.HandleFunc("POST /control/v2/emergency-stop", server.clientEmergencyStop)
 	}
 	server.handler = server.secure(mux)
 	return server, nil
@@ -190,7 +220,8 @@ func (server *hostHTTPHandler) secure(next http.Handler) http.Handler {
 		response.Header().Set("Cache-Control", "no-store")
 		response.Header().Set("X-Content-Type-Options", "nosniff")
 		if request.URL.Path != "/health" &&
-			request.URL.Path != "/control/v1/health" {
+			request.URL.Path != "/control/v1/health" &&
+			request.URL.Path != "/control/v2/health" {
 			provided := strings.TrimPrefix(
 				request.Header.Get("Authorization"), "Bearer ",
 			)
@@ -411,12 +442,14 @@ func (server *hostHTTPHandler) reportGatewayResult(
 
 func (server *hostHTTPHandler) clientInfo(
 	response http.ResponseWriter,
-	_ *http.Request,
+	request *http.Request,
 ) {
-	writeJSON(response, http.StatusOK, ClientInfo{
-		ContractVersion: ContractVersion,
-		Principal:       clonePrincipalValue(*server.clientPrincipal),
-	})
+	info, err := server.client.Info(request.Context())
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, info)
 }
 
 func (server *hostHTTPHandler) clientWorlds(
@@ -428,7 +461,7 @@ func (server *hostHTTPHandler) clientWorlds(
 		writeHTTPError(response, http.StatusBadRequest, err.Error())
 		return
 	}
-	views, err := server.service.ListWorlds(*server.clientPrincipal)
+	views, err := server.client.ListWorlds(request.Context())
 	if err != nil {
 		writeServiceError(response, err)
 		return
@@ -448,8 +481,8 @@ func (server *hostHTTPHandler) clientActors(
 		writeHTTPError(response, http.StatusBadRequest, err.Error())
 		return
 	}
-	views, err := server.service.ListActors(
-		*server.clientPrincipal,
+	views, err := server.client.ListActors(
+		request.Context(),
 		input.HostID,
 		input.WorldID,
 	)
@@ -472,8 +505,8 @@ func (server *hostHTTPHandler) clientActor(
 		writeHTTPError(response, http.StatusBadRequest, err.Error())
 		return
 	}
-	view, err := server.service.GetActor(
-		*server.clientPrincipal,
+	view, err := server.client.GetActor(
+		request.Context(),
 		input.HostID,
 		input.WorldID,
 		input.ActorID,
@@ -494,9 +527,8 @@ func (server *hostHTTPHandler) clientWaitActor(
 		writeHTTPError(response, http.StatusBadRequest, err.Error())
 		return
 	}
-	update, err := server.service.WaitActor(
+	update, err := server.client.WaitActor(
 		request.Context(),
-		*server.clientPrincipal,
 		input,
 	)
 	if err != nil {
@@ -504,6 +536,181 @@ func (server *hostHTTPHandler) clientWaitActor(
 		return
 	}
 	writeJSON(response, http.StatusOK, update)
+}
+
+func (server *hostHTTPHandler) clientObservation(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input ActorControlTarget
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	observation, err := server.client.GetObservation(request.Context(), input)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, observation)
+}
+
+func (server *hostHTTPHandler) clientCapabilities(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input ActorControlTarget
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	snapshot, err := server.client.ListCapabilities(request.Context(), input)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	if snapshot.Specs == nil {
+		snapshot.Specs = []host.CapabilitySpec{}
+	}
+	writeJSON(response, http.StatusOK, snapshot)
+}
+
+func (server *hostHTTPHandler) clientCapability(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input DescribeCapabilityInput
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	spec, err := server.client.DescribeCapability(request.Context(), input)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, spec)
+}
+
+func (server *hostHTTPHandler) clientAcquireController(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input AcquireControllerInput
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	lease, err := server.client.AcquireController(request.Context(), input)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, lease)
+}
+
+func (server *hostHTTPHandler) clientRenewController(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input RenewControllerInput
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	lease, err := server.client.RenewController(request.Context(), input)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, lease)
+}
+
+func (server *hostHTTPHandler) clientReleaseController(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input ReleaseControllerInput
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := server.client.ReleaseController(request.Context(), input); err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]string{"status": "released"})
+}
+
+func (server *hostHTTPHandler) clientGetController(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input ActorControlTarget
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	lease, err := server.client.GetController(request.Context(), input)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, lease)
+}
+
+func (server *hostHTTPHandler) clientSubmitAction(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input SubmitActionInput
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	operation, err := server.client.SubmitAction(request.Context(), input)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, operation)
+}
+
+func (server *hostHTTPHandler) clientConfirmAction(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input operationTargetRequest
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	operation, err := server.client.ConfirmAction(
+		request.Context(),
+		input.OperationID,
+	)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, operation)
+}
+
+func (server *hostHTTPHandler) clientEmergencyStop(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input SetEmergencyStopInput
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	stop, err := server.client.SetEmergencyStop(request.Context(), input)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, stop)
 }
 
 func (server *hostHTTPHandler) clientOffers(
@@ -614,8 +821,8 @@ func (server *hostHTTPHandler) clientOperation(
 		writeHTTPError(response, http.StatusBadRequest, err.Error())
 		return
 	}
-	operation, err := server.service.GetOperation(
-		*server.clientPrincipal,
+	operation, err := server.client.GetOperation(
+		request.Context(),
 		input.OperationID,
 	)
 	if err != nil {
@@ -634,9 +841,8 @@ func (server *hostHTTPHandler) clientWaitOperation(
 		writeHTTPError(response, http.StatusBadRequest, err.Error())
 		return
 	}
-	update, err := server.service.WaitOperation(
+	update, err := server.client.WaitOperation(
 		request.Context(),
-		*server.clientPrincipal,
 		input,
 	)
 	if err != nil {
@@ -655,8 +861,8 @@ func (server *hostHTTPHandler) clientCancel(
 		writeHTTPError(response, http.StatusBadRequest, err.Error())
 		return
 	}
-	operation, err := server.service.CancelOperation(
-		*server.clientPrincipal,
+	operation, err := server.client.CancelOperation(
+		request.Context(),
 		input.OperationID,
 	)
 	if err != nil {

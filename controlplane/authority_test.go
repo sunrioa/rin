@@ -54,6 +54,7 @@ func TestDecisionAuthorityValidation(t *testing.T) {
 			if err := validatePublication(
 				publication,
 				registration("instance.authority").Manifest,
+				"test.host",
 			); err == nil {
 				t.Fatal("invalid authority was accepted")
 			}

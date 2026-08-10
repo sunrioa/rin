@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	ContractVersion = "rin.control/v1"
+	ContractVersion = "rin.control/v2"
 
 	ScopeActorRead       = "actor.read"
 	ScopeActorConverse   = "actor.converse"
@@ -152,14 +152,16 @@ type WorldPublication struct {
 
 // ActorPublication contains only host-approved, externally visible state.
 type ActorPublication struct {
-	ActorID          string             `json:"actor_id"`
-	OwnerPrincipalID string             `json:"owner_principal_id"`
-	DisplayName      string             `json:"display_name"`
-	ObservationSeq   uint64             `json:"observation_seq"`
-	Epoch            host.Epoch         `json:"epoch"`
-	Authority        *DecisionAuthority `json:"decision_authority,omitempty"`
-	State            json.RawMessage    `json:"state"`
-	Offers           []host.ActionOffer `json:"offers,omitempty"`
+	ActorID          string                    `json:"actor_id"`
+	OwnerPrincipalID string                    `json:"owner_principal_id"`
+	DisplayName      string                    `json:"display_name"`
+	ObservationSeq   uint64                    `json:"observation_seq"`
+	Epoch            host.Epoch                `json:"epoch"`
+	Authority        *DecisionAuthority        `json:"decision_authority,omitempty"`
+	State            json.RawMessage           `json:"state"`
+	Offers           []host.ActionOffer        `json:"offers,omitempty"`
+	Observation      *host.ObservationEnvelope `json:"observation,omitempty"`
+	Capabilities     *host.CapabilitySnapshot  `json:"capabilities,omitempty"`
 }
 
 // WorldView is a principal-filtered world read model.
@@ -371,6 +373,32 @@ type WaitOperationInput struct {
 	OperationID string `json:"operation_id"`
 	AfterCursor string `json:"after_cursor,omitempty"`
 	WaitMillis  uint32 `json:"wait_millis"`
+}
+
+// DescribeCapabilityInput identifies one exact capability published for an
+// Actor. Discovery never grants permission to execute that capability.
+type DescribeCapabilityInput struct {
+	ActorControlTarget
+	Capability host.CapabilityRef `json:"capability"`
+}
+
+// RenewControllerInput renews one exact controller lease.
+type RenewControllerInput struct {
+	ActorControlTarget
+	LeaseID        string `json:"lease_id"`
+	LeaseTTLMillis uint32 `json:"lease_ttl_millis"`
+}
+
+// ReleaseControllerInput releases one exact controller lease.
+type ReleaseControllerInput struct {
+	ActorControlTarget
+	LeaseID string `json:"lease_id"`
+}
+
+// SetEmergencyStopInput changes the owner-controlled safety latch.
+type SetEmergencyStopInput struct {
+	ActorControlTarget
+	Active bool `json:"active"`
 }
 
 // OperationUpdate reports whether an operation changed during a bounded wait.

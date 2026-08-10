@@ -28,7 +28,7 @@ Future 会取消同一个 Network Future，不会另留第二个 Delayed Timeout
 `streaming` SDK Target。
 
 SDK 与具体引擎无关。`HostControlSession` 通过注入的 `HostControlTransport`
-实现通用 `rin.control/v1` Host 租约与 Operation 生命周期，包括注册、发布、
+实现通用 `rin.control/v2` Host 租约与 Operation 生命周期，包括注册、发布、
 Poll、ACK、进度、权威 Outcome 和注销。Minecraft、RPG、视觉小说或其他接入方
 自行提供 Manifest、Observation、游戏线程执行器及 JSON/HTTP Transport。
 

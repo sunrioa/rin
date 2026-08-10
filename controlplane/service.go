@@ -234,7 +234,11 @@ func (service *Service) PublishWorld(
 	if err != nil {
 		return err
 	}
-	if err := validatePublication(publication, current.registration.Manifest); err != nil {
+	if err := validatePublication(
+		publication,
+		current.registration.Manifest,
+		hostID,
+	); err != nil {
 		return err
 	}
 	if existing, exists := current.worlds[publication.WorldID]; exists {
@@ -525,8 +529,68 @@ func clonePublication(value WorldPublication) WorldPublication {
 		cloned.Actors[index].State =
 			append(json.RawMessage(nil), actor.State...)
 		cloned.Actors[index].Offers = cloneOffers(actor.Offers)
+		if actor.Observation != nil {
+			observation := cloneObservationEnvelope(*actor.Observation)
+			cloned.Actors[index].Observation = &observation
+		}
+		if actor.Capabilities != nil {
+			capabilities := cloneCapabilitySnapshot(*actor.Capabilities)
+			cloned.Actors[index].Capabilities = &capabilities
+		}
 	}
 	return cloned
+}
+
+func cloneObservationEnvelope(value host.ObservationEnvelope) host.ObservationEnvelope {
+	value.Payload = append(json.RawMessage(nil), value.Payload...)
+	value.Facts = append([]host.ObservationFact(nil), value.Facts...)
+	for index := range value.Facts {
+		value.Facts[index].Tags = append([]string(nil), value.Facts[index].Tags...)
+		value.Facts[index].Value = append(
+			json.RawMessage(nil),
+			value.Facts[index].Value...,
+		)
+		if value.Facts[index].Subject != nil {
+			subject := *value.Facts[index].Subject
+			value.Facts[index].Subject = &subject
+		}
+	}
+	value.Resources = append([]host.ObservationResource(nil), value.Resources...)
+	for index := range value.Resources {
+		value.Resources[index].Tags = append(
+			[]string(nil),
+			value.Resources[index].Tags...,
+		)
+		value.Resources[index].Attributes = append(
+			json.RawMessage(nil),
+			value.Resources[index].Attributes...,
+		)
+	}
+	value.Artifacts = append([]host.ObservationArtifact(nil), value.Artifacts...)
+	return value
+}
+
+func cloneCapabilitySnapshot(value host.CapabilitySnapshot) host.CapabilitySnapshot {
+	value.Specs = append([]host.CapabilitySpec(nil), value.Specs...)
+	for index := range value.Specs {
+		value.Specs[index].Input.Document = append(
+			json.RawMessage(nil),
+			value.Specs[index].Input.Document...,
+		)
+		value.Specs[index].Output.Document = append(
+			json.RawMessage(nil),
+			value.Specs[index].Output.Document...,
+		)
+		value.Specs[index].EffectSchema.Document = append(
+			json.RawMessage(nil),
+			value.Specs[index].EffectSchema.Document...,
+		)
+		value.Specs[index].RequiredScopes = append(
+			[]string(nil),
+			value.Specs[index].RequiredScopes...,
+		)
+	}
+	return value
 }
 
 func cloneOffers(values []host.ActionOffer) []host.ActionOffer {

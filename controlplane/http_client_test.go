@@ -9,6 +9,9 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/policy"
 )
 
 func TestHTTPClientUsesDaemonBoundPrincipal(t *testing.T) {
@@ -203,6 +206,140 @@ func TestHTTPClientCannotBypassDaemonToken(t *testing.T) {
 		context.Background(),
 	); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("Info wrong-token error = %v", err)
+	}
+}
+
+func TestHTTPClientV2DiscoveryControllerAndActionLifecycle(t *testing.T) {
+	binder, engine := actionGatewayTestComponents(t, host.RiskLow, policy.ProfileOpen)
+	service, hostLease, _ := operationTestService(t, Options{PolicyEngine: engine})
+	if err := service.PublishWorld(
+		"test.host",
+		hostLease.LeaseID,
+		v2WorldPublication(binder.spec),
+	); err != nil {
+		t.Fatalf("PublishWorld V2: %v", err)
+	}
+	principal := operationPrincipal(
+		ScopeActorRead,
+		ScopeActorControl,
+		ScopeActorExecute,
+		ScopeOperationCancel,
+		"rin.policy.confirm",
+	)
+	handler, err := NewHTTPHandler(service, HTTPOptions{
+		Token:           testControlToken,
+		ClientPrincipal: &principal,
+	})
+	if err != nil {
+		t.Fatalf("NewHTTPHandler: %v", err)
+	}
+	client, err := NewHTTPClient("http://127.0.0.1:7375", testControlToken)
+	if err != nil {
+		t.Fatalf("NewHTTPClient: %v", err)
+	}
+	client.client = &http.Client{Transport: handlerRoundTripper{handler: handler}}
+	ctx := context.Background()
+	target := testActorControlTarget()
+
+	observation, err := client.GetObservation(ctx, target)
+	if err != nil || observation.ObservationID != "observation.actor.one.1" {
+		t.Fatalf("GetObservation = %#v, %v", observation, err)
+	}
+	catalog, err := client.ListCapabilities(ctx, target)
+	if err != nil || len(catalog.Specs) != 1 {
+		t.Fatalf("ListCapabilities = %#v, %v", catalog, err)
+	}
+	described, err := client.DescribeCapability(ctx, DescribeCapabilityInput{
+		ActorControlTarget: target,
+		Capability:         binder.spec.Capability,
+	})
+	if err != nil || described.Digest != binder.spec.Digest {
+		t.Fatalf("DescribeCapability = %#v, %v", described, err)
+	}
+	controller, err := client.AcquireController(ctx, AcquireControllerInput{
+		ActorControlTarget: target,
+		ControllerID:       "controller.gateway.one",
+		LeaseTTLMillis:     5_000,
+	})
+	if err != nil || controller.LeaseID == "" {
+		t.Fatalf("AcquireController = %#v, %v", controller, err)
+	}
+	current, err := client.GetController(ctx, target)
+	if err != nil || current.LeaseID != controller.LeaseID {
+		t.Fatalf("GetController = %#v, %v", current, err)
+	}
+	renewed, err := client.RenewController(ctx, RenewControllerInput{
+		ActorControlTarget: target,
+		LeaseID:            controller.LeaseID,
+		LeaseTTLMillis:     10_000,
+	})
+	if err != nil || renewed.ExpiresAtUnixMillis <= controller.ExpiresAtUnixMillis {
+		t.Fatalf("RenewController = %#v, %v", renewed, err)
+	}
+
+	type submitResult struct {
+		operation OperationView
+		err       error
+	}
+	submitted := make(chan submitResult, 1)
+	go func() {
+		operation, submitErr := client.SubmitAction(
+			ctx,
+			binder.input("request.http.v2", "action.http.v2"),
+		)
+		submitted <- submitResult{operation: operation, err: submitErr}
+	}()
+	delivery := pollHost(t, service, hostLease, 1)
+	if len(delivery.GatewayRequests) != 1 {
+		t.Fatalf("Host gateway delivery = %#v", delivery)
+	}
+	gateway := delivery.GatewayRequests[0].Request
+	binding, err := binder.BindAction(ctx, gateway.Target, *gateway.ActionRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ReportHostGatewayResult(
+		"test.host",
+		hostLease.LeaseID,
+		HostGatewayResult{
+			GatewayRequestID: gateway.GatewayRequestID,
+			Binding:          &binding,
+		},
+	); err != nil {
+		t.Fatalf("ReportHostGatewayResult: %v", err)
+	}
+	var operation OperationView
+	select {
+	case result := <-submitted:
+		if result.err != nil || result.operation.Status != OperationQueued {
+			t.Fatalf("SubmitAction = %#v, %v", result.operation, result.err)
+		}
+		operation = result.operation
+	case <-time.After(time.Second):
+		t.Fatal("HTTP SubmitAction did not resume")
+	}
+	view, err := client.GetOperation(ctx, operation.OperationID)
+	if err != nil || view.OperationID != operation.OperationID {
+		t.Fatalf("GetOperation = %#v, %v", view, err)
+	}
+	stop, err := client.SetEmergencyStop(ctx, SetEmergencyStopInput{
+		ActorControlTarget: target,
+		Active:             true,
+	})
+	if err != nil || !stop.Active {
+		t.Fatalf("SetEmergencyStop = %#v, %v", stop, err)
+	}
+	if _, err := client.SetEmergencyStop(ctx, SetEmergencyStopInput{
+		ActorControlTarget: target,
+		Active:             false,
+	}); err != nil {
+		t.Fatalf("clear emergency stop: %v", err)
+	}
+	if err := client.ReleaseController(ctx, ReleaseControllerInput{
+		ActorControlTarget: target,
+		LeaseID:            renewed.LeaseID,
+	}); err != nil {
+		t.Fatalf("ReleaseController: %v", err)
 	}
 }
 

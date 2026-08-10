@@ -57,7 +57,7 @@ func NewHTTPClient(baseURL, token string) (*HTTPClient, error) {
 // Info returns the Daemon's fixed principal and contract identity.
 func (client *HTTPClient) Info(ctx context.Context) (ClientInfo, error) {
 	var info ClientInfo
-	if err := client.request(ctx, http.MethodGet, "info", nil, &info); err != nil {
+	if err := client.requestV2(ctx, http.MethodGet, "info", nil, &info); err != nil {
 		return ClientInfo{}, err
 	}
 	if info.ContractVersion != ContractVersion {
@@ -87,7 +87,7 @@ func (client *HTTPClient) Info(ctx context.Context) (ClientInfo, error) {
 // ListWorlds returns worlds visible to the Daemon's fixed principal.
 func (client *HTTPClient) ListWorlds(ctx context.Context) ([]WorldView, error) {
 	var views []WorldView
-	if err := client.request(
+	if err := client.requestV2(
 		ctx,
 		http.MethodPost,
 		"worlds",
@@ -105,7 +105,7 @@ func (client *HTTPClient) ListActors(
 	hostID, worldID string,
 ) ([]ActorView, error) {
 	var views []ActorView
-	if err := client.request(
+	if err := client.requestV2(
 		ctx,
 		http.MethodPost,
 		"actors",
@@ -123,7 +123,7 @@ func (client *HTTPClient) GetActor(
 	hostID, worldID, actorID string,
 ) (ActorView, error) {
 	var view ActorView
-	err := client.request(
+	err := client.requestV2(
 		ctx,
 		http.MethodPost,
 		"actor",
@@ -141,7 +141,7 @@ func (client *HTTPClient) WaitActor(
 	input WaitActorInput,
 ) (ActorUpdate, error) {
 	var update ActorUpdate
-	err := client.request(
+	err := client.requestV2(
 		ctx,
 		http.MethodPost,
 		"wait-actor",
@@ -224,7 +224,7 @@ func (client *HTTPClient) GetOperation(
 	ctx context.Context,
 	operationID string,
 ) (OperationView, error) {
-	return client.operationTarget(ctx, "operation", operationID)
+	return client.operationTargetV2(ctx, "operations/get", operationID)
 }
 
 // WaitOperation waits for a newer operation cursor or reportable terminal
@@ -234,10 +234,10 @@ func (client *HTTPClient) WaitOperation(
 	input WaitOperationInput,
 ) (OperationUpdate, error) {
 	var update OperationUpdate
-	err := client.request(
+	err := client.requestV2(
 		ctx,
 		http.MethodPost,
-		"wait-operation",
+		"operations/wait",
 		input,
 		&update,
 	)
@@ -249,7 +249,151 @@ func (client *HTTPClient) CancelOperation(
 	ctx context.Context,
 	operationID string,
 ) (OperationView, error) {
-	return client.operationTarget(ctx, "cancel", operationID)
+	return client.operationTargetV2(ctx, "operations/cancel", operationID)
+}
+
+// GetObservation returns the latest Host-published V2 observation.
+func (client *HTTPClient) GetObservation(
+	ctx context.Context,
+	target ActorControlTarget,
+) (host.ObservationEnvelope, error) {
+	var observation host.ObservationEnvelope
+	err := client.requestV2(
+		ctx,
+		http.MethodPost,
+		"observe",
+		target,
+		&observation,
+	)
+	return observation, err
+}
+
+// ListCapabilities returns the exact V2 catalog published for one Actor.
+func (client *HTTPClient) ListCapabilities(
+	ctx context.Context,
+	target ActorControlTarget,
+) (host.CapabilitySnapshot, error) {
+	var snapshot host.CapabilitySnapshot
+	err := client.requestV2(
+		ctx,
+		http.MethodPost,
+		"capabilities",
+		target,
+		&snapshot,
+	)
+	return snapshot, err
+}
+
+// DescribeCapability returns one exact V2 capability spec.
+func (client *HTTPClient) DescribeCapability(
+	ctx context.Context,
+	input DescribeCapabilityInput,
+) (host.CapabilitySpec, error) {
+	var spec host.CapabilitySpec
+	err := client.requestV2(
+		ctx,
+		http.MethodPost,
+		"capability",
+		input,
+		&spec,
+	)
+	return spec, err
+}
+
+func (client *HTTPClient) AcquireController(
+	ctx context.Context,
+	input AcquireControllerInput,
+) (ControllerLease, error) {
+	var lease ControllerLease
+	err := client.requestV2(
+		ctx,
+		http.MethodPost,
+		"controllers/acquire",
+		input,
+		&lease,
+	)
+	return lease, err
+}
+
+func (client *HTTPClient) RenewController(
+	ctx context.Context,
+	input RenewControllerInput,
+) (ControllerLease, error) {
+	var lease ControllerLease
+	err := client.requestV2(
+		ctx,
+		http.MethodPost,
+		"controllers/renew",
+		input,
+		&lease,
+	)
+	return lease, err
+}
+
+func (client *HTTPClient) ReleaseController(
+	ctx context.Context,
+	input ReleaseControllerInput,
+) error {
+	var status statusResponse
+	return client.requestV2(
+		ctx,
+		http.MethodPost,
+		"controllers/release",
+		input,
+		&status,
+	)
+}
+
+func (client *HTTPClient) GetController(
+	ctx context.Context,
+	target ActorControlTarget,
+) (ControllerLease, error) {
+	var lease ControllerLease
+	err := client.requestV2(
+		ctx,
+		http.MethodPost,
+		"controllers/get",
+		target,
+		&lease,
+	)
+	return lease, err
+}
+
+func (client *HTTPClient) SubmitAction(
+	ctx context.Context,
+	input SubmitActionInput,
+) (OperationView, error) {
+	var operation OperationView
+	err := client.requestV2(
+		ctx,
+		http.MethodPost,
+		"actions/submit",
+		input,
+		&operation,
+	)
+	return operation, err
+}
+
+func (client *HTTPClient) ConfirmAction(
+	ctx context.Context,
+	operationID string,
+) (OperationView, error) {
+	return client.operationTargetV2(ctx, "actions/confirm", operationID)
+}
+
+func (client *HTTPClient) SetEmergencyStop(
+	ctx context.Context,
+	input SetEmergencyStopInput,
+) (ActorEmergencyStop, error) {
+	var stop ActorEmergencyStop
+	err := client.requestV2(
+		ctx,
+		http.MethodPost,
+		"emergency-stop",
+		input,
+		&stop,
+	)
+	return stop, err
 }
 
 func (client *HTTPClient) operation(
@@ -283,9 +427,56 @@ func (client *HTTPClient) operationTarget(
 	return operation, err
 }
 
+func (client *HTTPClient) operationTargetV2(
+	ctx context.Context,
+	action, operationID string,
+) (OperationView, error) {
+	var operation OperationView
+	err := client.requestV2(
+		ctx,
+		http.MethodPost,
+		action,
+		operationTargetRequest{OperationID: operationID},
+		&operation,
+	)
+	return operation, err
+}
+
+type statusResponse struct {
+	Status string `json:"status"`
+}
+
+func (client *HTTPClient) requestV2(
+	ctx context.Context,
+	method, action string,
+	input, output any,
+) error {
+	return client.requestAt(
+		ctx,
+		method,
+		"/control/v2/"+action,
+		input,
+		output,
+	)
+}
+
 func (client *HTTPClient) request(
 	ctx context.Context,
 	method, action string,
+	input, output any,
+) error {
+	return client.requestAt(
+		ctx,
+		method,
+		"/control/v1/client/"+action,
+		input,
+		output,
+	)
+}
+
+func (client *HTTPClient) requestAt(
+	ctx context.Context,
+	method, path string,
 	input, output any,
 ) error {
 	var body io.Reader
@@ -297,7 +488,7 @@ func (client *HTTPClient) request(
 		body = bytes.NewReader(payload)
 	}
 	endpoint := *client.baseURL
-	endpoint.Path = "/control/v1/client/" + action
+	endpoint.Path = path
 	request, err := http.NewRequestWithContext(
 		ctx,
 		method,
@@ -363,6 +554,8 @@ func (client *HTTPClient) request(
 	}
 	return nil
 }
+
+var _ ControlClient = (*HTTPClient)(nil)
 
 func validateControlBaseURL(value string) (*url.URL, error) {
 	parsed, err := url.Parse(strings.TrimSpace(value))

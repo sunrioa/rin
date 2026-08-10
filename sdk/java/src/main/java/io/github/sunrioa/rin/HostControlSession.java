@@ -8,11 +8,11 @@ import java.util.Set;
 import java.util.function.LongSupplier;
 
 /**
- * Engine-neutral lease and operation client for {@code rin.control/v1}.
+ * Engine-neutral lease and operation client for {@code rin.control/v2}.
  * Game state must still be published and mutated by the engine adapter.
  */
 public final class HostControlSession {
-    public static final String CONTROL_CONTRACT = "rin.control/v1";
+    public static final String CONTROL_CONTRACT = "rin.control/v2";
     private static final int MIN_LEASE_MILLIS = 5_000;
     private static final int MAX_LEASE_MILLIS = 60_000;
     private static final long MAX_JSON_SAFE_INTEGER = 9_007_199_254_740_991L;
@@ -78,7 +78,7 @@ public final class HostControlSession {
             if (hostId != null && !hostId.equals(validatedHostId)) clearLeaseLocked();
         }
         ensureLease(validatedHostId);
-        transport.post("/control/v1/publish", mapOf(
+        transport.post("/control/v2/host/publish", mapOf(
                 "host_id", hostId(),
                 "lease_id", leaseId(),
                 "publication", copyObject(publication)));
@@ -90,7 +90,7 @@ public final class HostControlSession {
             throw new IllegalArgumentException("Invalid Host poll bounds");
         }
         ensureCurrentLease();
-        return transport.post("/control/v1/poll", mapOf(
+        return transport.post("/control/v2/host/poll", mapOf(
                 "host_id", hostId(),
                 "lease_id", leaseId(),
                 "limit", limit,
@@ -110,7 +110,7 @@ public final class HostControlSession {
             acknowledgement.put("code", identifier(code, "code"));
             acknowledgement.put("message", boundedText(message, 500, "message"));
         }
-        transport.post("/control/v1/ack", mapOf(
+        transport.post("/control/v2/host/ack", mapOf(
                 "host_id", hostId(),
                 "lease_id", leaseId(),
                 "acknowledgement", acknowledgement));
@@ -128,7 +128,7 @@ public final class HostControlSession {
         if (run.containsKey("message")) {
             boundedText(inputText(run.get("message"), "message"), 500, "message");
         }
-        transport.post("/control/v1/run", mapOf(
+        transport.post("/control/v2/host/run", mapOf(
                 "host_id", hostId(),
                 "lease_id", leaseId(),
                 "run", copyObject(run)));
@@ -165,7 +165,7 @@ public final class HostControlSession {
             }
             request.put("output", copyObject(map));
         }
-        transport.post("/control/v1/outcome", request);
+        transport.post("/control/v2/host/outcome", request);
     }
 
     /**
@@ -197,7 +197,7 @@ public final class HostControlSession {
         } else if (result.containsKey("error_message")) {
             throw new IllegalArgumentException("Host gateway error_message requires error_code");
         }
-        transport.post("/control/v1/gateway-result", mapOf(
+        transport.post("/control/v2/host/gateway-result", mapOf(
                 "host_id", hostId(),
                 "lease_id", leaseId(),
                 "result", copyObject(result)));
@@ -212,7 +212,7 @@ public final class HostControlSession {
             currentLease = leaseId;
         }
         try {
-            transport.post("/control/v1/unregister", mapOf(
+            transport.post("/control/v2/host/unregister", mapOf(
                     "host_id", currentHost,
                     "lease_id", currentLease));
         } finally {
@@ -245,7 +245,7 @@ public final class HostControlSession {
             register(requestedHostId);
             return;
         }
-        readLease(transport.post("/control/v1/renew", mapOf(
+        readLease(transport.post("/control/v2/host/renew", mapOf(
                 "host_id", hostId(),
                 "lease_id", leaseId())), requestedHostId);
     }
@@ -259,7 +259,7 @@ public final class HostControlSession {
 
     private void register(String requestedHostId)
             throws IOException, InterruptedException {
-        Map<String, Object> response = transport.post("/control/v1/register", mapOf(
+        Map<String, Object> response = transport.post("/control/v2/host/register", mapOf(
                 "contract_version", CONTROL_CONTRACT,
                 "host_id", requestedHostId,
                 "instance_id", instanceId,

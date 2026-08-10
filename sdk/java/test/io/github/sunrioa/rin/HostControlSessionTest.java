@@ -15,14 +15,15 @@ final class HostControlSessionTest {
         HostControlTransport transport = (path, body) -> {
             paths.add(path);
             bodies.add(body);
-            if (path.equals("/control/v1/register") || path.equals("/control/v1/renew")) {
+            if (path.equals("/control/v2/host/register")
+                    || path.equals("/control/v2/host/renew")) {
                 return Map.of(
                         "host_id", "host.fixture",
                         "instance_id", "instance.fixture",
                         "lease_id", "lease.fixture",
                         "expires_at_unix_millis", now[0] + 15_000L);
             }
-            if (path.equals("/control/v1/poll")) {
+            if (path.equals("/control/v2/host/poll")) {
                 return Map.of(
                         "gateway_requests", List.of(),
                         "requests", List.of(),
@@ -40,7 +41,8 @@ final class HostControlSessionTest {
                 15_000);
 
         session.publish("host.fixture", Map.of("worlds", List.of()));
-        require(paths.equals(List.of("/control/v1/register", "/control/v1/publish")),
+        require(paths.equals(List.of(
+                        "/control/v2/host/register", "/control/v2/host/publish")),
                 "Host registration did not precede publication");
         require(session.health().leased(), "Host lease was not recorded");
         session.poll(8, 0);
@@ -76,11 +78,12 @@ final class HostControlSessionTest {
                                 "timeline", 1L),
                         "observation_sequence", 2L)));
         require(paths.containsAll(List.of(
-                        "/control/v1/poll", "/control/v1/ack",
-                        "/control/v1/run", "/control/v1/outcome",
-                        "/control/v1/gateway-result")),
+                        "/control/v2/host/poll", "/control/v2/host/ack",
+                        "/control/v2/host/run", "/control/v2/host/outcome",
+                        "/control/v2/host/gateway-result")),
                 "Host operation lifecycle was incomplete");
-        Map<String, ?> outcomeRequest = bodies.get(paths.indexOf("/control/v1/outcome"));
+        Map<String, ?> outcomeRequest = bodies.get(
+                paths.indexOf("/control/v2/host/outcome"));
         require(outcomeRequest.get("output") instanceof Map<?, ?>
                         && outcomeRequest.get("outcome") instanceof Map<?, ?> outcome
                         && !outcome.containsKey("output"),
@@ -103,12 +106,12 @@ final class HostControlSessionTest {
 
         now[0] += 11_000L;
         session.poll(8, 0);
-        require(paths.get(paths.size() - 2).equals("/control/v1/renew")
-                        && paths.get(paths.size() - 1).equals("/control/v1/poll"),
+        require(paths.get(paths.size() - 2).equals("/control/v2/host/renew")
+                        && paths.get(paths.size() - 1).equals("/control/v2/host/poll"),
                 "Polling did not renew an expiring Host lease");
         session.unregister();
         require(!session.health().leased() && paths.get(paths.size() - 1)
-                        .equals("/control/v1/unregister"),
+                        .equals("/control/v2/host/unregister"),
                 "Host lease was not cleared on unregister");
 
         requireRejected(() -> session.poll(0, 0));
