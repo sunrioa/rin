@@ -1,10 +1,6 @@
-from .client import (
-    DEFAULT_BASE_URL,
-    DEFAULT_MAX_RESPONSE_BYTES,
-    PROTOCOL_VERSION,
+from ._common import (
     SDK_VERSION,
     RinAPIError,
-    RinClient,
     RinConfigurationError,
     RinError,
     RinProtocolError,
@@ -18,12 +14,8 @@ from .control import (
 )
 
 __all__ = (
-    "DEFAULT_BASE_URL",
-    "DEFAULT_MAX_RESPONSE_BYTES",
-    "PROTOCOL_VERSION",
     "SDK_VERSION",
     "RinAPIError",
-    "RinClient",
     "RinConfigurationError",
     "RinError",
     "RinProtocolError",

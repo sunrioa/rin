@@ -11,7 +11,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request, build_opener
 
-from .client import (
+from ._common import (
     SDK_VERSION,
     RinAPIError,
     RinConfigurationError,
