@@ -303,8 +303,8 @@ Control 契约由
 
 `/control/v2/*` Client 路由供 `rin-mcp` 和语言 SDK 使用，覆盖发现、控制租约、动作、
 Operation 与急停。Client 请求体不携带 Principal；daemon 始终注入启动时固定的
-Principal，避免身份伪造。旧 `/control/v1/client/*` 路由已不再暴露。迁移期的
-`/control/v1` 别名仅用于 Host 传输；新 Host 必须使用 `/control/v2/host/*`。
+Principal，避免身份伪造。所有 `/control/v1/*` 路由均不再暴露；Host 只能使用
+`/control/v2/host/*`。
 
 错误响应始终包含供人阅读的 `error`，并可包含稳定的机器可读 `code`。当前服务码为
 `invalid`、`forbidden`、`not_found`、`lease_expired`、`unavailable`、
@@ -315,13 +315,15 @@ Principal，避免身份伪造。旧 `/control/v1/client/*` 路由已不再暴�
 
 `RIN_CONTROL_DATA_DIR` 中的 `operations.json` 使用 0600 权限、严格 JSON、
 临时文件同步和原子替换。目录带跨平台进程锁，只能由一个 `rin-control` 写入。
-状态文件不保存 Token、模型 Key、Prompt 或游戏存档。
+状态文件只接受 `rin.control.operations/v5` 的 Action-only Schema，不读取旧请求格式，
+也不保存 Token、模型 Key、Prompt 或游戏存档。
 
 恢复规则：
 
 - 新入队请求、ACK、取消和 Outcome 立即持久化；
 - 投递次数和 ActionRun 进度是检查点，在下一个耐久写入或正常关闭时合并；
-- 进程在 ACK 前崩溃时，请求按相同 Operation ID 安全重投，投递计数可以重置；
+- 进程在 ACK 前崩溃时，旧绑定不可安全重用，请求恢复为 `stale`，模型必须基于最新
+  Observation 重新提交；
 - ACK 后尚无 Run 或 Outcome 的请求按相同 Operation ID 重投，由 Host 从持久
   Pending Journal 恢复；
 - 已报告执行但尚无 Outcome 的请求恢复为 `outcome-unknown`，Host 应从自己的

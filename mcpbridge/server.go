@@ -521,7 +521,7 @@ func convertOperation(value controlplane.OperationView) (Operation, error) {
 	converted := Operation{
 		OperationID: value.OperationID, RequestID: value.RequestID,
 		HostID: value.HostID, WorldID: value.WorldID, ActorID: value.ActorID,
-		Kind: value.Kind, TurnID: value.TurnID,
+		Kind:              value.Kind,
 		ControllerLeaseID: value.ControllerLeaseID,
 		ParentOperationID: value.ParentOperationID,
 		ChildOperationIDs: append([]string(nil), value.ChildOperationIDs...),

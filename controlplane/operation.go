@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
 	"reflect"
@@ -20,8 +19,6 @@ const (
 	defaultMaxOperations = 1_024
 	hardMaxOperations    = 65_536
 	defaultOperationTTL  = 30 * time.Minute
-	maxControlTextBytes  = 4 << 10
-	maxUtteranceRunes    = 300
 	maxHostPollItems     = 64
 )
 
@@ -39,237 +36,6 @@ type operationState struct {
 	createdAt   int64
 	updatedAt   int64
 	children    []string
-}
-
-// SendActorMessage queues plain conversation without directly authorizing a
-// world mutation.
-func (service *Service) SendActorMessage(
-	principal host.Principal,
-	input ActorTextInput,
-) (OperationView, error) {
-	return service.submitText(principal, input, ControlMessage)
-}
-
-// SendActorDirective queues a negotiable goal that the Actor may refuse.
-func (service *Service) SendActorDirective(
-	principal host.Principal,
-	input ActorTextInput,
-) (OperationView, error) {
-	return service.submitText(principal, input, ControlDirective)
-}
-
-// SubmitActorUtterance queues player-visible dialogue authored by the current
-// externally bound controller.
-func (service *Service) SubmitActorUtterance(
-	principal host.Principal,
-	input ActorUtteranceInput,
-) (OperationView, error) {
-	if err := validateActorUtteranceInput(input); err != nil {
-		return OperationView{}, err
-	}
-	if err := host.ValidatePrincipal(principal); err != nil {
-		return OperationView{}, fmt.Errorf("%w: principal: %v", ErrInvalid, err)
-	}
-
-	service.mu.Lock()
-	defer service.mu.Unlock()
-	key := operationRequestKey(principal.ID, input.RequestID)
-	if existing, found, err := service.idempotentOperationLocked(
-		key,
-		principal,
-		input.HostID,
-		input.WorldID,
-		input.ActorID,
-		ControlUtterance,
-		input.Text,
-		"",
-		input.TurnID,
-	); found || err != nil {
-		return existing, err
-	}
-	actor, err := service.authorizeActorLocked(
-		principal,
-		input.HostID,
-		input.WorldID,
-		input.ActorID,
-		ScopeActorSpeak,
-	)
-	if err != nil {
-		if persistErr := service.persistOperationsLocked(); persistErr != nil {
-			return OperationView{}, persistErr
-		}
-		return OperationView{}, err
-	}
-	if !authorityAllowsExternal(actor, principal.ID) {
-		return OperationView{}, ErrForbidden
-	}
-	if service.emergencyStops[actorControlKey{
-		hostID: input.HostID, worldID: input.WorldID, actorID: input.ActorID,
-	}].Active {
-		return OperationView{}, ErrForbidden
-	}
-	operationID, err := service.prepareOperationLocked()
-	if err != nil {
-		return OperationView{}, err
-	}
-	request := HostControlRequest{
-		OperationID: operationID,
-		RequestID:   input.RequestID,
-		Principal:   clonePrincipalValue(principal),
-		HostID:      input.HostID,
-		WorldID:     input.WorldID,
-		ActorID:     input.ActorID,
-		Kind:        ControlUtterance,
-		TurnID:      input.TurnID,
-		Text:        input.Text,
-		Binding:     bindingFromActor(actor),
-		SubmittedAt: service.now().UnixMilli(),
-	}
-	return service.queueOperationLocked(key, request)
-}
-
-// ExecuteActorOffer queues one exact Host-published Offer.
-func (service *Service) ExecuteActorOffer(
-	principal host.Principal,
-	input ExecuteOfferInput,
-) (OperationView, error) {
-	if err := validateExecuteOfferInput(input); err != nil {
-		return OperationView{}, err
-	}
-	if err := host.ValidatePrincipal(principal); err != nil {
-		return OperationView{}, fmt.Errorf("%w: principal: %v", ErrInvalid, err)
-	}
-
-	service.mu.Lock()
-	defer service.mu.Unlock()
-	key := operationRequestKey(principal.ID, input.RequestID)
-	if existing, found, err := service.idempotentOperationLocked(
-		key,
-		principal,
-		input.HostID,
-		input.WorldID,
-		input.ActorID,
-		ControlOffer,
-		"",
-		input.OfferID,
-		input.TurnID,
-	); found || err != nil {
-		return existing, err
-	}
-	actor, err := service.authorizeActorLocked(
-		principal,
-		input.HostID,
-		input.WorldID,
-		input.ActorID,
-		ScopeActorExecute,
-	)
-	if err != nil {
-		if persistErr := service.persistOperationsLocked(); persistErr != nil {
-			return OperationView{}, persistErr
-		}
-		return OperationView{}, err
-	}
-	if !authorityAllowsExternal(actor, principal.ID) {
-		return OperationView{}, ErrForbidden
-	}
-	if service.emergencyStops[actorControlKey{
-		hostID: input.HostID, worldID: input.WorldID, actorID: input.ActorID,
-	}].Active {
-		return OperationView{}, ErrForbidden
-	}
-	var selected *host.ActionOffer
-	for index := range actor.Offers {
-		if actor.Offers[index].OfferID == input.OfferID {
-			selected = &actor.Offers[index]
-			break
-		}
-	}
-	if selected == nil {
-		return OperationView{}, ErrNotFound
-	}
-	operationID, err := service.prepareOperationLocked()
-	if err != nil {
-		return OperationView{}, err
-	}
-	offer := cloneOffer(*selected)
-	request := HostControlRequest{
-		OperationID: operationID,
-		RequestID:   input.RequestID,
-		Principal:   clonePrincipalValue(principal),
-		HostID:      input.HostID,
-		WorldID:     input.WorldID,
-		ActorID:     input.ActorID,
-		Kind:        ControlOffer,
-		TurnID:      input.TurnID,
-		Binding:     bindingFromActor(actor),
-		Offer:       &offer,
-		SubmittedAt: service.now().UnixMilli(),
-	}
-	return service.queueOperationLocked(key, request)
-}
-
-func (service *Service) submitText(
-	principal host.Principal,
-	input ActorTextInput,
-	kind ControlKind,
-) (OperationView, error) {
-	if err := validateActorTextInput(input); err != nil {
-		return OperationView{}, err
-	}
-	if err := host.ValidatePrincipal(principal); err != nil {
-		return OperationView{}, fmt.Errorf("%w: principal: %v", ErrInvalid, err)
-	}
-	requiredScope := ScopeActorConverse
-	if kind == ControlDirective {
-		requiredScope = ScopeActorDirect
-	}
-
-	service.mu.Lock()
-	defer service.mu.Unlock()
-	key := operationRequestKey(principal.ID, input.RequestID)
-	if existing, found, err := service.idempotentOperationLocked(
-		key,
-		principal,
-		input.HostID,
-		input.WorldID,
-		input.ActorID,
-		kind,
-		input.Text,
-		"",
-		"",
-	); found || err != nil {
-		return existing, err
-	}
-	actor, err := service.authorizeActorLocked(
-		principal,
-		input.HostID,
-		input.WorldID,
-		input.ActorID,
-		requiredScope,
-	)
-	if err != nil {
-		if persistErr := service.persistOperationsLocked(); persistErr != nil {
-			return OperationView{}, persistErr
-		}
-		return OperationView{}, err
-	}
-	operationID, err := service.prepareOperationLocked()
-	if err != nil {
-		return OperationView{}, err
-	}
-	request := HostControlRequest{
-		OperationID: operationID,
-		RequestID:   input.RequestID,
-		Principal:   clonePrincipalValue(principal),
-		HostID:      input.HostID,
-		WorldID:     input.WorldID,
-		ActorID:     input.ActorID,
-		Kind:        kind,
-		Text:        input.Text,
-		Binding:     bindingFromActor(actor),
-		SubmittedAt: service.now().UnixMilli(),
-	}
-	return service.queueOperationLocked(key, request)
 }
 
 // PollHost waits for bounded new work or cancellation requests. Redelivery is
@@ -664,46 +430,6 @@ func (service *Service) CancelOperation(
 	return operationView(operation), nil
 }
 
-func (service *Service) idempotentOperationLocked(
-	key string,
-	principal host.Principal,
-	hostID, worldID, actorID string,
-	kind ControlKind,
-	text, offerID, turnID string,
-) (OperationView, bool, error) {
-	operationID, exists := service.requests[key]
-	if !exists {
-		return OperationView{}, false, nil
-	}
-	operation := service.operations[operationID]
-	canonicalPrincipal := clonePrincipalValue(principal)
-	same := operation != nil &&
-		operation.request.Principal.ID == principal.ID &&
-		slices.Equal(
-			operation.request.Principal.GrantedScopes,
-			canonicalPrincipal.GrantedScopes,
-		) &&
-		operation.request.HostID == hostID &&
-		operation.request.WorldID == worldID &&
-		operation.request.ActorID == actorID &&
-		operation.request.Kind == kind &&
-		operation.request.Text == text &&
-		operation.request.TurnID == turnID
-	if same && kind == ControlOffer {
-		same = operation.request.Offer != nil &&
-			operation.request.Offer.OfferID == offerID
-	}
-	if !same {
-		return OperationView{}, true,
-			fmt.Errorf("%w: request_id was reused with different input", ErrConflict)
-	}
-	service.refreshOperationHostLocked(operation)
-	if err := service.persistOperationsLocked(); err != nil {
-		return OperationView{}, true, err
-	}
-	return operationView(operation), true, nil
-}
-
 func (service *Service) authorizeActorLocked(
 	principal host.Principal,
 	hostID, worldID, actorID, requiredScope string,
@@ -738,37 +464,6 @@ func (service *Service) prepareOperationLocked() (string, error) {
 		return "", ErrCapacity
 	}
 	return service.newID("operation")
-}
-
-func (service *Service) queueOperationLocked(
-	key string,
-	request HostControlRequest,
-) (OperationView, error) {
-	operation := &operationState{
-		request:     cloneControlRequest(request),
-		status:      OperationQueued,
-		idempotency: key,
-		createdAt:   request.SubmittedAt,
-		updatedAt:   request.SubmittedAt,
-	}
-	service.operations[request.OperationID] = operation
-	service.requests[key] = request.OperationID
-	service.markOperationsDirtyLocked()
-	if err := service.persistOperationsWithLimitLocked(
-		maxQueuedStateBytes,
-	); err != nil {
-		if errors.Is(err, ErrCapacity) {
-			delete(service.operations, request.OperationID)
-			delete(service.requests, key)
-			service.operationDirty = true
-			return OperationView{}, errors.Join(
-				err,
-				service.persistOperationsLocked(),
-			)
-		}
-		return OperationView{}, err
-	}
-	return operationView(operation), nil
 }
 
 func (service *Service) collectHostWorkLocked(
@@ -980,7 +675,6 @@ func operationView(operation *operationState) OperationView {
 		WorldID:               operation.request.WorldID,
 		ActorID:               operation.request.ActorID,
 		Kind:                  operation.request.Kind,
-		TurnID:                operation.request.TurnID,
 		ControllerLeaseID:     controllerLeaseID(operation.request.Binding),
 		ParentOperationID:     operation.request.ParentOperationID,
 		ChildOperationIDs:     append([]string(nil), operation.children...),
@@ -1063,30 +757,12 @@ func operationOutputView(output json.RawMessage) map[string]any {
 	return value
 }
 
-func bindingFromActor(actor ActorPublication) *ControlBinding {
-	return &ControlBinding{
-		Epoch:             actor.Epoch,
-		ObservationSeq:    actor.ObservationSeq,
-		AuthorityRevision: effectiveAuthority(actor).Revision,
-	}
-}
-
 func cloneControlRequest(value HostControlRequest) HostControlRequest {
 	cloned := value
 	cloned.Principal = clonePrincipalValue(value.Principal)
 	if value.Binding != nil {
 		binding := *value.Binding
 		cloned.Binding = &binding
-	}
-	if value.Offer != nil {
-		offer := cloneOffer(*value.Offer)
-		cloned.Offer = &offer
-	}
-	if value.Invocation != nil {
-		invocation := *value.Invocation
-		invocation.Arguments = append([]byte(nil), value.Invocation.Arguments...)
-		invocation.Targets = append([]host.HostRef(nil), value.Invocation.Targets...)
-		cloned.Invocation = &invocation
 	}
 	if value.ActionRequest != nil {
 		action := cloneActionRequest(*value.ActionRequest)
@@ -1110,23 +786,6 @@ func controllerLeaseID(binding *ControlBinding) string {
 	return binding.ControllerLeaseID
 }
 
-func cloneOffer(value host.ActionOffer) host.ActionOffer {
-	value.Arguments = append(json.RawMessage(nil), value.Arguments...)
-	value.Targets = append([]host.HostRef(nil), value.Targets...)
-	value.Planning = clonePlanning(value.Planning)
-	return value
-}
-
-func clonePlanning(value *host.ActionPlanMetadata) *host.ActionPlanMetadata {
-	if value == nil {
-		return nil
-	}
-	cloned := *value
-	cloned.Preconditions = append([]string(nil), value.Preconditions...)
-	cloned.Postconditions = append([]string(nil), value.Postconditions...)
-	return &cloned
-}
-
 func clonePrincipalValue(value host.Principal) host.Principal {
 	value.GrantedScopes = append([]string(nil), value.GrantedScopes...)
 	slices.Sort(value.GrantedScopes)
@@ -1140,62 +799,6 @@ func cloneRun(value host.ActionRun) host.ActionRun {
 func cloneOutcome(value host.ActionOutcome) host.ActionOutcome {
 	value.Evidence = append([]host.HostRef(nil), value.Evidence...)
 	return value
-}
-
-func validateActorTextInput(input ActorTextInput) error {
-	if err := validateControlTarget(
-		input.RequestID,
-		input.HostID,
-		input.WorldID,
-		input.ActorID,
-	); err != nil {
-		return err
-	}
-	return validateText("text", input.Text, maxControlTextBytes, true)
-}
-
-func validateActorUtteranceInput(input ActorUtteranceInput) error {
-	if err := validateControlTarget(
-		input.RequestID,
-		input.HostID,
-		input.WorldID,
-		input.ActorID,
-	); err != nil {
-		return err
-	}
-	if err := validateID("turn_id", input.TurnID); err != nil {
-		return err
-	}
-	if err := validateText(
-		"text",
-		input.Text,
-		maxControlTextBytes,
-		true,
-	); err != nil {
-		return err
-	}
-	if utf8.RuneCountInString(input.Text) > maxUtteranceRunes {
-		return invalid("text", "must contain at most 300 Unicode code points")
-	}
-	return nil
-}
-
-func validateExecuteOfferInput(input ExecuteOfferInput) error {
-	if err := validateControlTarget(
-		input.RequestID,
-		input.HostID,
-		input.WorldID,
-		input.ActorID,
-	); err != nil {
-		return err
-	}
-	if err := validateID("offer_id", input.OfferID); err != nil {
-		return err
-	}
-	if input.TurnID != "" {
-		return validateID("turn_id", input.TurnID)
-	}
-	return nil
 }
 
 func validateControlTarget(
@@ -1229,10 +832,6 @@ func validateAcknowledgement(value HostAcknowledgement) error {
 		return err
 	}
 	return validateText("message", value.Message, 500, false)
-}
-
-func operationRequestKey(principalID, requestID string) string {
-	return principalID + "\x00" + requestID
 }
 
 func validInitialRunStatus(status host.ActionRunStatus) bool {

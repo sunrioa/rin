@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/policy"
 )
 
 func TestControllerLeaseIsExclusiveAndEpochBound(t *testing.T) {
@@ -119,24 +120,18 @@ func TestInternalControllerRequiresHostAdministrator(t *testing.T) {
 }
 
 func TestEmergencyStopCancelsQueuedAndDeliveredActorWork(t *testing.T) {
-	service, hostLease, _ := operationTestService(t, Options{})
-	principal := operationPrincipal(
-		ScopeActorControl,
-		ScopeActorExecute,
-		ScopeOperationCancel,
+	service, hostLease, principal, actionHost := actionGatewayTestService(
+		t,
+		host.RiskLow,
+		policy.ProfileOpen,
 	)
-	queued, err := service.ExecuteActorOffer(
+	queued, err := service.SubmitAction(
+		context.Background(),
 		principal,
-		ExecuteOfferInput{
-			RequestID: "request.stop.queued",
-			HostID:    "test.host",
-			WorldID:   "world.one",
-			ActorID:   "actor.one",
-			OfferID:   "offer.follow",
-		},
+		actionHost.input("request.stop.queued", "action.stop.queued"),
 	)
 	if err != nil {
-		t.Fatalf("ExecuteActorOffer queued: %v", err)
+		t.Fatalf("SubmitAction queued: %v", err)
 	}
 	stop, err := service.SetActorEmergencyStop(
 		principal,
@@ -145,18 +140,6 @@ func TestEmergencyStopCancelsQueuedAndDeliveredActorWork(t *testing.T) {
 	)
 	if err != nil || !stop.Active || stop.Revision != 1 {
 		t.Fatalf("SetActorEmergencyStop = %#v, %v", stop, err)
-	}
-	if _, err := service.ExecuteActorOffer(
-		principal,
-		ExecuteOfferInput{
-			RequestID: "request.stop.blocked",
-			HostID:    "test.host",
-			WorldID:   "world.one",
-			ActorID:   "actor.one",
-			OfferID:   "offer.follow",
-		},
-	); !errors.Is(err, ErrForbidden) {
-		t.Fatalf("emergency-stopped legacy offer error = %v", err)
 	}
 	view, err := service.GetOperation(principal, queued.OperationID)
 	if err != nil || view.Status != OperationCancelled || !view.Terminal ||
@@ -171,18 +154,13 @@ func TestEmergencyStopCancelsQueuedAndDeliveredActorWork(t *testing.T) {
 		t.Fatalf("clear emergency stop: %v", err)
 	}
 
-	delivered, err := service.ExecuteActorOffer(
+	delivered, err := service.SubmitAction(
+		context.Background(),
 		principal,
-		ExecuteOfferInput{
-			RequestID: "request.stop.delivered",
-			HostID:    "test.host",
-			WorldID:   "world.one",
-			ActorID:   "actor.one",
-			OfferID:   "offer.follow",
-		},
+		actionHost.input("request.stop.delivered", "action.stop.delivered"),
 	)
 	if err != nil {
-		t.Fatalf("ExecuteActorOffer delivered: %v", err)
+		t.Fatalf("SubmitAction delivered: %v", err)
 	}
 	batch := pollHost(t, service, hostLease, 1)
 	if len(batch.Requests) != 1 ||

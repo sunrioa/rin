@@ -441,38 +441,6 @@ func (service *Service) getActorLocked(
 	return ActorView{}, ErrNotFound
 }
 
-// ListActorOffers returns current bound offers only while the host is online.
-func (service *Service) ListActorOffers(
-	principal host.Principal,
-	hostID, worldID, actorID string,
-) ([]host.ActionOffer, error) {
-	if err := host.ValidatePrincipal(principal); err != nil {
-		return nil, fmt.Errorf("%w: principal: %v", ErrInvalid, err)
-	}
-	service.mu.RLock()
-	defer service.mu.RUnlock()
-	current, world, err := service.findWorldLocked(hostID, worldID)
-	if err != nil {
-		return nil, err
-	}
-	if current.lease.ExpiresAtUnixMillis <= service.now().UnixMilli() {
-		return nil, ErrUnavailable
-	}
-	for _, actor := range world.Actors {
-		if actor.ActorID != actorID {
-			continue
-		}
-		if !canAccessActor(principal, actor, ScopeActorRead) {
-			return nil, ErrForbidden
-		}
-		if !authorityAllowsExternal(actor, principal.ID) {
-			return nil, ErrForbidden
-		}
-		return cloneOffers(actor.Offers), nil
-	}
-	return nil, ErrNotFound
-}
-
 func (service *Service) requireLeaseLocked(
 	hostID, leaseID string,
 ) (*hostState, error) {
@@ -528,7 +496,6 @@ func clonePublication(value WorldPublication) WorldPublication {
 		}
 		cloned.Actors[index].State =
 			append(json.RawMessage(nil), actor.State...)
-		cloned.Actors[index].Offers = cloneOffers(actor.Offers)
 		if actor.Observation != nil {
 			observation := cloneObservationEnvelope(*actor.Observation)
 			cloned.Actors[index].Observation = &observation
@@ -593,19 +560,6 @@ func cloneCapabilitySnapshot(value host.CapabilitySnapshot) host.CapabilitySnaps
 	return value
 }
 
-func cloneOffers(values []host.ActionOffer) []host.ActionOffer {
-	cloned := make([]host.ActionOffer, len(values))
-	for index, offer := range values {
-		cloned[index] = offer
-		cloned[index].Arguments =
-			append(json.RawMessage(nil), offer.Arguments...)
-		cloned[index].Targets =
-			append([]host.HostRef(nil), offer.Targets...)
-		cloned[index].Planning = clonePlanning(offer.Planning)
-	}
-	return cloned
-}
-
 func (service *Service) actorViewLocked(
 	hostID, worldID string,
 	lease HostLease,
@@ -639,17 +593,7 @@ func (service *Service) actorViewLocked(
 }
 
 func effectiveAuthority(actor ActorPublication) DecisionAuthority {
-	if actor.Authority != nil {
-		return *actor.Authority
-	}
-	// Publications predating decision-authority support remain externally
-	// controllable by their owner, matching the original Control v1 behavior.
-	return DecisionAuthority{
-		Source:                DecisionExternal,
-		ControllerPrincipalID: actor.OwnerPrincipalID,
-		Revision:              1,
-		PersonaMode:           PersonaCharacterBound,
-	}
+	return *actor.Authority
 }
 
 func authorityAllowsExternal(

@@ -348,9 +348,8 @@ The Control contract is
 The `/control/v2/*` client routes used by `rin-mcp` and language SDKs cover
 discovery, controller leases, actions, Operations, and emergency stop. Client
 request bodies never carry a Principal; the daemon always injects its fixed
-startup Principal to prevent identity spoofing. Legacy `/control/v1/client/*`
-routes are not exposed. Temporary `/control/v1` aliases apply only to the Host
-migration transport; new Host integrations must use `/control/v2/host/*`.
+startup Principal to prevent identity spoofing. No `/control/v1/*` route is
+exposed; Hosts must use `/control/v2/host/*`.
 
 Error responses always contain a human-readable `error` and may include a stable
 machine-readable `code`. Current service codes are `invalid`, `forbidden`,
@@ -363,15 +362,17 @@ is present and treat the HTTP status as the compatibility fallback.
 `operations.json` in `RIN_CONTROL_DATA_DIR` uses mode 0600, strict JSON,
 temporary-file synchronization, and atomic replacement. A cross-platform process
 lock permits only one `rin-control` writer. The file never stores the token,
-model keys, prompts, or a game save.
+model keys, prompts, or a game save. It accepts only the Action-only
+`rin.control.operations/v5` schema and does not load older request formats.
 
 Recovery rules:
 
 - newly queued requests, ACKs, cancellation, and Outcomes are immediately durable;
 - delivery counters and ActionRun progress are checkpoints folded into the next
   durable write or graceful shutdown;
-- a crash before ACK safely redelivers the same Operation ID, although the
-  delivery counter may reset;
+- a crash before ACK makes the old binding unsafe to reuse, so the Operation
+  restores as `stale` and the controller must submit again from a fresh
+  Observation;
 - accepted work with no reported run or Outcome is redelivered by the same
   Operation ID so the Host can resume from its durable Pending Journal;
 - accepted work with reported execution but no Outcome restores as

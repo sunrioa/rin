@@ -16,7 +16,6 @@ const (
 	maxLeaseTTLMillis   = 300_000
 	maxWorldsPerHost    = 64
 	maxActorsPerWorld   = 4_096
-	maxOffersPerActor   = 64
 	maxCapabilitySpecs  = 512
 	maxActorStateBytes  = 64 << 10
 	maxPublicationBytes = 8 << 20
@@ -109,13 +108,14 @@ func validateActor(
 	if value.Epoch.WorldID != worldID {
 		return invalid(prefix+".epoch.world_id", "must equal publication world_id")
 	}
-	if value.Authority != nil {
-		if err := validateDecisionAuthority(
-			prefix+".decision_authority",
-			*value.Authority,
-		); err != nil {
-			return err
-		}
+	if value.Authority == nil {
+		return invalid(prefix+".decision_authority", "is required")
+	}
+	if err := validateDecisionAuthority(
+		prefix+".decision_authority",
+		*value.Authority,
+	); err != nil {
+		return err
 	}
 	if err := validateJSONObject(prefix+".state", value.State, maxActorStateBytes); err != nil {
 		return err
@@ -162,29 +162,6 @@ func validateActor(
 			}
 			previous = spec.Capability
 		}
-	}
-	if len(value.Offers) > maxOffersPerActor {
-		return invalid(prefix+".offers", "must contain at most 64 values")
-	}
-	offers := make(map[string]struct{}, len(value.Offers))
-	for offerIndex, offer := range value.Offers {
-		field := fmt.Sprintf("%s.offers[%d]", prefix, offerIndex)
-		if err := host.ValidateActionOffer(offer); err != nil {
-			return invalid(field, err.Error())
-		}
-		if offer.ActorID != value.ActorID {
-			return invalid(field+".actor_id", "must equal actor_id")
-		}
-		if offer.ExpectedEpoch != value.Epoch {
-			return invalid(field+".expected_epoch", "must equal actor epoch")
-		}
-		if offer.ObservationSeq != value.ObservationSeq {
-			return invalid(field+".observation_seq", "must equal actor observation_seq")
-		}
-		if _, duplicate := offers[offer.OfferID]; duplicate {
-			return invalid(prefix+".offers", "must not contain duplicate offer_id values")
-		}
-		offers[offer.OfferID] = struct{}{}
 	}
 	return nil
 }

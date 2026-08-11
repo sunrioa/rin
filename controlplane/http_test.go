@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/policy"
 )
 
 const testControlToken = "0123456789abcdef0123456789abcdef"
@@ -25,7 +27,7 @@ func TestHTTPHandlerRegistersAndPublishes(t *testing.T) {
 	}
 
 	lease := HostLease{}
-	response := requestJSON(t, handler, "/control/v1/register", registration("instance.one"))
+	response := requestJSON(t, handler, "/control/v2/host/register", registration("instance.one"))
 	if response.Code != http.StatusOK {
 		t.Fatalf("register status = %d, body = %s", response.Code, response.Body)
 	}
@@ -33,7 +35,7 @@ func TestHTTPHandlerRegistersAndPublishes(t *testing.T) {
 		t.Fatalf("decode lease: %v", err)
 	}
 
-	response = requestJSON(t, handler, "/control/v1/publish", publishRequest{
+	response = requestJSON(t, handler, "/control/v2/host/publish", publishRequest{
 		HostID:      "test.host",
 		LeaseID:     lease.LeaseID,
 		Publication: worldPublication(1, "ready"),
@@ -57,7 +59,7 @@ func TestHTTPHandlerRequiresTokenAndStrictJSON(t *testing.T) {
 	}
 
 	unauthorized := httptest.NewRequest(
-		http.MethodPost, "/control/v1/register",
+		http.MethodPost, "/control/v2/host/register",
 		bytes.NewReader([]byte(`{}`)),
 	)
 	unauthorized.Header.Set("Content-Type", "application/json")
@@ -68,7 +70,7 @@ func TestHTTPHandlerRequiresTokenAndStrictJSON(t *testing.T) {
 	}
 
 	unknown := httptest.NewRequest(
-		http.MethodPost, "/control/v1/register",
+		http.MethodPost, "/control/v2/host/register",
 		bytes.NewReader([]byte(`{"unknown":true}`)),
 	)
 	unknown.Header.Set("Authorization", "Bearer "+testControlToken)
@@ -80,7 +82,7 @@ func TestHTTPHandlerRequiresTokenAndStrictJSON(t *testing.T) {
 	}
 
 	duplicate := httptest.NewRequest(
-		http.MethodPost, "/control/v1/register",
+		http.MethodPost, "/control/v2/host/register",
 		bytes.NewReader([]byte(`{"host_id":"one","host_id":"two"}`)),
 	)
 	duplicate.Header.Set("Authorization", "Bearer "+testControlToken)
@@ -104,7 +106,7 @@ func TestHTTPHandlerRequiresTokenAndStrictJSON(t *testing.T) {
 	}
 }
 
-func TestHTTPHandlerDoesNotExposeLegacyClientRoutes(t *testing.T) {
+func TestHTTPHandlerDoesNotExposeLegacyRoutes(t *testing.T) {
 	service := New(Options{})
 	principal := operationPrincipal(
 		ScopeActorRead,
@@ -122,6 +124,16 @@ func TestHTTPHandlerDoesNotExposeLegacyClientRoutes(t *testing.T) {
 		t.Fatalf("NewHTTPHandler: %v", err)
 	}
 	for _, path := range []string{
+		"/control/v1/health",
+		"/control/v1/register",
+		"/control/v1/renew",
+		"/control/v1/unregister",
+		"/control/v1/publish",
+		"/control/v1/poll",
+		"/control/v1/ack",
+		"/control/v1/run",
+		"/control/v1/outcome",
+		"/control/v1/gateway-result",
 		"/control/v1/client/info",
 		"/control/v1/client/worlds",
 		"/control/v1/client/actors",
@@ -148,9 +160,16 @@ func TestHTTPHandlerDoesNotExposeLegacyClientRoutes(t *testing.T) {
 }
 
 func TestHTTPHandlerDeliversAndRecordsOperationLifecycle(t *testing.T) {
+	actionHost, engine := actionGatewayTestComponents(
+		t,
+		host.RiskLow,
+		policy.ProfileOpen,
+	)
 	service := New(Options{
-		Now:    func() time.Time { return time.UnixMilli(1_000_000) },
-		Random: bytes.NewReader(sequenceBytes(256)),
+		Now:          func() time.Time { return time.UnixMilli(1_000_000) },
+		Random:       bytes.NewReader(sequenceBytes(256)),
+		ActionHost:   actionHost,
+		PolicyEngine: engine,
 	})
 	handler, err := NewHTTPHandler(service, HTTPOptions{Token: testControlToken})
 	if err != nil {
@@ -161,7 +180,7 @@ func TestHTTPHandlerDeliversAndRecordsOperationLifecycle(t *testing.T) {
 	response := requestJSON(
 		t,
 		handler,
-		"/control/v1/register",
+		"/control/v2/host/register",
 		registration("instance.operation.http"),
 	)
 	if response.Code != http.StatusOK {
@@ -170,7 +189,7 @@ func TestHTTPHandlerDeliversAndRecordsOperationLifecycle(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &lease); err != nil {
 		t.Fatalf("decode lease: %v", err)
 	}
-	response = requestJSON(t, handler, "/control/v1/publish", publishRequest{
+	response = requestJSON(t, handler, "/control/v2/host/publish", publishRequest{
 		HostID:      "test.host",
 		LeaseID:     lease.LeaseID,
 		Publication: worldPublication(1, "ready"),
@@ -179,18 +198,27 @@ func TestHTTPHandlerDeliversAndRecordsOperationLifecycle(t *testing.T) {
 		t.Fatalf("publish status = %d, body = %s", response.Code, response.Body)
 	}
 
-	principal := operationPrincipal(ScopeActorConverse)
-	operation, err := service.SendActorMessage(principal, ActorTextInput{
-		RequestID: "request.http.message",
-		HostID:    "test.host",
-		WorldID:   "world.one",
-		ActorID:   "actor.one",
-		Text:      "Hello over Host Control.",
-	})
-	if err != nil {
-		t.Fatalf("SendActorMessage: %v", err)
+	principal := operationPrincipal(
+		ScopeActorRead,
+		ScopeActorControl,
+		ScopeActorExecute,
+	)
+	if _, err := service.AcquireController(principal, AcquireControllerInput{
+		ActorControlTarget: testActorControlTarget(),
+		ControllerID:       "controller.gateway.one",
+		LeaseTTLMillis:     5_000,
+	}); err != nil {
+		t.Fatalf("AcquireController: %v", err)
 	}
-	response = requestJSON(t, handler, "/control/v1/poll", pollRequest{
+	operation, err := service.SubmitAction(
+		context.Background(),
+		principal,
+		actionHost.input("request.http.action", "action.http.one"),
+	)
+	if err != nil {
+		t.Fatalf("SubmitAction: %v", err)
+	}
+	response = requestJSON(t, handler, "/control/v2/host/poll", pollRequest{
 		HostID:     "test.host",
 		LeaseID:    lease.LeaseID,
 		Limit:      8,
@@ -207,7 +235,7 @@ func TestHTTPHandlerDeliversAndRecordsOperationLifecycle(t *testing.T) {
 		batch.Requests[0].Request.OperationID != operation.OperationID {
 		t.Fatalf("poll batch = %#v", batch)
 	}
-	response = requestJSON(t, handler, "/control/v1/outcome", outcomeRequest{
+	response = requestJSON(t, handler, "/control/v2/host/outcome", outcomeRequest{
 		HostID:  "test.host",
 		LeaseID: lease.LeaseID,
 		Outcome: host.ActionOutcome{
@@ -234,7 +262,7 @@ func TestHTTPHandlerDeliversAndRecordsOperationLifecycle(t *testing.T) {
 	response = requestJSON(
 		t,
 		handler,
-		"/control/v1/ack",
+		"/control/v2/host/ack",
 		acknowledgementRequest{
 			HostID:  "test.host",
 			LeaseID: lease.LeaseID,
@@ -247,7 +275,7 @@ func TestHTTPHandlerDeliversAndRecordsOperationLifecycle(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("ack status = %d, body = %s", response.Code, response.Body)
 	}
-	response = requestJSON(t, handler, "/control/v1/run", runRequest{
+	response = requestJSON(t, handler, "/control/v2/host/run", runRequest{
 		HostID:  "test.host",
 		LeaseID: lease.LeaseID,
 		Run: host.ActionRun{
@@ -261,7 +289,7 @@ func TestHTTPHandlerDeliversAndRecordsOperationLifecycle(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("run status = %d, body = %s", response.Code, response.Body)
 	}
-	response = requestJSON(t, handler, "/control/v1/outcome", outcomeRequest{
+	response = requestJSON(t, handler, "/control/v2/host/outcome", outcomeRequest{
 		HostID:  "test.host",
 		LeaseID: lease.LeaseID,
 		Outcome: host.ActionOutcome{
@@ -301,7 +329,7 @@ func TestHTTPHandlerReturnsStableNotFoundCodeForMissingOutcome(t *testing.T) {
 	response := requestJSON(
 		t,
 		handler,
-		"/control/v1/register",
+		"/control/v2/host/register",
 		registration("instance.missing.outcome"),
 	)
 	if response.Code != http.StatusOK {
@@ -310,7 +338,7 @@ func TestHTTPHandlerReturnsStableNotFoundCodeForMissingOutcome(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &lease); err != nil {
 		t.Fatalf("decode lease: %v", err)
 	}
-	response = requestJSON(t, handler, "/control/v1/outcome", outcomeRequest{
+	response = requestJSON(t, handler, "/control/v2/host/outcome", outcomeRequest{
 		HostID:  "test.host",
 		LeaseID: "lease.expired",
 		Outcome: host.ActionOutcome{
@@ -333,7 +361,7 @@ func TestHTTPHandlerReturnsStableNotFoundCodeForMissingOutcome(t *testing.T) {
 	if expired.Code != "lease_expired" {
 		t.Fatalf("expired lease error = %#v", expired)
 	}
-	response = requestJSON(t, handler, "/control/v1/outcome", outcomeRequest{
+	response = requestJSON(t, handler, "/control/v2/host/outcome", outcomeRequest{
 		HostID:  "test.host",
 		LeaseID: lease.LeaseID,
 		Outcome: host.ActionOutcome{
@@ -371,7 +399,7 @@ func TestHTTPHandlerDeliversAndRecordsHostGatewayResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("enqueueHostGateway: %v", err)
 	}
-	response := requestJSON(t, handler, "/control/v1/poll", pollRequest{
+	response := requestJSON(t, handler, "/control/v2/host/poll", pollRequest{
 		HostID:     "test.host",
 		LeaseID:    lease.LeaseID,
 		Limit:      1,
@@ -392,7 +420,7 @@ func TestHTTPHandlerDeliversAndRecordsHostGatewayResult(t *testing.T) {
 	response = requestJSON(
 		t,
 		handler,
-		"/control/v1/gateway-result",
+		"/control/v2/host/gateway-result",
 		gatewayResultRequest{
 			HostID:  "test.host",
 			LeaseID: lease.LeaseID,

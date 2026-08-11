@@ -1796,6 +1796,7 @@
           "display_name",
           "observation_seq",
           "epoch",
+          "decision_authority",
           "state"
         ]
       },

@@ -23,15 +23,11 @@ const (
 	ScopeHostAdmin       = "host.admin"
 )
 
-// ControlKind identifies one bounded semantic request sent to a game Host.
+// ControlKind identifies the sole mutation request sent to a game Host.
 type ControlKind string
 
 const (
-	ControlMessage   ControlKind = "message"
-	ControlDirective ControlKind = "directive"
-	ControlUtterance ControlKind = "utterance"
-	ControlOffer     ControlKind = "offer"
-	ControlAction    ControlKind = "action"
+	ControlAction ControlKind = "action"
 )
 
 // DecisionSource identifies the one deliberative controller currently allowed
@@ -157,9 +153,8 @@ type ActorPublication struct {
 	DisplayName      string                    `json:"display_name"`
 	ObservationSeq   uint64                    `json:"observation_seq"`
 	Epoch            host.Epoch                `json:"epoch"`
-	Authority        *DecisionAuthority        `json:"decision_authority,omitempty"`
+	Authority        *DecisionAuthority        `json:"decision_authority"`
 	State            json.RawMessage           `json:"state"`
-	Offers           []host.ActionOffer        `json:"offers,omitempty"`
 	Observation      *host.ObservationEnvelope `json:"observation,omitempty"`
 	Capabilities     *host.CapabilitySnapshot  `json:"capabilities,omitempty"`
 }
@@ -213,37 +208,6 @@ type ActorUpdate struct {
 	Changed bool      `json:"changed"`
 }
 
-// ActorTextInput submits one message or negotiable directive to an Actor.
-type ActorTextInput struct {
-	RequestID string `json:"request_id"`
-	HostID    string `json:"host_id"`
-	WorldID   string `json:"world_id"`
-	ActorID   string `json:"actor_id"`
-	Text      string `json:"text"`
-}
-
-// ActorUtteranceInput submits bounded player-visible dialogue from the current
-// external controller. TurnID may also be attached to an Offer selection.
-type ActorUtteranceInput struct {
-	RequestID string `json:"request_id"`
-	HostID    string `json:"host_id"`
-	WorldID   string `json:"world_id"`
-	ActorID   string `json:"actor_id"`
-	TurnID    string `json:"turn_id"`
-	Text      string `json:"text"`
-}
-
-// ExecuteOfferInput selects an exact Host-published Offer without adding
-// model-authored arguments.
-type ExecuteOfferInput struct {
-	RequestID string `json:"request_id"`
-	HostID    string `json:"host_id"`
-	WorldID   string `json:"world_id"`
-	ActorID   string `json:"actor_id"`
-	OfferID   string `json:"offer_id"`
-	TurnID    string `json:"turn_id,omitempty"`
-}
-
 // ControlBinding records the exact Host timeline and observation that were
 // visible when an external request was accepted by the Control Plane.
 type ControlBinding struct {
@@ -262,18 +226,12 @@ type HostControlRequest struct {
 	WorldID           string              `json:"world_id"`
 	ActorID           string              `json:"actor_id"`
 	Kind              ControlKind         `json:"kind"`
-	TurnID            string              `json:"turn_id,omitempty"`
-	Text              string              `json:"text,omitempty"`
-	Binding           *ControlBinding     `json:"binding,omitempty"`
-	Offer             *host.ActionOffer   `json:"offer,omitempty"`
-	ActionRequest     *host.ActionRequest `json:"action_request,omitempty"`
-	BoundAction       *host.BoundAction   `json:"bound_action,omitempty"`
-	PolicyDecision    *policy.Decision    `json:"policy_decision,omitempty"`
+	Binding           *ControlBinding     `json:"binding"`
+	ActionRequest     *host.ActionRequest `json:"action_request"`
+	BoundAction       *host.BoundAction   `json:"bound_action"`
+	PolicyDecision    *policy.Decision    `json:"policy_decision"`
 	ParentOperationID string              `json:"parent_operation_id,omitempty"`
-	// Invocation is retained only to load v1 operation files. New requests
-	// never populate it and legacy unfinished work is never redelivered.
-	Invocation  *host.ActionInvocation `json:"invocation,omitempty"`
-	SubmittedAt int64                  `json:"submitted_at_unix_millis"`
+	SubmittedAt       int64               `json:"submitted_at_unix_millis"`
 }
 
 // HostControlDelivery includes a stable request and its redelivery attempt.
@@ -344,7 +302,6 @@ type OperationView struct {
 	WorldID               string              `json:"world_id"`
 	ActorID               string              `json:"actor_id"`
 	Kind                  ControlKind         `json:"kind"`
-	TurnID                string              `json:"turn_id,omitempty"`
 	ControllerLeaseID     string              `json:"controller_lease_id,omitempty"`
 	ParentOperationID     string              `json:"parent_operation_id,omitempty"`
 	ChildOperationIDs     []string            `json:"child_operation_ids,omitempty"`

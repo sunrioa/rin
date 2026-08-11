@@ -315,7 +315,6 @@ type Operation struct {
 	WorldID               string                       `json:"world_id"`
 	ActorID               string                       `json:"actor_id"`
 	Kind                  controlplane.ControlKind     `json:"kind"`
-	TurnID                string                       `json:"turn_id,omitempty"`
 	ControllerLeaseID     string                       `json:"controller_lease_id,omitempty"`
 	ParentOperationID     string                       `json:"parent_operation_id,omitempty"`
 	ChildOperationIDs     []string                     `json:"child_operation_ids,omitempty"`

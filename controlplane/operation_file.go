@@ -16,13 +16,10 @@ import (
 )
 
 const (
-	operationFileVersion         = "rin.control.operations/v4"
-	previousOperationFileVersion = "rin.control.operations/v3"
-	olderOperationFileVersion    = "rin.control.operations/v2"
-	legacyOperationFileVersion   = "rin.control.operations/v1"
-	operationFileName            = "operations.json"
-	maxOperationFileBytes        = 64 << 20
-	maxQueuedStateBytes          = 32 << 20
+	operationFileVersion  = "rin.control.operations/v5"
+	operationFileName     = "operations.json"
+	maxOperationFileBytes = 64 << 20
+	maxQueuedStateBytes   = 32 << 20
 )
 
 var errOperationFileTooLarge = errors.New("operation state exceeds its size limit")
@@ -186,10 +183,7 @@ func (file *operationFile) read() (persistedOperations, error) {
 			err,
 		)
 	}
-	if state.Version != operationFileVersion &&
-		state.Version != previousOperationFileVersion &&
-		state.Version != olderOperationFileVersion &&
-		state.Version != legacyOperationFileVersion {
+	if state.Version != operationFileVersion {
 		return persistedOperations{}, fmt.Errorf(
 			"%w: unsupported operation state version %q",
 			ErrPersistence,
@@ -260,11 +254,10 @@ func (service *Service) restoreOperations(state persistedOperations) error {
 			return fmt.Errorf("%w: validate policy state: %v", ErrPersistence, err)
 		}
 	}
-	hasV2Action := false
 	actionDecisionIDs := make(map[string]struct{})
 	requiredReservationIDs := make(map[string]struct{})
 	for index, persisted := range state.Operations {
-		operation, err := restoreOperation(persisted, state.Version)
+		operation, err := restoreOperation(persisted)
 		if err != nil {
 			return fmt.Errorf(
 				"%w: operations[%d]: %v",
@@ -289,9 +282,7 @@ func (service *Service) restoreOperations(state persistedOperations) error {
 		}
 		service.operations[operationID] = operation
 		service.requests[operation.idempotency] = operationID
-		hasV2Action = hasV2Action || operation.request.Kind == ControlAction
-		if operation.request.Kind == ControlAction &&
-			operation.request.PolicyDecision != nil &&
+		if operation.request.PolicyDecision != nil &&
 			operation.request.PolicyDecision.Result == policy.Allow {
 			decision := operation.request.PolicyDecision
 			actionDecisionIDs[decision.DecisionID] = struct{}{}
@@ -301,7 +292,8 @@ func (service *Service) restoreOperations(state persistedOperations) error {
 			}
 		}
 	}
-	if hasV2Action && (service.policyEngine == nil || state.PolicyState == nil) {
+	if len(state.Operations) != 0 &&
+		(service.policyEngine == nil || state.PolicyState == nil) {
 		return fmt.Errorf("%w: V2 actions require persisted policy state", ErrPersistence)
 	}
 	if state.PolicyState != nil {
@@ -332,8 +324,7 @@ func (service *Service) restoreOperations(state persistedOperations) error {
 			continue
 		}
 		parent := service.operations[parentID]
-		if parent == nil || parent.request.Kind != ControlAction ||
-			operation.request.Kind != ControlAction ||
+		if parent == nil ||
 			parent.request.HostID != operation.request.HostID ||
 			parent.request.WorldID != operation.request.WorldID ||
 			parent.request.ActorID != operation.request.ActorID ||
@@ -410,10 +401,9 @@ func (service *Service) restoreOperations(state persistedOperations) error {
 			return fmt.Errorf("%w: restore policy state: %v", ErrPersistence, err)
 		}
 	}
-	if hasV2Action {
+	if len(state.Operations) != 0 {
 		for _, operation := range service.operations {
-			if operation.request.Kind != ControlAction ||
-				operation.request.PolicyDecision == nil ||
+			if operation.request.PolicyDecision == nil ||
 				operation.request.PolicyDecision.Result != policy.Allow {
 				continue
 			}
@@ -519,14 +509,8 @@ func validatePersistedEmergencyStop(value ActorEmergencyStop) error {
 	return nil
 }
 
-func restoreOperation(
-	value persistedOperation,
-	fileVersion string,
-) (*operationState, error) {
-	legacyUnbound := value.Request.Binding == nil ||
-		value.Request.Invocation != nil ||
-		fileVersion == legacyOperationFileVersion
-	if err := validateStoredRequest(value.Request, legacyUnbound); err != nil {
+func restoreOperation(value persistedOperation) (*operationState, error) {
+	if err := validateStoredRequest(value.Request); err != nil {
 		return nil, err
 	}
 	if !validOperationStatus(value.Status) {
@@ -587,8 +571,7 @@ func restoreOperation(
 		operation.status = OperationRejected
 	} else if operation.outcome != nil {
 		operation.status = operationStatusFromRun(operation.outcome.Status)
-	} else if request.Kind == ControlAction &&
-		request.PolicyDecision != nil &&
+	} else if request.PolicyDecision != nil &&
 		request.PolicyDecision.Result == policy.Deny {
 		operation.status = OperationRejected
 		operation.rejection = HostAcknowledgement{
@@ -602,22 +585,18 @@ func restoreOperation(
 		operation.ack == nil {
 		operation.status = OperationCancelled
 	} else if operation.ack != nil && operation.ack.Accepted {
-		if !legacyUnbound && operation.run == nil &&
-			value.Status == OperationAccepted {
+		if operation.run == nil && value.Status == OperationAccepted {
 			operation.status = OperationAccepted
 		} else {
 			operation.status = OperationOutcomeUnknown
 		}
-	} else if legacyUnbound || value.Status == OperationStale ||
-		request.Kind == ControlAction {
-		operation.status = OperationStale
 	} else {
-		operation.status = OperationQueued
+		operation.status = OperationStale
 	}
 	return operation, nil
 }
 
-func validateStoredRequest(request HostControlRequest, allowLegacy bool) error {
+func validateStoredRequest(request HostControlRequest) error {
 	if err := validateControlTarget(
 		request.RequestID,
 		request.HostID,
@@ -636,9 +615,7 @@ func validateStoredRequest(request HostControlRequest, allowLegacy bool) error {
 		return errors.New("invalid submitted_at_unix_millis")
 	}
 	if request.Binding == nil {
-		if !allowLegacy {
-			return errors.New("request binding is required")
-		}
+		return errors.New("request binding is required")
 	} else {
 		if err := request.Binding.Epoch.Validate("binding.epoch"); err != nil {
 			return fmt.Errorf("binding.epoch: %w", err)
@@ -651,9 +628,7 @@ func validateStoredRequest(request HostControlRequest, allowLegacy bool) error {
 			return errors.New("invalid binding observation_seq")
 		}
 		if request.Binding.AuthorityRevision == 0 {
-			if !allowLegacy {
-				return errors.New("binding authority_revision is required")
-			}
+			return errors.New("binding authority_revision is required")
 		} else if request.Binding.AuthorityRevision > maxJSONSafeInteger {
 			return errors.New("invalid binding authority_revision")
 		}
@@ -666,94 +641,13 @@ func validateStoredRequest(request HostControlRequest, allowLegacy bool) error {
 			}
 		}
 	}
-	if request.TurnID != "" {
-		if err := validateID("turn_id", request.TurnID); err != nil {
-			return err
-		}
-	}
-	switch request.Kind {
-	case ControlMessage, ControlDirective, ControlUtterance:
-		if request.Invocation != nil || request.Offer != nil ||
-			request.ActionRequest != nil || request.BoundAction != nil ||
-			request.PolicyDecision != nil || request.ParentOperationID != "" ||
-			(request.Binding != nil && request.Binding.ControllerLeaseID != "") {
-			return errors.New("text request contains action-only fields")
-		}
-		if err := validateText(
-			"text",
-			request.Text,
-			maxControlTextBytes,
-			true,
-		); err != nil {
-			return err
-		}
-		if request.Kind != ControlUtterance && request.TurnID != "" {
-			return errors.New("inbound text request must not contain turn_id")
-		}
-		requiredScope := ScopeActorConverse
-		if request.Kind == ControlDirective {
-			requiredScope = ScopeActorDirect
-		} else if request.Kind == ControlUtterance {
-			requiredScope = ScopeActorSpeak
-			if request.TurnID == "" {
-				return errors.New("utterance request requires turn_id")
-			}
-		}
-		if !hasScope(request.Principal, ScopeHostAdmin) &&
-			!hasScope(request.Principal, requiredScope) {
-			return errors.New("principal is missing the request scope")
-		}
-	case ControlOffer:
-		if request.Text != "" || request.ActionRequest != nil ||
-			request.BoundAction != nil || request.PolicyDecision != nil ||
-			request.ParentOperationID != "" ||
-			(request.Binding != nil && request.Binding.ControllerLeaseID != "") {
-			return errors.New("offer request contains action-only fields")
-		}
-		if request.Offer != nil {
-			if request.Invocation != nil {
-				return errors.New("offer request cannot contain both offer and invocation")
-			}
-			if err := host.ValidateActionOffer(*request.Offer); err != nil {
-				return fmt.Errorf("offer: %w", err)
-			}
-			if request.Binding == nil ||
-				request.Offer.ActorID != request.ActorID ||
-				request.Offer.ExpectedEpoch != request.Binding.Epoch ||
-				request.Offer.ObservationSeq != request.Binding.ObservationSeq {
-				return errors.New("offer does not match request binding")
-			}
-		} else if request.Invocation != nil && allowLegacy {
-			if err := host.ValidateActionInvocation(*request.Invocation); err != nil {
-				return fmt.Errorf("legacy invocation: %w", err)
-			}
-			if request.Invocation.OperationID != request.OperationID ||
-				request.Invocation.ActorID != request.ActorID ||
-				request.Invocation.ExpectedEpoch.WorldID != request.WorldID {
-				return errors.New("legacy invocation does not match request")
-			}
-		} else {
-			return errors.New("offer request requires a Host-published offer")
-		}
-		if !hasScope(request.Principal, ScopeHostAdmin) &&
-			!hasScope(request.Principal, ScopeActorExecute) {
-			return errors.New("principal is missing actor.execute")
-		}
-	case ControlAction:
-		if err := validateStoredActionRequest(request); err != nil {
-			return err
-		}
-	default:
+	if request.Kind != ControlAction {
 		return errors.New("unsupported control kind")
 	}
-	return nil
+	return validateStoredActionRequest(request)
 }
 
 func validateStoredActionRequest(request HostControlRequest) error {
-	if request.Text != "" || request.TurnID != "" || request.Offer != nil ||
-		request.Invocation != nil {
-		return errors.New("action request contains legacy control fields")
-	}
 	if request.Binding == nil || request.Binding.ControllerLeaseID == "" {
 		return errors.New("action request requires a controller-bound binding")
 	}
@@ -815,34 +709,32 @@ func validateStoredActionRequest(request HostControlRequest) error {
 }
 
 func validatePersistedOperationRelations(value persistedOperation) error {
-	if value.Request.Kind == ControlAction {
-		decision := value.Request.PolicyDecision
-		if decision == nil {
-			return errors.New("action operation is missing policy decision")
+	decision := value.Request.PolicyDecision
+	if decision == nil {
+		return errors.New("action operation is missing policy decision")
+	}
+	switch decision.Result {
+	case policy.Deny:
+		if value.Status != OperationRejected || value.Attempts != 0 ||
+			value.Ack != nil || value.Run != nil || value.Outcome != nil ||
+			len(value.Output) != 0 {
+			return errors.New("denied action has execution state")
 		}
-		switch decision.Result {
-		case policy.Deny:
-			if value.Status != OperationRejected || value.Attempts != 0 ||
-				value.Ack != nil || value.Run != nil || value.Outcome != nil ||
-				len(value.Output) != 0 {
-				return errors.New("denied action has execution state")
-			}
-			return nil
-		case policy.RequireConfirmation:
-			validStatus := value.Status == OperationAwaitingConfirmation ||
-				value.Status == OperationCancelled || value.Status == OperationStale
-			if !validStatus || value.Attempts != 0 || value.Ack != nil ||
-				value.Run != nil || value.Outcome != nil || len(value.Output) != 0 {
-				return errors.New("unconfirmed action has execution state")
-			}
-			return nil
-		case policy.Allow:
-			if value.Status == OperationAwaitingConfirmation {
-				return errors.New("allowed action cannot await confirmation")
-			}
-		default:
-			return errors.New("unsupported action policy result")
+		return nil
+	case policy.RequireConfirmation:
+		validStatus := value.Status == OperationAwaitingConfirmation ||
+			value.Status == OperationCancelled || value.Status == OperationStale
+		if !validStatus || value.Attempts != 0 || value.Ack != nil ||
+			value.Run != nil || value.Outcome != nil || len(value.Output) != 0 {
+			return errors.New("unconfirmed action has execution state")
 		}
+		return nil
+	case policy.Allow:
+		if value.Status == OperationAwaitingConfirmation {
+			return errors.New("allowed action cannot await confirmation")
+		}
+	default:
+		return errors.New("unsupported action policy result")
 	}
 	if value.Ack != nil && value.Attempts == 0 {
 		return errors.New("acknowledgement requires a delivery attempt")
@@ -938,8 +830,7 @@ func (service *Service) persistedOperationsLocked() persistedOperations {
 	if service.policyEngine != nil {
 		decisionIDs := make([]string, 0, len(service.operations))
 		for _, operation := range service.operations {
-			if operation.request.Kind == ControlAction &&
-				operation.request.PolicyDecision != nil &&
+			if operation.request.PolicyDecision != nil &&
 				operation.request.PolicyDecision.Result == policy.Allow {
 				decisionIDs = append(
 					decisionIDs,

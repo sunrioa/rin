@@ -56,6 +56,10 @@
 
 ### 变化
 
+- Control Operation 已端到端收敛为 Action-only。daemon 不再暴露
+  `/control/v1/*`、发布旧 Actor Offers，或持久化 Message、Directive、Utterance、
+  Offer 与 Invocation 请求变体。Operation 状态改用 `rin.control.operations/v5`；
+  未 ACK 的旧绑定在恢复时变为 `stale`，必须基于最新 Observation 重新提交。
 - 内部 Agent 任务历史现在使用稳定的 `gateway.*` 类别记录 ActionGateway 入队前
   拒绝；不会持久化 Provider 文本或内部错误详情，也不会把被拒绝的 Child 误报为已执行。
 - 内部 Task Snapshot 升级为 `rin.cognition.tasks/v2`，持久化 Macro 父 Operation 与

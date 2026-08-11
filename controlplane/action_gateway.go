@@ -718,7 +718,7 @@ func ValidateActionDelivery(request HostControlRequest) error {
 	if request.Kind != ControlAction {
 		return errors.New("control request is not a V2 action")
 	}
-	if err := validateStoredRequest(request, false); err != nil {
+	if err := validateStoredRequest(request); err != nil {
 		return err
 	}
 	if request.PolicyDecision == nil || request.PolicyDecision.Result != policy.Allow {
@@ -831,13 +831,13 @@ func actionOperationRequestKey(principalID, idempotencyKey string) string {
 }
 
 func operationIdempotencyKey(request HostControlRequest) string {
-	if request.Kind == ControlAction && request.ActionRequest != nil {
-		return actionOperationRequestKey(
-			request.Principal.ID,
-			request.ActionRequest.IdempotencyKey,
-		)
+	if request.ActionRequest == nil {
+		return ""
 	}
-	return operationRequestKey(request.Principal.ID, request.RequestID)
+	return actionOperationRequestKey(
+		request.Principal.ID,
+		request.ActionRequest.IdempotencyKey,
+	)
 }
 
 func controllerLeaseIDFromRequest(request HostControlRequest) string {

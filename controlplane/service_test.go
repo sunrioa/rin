@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -25,8 +24,6 @@ func TestServicePublishesPrincipalFilteredDefensiveViews(t *testing.T) {
 	}
 
 	publication.Actors[0].State[2] = 'x'
-	publication.Actors[0].Offers[0].Arguments[1] = 'x'
-	publication.Actors[0].Offers[0].Description = "changed"
 
 	owner := host.Principal{
 		ID:            "player.one",
@@ -48,15 +45,6 @@ func TestServicePublishesPrincipalFilteredDefensiveViews(t *testing.T) {
 	if err != nil || string(actor.State) != `{"status":"ready"}` {
 		t.Fatalf("GetActor = %#v, %v", actor, err)
 	}
-	offers, err := service.ListActorOffers(
-		owner, "test.host", "world.one", "actor.one",
-	)
-	if err != nil || len(offers) != 1 ||
-		offers[0].Description != "Follow the owner" ||
-		string(offers[0].Arguments) != `{}` {
-		t.Fatalf("ListActorOffers = %#v, %v", offers, err)
-	}
-
 	stranger := host.Principal{
 		ID:            "player.two",
 		GrantedScopes: []string{ScopeActorRead},
@@ -112,11 +100,6 @@ func TestServiceLeaseConflictExpiryAndTakeover(t *testing.T) {
 	actor, err := service.GetActor(owner, "test.host", "world.one", "actor.one")
 	if err != nil || actor.Online {
 		t.Fatalf("expired GetActor = %#v, %v", actor, err)
-	}
-	if _, err := service.ListActorOffers(
-		owner, "test.host", "world.one", "actor.one",
-	); !errors.Is(err, ErrUnavailable) {
-		t.Fatalf("expired ListActorOffers error = %v", err)
 	}
 	if _, err := service.RenewHost(
 		"test.host", lease.LeaseID,
@@ -187,7 +170,6 @@ func TestServicePublicationSequenceIsIdempotent(t *testing.T) {
 	}
 	next := worldPublication(2, "changed")
 	next.Actors[0].ObservationSeq = 2
-	next.Actors[0].Offers[0].ObservationSeq = 2
 	if err := service.PublishWorld("test.host", lease.LeaseID, next); err != nil {
 		t.Fatalf("next PublishWorld: %v", err)
 	}
@@ -237,7 +219,6 @@ func TestServiceWaitActorUsesPublishedCursor(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	next := worldPublication(2, "working")
 	next.Actors[0].ObservationSeq = 2
-	next.Actors[0].Offers[0].ObservationSeq = 2
 	if err := service.PublishWorld("test.host", lease.LeaseID, next); err != nil {
 		t.Fatalf("second PublishWorld: %v", err)
 	}
@@ -292,12 +273,12 @@ func TestServiceRejectsAmbiguousOrUnboundPublication(t *testing.T) {
 		t.Fatalf("duplicate JSON error = %v", err)
 	}
 
-	wrongActor := worldPublication(1, "ready")
-	wrongActor.Actors[0].Offers[0].ActorID = "actor.two"
+	missingAuthority := worldPublication(1, "ready")
+	missingAuthority.Actors[0].Authority = nil
 	if err := service.PublishWorld(
-		"test.host", lease.LeaseID, wrongActor,
+		"test.host", lease.LeaseID, missingAuthority,
 	); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("wrong actor binding error = %v", err)
+		t.Fatalf("missing decision authority error = %v", err)
 	}
 
 	duplicateActor := worldPublication(1, "ready")
@@ -358,27 +339,15 @@ func worldPublication(sequence uint64, status string) WorldPublication {
 			DisplayName:      "Companion",
 			ObservationSeq:   1,
 			Epoch:            epoch,
+			Authority: &DecisionAuthority{
+				Source:                DecisionExternal,
+				ControllerPrincipalID: "player.one",
+				Revision:              1,
+				PersonaMode:           PersonaCharacterBound,
+			},
 			State: json.RawMessage(
 				`{"status":"` + status + `"}`,
 			),
-			Offers: []host.ActionOffer{{
-				OfferID:          "offer.follow",
-				DecisionWindowID: "window.one",
-				ActorID:          "actor.one",
-				Capability: host.CapabilityRef{
-					ID:      "movement.follow",
-					Version: "1.0.0",
-				},
-				DescriptorDigest: strings.Repeat("a", 64),
-				Description:      "Follow the owner",
-				Arguments:        json.RawMessage(`{}`),
-				ExpectedEpoch:    epoch,
-				ObservationSeq:   1,
-				Deadline: host.Timepoint{
-					Clock: host.ClockStep,
-					Value: 100,
-				},
-			}},
 		}},
 	}
 }

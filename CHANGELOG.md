@@ -67,6 +67,11 @@ across every future minor release.
 
 ### Changed
 
+- Control operations are now Action-only end to end. The daemon no longer
+  exposes `/control/v1/*`, publishes legacy actor Offers, or persists message,
+  directive, utterance, Offer, and Invocation request variants. Operation state
+  uses `rin.control.operations/v5`; unacknowledged bindings restore as `stale`
+  and must be resubmitted from a fresh Observation.
 - Internal Agent task history now classifies pre-queue ActionGateway rejections
   as stable `gateway.*` codes. Provider text and internal error details are not
   persisted, and a rejected child is never reported as executed.

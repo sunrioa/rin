@@ -71,27 +71,26 @@ func TestV2PublicationRejectsMismatchedOrDuplicateDiscoveryData(t *testing.T) {
 	}
 }
 
-func TestV2DiscoveryFailsClosedForLegacyPublication(t *testing.T) {
+func TestV2DiscoveryFailsClosedWithoutPublishedDiscovery(t *testing.T) {
 	service, _, _ := operationTestService(t, Options{})
 	principal := operationPrincipal(ScopeActorRead)
 	if _, err := service.GetObservation(
 		principal,
 		testActorControlTarget(),
 	); !errors.Is(err, ErrUnavailable) {
-		t.Fatalf("GetObservation legacy error = %v", err)
+		t.Fatalf("GetObservation missing discovery error = %v", err)
 	}
 	if _, err := service.ListCapabilities(
 		principal,
 		testActorControlTarget(),
 	); !errors.Is(err, ErrUnavailable) {
-		t.Fatalf("ListCapabilities legacy error = %v", err)
+		t.Fatalf("ListCapabilities missing discovery error = %v", err)
 	}
 }
 
 func v2WorldPublication(spec host.CapabilitySpec) WorldPublication {
 	publication := worldPublication(2, "ready")
 	actor := &publication.Actors[0]
-	actor.Offers = nil
 	actor.Observation = &host.ObservationEnvelope{
 		ObservationID: "observation.actor.one.1",
 		HostID:        "test.host",
