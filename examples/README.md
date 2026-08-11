@@ -1,61 +1,42 @@
 # Rin examples
 
-[English](README.md) | [简体中文](README.zh-CN.md)
+[简体中文](README.zh-CN.md)
 
-Start with [`basic`](basic/). It is intentionally small and demonstrates only
-creating a Session and recording one observation against a running Sidecar.
-Its process-local IDs make it a development smoke test, not a production save
-architecture.
+The checked-in examples exercise the engine-neutral Harness V2 contract. They
+do not duplicate game-engine projects or claim production support for a
+specific game.
 
-Use the dependency-free Go [`terminal-story`](terminal-story/) for a runnable
-V2 dialogue and story-progression slice. Its integration tests prove that an
-internal Agent Runtime and an external MCP client share the same policy and
-authoritative operation path.
+## Grid adapter
 
-[`adapters/grid`](adapters/grid/) is the engine-neutral V2 reference Adapter.
-Its tests drive observation, binding, effect policy, resource collection,
-container transfer, cancellation, restart rejection, and authoritative
-outcomes through the same HostKit and Control Plane used by real games:
+[adapters/grid](adapters/grid/) is the compact reference for observations,
+capability binding, effect policy, resource collection, container transfer,
+cancellation, restart rejection, and authoritative outcomes.
 
-```sh
+~~~sh
 go test ./examples/adapters/grid
-```
+~~~
 
-[`adapters/story`](adapters/story/) applies the same contract to dialogue,
-relationship changes, story progress, and an enforceable character boundary:
+## Story adapter
 
-```sh
+[adapters/story](adapters/story/) applies the same HostKit contract to
+dialogue, relationship changes, story progress, and enforceable character
+boundaries.
+
+~~~sh
 go test ./examples/adapters/story
-```
+~~~
 
-The engine and mod directories demonstrate host-specific threading and
-packaging. They persist stable workflow recovery state, but remain
-`advisory`: a real integration must connect effect application and operation
-markers to the game's authoritative save/idempotency boundary. See the
-[real-host validation matrix](../docs/host-integration-validation.md) before
-claiming production stability.
+## Terminal story
 
-[`native-host`](native-host) is a dependency-free C99 reference for native
-engines. It runs the shared Host scenarios on GCC/Clang and MSVC without
-introducing an engine, JSON, HTTP, or shell dependency.
+[terminal-story](terminal-story/) is a runnable end-to-end slice. It proves
+that the internal Agent Runtime and an external MCP client share the same
+policy and authoritative Operation path.
 
-[`unreal/RinHost`](unreal/RinHost) is a Preview Unreal Runtime Plugin skeleton
-for explicit save/world Epoch binding, Game Thread authorization, typed
-Blueprint capabilities, and Behavior Tree ActionRun reporting. CI checks its
-portable layout and safety boundary; an Unreal Editor build remains a manual
-gate.
+~~~sh
+go run ./examples/terminal-story --line "The light feels familiar." --json
+~~~
 
-[`unity`](unity) is an installable UPM reference with Domain/Scene Epochs,
-durable Active Run recovery, cancellable long-action handles, and a
-game-authored NavMesh movement example. Strict API stubs cover its portable
-contract; Editor and Player builds remain manual gates.
-
-[`godot`](godot) is a runnable Godot 4.6.3 project with durable
-Host/World/Timeline generations, exact Decision Window/Offer binding, and
-Active Run recovery. Official headless binaries exercise the lifecycle on
-Linux and Windows; Editor and exported-build traffic remain manual gates.
-
-[`mods/luanti-rin-npc`](mods/luanti-rin-npc) is a complete loopback-only
-Luanti server Mod. Official Luanti 5.16.1 dedicated servers load both the
-source Mod and a newly generated scaffold twice against the same world;
-multiplayer, live Sidecar, forced-stop, and soak behavior remain manual gates.
+Real game adapters belong in their own repositories. Use "rin init host" for a
+portable contract skeleton, then validate the game-owned authority thread,
+save identity, policy, idempotency, cancellation, restart, and emergency-stop
+boundaries in the actual game.

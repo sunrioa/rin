@@ -8,23 +8,11 @@ permissions:
   contents: read
 
 jobs:
-  contract:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.9"
-      - name: Verify OpenAPI-generated contract and release projections
-        run: python tools/generate_contract.py --check
-      - name: Test contract authority consistency guards
-        run: python -m unittest tools.test_generate_contract
-
-  test:
+  go:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go: ["1.24.x", "1.26.x"]
+        go: ["1.25.x", "1.26.x"]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -35,22 +23,29 @@ jobs:
         run: test -z "$(gofmt -l .)"
       - name: Vet
         run: go vet ./...
-      - name: Test accelerated-year File Store lifecycle
-        run: go test ./runtime -run '^TestAcceleratedYearSession$' -count=1
       - name: Test with race detector
-        shell: bash
+        run: go test -race ./...
+      - name: Verify HTTP contracts
+        run: go test ./controlplane ./agentapi ./host -run 'Contract|OpenAPI|Fixture'
+
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.x"
+          cache: true
+      - name: Build command binaries
+        env:
+          CGO_ENABLED: "0"
         run: |
-          set +e
-          output="$(go test -race ./... 2>&1)"
-          status=$?
-          printf '%s\n' "$output"
-          if [ "$status" -ne 0 ]; then
-            escaped="${output//'%'/'%25'}"
-            escaped="${escaped//$'\r'/'%0D'}"
-            escaped="${escaped//$'\n'/'%0A'}"
-            printf '::error title=Go race detector::%s\n' "$escaped"
-          fi
-          exit "$status"
+          go build -trimpath ./cmd/rin
+          go build -trimpath ./cmd/rin-control
+          go build -trimpath ./cmd/rin-mcp
 
   mcp-conformance:
     runs-on: ubuntu-latest
@@ -69,7 +64,7 @@ jobs:
           mkdir -p .cache/mcp-conformance/bin
           CGO_ENABLED=0 go build -trimpath -o .cache/mcp-conformance/bin/rin-control ./cmd/rin-control
           CGO_ENABLED=0 go build -trimpath -o .cache/mcp-conformance/bin/rin-mcp ./cmd/rin-mcp
-      - name: Run capability-matched official MCP conformance scenarios
+      - name: Run official MCP server scenarios
         shell: bash
         env:
           RIN_CONTROL_ADDR: 127.0.0.1:17375
@@ -82,118 +77,17 @@ jobs:
           set -euo pipefail
           .cache/mcp-conformance/bin/rin-control >.cache/mcp-conformance/control.log 2>&1 &
           control_pid=$!
-          .cache/mcp-conformance/bin/rin-mcp \
-            -conformance-addr 127.0.0.1:17380 \
-            >.cache/mcp-conformance/mcp.log 2>&1 &
+          .cache/mcp-conformance/bin/rin-mcp -conformance-addr 127.0.0.1:17380 >.cache/mcp-conformance/mcp.log 2>&1 &
           mcp_pid=$!
           trap 'kill "$mcp_pid" "$control_pid" 2>/dev/null || true' EXIT
           for attempt in $(seq 1 40); do
-            if curl --fail --silent http://127.0.0.1:17380/health >/dev/null; then
-              break
-            fi
+            if curl --fail --silent http://127.0.0.1:17380/health >/dev/null; then break; fi
             sleep 0.25
           done
           curl --fail --silent http://127.0.0.1:17380/health >/dev/null
-          for scenario in \
-            server-initialize logging-set-level ping tools-list \
-            resources-list prompts-list dns-rebinding-protection; do
-            npx --yes @modelcontextprotocol/conformance@0.1.11 server \
-              --url http://127.0.0.1:17380/mcp \
-              --scenario "$scenario" \
-              --output-dir .cache/mcp-conformance/results
+          for scenario in server-initialize logging-set-level ping tools-list resources-list prompts-list dns-rebinding-protection; do
+            npx --yes @modelcontextprotocol/conformance@0.1.11 server --url http://127.0.0.1:17380/mcp --scenario "$scenario" --output-dir .cache/mcp-conformance/results
           done
-
-  build:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.26.x"
-          cache: true
-      - name: Build
-        env:
-          CGO_ENABLED: "0"
-        run: go build -trimpath ./cmd/rin
-      - name: Parse Windows Sidecar launcher
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $tokens = $null
-          $errors = $null
-          [void][System.Management.Automation.Language.Parser]::ParseFile(
-            (Resolve-Path tools/start-rin.ps1),
-            [ref]$tokens,
-            [ref]$errors)
-          if ($errors.Count -ne 0) { throw ($errors -join [Environment]::NewLine) }
-      - name: Test bundled File Store, Sidecar lifecycle, and Host scaffolding
-        shell: bash
-        env:
-          CGO_ENABLED: "0"
-        run: |
-          set +e
-          output="$(go test ./store ./cmd/rin ./internal/hostscaffold 2>&1)"
-          status=$?
-          printf '%s\n' "$output"
-          if [ "$status" -ne 0 ]; then
-            escaped="${output//'%'/'%25'}"
-            escaped="${escaped//$'\r'/'%0D'}"
-            escaped="${escaped//$'\n'/'%0A'}"
-            printf '::error title=File Store and Sidecar lifecycle tests::%s\n' "$escaped"
-          fi
-          exit "$status"
-
-  native-host:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    steps:
-      - uses: actions/checkout@v6
-      - name: Configure portable C99 Host reference
-        run: cmake -S examples/native-host -B .cache/native-host-build
-      - name: Build with platform compiler warnings as errors
-        run: cmake --build .cache/native-host-build --config Release
-      - name: Run native Host scenarios
-        run: ctest --test-dir .cache/native-host-build -C Release --output-on-failure
-
-  open-spiel-reference:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
-          cache: pip
-          cache-dependency-path: tools/open_spiel_requirements.txt
-      - name: Install SHA-256-pinned OpenSpiel without optional dependencies
-        run: >-
-          python -m pip install --disable-pip-version-check --no-deps
-          --require-hashes -r tools/open_spiel_requirements.txt
-      - name: Verify sequential, simultaneous, chance, and hidden-information semantics
-        run: python tools/verify_open_spiel.py
-
-  unreal-host:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.9"
-      - name: Verify Unreal Runtime Plugin structure and safety boundary
-        run: python -m unittest tools.test_verify_unreal
-      - name: Verify checked-in Unreal Runtime Plugin
-        run: python tools/verify_unreal.py
 
   sdk-python:
     runs-on: ubuntu-latest
@@ -205,10 +99,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
-      - name: Test Python SDK
-        run: python -m unittest discover -s sdk/python/tests -p 'test_*.py'
-      - name: Test Ren'Py adapter
-        run: python -m unittest discover -s adapters/renpy -p 'test_*.py'
+      - run: python -m unittest discover -s sdk/python/tests -p 'test_*.py'
 
   sdk-javascript:
     runs-on: ubuntu-latest
@@ -221,25 +112,8 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           package-manager-cache: false
-      - name: Test JavaScript SDK
-        working-directory: sdk/javascript
+      - working-directory: sdk/javascript
         run: node --test
-
-  terminal-story:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.26.x"
-          cache: true
-      - name: Test V2 story Adapter, internal Agent, and external MCP
-        run: go test ./examples/adapters/story ./examples/terminal-story
-      - name: Run the embedded V2 story smoke test
-        run: go run ./examples/terminal-story --line "The light in this photograph feels familiar." --topic festival --task prepare-exhibit --json
 
   sdk-java:
     runs-on: ubuntu-latest
@@ -257,152 +131,15 @@ jobs:
           mkdir -p .cache/java-sdk
           find sdk/java/src/main/java sdk/java/test -name '*.java' > .cache/java-sdk/sources.txt
           javac --add-modules jdk.httpserver -d .cache/java-sdk @.cache/java-sdk/sources.txt
-          java --add-modules jdk.httpserver -cp .cache/java-sdk io.github.sunrioa.rin.RinClientTest
-
-  fabric-mod:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    steps:
-      - uses: actions/checkout@v6
-      - uses: gradle/actions/wrapper-validation@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.26.x"
-          cache: true
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "21"
-          cache: gradle
-      - name: Build installable Fabric JAR and test Saved Data recovery
-        working-directory: examples/mods/fabric-rin-npc
-        run: ./gradlew clean build --no-daemon
-      - name: Generate standalone Fabric scaffold
-        run: >-
-          go run ./cmd/rin init host --engine fabric --id ci_fabric_npc
-          --name "CI Fabric NPC" --namespace io.github.rin_ci
-          --output fabric-generated
-      - name: Build generated Fabric scaffold outside the example tree
-        working-directory: fabric-generated
-        run: ./gradlew clean build --no-daemon
-
-  bepinex-plugin:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.26.x"
-          cache: true
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: "6.0.x"
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.9"
-      - name: Test BepInEx packaging diagnostics
-        shell: bash
-        run: |
-          set +e
-          output="$(python -m unittest tools.test_package_bepinex 2>&1)"
-          status=$?
-          printf '%s\n' "$output"
-          if [ "$status" -ne 0 ]; then
-            escaped="${output//'%'/'%25'}"
-            escaped="${escaped//$'\r'/'%0D'}"
-            escaped="${escaped//$'\n'/'%0A'}"
-            printf '::error title=BepInEx packaging diagnostics::%s\n' "$escaped"
-          fi
-          exit "$status"
-      - name: Build deterministic Mono and IL2CPP install packages
-        run: python tools/package_bepinex.py
-      - name: Restore BepInEx restart tests from lock files
-        working-directory: examples/mods/bepinex-rin-npc
-        run: dotnet restore RinNpc.Core.Tests/RinNpc.Core.Tests.csproj --locked-mode
-      - name: Test stable identity, restart, and Outcome recovery
-        working-directory: examples/mods/bepinex-rin-npc
-        run: >-
-          dotnet build RinNpc.Core.Tests/RinNpc.Core.Tests.csproj --no-restore
-          --nologo -m:1 -p:UseSharedCompilation=false -p:BuildInParallel=false
-      - name: Execute BepInEx restart tests
-        working-directory: examples/mods/bepinex-rin-npc
-        run: >-
-          dotnet exec
-          RinNpc.Core.Tests/bin/Debug/net6.0/RinNpc.Core.Tests.dll
-      - name: Generate standalone BepInEx Mono scaffold
-        run: >-
-          go run ./cmd/rin init host --engine bepinex-mono --id ci_mono_npc
-          --name "CI Mono NPC" --namespace io.github.rin_ci
-          --output bepinex-mono-generated
-      - name: Generate standalone BepInEx IL2CPP scaffold
-        run: >-
-          go run ./cmd/rin init host --engine bepinex-il2cpp --id ci_il2cpp_npc
-          --name "CI IL2CPP NPC" --namespace io.github.rin_ci
-          --output bepinex-il2cpp-generated
-      - name: Restore generated Mono restart tests from lock files
-        working-directory: bepinex-mono-generated
-        run: dotnet restore CiMonoNpc.Core.Tests/CiMonoNpc.Core.Tests.csproj --locked-mode
-      - name: Build generated Mono restart tests
-        working-directory: bepinex-mono-generated
-        run: >-
-          dotnet build CiMonoNpc.Core.Tests/CiMonoNpc.Core.Tests.csproj
-          -c Release --no-restore --nologo -m:1
-          -p:UseSharedCompilation=false -p:BuildInParallel=false
-      - name: Execute generated Mono restart tests
-        working-directory: bepinex-mono-generated
-        run: >-
-          dotnet exec
-          CiMonoNpc.Core.Tests/bin/Release/net6.0/CiMonoNpc.Core.Tests.dll
-      - name: Restore generated Mono plugin from lock files
-        working-directory: bepinex-mono-generated
-        run: dotnet restore CiMonoNpc.Mono/CiMonoNpc.Mono.csproj --locked-mode
-      - name: Build generated Mono plugin
-        working-directory: bepinex-mono-generated
-        run: >-
-          dotnet build CiMonoNpc.Mono/CiMonoNpc.Mono.csproj
-          -c Release --no-restore --nologo -m:1
-          -p:UseSharedCompilation=false -p:BuildInParallel=false
-      - name: Package and verify generated Mono install ZIP
-        working-directory: bepinex-mono-generated
-        run: |
-          python package_bepinex.py
-          python package_bepinex.py --verify-archive dist/ci-mono-npc-bepinex-mono-0.1.0.zip
-      - name: Restore generated IL2CPP plugin from lock files
-        working-directory: bepinex-il2cpp-generated
-        run: dotnet restore CiIl2cppNpc.IL2CPP/CiIl2cppNpc.IL2CPP.csproj --locked-mode
-      - name: Build generated IL2CPP plugin
-        working-directory: bepinex-il2cpp-generated
-        run: >-
-          dotnet build CiIl2cppNpc.IL2CPP/CiIl2cppNpc.IL2CPP.csproj
-          -c Release --no-restore --nologo -m:1
-          -p:UseSharedCompilation=false -p:BuildInParallel=false
-      - name: Package and verify generated IL2CPP install ZIP
-        working-directory: bepinex-il2cpp-generated
-        run: |
-          python package_bepinex.py
-          python package_bepinex.py --verify-archive dist/ci-il2cpp-npc-bepinex-il2cpp-0.1.0.zip
-      - uses: actions/upload-artifact@v7
-        with:
-          name: bepinex-${{ runner.os }}
-          path: |
-            examples/mods/bepinex-rin-npc/dist/*.zip
-            bepinex-mono-generated/dist/*.zip
-            bepinex-il2cpp-generated/dist/*.zip
-          if-no-files-found: error
+          java --add-modules jdk.httpserver -cp .cache/java-sdk io.github.sunrioa.rin.RinSdkTest
 
   sdk-csharp:
     runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
-          - dotnet: "6.0.x"
-            framework: "net6.0"
+          - dotnet: "8.0.x"
+            framework: "net8.0"
           - dotnet: "10.0.x"
             framework: "net10.0"
     steps:
@@ -412,195 +149,48 @@ jobs:
           dotnet-version: ${{ matrix.dotnet }}
       - name: Build and test C# SDK
         run: |
-          dotnet build sdk/csharp/Rin.Client.Tests/Rin.Client.Tests.csproj \
-            -p:RinTargetFramework=${{ matrix.framework }} \
-            --nologo
-          dotnet exec \
-            sdk/csharp/Rin.Client.Tests/bin/Debug/${{ matrix.framework }}/Rin.Client.Tests.dll
-      - name: Build legacy Unity compatibility target
-        if: matrix.framework == 'net6.0'
-        run: >-
-          dotnet build sdk/csharp/Rin.Client/Rin.Client.csproj
-          -p:RinTargetFramework=netstandard2.0 --nologo
+          dotnet build sdk/csharp/Rin.Client.Tests/Rin.Client.Tests.csproj -p:RinTargetFramework=${{ matrix.framework }} --nologo
+          dotnet exec sdk/csharp/Rin.Client.Tests/bin/Debug/${{ matrix.framework }}/Rin.Client.Tests.dll
+      - name: Build source-first compatibility target
+        if: matrix.framework == 'net8.0'
+        run: dotnet build sdk/csharp/Rin.Client/Rin.Client.csproj -p:RinTargetFramework=netstandard2.0 --nologo
 
   sdk-lua:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.26.x"
-          cache: true
-      - name: Update package index for Lua
-        run: sudo apt-get update
-      - name: Install Lua
-        run: sudo apt-get install -y lua5.1 lua5.4
-      - name: Test Lua SDK on Lua 5.1
-        run: lua5.1 sdk/lua/test_client.lua
-      - name: Test Lua SDK on Lua 5.4
-        run: lua5.4 sdk/lua/test_client.lua
-      - name: Test Luanti restart state on Lua 5.1
-        run: lua5.1 examples/mods/luanti-rin-npc/test_state.lua
-      - name: Generate standalone Luanti scaffold
-        run: >-
-          go run ./cmd/rin init host --engine luanti --id ci_luanti_npc
-          --name "CI Luanti NPC" --output luanti-generated
-      - name: Parse and test generated Luanti scaffold on Lua 5.1 and 5.4
-        working-directory: luanti-generated
-        run: |
-          luac5.1 -p init.lua
-          luac5.1 -p state.lua
-          luac5.1 -p rin.lua
-          lua5.1 test_state.lua
-          luac5.4 -p init.lua
-          luac5.4 -p state.lua
-          luac5.4 -p rin.lua
-          lua5.4 test_state.lua
-      - name: Test Luanti restart state on Lua 5.4
-        run: lua5.4 examples/mods/luanti-rin-npc/test_state.lua
-      - name: Parse Luanti integration on both Lua versions
-        run: |
-          luac5.1 -p examples/mods/luanti-rin-npc/init.lua examples/mods/luanti-rin-npc/state.lua
-          luac5.4 -p examples/mods/luanti-rin-npc/init.lua examples/mods/luanti-rin-npc/state.lua
-
-  sdk-sidecar-corpus:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            languages: python,javascript,csharp,java,lua
-            rin: .cache/sdk-sidecar/rin
-          - os: windows-latest
-            languages: python,javascript,csharp,java
-            rin: .cache/sdk-sidecar/rin.exe
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.9"
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.26.x"
-          cache: true
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "18"
-          package-manager-cache: false
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: "8.0.x"
-      - name: Install the Lua corpus runtime
-        if: runner.os == 'Linux'
+      - name: Install Lua runtimes
         run: |
           sudo apt-get update
-          sudo apt-get install -y lua5.4
-      - name: Build the real Sidecar
-        run: |
-          python -c "from pathlib import Path; Path('.cache/sdk-sidecar').mkdir(parents=True, exist_ok=True)"
-          go build -trimpath -o "${{ matrix.rin }}" ./cmd/rin
-      - name: Validate the shared corpus
-        run: python -m unittest tools.test_sdk_sidecar_corpus
-      - name: Run real-Sidecar wire and SDK cases
-        shell: bash
-        run: >-
-          python tools/run_sdk_sidecar_corpus.py
-          --rin "${{ matrix.rin }}"
-          --languages "${{ matrix.languages }}"
-          --lua lua5.4
+          sudo apt-get install -y lua5.1 lua5.4
+      - run: lua5.1 sdk/lua/test_client.lua
+      - run: lua5.4 sdk/lua/test_client.lua
 
-  luanti-reference:
-    runs-on: windows-latest
+  terminal-story:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
       - uses: actions/setup-go@v6
         with:
           go-version: "1.26.x"
           cache: true
-      - name: Generate standalone Luanti scaffold
-        run: >-
-          go run ./cmd/rin init host --engine luanti --id ci_luanti_npc
-          --name "CI Luanti NPC" --output luanti-generated
-      - name: Download and verify Luanti 5.16.1 archive
-        shell: pwsh
-        run: |
-          $url = "https://github.com/luanti-org/luanti/releases/download/5.16.1/luanti-5.16.1-win64.zip"
-          Invoke-WebRequest -Uri $url -OutFile luanti.zip
-          $actual = (Get-FileHash luanti.zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actual -ne "a70fd87e67cc236f250fca90e5cd30211f3e45937b107158b5367d6ee26aabb8") {
-            throw "Luanti SHA-256 mismatch"
-          }
-          Expand-Archive luanti.zip -DestinationPath luanti
-      - name: Test Luanti verifier portability
-        run: python -m unittest tools.test_verify_luanti
-      - name: Verify checked-in Luanti Host lifecycle
-        run: >-
-          python tools/verify_luanti.py
-          --luanti luanti/luanti-5.16.1-win64/bin/luanti.exe
-      - name: Verify generated Luanti Host lifecycle
-        run: >-
-          python tools/verify_luanti.py
-          --luanti luanti/luanti-5.16.1-win64/bin/luanti.exe
-          --mod luanti-generated
+      - name: Test V2 reference adapters
+        run: go test ./examples/adapters/grid ./examples/adapters/story ./examples/terminal-story
+      - name: Run terminal story smoke test
+        run: go run ./examples/terminal-story --line "The light feels familiar." --topic festival --task prepare-exhibit --json
 
-  godot-reference:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            archive: Godot_v4.6.3-stable_linux.x86_64.zip
-            sha256: d0bc2113065e481c9c2c2b2c37daa4e8be3fe9e27f0ab9ab0b6096e9a37907f3
-          - os: windows-latest
-            archive: Godot_v4.6.3-stable_win64.exe.zip
-            sha256: e39986a178d585ce7ac198fb8de6ea436366dc0cc00e594810c2e3e104c04b90
-    runs-on: ${{ matrix.os }}
+  open-spiel-reference:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-      - name: Download and verify Godot on Linux
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          curl -fL "https://github.com/godotengine/godot-builds/releases/download/4.6.3-stable/${{ matrix.archive }}" -o godot.zip
-          echo "${{ matrix.sha256 }}  godot.zip" | sha256sum -c -
-          unzip -q godot.zip -d godot
-          chmod +x godot/Godot_v4.6.3-stable_linux.x86_64
-          python tools/verify_godot.py --godot godot/Godot_v4.6.3-stable_linux.x86_64
-      - name: Download and verify Godot on Windows
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $url = "https://github.com/godotengine/godot-builds/releases/download/4.6.3-stable/${{ matrix.archive }}"
-          Invoke-WebRequest -Uri $url -OutFile godot.zip
-          $actual = (Get-FileHash godot.zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actual -ne "${{ matrix.sha256 }}") { throw "Godot SHA-256 mismatch" }
-          Expand-Archive godot.zip -DestinationPath godot
-          python tools/verify_godot.py --godot godot/Godot_v4.6.3-stable_win64.exe
-
-  unity-package:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: "6.0.x"
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
-      - name: Compile Unity package and test restart recovery
-        run: python tools/verify_unity.py
+          cache: pip
+          cache-dependency-path: tools/open_spiel_requirements.txt
+      - name: Install pinned OpenSpiel
+        run: python -m pip install --disable-pip-version-check --no-deps --require-hashes -r tools/open_spiel_requirements.txt
+      - run: python tools/verify_open_spiel.py
