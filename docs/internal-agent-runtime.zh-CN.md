@@ -80,6 +80,10 @@ OpenAI-compatible 服务时，把 `authentication` 设为 `none` 并确保
 - 状态文件使用私有权限、原子替换和单写者进程锁；配置不能改变状态路径。
 - `scheduled=true` 只表示任务已进入后台队列，不表示模型已决策、游戏已执行或
   目标已经完成。
+- `allowed_capabilities` 是可选的任务级 Capability ID 白名单，最多 128 项。非空时，
+  Runtime 只向模型公开 Host 当前 Catalog 与该白名单的交集，并在恢复 Pending Action 时
+  再次复验；空数组表示使用 Host 当前完整 Catalog。该字段只能收窄能力，不能创建 Host
+  未发布的能力或绕过 Policy。
 - 停止时先取消并等待 Agent worker，再释放 Task/Memory 锁，最后关闭 Control Plane。
 
 ## Macro 父子循环
@@ -93,7 +97,8 @@ Policy、执行与权威 Outcome。
 - queued、delivered、awaiting-confirmation、accepted 和 running 都不是完成证据；父 Operation 只有
   权威终态后才从 Task 清除。
 - 运行父 Macro 时，模型只看到 Atomic Capability；Control Plane 仍支持嵌套 Macro，但当前
-  内部 Runtime 不自动创建第二层父任务。
+  内部 Runtime 不自动创建第二层父任务。使用任务级白名单时，必须同时列出父 Macro 和
+  预期 Child；进入 Macro 阶段不会自动扩大任务权限。
 - 有运行中 Child 时取消 Task，会先取消 Child，再取消 Parent；父操作稳定终止前 Task 保持
   `cancelling`。
 - Child 或 Parent 的 `outcome-unknown` 会保留准确 Operation ID，并停止继续决策。

@@ -9,6 +9,9 @@
 
 ### 新增
 
+- 内部 Agent Task 新增可选 `allowed_capabilities` 硬边界。Runtime 只向模型公开
+  Host Catalog 与任务白名单的交集，并在持久化恢复时拒绝越界 Pending Action；该字段
+  只能收窄能力，不能绕过 Policy 或 Host 最终校验。
 - 新增运行时动态 Actor 的显式默认 Persona 绑定，以及复用有界 Control Transport 的
   Task-only Java `RinAgentClient`。
 - 新增持久化内部 Agent Macro 父子循环。Macro 父 Operation 进入 `accepted` 或

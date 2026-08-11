@@ -3,6 +3,8 @@ package cognition_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -25,7 +27,9 @@ func TestLocalTaskStoreUsesRevisionCASAndDefensiveCopies(t *testing.T) {
 		t.Fatalf("unexpected created revision: %d", created.Revision)
 	}
 	input.Tags[0] = "mutated-input"
-	if created.Tags[0] != "task.follow" {
+	input.AllowedCapabilities[0] = "mutated-capability"
+	if created.Tags[0] != "task.follow" ||
+		created.AllowedCapabilities[0] != "rin.navigation.move-to" {
 		t.Fatalf("create result shared the caller's input slice: %v", created.Tags)
 	}
 	created.Goal = "Updated goal."
@@ -37,6 +41,7 @@ func TestLocalTaskStoreUsesRevisionCASAndDefensiveCopies(t *testing.T) {
 		t.Fatalf("unexpected task update: %+v", updated)
 	}
 	updated.Tags[0] = "mutated-output"
+	updated.AllowedCapabilities[0] = "mutated-output-capability"
 	if _, err := store.CompareAndSwap(context.Background(), 1, created); !errors.Is(err, cognition.ErrTaskRevisionConflict) {
 		t.Fatalf("expected stale CAS rejection, got %v", err)
 	}
@@ -44,8 +49,60 @@ func TestLocalTaskStoreUsesRevisionCASAndDefensiveCopies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Tags[0] != "task.follow" {
-		t.Fatalf("task store was mutated through caller slices: %+v", loaded.Tags)
+	if loaded.Tags[0] != "task.follow" ||
+		loaded.AllowedCapabilities[0] != "rin.navigation.move-to" {
+		t.Fatalf("task store was mutated through caller slices: %+v", loaded)
+	}
+}
+
+func TestTaskCapabilityScopeRejectsInvalidInputAndPendingAction(t *testing.T) {
+	base := cognition.StartTaskInput{
+		TaskID: "task.scope", HostID: "host.test", WorldID: "world.test",
+		ActorID: "actor.mira", ControllerID: "controller.internal",
+		Goal: "Use only the scoped capability.",
+	}
+	duplicate := base
+	duplicate.AllowedCapabilities = []string{"dialogue.speak", "dialogue.speak"}
+	if err := cognition.ValidateStartTaskInput(duplicate); err == nil {
+		t.Fatal("duplicate task capability was accepted")
+	}
+	invalid := base
+	invalid.AllowedCapabilities = []string{"Bad Capability"}
+	if err := cognition.ValidateStartTaskInput(invalid); err == nil {
+		t.Fatal("invalid task capability was accepted")
+	}
+	tooMany := base
+	for index := 0; index < 129; index++ {
+		tooMany.AllowedCapabilities = append(
+			tooMany.AllowedCapabilities,
+			fmt.Sprintf("capability.%03d", index),
+		)
+	}
+	if err := cognition.ValidateStartTaskInput(tooMany); err == nil {
+		t.Fatal("oversized task capability scope was accepted")
+	}
+
+	task := validTaskSession("task.pending-outside-scope")
+	request := host.ActionRequest{
+		RequestID:      "task.pending-outside-scope.action.1",
+		ControllerID:   task.ControllerID,
+		ActorID:        task.ActorID,
+		Capability:     host.CapabilityRef{ID: "dialogue.speak", Version: "2.0.0"},
+		SpecDigest:     strings.Repeat("a", 64),
+		Arguments:      []byte(`{"text":"hello"}`),
+		ExpectedEpoch:  task.ControllerLease.Epoch,
+		ObservationSeq: 7,
+		TaskID:         task.TaskID,
+		IdempotencyKey: "task.pending-outside-scope.action.1",
+	}
+	task.PendingAction = &request
+	store, err := cognition.NewLocalTaskStore(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create(context.Background(), task); err == nil ||
+		!strings.Contains(err.Error(), "capability scope") {
+		t.Fatalf("pending action outside task scope was accepted: %v", err)
 	}
 }
 
@@ -98,6 +155,7 @@ func TestLocalTaskStoreRestoresExactPendingAction(t *testing.T) {
 	if loaded.PendingAction == nil ||
 		string(loaded.PendingAction.Arguments) != `{"distance":2}` ||
 		loaded.PendingAction.IdempotencyKey != request.IdempotencyKey ||
+		!slices.Equal(loaded.AllowedCapabilities, task.AllowedCapabilities) ||
 		loaded.PendingOperationID != task.PendingOperationID || len(loaded.PendingMemories) != 1 {
 		t.Fatalf("pending action was not restored exactly: %+v", loaded)
 	}
@@ -162,7 +220,9 @@ func validTaskSession(taskID string) cognition.TaskSession {
 	return cognition.TaskSession{
 		TaskID: taskID, SessionID: epoch.SessionID, HostID: "host.test", WorldID: epoch.WorldID,
 		ActorID: "actor.mira", ControllerID: "controller.internal", Goal: "Follow the player.",
-		Tags: []string{"task.follow"}, Status: cognition.TaskActive,
+		Tags:                []string{"task.follow"},
+		AllowedCapabilities: []string{"rin.navigation.move-to"},
+		Status:              cognition.TaskActive,
 		ControllerLease: controlplane.ControllerLease{
 			LeaseID: "lease.test", ControllerID: "controller.internal", PrincipalID: "principal.internal",
 			HostID: "host.test", WorldID: epoch.WorldID, ActorID: "actor.mira",

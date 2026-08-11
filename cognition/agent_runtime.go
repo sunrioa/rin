@@ -56,14 +56,15 @@ type AgentRuntimeOptions struct {
 }
 
 type StartTaskInput struct {
-	TaskID       string     `json:"task_id"`
-	HostID       string     `json:"host_id"`
-	WorldID      string     `json:"world_id"`
-	ActorID      string     `json:"actor_id"`
-	ControllerID string     `json:"controller_id"`
-	Goal         string     `json:"goal"`
-	Tags         []string   `json:"tags,omitempty"`
-	Budget       TaskBudget `json:"budget"`
+	TaskID              string     `json:"task_id"`
+	HostID              string     `json:"host_id"`
+	WorldID             string     `json:"world_id"`
+	ActorID             string     `json:"actor_id"`
+	ControllerID        string     `json:"controller_id"`
+	Goal                string     `json:"goal"`
+	Tags                []string   `json:"tags,omitempty"`
+	AllowedCapabilities []string   `json:"allowed_capabilities,omitempty"`
+	Budget              TaskBudget `json:"budget"`
 }
 
 type AgentRuntime struct {
@@ -185,7 +186,8 @@ func (runtime *AgentRuntime) StartTask(
 		TaskID: sealed.TaskID, SessionID: actor.Epoch.SessionID,
 		HostID: sealed.HostID, WorldID: sealed.WorldID, ActorID: sealed.ActorID,
 		ControllerID: sealed.ControllerID, Goal: sealed.Goal, Tags: sealed.Tags,
-		Status: TaskActive, Budget: sealed.Budget, ControllerLease: lease,
+		AllowedCapabilities: sealed.AllowedCapabilities,
+		Status:              TaskActive, Budget: sealed.Budget, ControllerLease: lease,
 		CreatedAtUnixMillis: now, UpdatedAtUnixMillis: now,
 	}
 	appendTaskEvent(&task, TaskEvent{
@@ -389,6 +391,23 @@ func (runtime *AgentRuntime) advanceTask(
 		summaries = slices.DeleteFunc(summaries, func(summary CapabilitySummary) bool {
 			return summary.Kind == host.CapabilityMacro
 		})
+	}
+	if len(task.AllowedCapabilities) != 0 {
+		specs = slices.DeleteFunc(specs, func(spec host.CapabilitySpec) bool {
+			return !taskAllowsCapability(task, spec.Capability.ID)
+		})
+		summaries = slices.DeleteFunc(summaries, func(summary CapabilitySummary) bool {
+			return !taskAllowsCapability(task, summary.Capability.ID)
+		})
+		if len(summaries) == 0 {
+			paused, pauseErr := runtime.pauseTask(
+				ctx,
+				task,
+				"capabilities.scope-empty",
+				errors.New("task capability scope has no published capability in this phase"),
+			)
+			return paused, false, pauseErr
+		}
 	}
 	persona, err := runtime.persona.Load(ctx, PersonaRequest{
 		ActorID: task.ActorID, ControllerID: task.ControllerID,
@@ -1129,6 +1148,13 @@ func sealStartTaskInput(input StartTaskInput) (StartTaskInput, error) {
 	}
 	var err error
 	if input.Tags, err = normalizeProviderIDs("tags", input.Tags, 32); err != nil {
+		return StartTaskInput{}, err
+	}
+	if input.AllowedCapabilities, err = normalizeProviderIDs(
+		"allowed_capabilities",
+		input.AllowedCapabilities,
+		128,
+	); err != nil {
 		return StartTaskInput{}, err
 	}
 	if input.Budget, err = normalizeTaskBudget(input.Budget); err != nil {

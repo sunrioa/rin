@@ -10,6 +10,10 @@ across every future minor release.
 
 ### Added
 
+- Added an optional `allowed_capabilities` hard boundary to internal Agent
+  tasks. The Runtime exposes only the intersection with the Host catalog and
+  rejects out-of-scope pending actions during restore; the field can only
+  narrow authority and cannot bypass Policy or final Host validation.
 - Added an explicit default Persona binding for dynamically created actors and
   a task-only Java `RinAgentClient` that reuses the bounded Control transport.
 - Added a durable internal-Agent Macro parent-child loop. Once the Macro parent

@@ -128,6 +128,7 @@ func startTaskInput(taskID string) cognition.StartTaskInput {
 	return cognition.StartTaskInput{
 		TaskID: taskID, HostID: "host.test", WorldID: "world.test",
 		ActorID: "actor.test", ControllerID: "controller.internal", Goal: "Test the task service.",
+		AllowedCapabilities: []string{"dialogue.speak"},
 	}
 }
 
@@ -173,6 +174,7 @@ func (runtime *fakeTaskRuntime) StartTask(
 	}
 	task := activeTask(input.TaskID, "task.created")
 	task.Goal = input.Goal
+	task.AllowedCapabilities = append([]string(nil), input.AllowedCapabilities...)
 	runtime.tasks[input.TaskID] = task
 	return task, nil
 }

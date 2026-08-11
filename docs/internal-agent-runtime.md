@@ -88,6 +88,11 @@ configuration without sending a model probe request.
   process locks. Configuration cannot redirect these paths.
 - `scheduled=true` only means background coordination was queued. It is not
   proof of model deliberation, game execution, or task completion.
+- `allowed_capabilities` is an optional task-local allowlist of at most 128
+  capability IDs. When non-empty, the Runtime exposes only its intersection
+  with the current Host catalog and revalidates restored pending actions. An
+  empty array uses the current full Host catalog. This field can only narrow
+  authority; it cannot create capabilities or bypass Policy.
 - Shutdown cancels and joins Agent workers before releasing Task and Memory
   locks, then closes the Control Plane.
 
@@ -106,7 +111,9 @@ Outcome reporting.
   terminal state.
 - While a parent macro runs, the model sees only atomic capabilities. The
   Control Plane supports nested macros, but this Runtime does not create a
-  second automatic parent level yet.
+  second automatic parent level yet. A task-local allowlist must name both the
+  parent Macro and its expected children; entering the Macro phase never
+  expands task authority.
 - Cancelling a Task with a running child cancels the child before the parent;
   the Task remains `cancelling` until the parent settles.
 - An `outcome-unknown` child or parent retains the exact Operation ID and stops

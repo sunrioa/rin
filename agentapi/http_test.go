@@ -59,7 +59,8 @@ func TestHTTPClientUsesDaemonBoundPrincipalAndTaskContract(t *testing.T) {
 	}, "initial HTTP task run")
 	time.Sleep(10 * time.Millisecond)
 	stored, err := client.GetTask(ctx, "task.http")
-	if err != nil || stored.TaskID != "task.http" {
+	if err != nil || stored.TaskID != "task.http" ||
+		!reflect.DeepEqual(stored.AllowedCapabilities, []string{"dialogue.speak"}) {
 		t.Fatalf("GetTask = %+v, %v", stored, err)
 	}
 	if _, err := client.RunTask(ctx, "task.http"); err != nil {

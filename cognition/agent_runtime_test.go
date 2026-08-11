@@ -65,6 +65,52 @@ func TestAgentRuntimeCompletesMultiStepTaskThroughControlPlane(t *testing.T) {
 	}
 }
 
+func TestAgentRuntimeEnforcesTaskCapabilityScopeBeforeModelExecution(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	fixture.environment.catalog.Specs = append(
+		fixture.environment.catalog.Specs,
+		agentMacroCapabilitySpec(t),
+	)
+	fixture.model.decisions = []cognition.ModelDecision{agentMacroDecision()}
+	runtime := fixture.runtime(t, 8)
+	started, err := runtime.StartTask(context.Background(), cognition.StartTaskInput{
+		TaskID: "task.scoped", HostID: "host.test", WorldID: "world.test",
+		ActorID: "actor.mira", ControllerID: "controller.internal",
+		Goal: "Use only movement.", Tags: []string{"task.follow"},
+		AllowedCapabilities: []string{"rin.navigation.move-to"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused, err := runtime.RunTask(context.Background(), started.TaskID)
+	if err == nil || paused.Status != cognition.TaskPaused ||
+		paused.PauseCode != "model.invalid" || len(fixture.control.submissions) != 0 ||
+		len(fixture.model.inputs) != 1 || len(fixture.model.inputs[0].Capabilities) != 1 ||
+		fixture.model.inputs[0].Capabilities[0].Capability.ID != "rin.navigation.move-to" {
+		t.Fatalf("task capability scope was not enforced: task=%+v err=%v inputs=%+v",
+			paused, err, fixture.model.inputs)
+	}
+
+	emptyFixture := newAgentRuntimeFixture(t)
+	emptyRuntime := emptyFixture.runtime(t, 8)
+	emptyTask, err := emptyRuntime.StartTask(context.Background(), cognition.StartTaskInput{
+		TaskID: "task.scope-empty", HostID: "host.test", WorldID: "world.test",
+		ActorID: "actor.mira", ControllerID: "controller.internal",
+		Goal:                "Use a capability that is not currently published.",
+		AllowedCapabilities: []string{"dialogue.speak"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	emptyPaused, err := emptyRuntime.RunTask(context.Background(), emptyTask.TaskID)
+	if err == nil || emptyPaused.Status != cognition.TaskPaused ||
+		emptyPaused.PauseCode != "capabilities.scope-empty" ||
+		len(emptyFixture.model.inputs) != 0 {
+		t.Fatalf("empty capability scope reached the model: task=%+v err=%v",
+			emptyPaused, err)
+	}
+}
+
 func TestAgentRuntimeDrivesMacroThroughAuditedChildOperation(t *testing.T) {
 	fixture := newAgentRuntimeFixture(t)
 	macro := agentMacroCapabilitySpec(t)

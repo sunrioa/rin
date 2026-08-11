@@ -47,14 +47,15 @@ type TaskEvent struct {
 // TaskSession contains every decision-side value needed to resume without
 // regenerating or mutating an already selected action.
 type TaskSession struct {
-	TaskID       string   `json:"task_id"`
-	SessionID    string   `json:"session_id"`
-	HostID       string   `json:"host_id"`
-	WorldID      string   `json:"world_id"`
-	ActorID      string   `json:"actor_id"`
-	ControllerID string   `json:"controller_id"`
-	Goal         string   `json:"goal"`
-	Tags         []string `json:"tags,omitempty"`
+	TaskID              string   `json:"task_id"`
+	SessionID           string   `json:"session_id"`
+	HostID              string   `json:"host_id"`
+	WorldID             string   `json:"world_id"`
+	ActorID             string   `json:"actor_id"`
+	ControllerID        string   `json:"controller_id"`
+	Goal                string   `json:"goal"`
+	Tags                []string `json:"tags,omitempty"`
+	AllowedCapabilities []string `json:"allowed_capabilities,omitempty"`
 
 	Status    TaskStatus `json:"status"`
 	PauseCode string     `json:"pause_code,omitempty"`
@@ -255,6 +256,13 @@ func sealTaskSession(task TaskSession) (TaskSession, error) {
 	if task.Tags, err = normalizeProviderIDs("tags", task.Tags, 32); err != nil {
 		return TaskSession{}, err
 	}
+	if task.AllowedCapabilities, err = normalizeProviderIDs(
+		"allowed_capabilities",
+		task.AllowedCapabilities,
+		128,
+	); err != nil {
+		return TaskSession{}, err
+	}
 	if !validTaskStatus(task.Status) || task.Revision == 0 || task.Revision > maxProviderWireInteger {
 		return TaskSession{}, errors.New("task status or revision is invalid")
 	}
@@ -291,6 +299,9 @@ func sealTaskSession(task TaskSession) (TaskSession, error) {
 		if request.TaskID != task.TaskID || request.ControllerID != task.ControllerID ||
 			request.ActorID != task.ActorID {
 			return TaskSession{}, errors.New("pending action does not belong to the task")
+		}
+		if !taskAllowsCapability(task, request.Capability.ID) {
+			return TaskSession{}, errors.New("pending action exceeds the task capability scope")
 		}
 		task.PendingAction = &request
 	} else if task.PendingActionMacro || task.PendingOperationID != "" ||
@@ -470,6 +481,7 @@ func validateTaskID(taskID string) error {
 
 func cloneTaskSession(task TaskSession) TaskSession {
 	task.Tags = append([]string(nil), task.Tags...)
+	task.AllowedCapabilities = append([]string(nil), task.AllowedCapabilities...)
 	if task.PendingAction != nil {
 		request := cloneTaskActionRequest(*task.PendingAction)
 		task.PendingAction = &request
@@ -481,6 +493,11 @@ func cloneTaskSession(task TaskSession) TaskSession {
 	}
 	task.History = append([]TaskEvent(nil), task.History...)
 	return task
+}
+
+func taskAllowsCapability(task TaskSession, capabilityID string) bool {
+	return len(task.AllowedCapabilities) == 0 ||
+		slices.Contains(task.AllowedCapabilities, capabilityID)
 }
 
 func cloneTaskActionRequest(request host.ActionRequest) host.ActionRequest {

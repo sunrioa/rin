@@ -317,6 +317,15 @@
             "maxItems": 32,
             "uniqueItems": true
           },
+          "allowed_capabilities": {
+            "type": "array",
+            "description": "Optional task-local capability ID allowlist. Empty uses the current Host catalog.",
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            },
+            "maxItems": 128,
+            "uniqueItems": true
+          },
           "budget": {
             "$ref": "#/components/schemas/TaskBudget"
           }
@@ -418,6 +427,15 @@
               "$ref": "#/components/schemas/Identifier"
             },
             "maxItems": 32,
+            "uniqueItems": true
+          },
+          "allowed_capabilities": {
+            "type": "array",
+            "description": "Persisted task-local capability ID allowlist.",
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            },
+            "maxItems": 128,
             "uniqueItems": true
           },
           "status": {
