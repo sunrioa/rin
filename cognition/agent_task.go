@@ -20,6 +20,7 @@ type TaskStatus string
 const (
 	TaskActive              TaskStatus = "active"
 	TaskWaitingConfirmation TaskStatus = "waiting-confirmation"
+	TaskCancelling          TaskStatus = "cancelling"
 	TaskPaused              TaskStatus = "paused"
 	TaskCompleted           TaskStatus = "completed"
 	TaskFailed              TaskStatus = "failed"
@@ -263,9 +264,9 @@ func sealTaskSession(task TaskSession) (TaskSession, error) {
 		if task.PauseCode == "" {
 			return TaskSession{}, errors.New("paused or failed task requires a status code")
 		}
-	case TaskActive, TaskWaitingConfirmation, TaskCompleted:
+	case TaskActive, TaskWaitingConfirmation, TaskCancelling, TaskCompleted, TaskCancelled:
 		if task.PauseCode != "" {
-			return TaskSession{}, errors.New("active or completed task must not retain a pause code")
+			return TaskSession{}, errors.New("non-paused task must not retain a pause code")
 		}
 	}
 	budget, err := normalizeTaskBudget(task.Budget)
@@ -301,12 +302,16 @@ func sealTaskSession(task TaskSession) (TaskSession, error) {
 	if task.Status == TaskWaitingConfirmation && task.PendingOperationID == "" {
 		return TaskSession{}, errors.New("waiting task has no pending operation")
 	}
+	if task.Status == TaskCancelling &&
+		(task.PendingAction == nil || task.PendingOperationID == "") {
+		return TaskSession{}, errors.New("cancelling task requires a pending operation")
+	}
 	if task.Status == TaskOutcomeUnknown &&
 		(task.PendingAction == nil || task.PendingOperationID == "") {
 		return TaskSession{}, errors.New("outcome-unknown task requires reconciliation state")
 	}
-	if task.Status == TaskCompleted && task.PendingAction != nil {
-		return TaskSession{}, errors.New("completed task must not retain a pending action")
+	if (task.Status == TaskCompleted || task.Status == TaskCancelled) && task.PendingAction != nil {
+		return TaskSession{}, errors.New("completed or cancelled task must not retain a pending action")
 	}
 	if len(task.PendingMemories) > 8 {
 		return TaskSession{}, errors.New("task has too many pending memories")
@@ -421,7 +426,7 @@ func normalizeTaskBudget(budget TaskBudget) (TaskBudget, error) {
 
 func validTaskStatus(status TaskStatus) bool {
 	switch status {
-	case TaskActive, TaskWaitingConfirmation, TaskPaused, TaskCompleted,
+	case TaskActive, TaskWaitingConfirmation, TaskCancelling, TaskPaused, TaskCompleted,
 		TaskFailed, TaskOutcomeUnknown, TaskCancelled:
 		return true
 	default:

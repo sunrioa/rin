@@ -312,6 +312,134 @@ func TestAgentRuntimeDoesNotPersistCallerCancellationAsProviderFailure(t *testin
 	}
 }
 
+func TestAgentRuntimeCancelsPendingActionBeforeSubmission(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	fixture.model.decisions = []cognition.ModelDecision{agentActionDecision()}
+	runtime := fixture.runtime(t, 1)
+	started := fixture.start(t, runtime, "task.cancel-before-submit")
+	pending, err := runtime.RunTask(context.Background(), started.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending.PendingAction == nil || pending.PendingOperationID != "" {
+		t.Fatalf("task did not stop before submission: %+v", pending)
+	}
+	cancelled, err := runtime.CancelTask(context.Background(), started.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cancelled.Status != cognition.TaskCancelled || cancelled.PendingAction != nil ||
+		cancelled.PendingOperationID != "" || fixture.control.cancelCalls != 0 ||
+		fixture.control.releaseCalls != 1 {
+		t.Fatalf("local cancellation did not settle safely: %+v", cancelled)
+	}
+	again, err := runtime.CancelTask(context.Background(), started.TaskID)
+	if err != nil || again.Revision != cancelled.Revision || fixture.control.releaseCalls != 1 {
+		t.Fatalf("repeated cancellation was not idempotent: task=%+v err=%v", again, err)
+	}
+}
+
+func TestAgentRuntimePersistsCancellationUntilHostOutcome(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	fixture.model.decisions = []cognition.ModelDecision{agentActionDecision()}
+	running := queuedAgentOperation()
+	running.Status = controlplane.OperationRunning
+	running.Cursor = "cursor.running"
+	running.DeliveryAttempts = 1
+	fixture.control.operationAfterSubmit = running
+	fixture.control.cancelResult = running
+	runtime := fixture.runtime(t, 2)
+	started := fixture.start(t, runtime, "task.cancel-running")
+	pending, err := runtime.RunTask(context.Background(), started.TaskID)
+	if err != nil || pending.PendingOperationID == "" {
+		t.Fatalf("submit running action: task=%+v err=%v", pending, err)
+	}
+	cancelling, err := runtime.CancelTask(context.Background(), started.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cancelling.Status != cognition.TaskCancelling || cancelling.PendingOperationID == "" ||
+		fixture.control.cancelCalls != 1 || fixture.control.releaseCalls != 0 {
+		t.Fatalf("delivered action cancellation was reported as complete: %+v", cancelling)
+	}
+
+	snapshot, err := fixture.tasks.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := cognition.RestoreLocalTaskStore(10, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.tasks = restored
+	settled := cancelledAgentOperation(fixture.environment.observation)
+	fixture.control.cancelResult = settled
+	fixture.control.operationAfterSubmit = settled
+	restarted := fixture.runtime(t, 4)
+	cancelled, err := restarted.RunTask(context.Background(), started.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cancelled.Status != cognition.TaskCancelled || cancelled.Step != 1 ||
+		cancelled.PendingOperationID != "" || fixture.control.cancelCalls != 2 ||
+		fixture.control.releaseCalls != 1 ||
+		!historyHasKind(cancelled.History, "operation.terminal") ||
+		!historyHasKind(cancelled.History, "task.cancelled") {
+		t.Fatalf("restarted cancellation did not settle from Host evidence: %+v", cancelled)
+	}
+}
+
+func TestAgentRuntimeCancelsUndeliveredQueuedOperation(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	fixture.model.decisions = []cognition.ModelDecision{agentActionDecision()}
+	fixture.control.operationAfterSubmit = queuedAgentOperation()
+	runtime := fixture.runtime(t, 2)
+	started := fixture.start(t, runtime, "task.cancel-queued")
+	pending, err := runtime.RunTask(context.Background(), started.TaskID)
+	if err != nil || pending.PendingOperationID == "" {
+		t.Fatalf("submit queued action: task=%+v err=%v", pending, err)
+	}
+	queuedCancellation := queuedAgentOperation()
+	queuedCancellation.Status = controlplane.OperationCancelled
+	queuedCancellation.Terminal = true
+	queuedCancellation.Cursor = "cursor.cancelled"
+	fixture.control.cancelResult = queuedCancellation
+	cancelled, err := runtime.CancelTask(context.Background(), started.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cancelled.Status != cognition.TaskCancelled || cancelled.Step != 1 ||
+		cancelled.PendingOperationID != "" || fixture.control.releaseCalls != 1 {
+		t.Fatalf("undelivered operation did not cancel locally: %+v", cancelled)
+	}
+}
+
+func TestAgentRuntimeDoesNotClaimDeliveredCancellationWithoutOutcome(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	fixture.model.decisions = []cognition.ModelDecision{agentActionDecision()}
+	fixture.control.operationAfterSubmit = queuedAgentOperation()
+	runtime := fixture.runtime(t, 2)
+	started := fixture.start(t, runtime, "task.cancel-unknown")
+	pending, err := runtime.RunTask(context.Background(), started.TaskID)
+	if err != nil || pending.PendingOperationID == "" {
+		t.Fatalf("submit action: task=%+v err=%v", pending, err)
+	}
+	unknown := queuedAgentOperation()
+	unknown.Status = controlplane.OperationCancelled
+	unknown.Terminal = true
+	unknown.DeliveryAttempts = 1
+	unknown.Cursor = "cursor.cancelled"
+	fixture.control.cancelResult = unknown
+	current, err := runtime.CancelTask(context.Background(), started.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Status != cognition.TaskOutcomeUnknown || current.PendingOperationID == "" ||
+		fixture.control.releaseCalls != 1 {
+		t.Fatalf("unproven delivered cancellation was treated as settled: %+v", current)
+	}
+}
+
 type agentRuntimeFixture struct {
 	principal   host.Principal
 	control     *fakeAgentControlPlane
@@ -495,6 +623,8 @@ type fakeAgentControlPlane struct {
 	lease                controlplane.ControllerLease
 	operationAfterSubmit controlplane.OperationView
 	submissions          []controlplane.SubmitActionInput
+	cancelResult         controlplane.OperationView
+	cancelCalls          int
 	releaseCalls         int
 }
 
@@ -572,6 +702,22 @@ func (control *fakeAgentControlPlane) WaitOperation(
 	return controlplane.OperationUpdate{Operation: view, Changed: view.Cursor != input.AfterCursor}, nil
 }
 
+func (control *fakeAgentControlPlane) CancelOperation(
+	principal host.Principal,
+	operationID string,
+) (controlplane.OperationView, error) {
+	control.cancelCalls++
+	view := control.cancelResult
+	if view.OperationID == "" {
+		view = control.operationAfterSubmit
+	}
+	if view.OperationID == "" {
+		view = queuedAgentOperation()
+	}
+	view.OperationID = operationID
+	return view, nil
+}
+
 type failingMemoryProvider struct{}
 
 func (failingMemoryProvider) Append(context.Context, cognition.MemoryRecord) (cognition.MemoryRecord, error) {
@@ -633,6 +779,18 @@ func succeededAgentOperation(observation host.ObservationEnvelope) controlplane.
 			OperationID: "operation.agent.1", Status: host.ActionSucceeded,
 			Summary:  "The Host moved the companion near the player.",
 			Evidence: []host.HostRef{observation.Resources[0].Ref}, Epoch: observation.Epoch,
+			WorldSeq: 2, OccurredAt: host.Timepoint{Clock: host.ClockStep, Value: 12},
+		},
+	}
+}
+
+func cancelledAgentOperation(observation host.ObservationEnvelope) controlplane.OperationView {
+	return controlplane.OperationView{
+		OperationID: "operation.agent.1", Status: controlplane.OperationCancelled,
+		Cursor: "cursor.cancelled", Terminal: true, DeliveryAttempts: 1,
+		Outcome: &host.ActionOutcome{
+			OperationID: "operation.agent.1", Status: host.ActionCancelled,
+			Summary: "The Host stopped the companion action.", Epoch: observation.Epoch,
 			WorldSeq: 2, OccurredAt: host.Timepoint{Clock: host.ClockStep, Value: 12},
 		},
 	}

@@ -34,6 +34,7 @@ type AgentControlPlane interface {
 	SubmitAction(context.Context, host.Principal, controlplane.SubmitActionInput) (controlplane.OperationView, error)
 	GetOperation(host.Principal, string) (controlplane.OperationView, error)
 	WaitOperation(context.Context, host.Principal, controlplane.WaitOperationInput) (controlplane.OperationUpdate, error)
+	CancelOperation(host.Principal, string) (controlplane.OperationView, error)
 }
 
 type AgentRuntimeOptions struct {
@@ -224,6 +225,45 @@ func (runtime *AgentRuntime) ResumeTask(
 	return runtime.saveTask(ctx, task)
 }
 
+// CancelTask persistently stops future deliberation. If an action has reached
+// the Host, the task remains cancelling until the authoritative Operation
+// settles; requesting cancellation is not itself proof that execution stopped.
+func (runtime *AgentRuntime) CancelTask(
+	ctx context.Context,
+	taskID string,
+) (TaskSession, error) {
+	if err := requireMemoryContext(ctx); err != nil {
+		return TaskSession{}, err
+	}
+	if err := validateTaskID(taskID); err != nil {
+		return TaskSession{}, err
+	}
+	lock := runtime.taskLock(taskID)
+	lock.Lock()
+	defer lock.Unlock()
+	task, err := runtime.tasks.Load(ctx, taskID)
+	if err != nil || terminalTaskStatus(task.Status) {
+		return task, err
+	}
+	if task.PendingOperationID == "" {
+		return runtime.finishCancelledTask(ctx, task, "before-operation")
+	}
+	if task.Status != TaskCancelling {
+		task.Status = TaskCancelling
+		task.PauseCode = ""
+		appendTaskEvent(&task, TaskEvent{
+			Kind: "task.cancel-requested", Step: task.Step,
+			OperationID: task.PendingOperationID, AtUnixMillis: runtime.now().UnixMilli(),
+		})
+		task, err = runtime.saveTask(ctx, task)
+		if err != nil {
+			return task, err
+		}
+	}
+	settled, _, err := runtime.advancePendingAction(ctx, task)
+	return settled, err
+}
+
 // RunTask advances a bounded number of semantic decisions. It stops on wait,
 // confirmation, provider pause, non-terminal operation wait, or terminal task.
 func (runtime *AgentRuntime) RunTask(
@@ -261,6 +301,10 @@ func (runtime *AgentRuntime) advanceTask(
 ) (TaskSession, bool, error) {
 	if task.PendingAction != nil {
 		return runtime.advancePendingAction(ctx, task)
+	}
+	if task.Status == TaskCancelling {
+		cancelled, err := runtime.finishCancelledTask(ctx, task, "no-pending-operation")
+		return cancelled, false, err
 	}
 	if task.Status != TaskActive {
 		return task, false, nil
@@ -597,8 +641,18 @@ func (runtime *AgentRuntime) advancePendingAction(
 		saved, saveErr := runtime.saveTask(ctx, task)
 		return saved, saveErr == nil, saveErr
 	}
-	view, err := runtime.control.GetOperation(runtime.principal, task.PendingOperationID)
+	cancelling := task.Status == TaskCancelling
+	var view controlplane.OperationView
+	var err error
+	if cancelling {
+		view, err = runtime.control.CancelOperation(runtime.principal, task.PendingOperationID)
+	} else {
+		view, err = runtime.control.GetOperation(runtime.principal, task.PendingOperationID)
+	}
 	if err != nil {
+		if cancelling {
+			return task, false, err
+		}
 		paused, pauseErr := runtime.pauseTask(ctx, task, "operation.unavailable", err)
 		return paused, false, pauseErr
 	}
@@ -658,7 +712,11 @@ func (runtime *AgentRuntime) advancePendingAction(
 	if view.Outcome != nil {
 		warning = runtime.appendOutcomeMemory(ctx, task, view)
 	}
-	task.Status = TaskActive
+	if cancelling {
+		task.Status = TaskCancelled
+	} else {
+		task.Status = TaskActive
+	}
 	task.PauseCode = ""
 	task.PendingAction = nil
 	task.PendingOperationID = ""
@@ -674,11 +732,41 @@ func (runtime *AgentRuntime) advancePendingAction(
 		Kind: "operation.terminal", Step: task.Step, Code: code, Summary: summary,
 		OperationID: view.OperationID, AtUnixMillis: runtime.now().UnixMilli(),
 	})
+	if cancelling {
+		appendTaskEvent(&task, TaskEvent{
+			Kind: "task.cancelled", Step: task.Step, Code: code,
+			OperationID: view.OperationID, AtUnixMillis: runtime.now().UnixMilli(),
+		})
+	}
 	if warning {
 		appendTaskEvent(&task, runtime.warningEvent(task, "memory.degraded"))
 	}
 	saved, saveErr := runtime.saveTask(ctx, task)
+	if saveErr == nil && cancelling {
+		runtime.releaseController(saved)
+	}
 	return saved, saveErr == nil, saveErr
+}
+
+func (runtime *AgentRuntime) finishCancelledTask(
+	ctx context.Context,
+	task TaskSession,
+	code string,
+) (TaskSession, error) {
+	task.Status = TaskCancelled
+	task.PauseCode = ""
+	task.PendingAction = nil
+	task.PendingOperationID = ""
+	task.PendingMemories = nil
+	appendTaskEvent(&task, TaskEvent{
+		Kind: "task.cancelled", Step: task.Step, Code: code,
+		AtUnixMillis: runtime.now().UnixMilli(),
+	})
+	saved, err := runtime.saveTask(ctx, task)
+	if err == nil {
+		runtime.releaseController(saved)
+	}
+	return saved, err
 }
 
 func (runtime *AgentRuntime) ensureController(
