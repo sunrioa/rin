@@ -218,7 +218,7 @@ type SubmitActorActionInput struct {
 	ObservationSeq    uint64         `json:"observation_sequence" jsonschema:"exact sequence copied from the current actor observation"`
 	TaskID            string         `json:"task_id,omitempty" jsonschema:"optional stable parent task identifier"`
 	IdempotencyKey    string         `json:"idempotency_key" jsonschema:"stable retry key; reuse only for identical input"`
-	ParentOperationID string         `json:"parent_operation_id,omitempty" jsonschema:"optional active parent operation for an auditable macro child"`
+	ParentOperationID string         `json:"parent_operation_id,omitempty" jsonschema:"optional accepted or running child-producing macro operation with the same non-empty task_id"`
 }
 
 type ConfirmActionInput struct {

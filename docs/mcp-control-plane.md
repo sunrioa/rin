@@ -239,8 +239,11 @@ decision. Its arguments express intent. The Host resolves opaque references,
 normalizes arguments, and binds real effects on the authority thread before Rin
 policy allows, denies, or requests confirmation. Dialogue, gathering,
 navigation, and building are all ordinary game-registered capabilities. A
-macro may create auditable children with `parent_operation_id`, but planning
-never bypasses binding, policy, or final authorization.
+macro may create auditable children with `parent_operation_id` only after the
+Host accepts it. The parent must be published as `kind=macro` with
+`produces_child_operations=true`, and parent and child must carry the same
+non-empty `task_id`. Planning never bypasses binding, policy, or final
+authorization.
 
 The direct result of every write tool means only that Rin accepted or queued the
 request. It is not evidence that the game executed it. Callers copy `cursor`

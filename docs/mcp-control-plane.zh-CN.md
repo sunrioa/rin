@@ -213,8 +213,9 @@ export RIN_CONTROL_SCOPES="actor.read,actor.control,actor.execute,operation.canc
 MCP 不能提交 Principal、Scope、效果预览、风险等级或策略结论。参数只表达意图；Host
 在权威线程解析不透明引用、规范化参数并绑定真实效果，Rin 再按效果策略批准、拒绝或
 要求确认。对白、采集、导航和建造在协议层没有特权，均由具体游戏以 Capability 注册。
-复合任务可以创建带 `parent_operation_id` 的可审计子 Operation，但计划不能绕过相同
-的绑定、策略和最终授权。
+复合任务只有在父操作被 Host 接受后，才能创建带 `parent_operation_id` 的可审计子
+Operation。父能力必须发布为 `kind=macro` 且 `produces_child_operations=true`，父子
+Action 还必须携带相同的非空 `task_id`；计划不能绕过相同的绑定、策略和最终授权。
 
 所有写 Tool 的直接返回只表示 Rin 已接收或排队，不能证明游戏已经执行。调用方必须
 把返回的 `cursor` 原样交给 `wait_operation`，或继续调用 `get_operation`：

@@ -258,20 +258,28 @@ func TestActionGatewayCoalescesConcurrentIdempotentSubmission(t *testing.T) {
 }
 
 func TestActionGatewayTracksParentAndChildOperations(t *testing.T) {
-	service, _, principal, actionHost := actionGatewayTestService(
+	service, hostLease, principal, actionHost := actionGatewayTestService(
 		t,
 		host.RiskLow,
 		policy.ProfileOpen,
 	)
+	macro := registerActionGatewayMacro(t, actionHost, true)
+	publishActionGatewaySpecs(t, service, hostLease, macro, actionHost.spec)
+	parentInput := actionHost.input("request.action.parent", "action.parent")
+	parentInput.Request.Capability = macro.Capability
+	parentInput.Request.SpecDigest = macro.Digest
+	parentInput.Request.TaskID = "task.action.parent"
 	parent, err := service.SubmitAction(
 		context.Background(),
 		principal,
-		actionHost.input("request.action.parent", "action.parent"),
+		parentInput,
 	)
 	if err != nil {
 		t.Fatalf("parent SubmitAction: %v", err)
 	}
+	acceptActionOperation(t, service, hostLease, parent.OperationID)
 	childInput := actionHost.input("request.action.child", "action.child")
+	childInput.Request.TaskID = parentInput.Request.TaskID
 	childInput.ParentOperationID = parent.OperationID
 	child, err := service.SubmitAction(
 		context.Background(),
@@ -286,6 +294,120 @@ func TestActionGatewayTracksParentAndChildOperations(t *testing.T) {
 		parent.ChildOperationIDs[0] != child.OperationID {
 		t.Fatalf("parent children = %#v, %v", parent, err)
 	}
+}
+
+func TestActionGatewayRejectsInvalidActionParent(t *testing.T) {
+	t.Run("atomic parent", func(t *testing.T) {
+		service, hostLease, principal, actionHost := actionGatewayTestService(
+			t, host.RiskLow, policy.ProfileOpen,
+		)
+		publishActionGatewaySpecs(t, service, hostLease, actionHost.spec)
+		parentInput := actionHost.input("request.atomic.parent", "atomic.parent")
+		parentInput.Request.TaskID = "task.atomic.parent"
+		parent, err := service.SubmitAction(context.Background(), principal, parentInput)
+		if err != nil {
+			t.Fatalf("parent SubmitAction: %v", err)
+		}
+		acceptActionOperation(t, service, hostLease, parent.OperationID)
+		childInput := actionHost.input("request.atomic.child", "atomic.child")
+		childInput.Request.TaskID = parentInput.Request.TaskID
+		childInput.ParentOperationID = parent.OperationID
+		if _, err := service.SubmitAction(
+			context.Background(), principal, childInput,
+		); !errors.Is(err, ErrConflict) {
+			t.Fatalf("atomic parent error = %v", err)
+		}
+	})
+
+	t.Run("macro does not produce children", func(t *testing.T) {
+		service, hostLease, principal, actionHost := actionGatewayTestService(
+			t, host.RiskLow, policy.ProfileOpen,
+		)
+		macro := registerActionGatewayMacro(t, actionHost, false)
+		publishActionGatewaySpecs(t, service, hostLease, macro, actionHost.spec)
+		parentInput := actionHost.input("request.closed.parent", "closed.parent")
+		parentInput.Request.Capability = macro.Capability
+		parentInput.Request.SpecDigest = macro.Digest
+		parentInput.Request.TaskID = "task.closed.parent"
+		parent, err := service.SubmitAction(context.Background(), principal, parentInput)
+		if err != nil {
+			t.Fatalf("parent SubmitAction: %v", err)
+		}
+		acceptActionOperation(t, service, hostLease, parent.OperationID)
+		childInput := actionHost.input("request.closed.child", "closed.child")
+		childInput.Request.TaskID = parentInput.Request.TaskID
+		childInput.ParentOperationID = parent.OperationID
+		if _, err := service.SubmitAction(
+			context.Background(), principal, childInput,
+		); !errors.Is(err, ErrConflict) {
+			t.Fatalf("closed macro parent error = %v", err)
+		}
+	})
+
+	t.Run("macro is not accepted", func(t *testing.T) {
+		service, hostLease, principal, actionHost := actionGatewayTestService(
+			t, host.RiskLow, policy.ProfileOpen,
+		)
+		macro := registerActionGatewayMacro(t, actionHost, true)
+		publishActionGatewaySpecs(t, service, hostLease, macro, actionHost.spec)
+		parentInput := actionHost.input("request.queued.parent", "queued.parent")
+		parentInput.Request.Capability = macro.Capability
+		parentInput.Request.SpecDigest = macro.Digest
+		parentInput.Request.TaskID = "task.queued.parent"
+		parent, err := service.SubmitAction(context.Background(), principal, parentInput)
+		if err != nil {
+			t.Fatalf("parent SubmitAction: %v", err)
+		}
+		childInput := actionHost.input("request.queued.child", "queued.child")
+		childInput.Request.TaskID = parentInput.Request.TaskID
+		childInput.ParentOperationID = parent.OperationID
+		if _, err := service.SubmitAction(
+			context.Background(), principal, childInput,
+		); !errors.Is(err, ErrConflict) {
+			t.Fatalf("queued macro parent error = %v", err)
+		}
+	})
+
+	t.Run("task or catalog changed", func(t *testing.T) {
+		service, hostLease, principal, actionHost := actionGatewayTestService(
+			t, host.RiskLow, policy.ProfileOpen,
+		)
+		macro := registerActionGatewayMacro(t, actionHost, true)
+		publishActionGatewaySpecs(t, service, hostLease, macro, actionHost.spec)
+		parentInput := actionHost.input("request.task.parent", "task.parent")
+		parentInput.Request.Capability = macro.Capability
+		parentInput.Request.SpecDigest = macro.Digest
+		parentInput.Request.TaskID = "task.parent"
+		parent, err := service.SubmitAction(context.Background(), principal, parentInput)
+		if err != nil {
+			t.Fatalf("parent SubmitAction: %v", err)
+		}
+		acceptActionOperation(t, service, hostLease, parent.OperationID)
+		childInput := actionHost.input("request.task.child", "task.child")
+		childInput.Request.TaskID = "task.other"
+		childInput.ParentOperationID = parent.OperationID
+		if _, err := service.SubmitAction(
+			context.Background(), principal, childInput,
+		); !errors.Is(err, ErrConflict) {
+			t.Fatalf("mismatched task error = %v", err)
+		}
+
+		publication := v2WorldPublication(actionHost.spec)
+		publication.Sequence = 3
+		if err := service.PublishWorld(
+			"test.host", hostLease.LeaseID, publication,
+		); err != nil {
+			t.Fatalf("PublishWorld without macro: %v", err)
+		}
+		childInput.Request.RequestID = "request.catalog.child"
+		childInput.Request.IdempotencyKey = "catalog.child"
+		childInput.Request.TaskID = parentInput.Request.TaskID
+		if _, err := service.SubmitAction(
+			context.Background(), principal, childInput,
+		); !errors.Is(err, ErrConflict) {
+			t.Fatalf("missing parent catalog error = %v", err)
+		}
+	})
 }
 
 func TestActionGatewayCancellationRollsBackPolicyBudget(t *testing.T) {
@@ -689,6 +811,69 @@ func (gateway *actionGatewayHost) input(
 			ObservationSeq: 1,
 			IdempotencyKey: idempotencyKey,
 		},
+	}
+}
+
+func registerActionGatewayMacro(
+	t *testing.T,
+	gateway *actionGatewayHost,
+	producesChildren bool,
+) host.CapabilitySpec {
+	t.Helper()
+	draft := gateway.spec
+	draft.Capability = host.CapabilityRef{
+		ID: "test.actor.macro", Version: "2.0.0",
+	}
+	draft.Description = "Run a bounded test macro through the Host adapter."
+	draft.Kind = host.CapabilityMacro
+	draft.Execution = host.ExecutionLongRunning
+	draft.Cancellation = host.CancellationCooperative
+	draft.ProducesChildOperations = producesChildren
+	draft.Digest = ""
+	sealed, err := gateway.registry.RegisterSpec(draft)
+	if err != nil {
+		t.Fatalf("RegisterSpec macro: %v", err)
+	}
+	return sealed
+}
+
+func publishActionGatewaySpecs(
+	t *testing.T,
+	service *Service,
+	lease HostLease,
+	specs ...host.CapabilitySpec,
+) {
+	t.Helper()
+	publication := v2WorldPublication(specs[0])
+	publication.Actors[0].Capabilities = &host.CapabilitySnapshot{
+		Revision: 2,
+		Specs:    append([]host.CapabilitySpec(nil), specs...),
+	}
+	if err := service.PublishWorld(
+		"test.host", lease.LeaseID, publication,
+	); err != nil {
+		t.Fatalf("PublishWorld V2 action catalog: %v", err)
+	}
+}
+
+func acceptActionOperation(
+	t *testing.T,
+	service *Service,
+	lease HostLease,
+	operationID string,
+) {
+	t.Helper()
+	batch := pollHost(t, service, lease, 1)
+	if len(batch.Requests) != 1 ||
+		batch.Requests[0].Request.OperationID != operationID {
+		t.Fatalf("PollHost parent = %#v", batch)
+	}
+	if err := service.AcknowledgeHost(
+		"test.host",
+		lease.LeaseID,
+		HostAcknowledgement{OperationID: operationID, Accepted: true},
+	); err != nil {
+		t.Fatalf("AcknowledgeHost parent: %v", err)
 	}
 }
 

@@ -488,8 +488,9 @@ func (service *Service) prepareActionSubmissionLocked(
 		principal,
 		input.HostID,
 		input.WorldID,
-		input.Request.ActorID,
+		actor,
 		controller.LeaseID,
+		input.Request.TaskID,
 	); err != nil {
 		return actionSubmissionSnapshot{}, err
 	}
@@ -505,7 +506,9 @@ func (service *Service) prepareActionSubmissionLocked(
 func (service *Service) validateActionParentLocked(
 	parentID string,
 	principal host.Principal,
-	hostID, worldID, actorID, controllerLeaseID string,
+	hostID, worldID string,
+	actor ActorPublication,
+	controllerLeaseID, taskID string,
 ) error {
 	if parentID == "" {
 		return nil
@@ -517,14 +520,40 @@ func (service *Service) validateActionParentLocked(
 	if parent.request.Kind != ControlAction || completeOperation(parent) ||
 		parent.request.Principal.ID != principal.ID ||
 		parent.request.HostID != hostID || parent.request.WorldID != worldID ||
-		parent.request.ActorID != actorID ||
+		parent.request.ActorID != actor.ActorID ||
 		controllerLeaseID != controllerLeaseIDFromRequest(parent.request) {
+		return ErrConflict
+	}
+	if parent.status != OperationAccepted && parent.status != OperationRunning {
+		return ErrConflict
+	}
+	if parent.request.ActionRequest == nil || parent.request.BoundAction == nil ||
+		taskID == "" || parent.request.ActionRequest.TaskID != taskID ||
+		parent.request.BoundAction.TaskID != taskID {
+		return ErrConflict
+	}
+	if !actorPublishesChildProducingMacro(actor, *parent.request.BoundAction) {
 		return ErrConflict
 	}
 	if len(parent.children) >= maxChildOperations {
 		return ErrCapacity
 	}
 	return nil
+}
+
+func actorPublishesChildProducingMacro(
+	actor ActorPublication,
+	parent host.BoundAction,
+) bool {
+	if actor.Capabilities == nil {
+		return false
+	}
+	for _, spec := range actor.Capabilities.Specs {
+		if spec.Capability == parent.Capability && spec.Digest == parent.SpecDigest {
+			return spec.Kind == host.CapabilityMacro && spec.ProducesChildOperations
+		}
+	}
+	return false
 }
 
 func (service *Service) storeActionOperationLocked(
