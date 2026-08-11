@@ -16,7 +16,6 @@ releases do not carry a post-1.0 stability guarantee.
 | Sequential, simultaneous, chance, and hidden information | [OpenSpiel validation](open-spiel-validation.md) | [OpenSpiel 验证](open-spiel-validation.zh-CN.md) |
 | Universal Host ports and coordinator | [Host SDK](host-sdk.md) | [通用 Host SDK](host-sdk.zh-CN.md) |
 | Proposal, execution, and recovery | [Host action lifecycle](action-lifecycle.md) | [Host 动作生命周期](action-lifecycle.zh-CN.md) |
-| Bounded task plans and budgets | [Task plans](planner.md) | [任务计划](planner.zh-CN.md) |
 | HTTP and state contract | [Protocol v2](protocol-v2.md) | [协议 v2](protocol-v2.zh-CN.md) |
 | Online-model configuration | [Model policy](model-policy.md) | [模型策略](model-policy.zh-CN.md) |
 | Persistent internal Agent Runtime | [Internal Agent Runtime](internal-agent-runtime.md) | [内部 Agent Runtime](internal-agent-runtime.zh-CN.md) |

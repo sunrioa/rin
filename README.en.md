@@ -102,7 +102,6 @@ See [game adapters](docs/game-adapters.md) for installation, thread boundaries, 
 - [Documentation index](docs/README.md) / [简体中文](docs/README.zh-CN.md)
 - [Protocol v2](docs/protocol-v2.md): fields, errors, and retry semantics
 - [Action lifecycle](docs/action-lifecycle.md): proposals, execution, Outbox, and recovery
-- [Bounded task-plan DSL](docs/planner.md): branches, bounded loops, and budget gates
 - [MCP quick start](docs/mcp-control-plane.md): official version negotiation, Host publication, and authority
 - [Deployment and monitoring](docs/operations.md): tokens, TLS, storage, and runtime limits
 - [Release guide](docs/release-guide.md) and [roadmap](ROADMAP.en.md)

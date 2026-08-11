@@ -17,7 +17,6 @@ Rin `0.7.0` 是 Preview、pre-1.0 软件。文档按公共接口组织，不以�
 | 顺序、同时、Chance 与隐藏信息 | [OpenSpiel 验证](open-spiel-validation.zh-CN.md) | [OpenSpiel validation](open-spiel-validation.md) |
 | 通用 Host 端口与 Coordinator | [通用 Host SDK](host-sdk.zh-CN.md) | [Host SDK](host-sdk.md) |
 | Proposal、执行与恢复 | [Host 动作生命周期](action-lifecycle.zh-CN.md) | [Host action lifecycle](action-lifecycle.md) |
-| 有界任务计划 DSL 与预算 | [任务计划](planner.zh-CN.md) | [Task plans](planner.md) |
 | HTTP 与状态契约 | [协议 v2](protocol-v2.zh-CN.md) | [Protocol v2](protocol-v2.md) |
 | 在线模型配置 | [模型策略](model-policy.zh-CN.md) | [Model policy](model-policy.md) |
 | 持久内部 Agent Runtime | [内部 Agent Runtime](internal-agent-runtime.zh-CN.md) | [Internal Agent Runtime](internal-agent-runtime.md) |
