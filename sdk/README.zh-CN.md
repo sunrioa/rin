@@ -2,127 +2,58 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-面向 `rin.protocol/v2` 认知边界与引擎中立 `rin.control/v2` 控制边界的
-轻量、源码优先客户端。
+本目录提供面向 `rin.control/v2` 的轻量客户端，以及游戏 Host 使用的 Go
+`hostkit`。所有语言客户端都连接常驻的本机 `rin-control`，不会嵌入模型、策略
+或游戏执行逻辑。
 
-这些 SDK 消除传输样板代码，不会把游戏权威移动到客户端库。
-
-[`hostkit`](hostkit) 下的类型化 Go 参考实现定义通用 Host 端口与可重启
-Coordinator；所有权和生命周期契约见[通用 Host SDK 指南](../docs/host-sdk.zh-CN.md)。
-
-HostKit 同时提供 V2 `Adapter` 与 `AdapterCoordinator`：游戏代码负责可信观察、
-绑定、Effect Preview、执行、取消和验证，Rin 继续掌握 Policy 与 Operation 权威。
-可复用契约套件位于 [`hostkit/conformance`](hostkit/conformance)，可运行的中立实现
-位于 [`examples/adapters/grid`](../examples/adapters/grid)。
-
-SDK Workflow Helper 会校验接入声明的
-[宿主持久 Profile](../docs/host-durability.zh-CN.md)。客户端库不能凭空
-创造游戏没有提供的持久性或世界事务。
-
-| 语言/Target | Runtime | SDK Profile | 异步建议 |
+| 语言 | 最低运行时 | 调用方式 | 说明 |
 | --- | --- | --- | --- |
-| Python | 3.9+ | `transport`、`control-v2` | 实时游戏从 Worker 调用 |
-| JavaScript | Node 18+ / 现代 Fetch 宿主 | `transport`、`streaming`、`control-v2` | 基于 Promise |
-| C# | .NET 6+ | `transport`、`streaming`、`control-v2` | 基于 `Task` |
-| C# 兼容构建 | .NET Standard 2.0 | `transport`、`control-v2` | 基于 `Task` |
-| Java | 17+ | `transport`、`control-v2` | 基于 `CompletableFuture` |
-| Lua | 5.1+ 宿主 | `transport` | 基于 Callback |
+| Python | 3.9 | 同步 | 仅标准库 |
+| JavaScript | Node 18 | Promise | 使用标准 `fetch` |
+| C# | .NET 6 / .NET Standard 2.0 | `Task` | 严格有界 HTTP |
+| Java | 17 | `CompletableFuture` | JSON Codec 由宿主注入 |
+| Lua | 5.1+ | Callback | HTTP 与 JSON Adapter 由引擎注入 |
+| Go HostKit | Go 1.25 | `context.Context` | Authority Dispatch 与 V2 Adapter 协调 |
 
-## Control V2 客户端
+## 公共 Control 操作
 
-Python、JavaScript、C# 与 Java 提供独立的 `RinControlClient`，连接本机
-`7375` 端口的 Control Daemon。它与 MCP Bridge 使用同一应用接口，可观察角色、
-读取能力规格、取得控制租约、提交或确认行动、等待权威 Operation 结果、取消任务
-并触发急停。
+五种客户端提供同一组路由：
 
-Control 客户端只接受带显式端口的明文本机回环 Origin，始终要求至少 32 个
-UTF-8 字节的 Bearer Token，拒绝重定向和非 JSON 响应，并把响应限制为 8 MiB。
-`submitted` 或 `queued` 不能证明游戏已执行；只有带 Host Outcome 的终态才能确认
-世界效果。机器契约见
-[`api/control-openapi.json`](../api/control-openapi.json)，共享请求样例见
-[`api/control-v2-fixtures.json`](../api/control-v2-fixtures.json)。
+- 读取世界、Actor、Observation 和 Capability；
+- 获取、续租和释放独占 Controller Lease；
+- 提交或确认 `ActionRequest`；
+- 获取、长轮询和取消 Operation；
+- 设置 Actor Emergency Stop。
 
-所有客户端遵循以下规则：
+精确字段以 [`api/control-openapi.json`](../api/control-openapi.json) 为准。SDK
+刻意使用通用 JSON Object，避免复制并逐渐漂移出第二套协议类型。
 
-- 只对显式 loopback Origin 接受明文 HTTP；
-- 远程 Origin 要求 HTTPS 和 Bearer Token；
-- 拒绝重定向；
-- 强制请求超时和响应大小限制；
-- 错误只暴露有界 Rin Code，不暴露供应商正文或凭据；
-- 调用方负责生成并持久保存每个 Session mutation 的 `request_id` 以及
-  Observe/Outcome 的 `event_id`；SDK 不会生成、轮换或静默替换它们；
-- SDK 不会自动重试 mutation。调用方只能重试完全相同的 typed payload 和 ID；
-  同一 Request ID 下改变任一字段都会返回 `request_id_conflict`；
-- 完全相同的 duplicate 会返回首次持久 revision/head（或原始
-  Proposal/Arbitration）并设置 `duplicate=true`；需要当前 head 时应读取
-  Session State。对于 `rin.reducer-projection/v2` 之前的 Proposal，Rin 保留
-  这些坐标和结构字段，但会通过玩家文本门禁升级 `summary`/`rationale`；
-- `event_exists` 是其他请求造成的冲突，不是 duplicate 确认；
-- Outcome Outbox 只有收到目标 Session 的完整 `MutationResult` 后才能删除：
-  `revision` 必须为正的 JSON-safe 整数，`head_hash` 必须为小写 SHA-256，
-  `duplicate` 必须显式为布尔值；字段不完整的 HTTP 200 不是 ACK；
-- Proposal 始终是建议；游戏接受或拒绝后回报类型化 Invocation、Run 与
-  Outcome，Report 不是执行授权。
-- 应把 Proposal 的 `summary` 与 `rationale` 用作玩家文案：Rin 由游戏编写的
-  动作描述和固定 stance 模板生成它们。`policy_source`、
-  `recalled_memory_ids`、`goal_id`、可选增量字段 `boundary_id` 与完整
-  `proposed_goal` 是私有审计/集成元数据，绝不能直接展示给玩家。Action 的 ID、
-  Kind、Target 与 Parameter 也是集成数据，除非游戏另行授权；
-- 所有随附 SDK 都采用宽容 Object 解码。动态客户端会自然保留 `boundary_id`；
-  Unity typed 示例已显式声明，旧 typed 客户端可以安全忽略这个 v1 增量响应字段。
+## 传输保证
 
-收到 `mutation_outcome_unknown` 后，应保留非 Proposal Operation，并且只用
-其完全相同的 typed payload 与 ID 重试；该 mutation 可能已经持久化，其他
-Session mutation 会阻塞到确认完成。Proposal 写入使用
-`proposal_outcome_unknown`，恢复规则相同。任何一个错误码都不允许轮换
-Request ID、重新应用动作或推进 Outbox。
+所有客户端都执行以下检查：
 
-持久身份保证适用于 Session mutation，不适用于进程内 Job 元数据。Proposal
-Job 淘汰或重启后可以依据持久 Proposal 重建；Generation Job 不写事件日志，
-Job 保留期结束或 Sidecar 重启后，相同请求可能再次执行。
+- 默认只连接 `http://127.0.0.1:7375` 或显式回环地址；
+- 要求至少 32 字节、无换行的 Bearer Token；
+- 禁止 HTTP Redirect；
+- 限制超时、响应体大小、JSON 深度和安全整数；
+- 拒绝非法 UTF-8、非 JSON 响应和不匹配的 `rin.control/v2`；
+- 将配置、传输、协议和 API 错误保持为可区分的稳定错误类型。
 
-Snapshot 响应包含 `identifier_history` 和 `identifier_history_hash`。History
-会随 Session lineage 增长，也可能包含历史 Proposal/Arbitration 文本，因此
-应按事件日志保护，并在保存时保留未知增量字段。整个 Snapshot 都是可信、
-不透明的状态：其中 SHA-256 canonical checksum 可发现意外损坏或未同步修改，
-但不验证来源，也无法阻止能重算 checksum 的一方。
+SDK 返回的 `queued`、`accepted` 或 `running` 只表示中间状态。调用方必须等待
+终态，并且只有 `execution_confirmed=true` 且存在 Host Outcome 时才可向用户报告
+游戏行动已经完成。
 
-Restore 必须提供来自运行中游戏可信内容 manifest 的 `expected_binding`。它必须
-与导入 Snapshot 的 Binding 一致；target Session 已存在时还必须与该 Session
-的 Binding 一致。不得通过读取 Snapshot 来填写它。
+## 版本与发布
 
-完整 inline Snapshot 的 compact JSON 上限为 16 MiB。Rin 超限时返回
-`413 snapshot_too_large`，绝不截断内容。所有 SDK 默认响应上限为 32 MiB，
-与服务端默认 32 MiB 请求正文上限匹配，并为 envelope、Restore 元数据和持久
-EventRecord framing 预留空间。Session Transfer 是大 lineage 的受支持路径。
-JavaScript 与 .NET 6+ C# Target 已提供 streaming source/sink helper；Python、
-Java、Lua 与 C# `.NET Standard 2.0` 兼容 Target 只实现 `transport` Profile，
-不宣称支持大 lineage Transfer。
+这些 SDK 当前是仓库内的 source-first Preview。固定同一个 Rin Revision 使用，
+不要假设公共包仓库中的同名包已经发布或与源码同步。
 
-Live Session State 默认使用 16 MiB compact JSON 预算；造成超限的 Mutation 会在
-持久化前返回 `413 state_too_large`。运维配置最高只能提高到 24 MiB，以保证响应
-envelope 仍可读取。
+各语言快速开始：
 
-SDK 有意采用源码优先方式，尚未发布到 PyPI、npm、NuGet 或 Maven Central。
-Vendor 时应固定本仓库 Revision。路由兼容性由
-[`api/openapi.json`](../api/openapi.json) 定义；
-[`conformance/routes.json`](conformance/routes.json) 是它生成的覆盖清单。每个
-operation 标记为 `transport` 或 `streaming`；所有 client 必须覆盖 transport
-profile，只有提供有界 stream API 的 client 才能声明 streaming profile。
-其中 `request_schema` 与 HTTP Decoder 的 Route Binding 同时生成，不再另行
-维护一份 Schema Switch。
+- [Python](python/README.zh-CN.md)
+- [JavaScript](javascript/README.zh-CN.md)
+- [C#](csharp/README.zh-CN.md)
+- [Java](java/README.zh-CN.md)
+- [Lua](lua/README.zh-CN.md)
 
-[`conformance/sidecar-corpus.json`](conformance/sidecar-corpus.json) 是共享的
-真实传输 Corpus。`make test-sdk-sidecar` 会构建真实 Sidecar，只执行一次严格
-Wire 用例，然后让 Python、JavaScript、C#、Java、Lua 对同一进程与请求模板执行
-Health、首次 Mutation、精确重试和超时检查。Lua Runner 使用它通常由宿主持有的
-HTTP/JSON Port，不会伪称 SDK 自带网络栈。
-
-游戏专用示例位于 [`examples/mods`](../examples/mods)。它们展示宿主事件
-如何进入 Rin，以及游戏在何处验证并应用 Proposal。它们是接入模板，不是
-适用于每个游戏版本的通用补丁。
-
-所有 SDK 的 Action Report 生命周期、Outbox 和重试规则以
-[`docs/action-lifecycle.zh-CN.md`](../docs/action-lifecycle.zh-CN.md) 为准。
-
-SDK 源码按 [MIT License](../LICENSE) 发布。
+完整 Host 接入见[游戏 Adapter 指南](../docs/game-adapters.zh-CN.md)。

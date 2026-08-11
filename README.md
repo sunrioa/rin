@@ -1,144 +1,149 @@
 # Rin
 
-[简体中文](README.md) | [English](README.en.md)
+[English](README.en.md) | [简体中文](README.md)
 
-Rin 是面向游戏的智能体运行时。它在游戏循环之外管理角色记忆、目标、决策和异步任务，并把结果作为经过校验的行动提案交回游戏。
+Rin 是一个引擎无关的游戏 Agent Harness。它把模型或外部 Agent 的低频决策，转换为
+游戏 Host 可验证、可授权、可追踪的结构化行动；游戏仍然拥有世界状态和最终执行权。
 
-## 当前状态
+Minecraft、RPG、视觉小说或自研游戏只需要实现 Adapter，不需要把游戏对象、线程模型
+或私有 API 放进 Rin 核心。
 
-源码版本为 `0.7.0` Preview（pre-1.0），项目仍在开发中。正式 Release Tag 发布前，请固定仓库 Revision 或已验证的 Tag。兼容性和迁移信息见[兼容矩阵](docs/compatibility.zh-CN.md)与[变更日志](CHANGELOG.zh-CN.md)。
+当前源码版本为 `0.7.0` Preview。V2 是不兼容重构，不读取旧 Session/Proposal 协议状态。
+公开契约分别为 `rin.host/v2`、`rin.control/v2` 和 Agent Task API `v1`。
 
-## Rin 负责什么
+## 工作方式
 
-- 游戏提交角色确实观察到的 `Observation`；Rin 不读取也不解释整个游戏存档。
-- 角色根据记忆、目标、边界和当前允许的动作生成 `ActionProposal`。
-- 游戏保留世界权威，负责验证、执行或拒绝提案，再把动作结果报告给 Rin。
-- 状态变化写入带哈希链的事件日志，可通过 Replay、Timeline 和 `rin inspect` 检查。
-- 提案、Generation Job、快照和 Session Transfer 都有独立的大小、时间和并发上限。
-
-Rin 可以作为 Sidecar 运行，也可以作为 Go 包嵌入工具链。它不绑定特定游戏、引擎或模型供应商。在线模型是可选的；没有模型时可以使用确定性 Policy。
-
-## 快速开始
-
-要求 Go 1.25 或更高版本。启动本地 Sidecar：
-
-```bash
-make test
-go run ./cmd/rin serve -data ./rin-data
+```mermaid
+flowchart LR
+    External["外部 Agent / MCP"] --> Lease["Controller Lease"]
+    Internal["Rin Internal Agent"] --> Lease
+    Lease --> Observe["可信观察与能力目录"]
+    Observe --> Request["ActionRequest"]
+    Request --> Bind["游戏 Host 绑定目标并预览 Effect"]
+    Bind --> Policy["确定性 Gameplay Policy"]
+    Policy --> Operation["Operation 与确认、取消、审计"]
+    Operation --> Adapter["游戏 Adapter 权威执行"]
+    Adapter --> Outcome["Run / Outcome / Evidence"]
+    Outcome --> Observe
 ```
 
-默认监听 `127.0.0.1:7374`。健康检查：
+关键约束：
+
+- 模型可以选择能力、参数和目标，但不能声明所有权、风险、效果或执行成功。
+- Host 在权威线程解析对象、生成 `BoundAction` 和 Effect Preview。
+- Policy 根据实际 Effect、资产归属、范围、风险和预算决定允许、拒绝或要求确认。
+- `queued`、`accepted`、`running` 都不是成功；只有带 Host Outcome 的
+  `execution_confirmed=true` 才能证明执行完成。
+- 内部模型和外部 MCP 共用相同的 Lease、Policy、Operation 和 Host 执行链。
+- 模型负责低频目标与行动决策；寻路、动画、战斗等实时控制由游戏 Adapter 逐帧或逐 Tick 完成。
+
+## 主要组件
+
+| 组件 | 职责 |
+| --- | --- |
+| `host` | Observation、Capability、Action、Effect、Epoch 与 Adapter 契约 |
+| `policy` | 基于 Effect 的确定性授权、确认挑战和动作预算 |
+| `controlplane` | Host 租约、Controller Lease、Operation 投递、等待、取消和恢复 |
+| `cognition` | 人格、记忆、技能、模型决策与内部 Agent Loop |
+| `agentapi` / `agentdaemon` | 可恢复的异步内部 Agent Task API |
+| `mcpbridge` | MCP 2026-07-28 薄代理，不拥有游戏状态 |
+| `sdk` | Python、JavaScript、C#、Java、Lua 的 Control V2 客户端与 Go HostKit |
+
+## 本地构建
+
+要求 Go `1.25` 或更高版本。其他语言运行时只在测试对应 SDK 时需要。
 
 ```bash
-curl http://127.0.0.1:7374/health
+make verify
+make build
 ```
 
-运行最小示例：
+产物位于 `bin/`：
+
+- `rin`：Host 脚手架、Conformance、Doctor 和 MCP 安装管理。
+- `rin-control`：常驻的本地 Control Daemon，可选启用内部 Agent Runtime。
+- `rin-mcp`：连接 Control Daemon 的 STDIO MCP 薄代理。
+
+## 启动 Control Daemon
+
+Control Daemon 只接受回环地址，并要求至少 32 字节随机 Token。以下示例授予本地开发所需
+作用域；生产环境应按实际用途缩小：
 
 ```bash
-go run ./examples/basic
-```
-
-该示例只演示 Session 创建和 Observe。使用 V2 Adapter、Effect Policy、内部 Agent
-与外部 MCP 共用执行链的完整参考在
-[`examples/terminal-story`](examples/terminal-story/README.zh-CN.md)。
-
-构建常驻控制 daemon 和 MCP 薄代理（默认优先协商 `2026-07-28`）：
-
-```bash
-go build -o bin/rin ./cmd/rin
-go build -o bin/rin-control ./cmd/rin-control
-go build -o bin/rin-mcp ./cmd/rin-mcp
 export RIN_CONTROL_TOKEN="$(openssl rand -hex 32)"
-export RIN_CONTROL_PRINCIPAL="player.one"
-export RIN_CONTROL_SCOPES="actor.read"
-export RIN_CONTROL_DATA_DIR="/absolute/path/to/rin-control-data"
-./bin/rin-control
+./bin/rin-control \
+  -principal local.player \
+  -scopes actor.read,actor.control,actor.execute,operation.cancel,host.admin
 ```
 
-把 Rin MCP 一次配置到本机已安装的 Codex、Claude Code 或 OpenClaw：
+健康与契约检查：
 
 ```bash
-./bin/rin mcp install
+curl -H "Authorization: Bearer $RIN_CONTROL_TOKEN" \
+  http://127.0.0.1:7375/control/v2/info
+```
+
+## 接入外部 Agent
+
+一个 `rin-mcp` 可以控制所有连接到同一 `rin-control` 的兼容游戏 Host。游戏 Mod 不需要
+各自实现 MCP Server。
+
+```bash
+./bin/rin mcp install -agents codex,claude,openclaw
 ./bin/rin mcp status
+./bin/rin mcp update
 ```
 
-安装器交互选择 Agent，使用各 Agent 的官方 CLI 注册同一个稳定的 `rin-mcp`
-路径，并把地址与 Token 只保存一次到权限为 `0600` 的本机配置。后续换入新版
-Rin 发行目录后运行 `rin mcp update` 即可保留全部 Agent 配置。自动化环境可用
-`-agents codex,claude,openclaw` 或 `-yes`；完整安装、更新与卸载说明见
-[MCP 快速接入](docs/mcp-control-plane.zh-CN.md)。
+安装器只管理本机配置和 `rin-mcp` 可执行文件；游戏或 Mod 的发布与更新仍由各自平台负责。
+外部控制时使用外部 Agent 的人格和私有记忆，Rin 只保留执行所需的权限、状态与审计信息。
 
-`rin-control` 常驻监听 `127.0.0.1:7375`，游戏 Host 和任意数量的
-`rin-mcp` STDIO 代理都连接它。默认 Scope 只有 `actor.read`；写工具必须显式
-授权，并且所有世界修改仍由游戏 Host 最终校验和执行。配置、权限和 Host 端点见
-[MCP 快速接入](docs/mcp-control-plane.zh-CN.md)。
+## 创建游戏 Host
 
-生成 Host 或 Mod 起始项目：
+通用脚手架支持 Go、JavaScript、Python、C#、Java 和 Lua，并且只生成契约骨架，不下载依赖
+或伪造引擎集成：
 
 ```bash
-go run ./cmd/rin init host --list-hosts
-go run ./cmd/rin init host --engine fabric --id guide_npc --name "Guide NPC" --namespace io.github.example
+./bin/rin init host -engine custom -runtime java -id my-game-host -output ./my-game-host
+./bin/rin conformance host -project ./my-game-host
+./bin/rin doctor host -project ./my-game-host
 ```
 
-`custom` 支持 Go、JavaScript、Python、C#、Java 和 Lua；另有 Fabric、BepInEx Mono、BepInEx IL2CPP 与 Luanti 模板。生成器不会覆盖已有路径，详见[Host 脚手架文档](docs/host-scaffolding.zh-CN.md)。
+完整 Adapter 需要实现可信观察、能力发现、目标绑定、Effect Preview、权威执行、取消和结果验证。
 
-## 接入路径
+## 可运行示例
 
-- Ren'Py、Godot 4、Unity 和 Unreal 参考适配器
-- Python、JavaScript、C#、Java 和 Lua SDK
-- Fabric、BepInEx 和 Luanti 示例 Mod
-- 引擎无关的 `host` Contract 与 HostKit
+```bash
+go test ./examples/adapters/grid ./examples/adapters/story
+go run ./examples/terminal-story
+```
 
-安装、线程边界和离线行为见[游戏适配文档](docs/game-adapters.zh-CN.md)。跨语言 SDK、凭据和 Mod 安装见 [SDK 与 Mod 文档](docs/sdk-and-mods.zh-CN.md)。
+Grid 验证资源、所有权和行动规则；Story 验证叙事状态变化；Terminal Story 走完整
+Control、Policy、Operation 与 Adapter 链路。
 
 ## 文档
 
-- [文档索引](docs/README.zh-CN.md) / [English](docs/README.md)
-- [总体流程图](docs/flowchart.zh-CN.md)：Runtime、Host、模型与 MCP 控制面的完整链路
-- [Protocol v2](docs/protocol-v2.zh-CN.md)：字段、错误和重试语义
-- [动作生命周期](docs/action-lifecycle.zh-CN.md)：Proposal、执行、Outbox 和恢复
-- [MCP 快速接入](docs/mcp-control-plane.zh-CN.md)：官方版本协商、Host 发布和权限
-- [部署与监控](docs/operations.zh-CN.md)：Token、TLS、存储和运行限制
-- [发布指南](docs/release-guide.zh-CN.md)与[路线图](ROADMAP.md)
-- [安全说明](SECURITY.md)、[变更日志](CHANGELOG.zh-CN.md)和[第三方许可](THIRD-PARTY-NOTICES.md)
+- [文档索引](docs/README.zh-CN.md)
+- [整体架构](docs/architecture.zh-CN.md)
+- [Host V2 契约](docs/host-contract.zh-CN.md)
+- [Operation 与策略](docs/operations.zh-CN.md)
+- [内部 Agent Runtime](docs/internal-agent-runtime.zh-CN.md)
+- [MCP 与 Control Plane](docs/mcp-control-plane.zh-CN.md)
+- [游戏 Adapter 指南](docs/game-adapters.zh-CN.md)
+- [集成验收](docs/host-integration-validation.zh-CN.md)
+- [安全策略](SECURITY.md)
+- [路线图](ROADMAP.md)
 
-`api/openapi.json` 是 Runtime HTTP 契约，`api/control-openapi.json` 是 Host
-Control 契约，`api/agent-openapi.json` 是内部 Agent Task 契约；协议文档解释运行时语义，专题文档解释适配器、长期 Session、
-Transfer 和可选扩展。根 README 不重复这些完整内容。
+OpenAPI 文件是 HTTP 字段与路由的唯一事实来源：
+`api/control-openapi.json` 和 `api/agent-openapi.json`。
 
-## 目录
+## 安全边界
 
-```text
-cmd/rin/       Sidecar 命令行程序
-cmd/rin-control/ 常驻 Host Control daemon
-cmd/rin-mcp/   MCP STDIO 薄代理
-api/           Runtime 与 Control OpenAPI 3.1 契约
-protocol/      跨语言 v2 数据类型
-runtime/       事件状态机、提案验证、快照和调度
-store/         JSONL 文件存储与内存存储
-httpapi/       HTTP、鉴权和请求大小限制
-controlplane/  Host 租约与主体隔离的控制面
-mcpbridge/     官方 MCP SDK 与控制面的转换
-sdk/           Python、JavaScript、C#、Java、Lua SDK
-adapters/      Ren'Py 客户端与桥接
-tools/         契约投影和验证工具
-examples/      示例程序、适配器和 Mod
-```
+Rin 不执行模型生成的代码，不把引擎对象暴露给模型，也不允许 Controller 自行声明 Effect。
+任意代码、文件访问、原生调用、权限伪造和秘密泄露 Effect 会被内置安全内核拒绝。API Key
+只能通过进程环境注入，不能写入 Agent 配置、游戏存档、观察数据或 MCP 输出。
 
-## 安全与部署
+详细威胁模型见 [SECURITY.md](SECURITY.md)。
 
-Rin 默认不访问网络。生产 Sidecar 应设置独立 Token，并让同机 TLS Reverse Proxy 终止远程连接：
+## License
 
-```bash
-export RIN_TOKEN="$(openssl rand -hex 32)"
-go run ./cmd/rin serve
-```
-
-远程监听必须同时声明 `-allow-remote`、至少 32 字节的 `RIN_TOKEN` 和 `-tls-proxy`（或 `RIN_TLS_PROXY=true`）。这些选项不会替代 TLS，也不会让公网明文监听变安全。Token、模型 Key 和供应商 URL 不会写入事件、快照或响应。完整边界见[部署与监控](docs/operations.zh-CN.md)和[安全说明](SECURITY.md)。
-
-Rin 不负责渲染、导航、物理、战斗、背包、任务规则或任意脚本执行，也不把模型输出直接当作世界事实。项目不引入供应商 SDK、向量数据库、ORM、WebSocket 或动态插件执行。
-
-## 许可证
-
-Rin 以 [MIT License](LICENSE) 发布。
+[MIT](LICENSE)

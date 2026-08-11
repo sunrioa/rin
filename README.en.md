@@ -1,151 +1,168 @@
 # Rin
 
-[简体中文](README.md) | [English](README.en.md)
+[English](README.en.md) | [简体中文](README.md)
 
-Rin is a game-oriented agent runtime. It keeps character memory, goals, decisions, and asynchronous work outside the game loop, then returns locally validated action proposals to the game.
+Rin is an engine-neutral game Agent harness. It turns low-frequency decisions
+from a model or external Agent into structured actions that a game Host can
+bind, authorize, execute, and audit while the game remains authoritative.
 
-## Status
+Minecraft, RPG, visual-novel, and custom-engine integrations live in adapters;
+engine objects, threading models, and private APIs do not enter the Rin core.
 
-The source version is `0.7.0` Preview (pre-1.0), and the project is still under development. Before a verified release tag exists, pin an exact repository revision or tag. See the [compatibility matrix](docs/compatibility.md) and [changelog](CHANGELOG.md) for migration information.
+The source version is `0.7.0` Preview. V2 is intentionally incompatible and
+does not read the retired Session/Proposal protocol state. Its public contracts
+are `rin.host/v2`, `rin.control/v2`, and Agent Task API `v1`.
 
-## What Rin does
+## How it works
 
-- The game submits what a character actually observed as an `Observation`.
-- The character produces an `ActionProposal` from memory, goals, boundaries, and the actions currently allowed by the game.
-- The game keeps world authority. It validates, applies, or rejects the proposal and reports the action result to Rin.
-- State changes are written to a hash-chained event log that can be checked with Replay, Timeline, and `rin inspect`.
-- Proposals, Generation Jobs, snapshots, and Session Transfer each have bounded size, time, and concurrency budgets.
-
-Rin can run as a sidecar or be embedded as a Go package. It does not depend on a particular game, engine, or model provider. Online models are optional; a deterministic Policy can run without one.
-
-## Quick start
-
-Rin requires Go 1.25 or later. Start a local sidecar:
-
-```bash
-make test
-go run ./cmd/rin serve -data ./rin-data
+```mermaid
+flowchart LR
+    External["External Agent / MCP"] --> Lease["Controller Lease"]
+    Internal["Rin Internal Agent"] --> Lease
+    Lease --> Observe["Trusted observations and capability catalog"]
+    Observe --> Request["ActionRequest"]
+    Request --> Bind["Game Host binds targets and previews Effects"]
+    Bind --> Policy["Deterministic gameplay policy"]
+    Policy --> Operation["Operation, confirmation, cancellation, audit"]
+    Operation --> Adapter["Authoritative game adapter execution"]
+    Adapter --> Outcome["Run / Outcome / Evidence"]
+    Outcome --> Observe
 ```
 
-The default listener is `127.0.0.1:7374`. Check it with:
+Core invariants:
+
+- A model may choose capabilities, arguments, and observed targets, but it
+  cannot declare ownership, risk, effects, or success.
+- The Host resolves objects and produces the `BoundAction` and effect preview
+  on its authority thread.
+- Policy evaluates actual effects, ownership, scope, risk, and budgets and then
+  allows, denies, or requires confirmation.
+- `queued`, `accepted`, and `running` are not success. Completion is proven only
+  by a Host outcome with `execution_confirmed=true`.
+- Internal models and external MCP controllers share the same lease, policy,
+  operation, and Host execution path.
+- Models make low-frequency goal and action decisions. Adapters own real-time
+  navigation, animation, combat, and other frame/tick control.
+
+## Components
+
+| Component | Responsibility |
+| --- | --- |
+| `host` | Observation, capability, action, effect, epoch, and adapter contracts |
+| `policy` | Deterministic effect authorization, confirmation, and action budgets |
+| `controlplane` | Host leases, controller leases, operation delivery, wait, cancel, and recovery |
+| `cognition` | Persona, memory, skills, model decisions, and the internal Agent loop |
+| `agentapi` / `agentdaemon` | Recoverable asynchronous internal Agent Task API |
+| `mcpbridge` | Thin MCP 2026-07-28 proxy with no game-world ownership |
+| `sdk` | Control V2 clients for Python, JavaScript, C#, Java, and Lua plus Go HostKit |
+
+## Build locally
+
+Go `1.25` or newer is required. Other language runtimes are needed only when
+testing their SDKs.
 
 ```bash
-curl http://127.0.0.1:7374/health
+make verify
+make build
 ```
 
-Run the small example:
+The `bin/` directory then contains:
+
+- `rin`: Host scaffolding, conformance, doctor, and MCP installation management.
+- `rin-control`: the resident local Control Daemon with an optional internal
+  Agent Runtime.
+- `rin-mcp`: the STDIO MCP proxy connected to the Control Daemon.
+
+## Start the Control Daemon
+
+The daemon accepts loopback addresses only and requires a random token of at
+least 32 bytes. This development example grants every commonly required scope;
+production deployments should narrow them.
 
 ```bash
-go run ./examples/basic
-```
-
-It covers Session creation and Observe only. The complete V2 reference using
-one Adapter, Effect Policy, and shared internal-Agent/external-MCP execution
-path is [`examples/terminal-story`](examples/terminal-story/README.md).
-
-Build the long-lived control daemon and MCP thin proxy (prefers `2026-07-28`
-by default):
-
-```bash
-go build -o bin/rin ./cmd/rin
-go build -o bin/rin-control ./cmd/rin-control
-go build -o bin/rin-mcp ./cmd/rin-mcp
 export RIN_CONTROL_TOKEN="$(openssl rand -hex 32)"
-export RIN_CONTROL_PRINCIPAL="player.one"
-export RIN_CONTROL_SCOPES="actor.read"
-export RIN_CONTROL_DATA_DIR="/absolute/path/to/rin-control-data"
-./bin/rin-control
+./bin/rin-control \
+  -principal local.player \
+  -scopes actor.read,actor.control,actor.execute,operation.cancel,host.admin
 ```
 
-Configure Rin MCP once for installed Codex, Claude Code, or OpenClaw clients:
+Check the live contract:
 
 ```bash
-./bin/rin mcp install
+curl -H "Authorization: Bearer $RIN_CONTROL_TOKEN" \
+  http://127.0.0.1:7375/control/v2/info
+```
+
+## Connect external Agents
+
+One `rin-mcp` installation can control every compatible game Host connected to
+the same `rin-control` daemon. Individual games and mods do not implement their
+own MCP server.
+
+```bash
+./bin/rin mcp install -agents codex,claude,openclaw
 ./bin/rin mcp status
+./bin/rin mcp update
 ```
 
-The installer offers an interactive Agent selector, uses each Agent's official
-CLI to register one stable `rin-mcp` path, and stores the URL and token only once
-in a mode-`0600` local configuration. After unpacking a newer Rin distribution,
-`rin mcp update` preserves every Agent registration. Automation can use
-`-agents codex,claude,openclaw` or `-yes`. See the
-[MCP quick start](docs/mcp-control-plane.md) for installation, update, and
-uninstall details.
+The installer manages only local Agent configuration and the `rin-mcp`
+executable. Games and mods continue to use their own distribution channels.
+External control uses the external Agent's persona and private memory; Rin
+retains only execution authority, state, and audit data required by the harness.
 
-`rin-control` stays on `127.0.0.1:7375`; game Hosts and any number of `rin-mcp`
-STDIO proxies connect to it. The default scope is `actor.read`; write tools
-require explicit grants, and the game Host still validates and applies every
-world mutation. See the
-[MCP quick start](docs/mcp-control-plane.md) for client configuration, scopes,
-and Host endpoints.
+## Create a game Host
 
-Generate a Host or Mod starter project:
+The generic scaffold supports Go, JavaScript, Python, C#, Java, and Lua. It
+creates a contract skeleton without downloading dependencies or pretending to
+provide an engine integration.
 
 ```bash
-go run ./cmd/rin init host --list-hosts
-go run ./cmd/rin init host --engine fabric --id guide_npc --name "Guide NPC" --namespace io.github.example
+./bin/rin init host -engine custom -runtime java -id my-game-host -output ./my-game-host
+./bin/rin conformance host -project ./my-game-host
+./bin/rin doctor host -project ./my-game-host
 ```
 
-`custom` supports Go, JavaScript, Python, C#, Java, and Lua. Fabric, BepInEx Mono, BepInEx IL2CPP, and Luanti templates are also available. The generator never overwrites an existing path; see the [Host scaffolding guide](docs/host-scaffolding.md).
+A complete adapter supplies trusted observations, capability discovery, target
+binding, effect previews, authoritative execution, cancellation, and outcome
+verification.
 
-## Integration paths
+## Runnable examples
 
-- Ren'Py, Godot 4, Unity, and Unreal reference adapters
-- Python, JavaScript, C#, Java, and Lua SDKs
-- Fabric, BepInEx, and Luanti example mods
-- The engine-neutral `host` contract and HostKit
+```bash
+go test ./examples/adapters/grid ./examples/adapters/story
+go run ./examples/terminal-story
+```
 
-See [game adapters](docs/game-adapters.md) for installation, thread boundaries, and offline behavior. Cross-language SDK rules, credentials, and Mod installation are covered in [SDK and Mod integration](docs/sdk-and-mods.md).
+Grid validates resources, ownership, and action rules. Story validates narrative
+state changes. Terminal Story traverses the complete Control, policy, operation,
+and adapter path.
 
 ## Documentation
 
-- [Documentation index](docs/README.md) / [简体中文](docs/README.zh-CN.md)
-- [Protocol v2](docs/protocol-v2.md): fields, errors, and retry semantics
-- [Action lifecycle](docs/action-lifecycle.md): proposals, execution, Outbox, and recovery
-- [MCP quick start](docs/mcp-control-plane.md): official version negotiation, Host publication, and authority
-- [Deployment and monitoring](docs/operations.md): tokens, TLS, storage, and runtime limits
-- [Release guide](docs/release-guide.md) and [roadmap](ROADMAP.en.md)
-- [Security](SECURITY.en.md), [changelog](CHANGELOG.md), and [third-party notices](THIRD-PARTY-NOTICES.md)
+- [Documentation index](docs/README.md)
+- [Architecture](docs/architecture.md)
+- [Host V2 contract](docs/host-contract.md)
+- [Operations and policy](docs/operations.md)
+- [Internal Agent Runtime](docs/internal-agent-runtime.md)
+- [MCP and Control Plane](docs/mcp-control-plane.md)
+- [Game adapter guide](docs/game-adapters.md)
+- [Integration acceptance](docs/host-integration-validation.md)
+- [Security policy](SECURITY.en.md)
+- [Roadmap](ROADMAP.en.md)
 
-`api/openapi.json` is the Runtime HTTP contract, `api/control-openapi.json` is
-the Host Control contract, and `api/agent-openapi.json` is the internal Agent
-Task contract. The protocol reference
-describes runtime semantics; focused documents cover adapters, long sessions,
-Transfer, and optional extensions. The root README does not duplicate those
-details.
+The OpenAPI files are the sole HTTP route and field sources of truth:
+`api/control-openapi.json` and `api/agent-openapi.json`.
 
-## Repository layout
+## Security boundary
 
-```text
-cmd/rin/       Sidecar command-line program
-cmd/rin-control/ Long-lived Host Control daemon
-cmd/rin-mcp/   MCP STDIO thin proxy
-api/           Runtime and Control OpenAPI 3.1 contracts
-protocol/      Cross-language v2 types
-runtime/       Event state machine, proposal validation, snapshots, scheduling
-store/         JSONL file store and in-memory store
-httpapi/       HTTP, authentication, and request-size limits
-controlplane/  Host leases and principal-isolated control state
-mcpbridge/     Official MCP SDK to Control Plane bridge
-sdk/           Python, JavaScript, C#, Java, and Lua SDKs
-adapters/      Ren'Py client and bridge
-tools/         Contract projection and verification tools
-examples/      Example programs, adapters, and Mods
-```
+Rin does not execute model-generated code, expose engine objects to models, or
+allow controllers to declare effects. The built-in safety kernel denies effects
+for arbitrary code, file access, native calls, authority forgery, and secret
+exposure. API keys enter through process environment only and must never appear
+in Agent configuration, game saves, observations, or MCP output.
 
-## Security and deployment
-
-Rin makes no network calls by default. A production sidecar should use a dedicated token and a same-host TLS reverse proxy:
-
-```bash
-export RIN_TOKEN="$(openssl rand -hex 32)"
-go run ./cmd/rin serve
-```
-
-A remote listener must declare `-allow-remote`, a `RIN_TOKEN` of at least 32 bytes, and `-tls-proxy` (or `RIN_TLS_PROXY=true`). These options do not provide TLS or make a public plaintext listener safe. Tokens, model keys, and provider URLs are not written to events, snapshots, or responses. See [deployment and monitoring](docs/operations.md) and [security](SECURITY.en.md).
-
-Rin does not own rendering, navigation, physics, combat, inventory, quest rules, or arbitrary script execution. Model output is never treated as a world fact. The project does not add provider SDKs, a vector database, an ORM, WebSockets, or dynamic plugin execution.
+See [SECURITY.en.md](SECURITY.en.md) for the threat model.
 
 ## License
 
-Rin is released under the [MIT License](LICENSE).
+[MIT](LICENSE)

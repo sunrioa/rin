@@ -1,101 +1,28 @@
-# Rin JavaScript SDK
+# Rin JavaScript Control SDK
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-A zero-dependency Promise client for Node.js 18+ or any standard Fetch host.
-The host must expose `Response.body.getReader()` so response limits are
-enforced while bytes are read; unbounded `arrayBuffer()` fallbacks are rejected.
-The package includes TypeScript declarations.
+A zero-dependency ESM `rin.control/v2` client for Node.js 18 and newer.
 
-```js
-import { RinClient } from "@sunrioa/rin-sdk";
+```javascript
+import { RinControlClient } from "./sdk/javascript/src/index.js";
 
-const rin = new RinClient("http://127.0.0.1:7374");
-const capabilities = await rin.negotiateCapabilities();
-console.log(capabilities.release_version);
-```
-
-External controllers use the dedicated Control V2 client shared with MCP:
-
-```js
-import { RinControlClient } from "@sunrioa/rin-sdk";
-
-const control = new RinControlClient("http://127.0.0.1:7375", {
-  token: "a-local-secret-containing-at-least-32-bytes",
+const control = new RinControlClient({
+  token: process.env.RIN_CONTROL_TOKEN,
 });
-const worlds = await control.listWorlds();
+
+console.log(await control.info());
+console.log(await control.listWorlds());
 ```
 
-It covers actor observation, capability discovery, controller leases, action
-submission and confirmation, Operation wait/cancel, and emergency stop. It is
-loopback-only, requires a token, and treats only a terminal Operation with a
-Host Outcome as proof of execution.
+The constructor supports `baseUrl`, `timeoutMs`, `maxResponseBytes`, and an
+injectable `fetch`. It defaults to `http://127.0.0.1:7375`, rejects redirects,
+and bounds streamed response bodies.
 
-`negotiateCapabilities()` fails closed unless the Runtime speaks
-`rin.protocol/v2`.
-Use `createRinId("request")` and `createRinId("event")` once, persist the
-result with the operation, and reuse it for every exact retry.
+Requests and responses are ordinary JSON objects or arrays. See
+`api/control-openapi.json` for exact fields and `src/index.d.ts` for TypeScript
+declarations.
 
-The bundled TypeScript declarations provide OpenAPI-aligned types for the
-authoritative create/propose/report path, including `CreateSessionRequest`,
-`ProposeRequest`, `ProposalResult`, `ReportActionRequest`, and `MutationResult`.
-Response types deliberately tolerate additive fields.
-
-`WorkflowCoordinator` combines the compatible `ProposalAttemptCoordinator` and
-`OutcomeOutbox` primitives behind `begin`, `resumePendingWork`,
-`applyAndEnqueueOutcome`, and `drainOutbox`. Supply a Workflow Store and a
-validated `HostDurability`. An idempotent apply receives the stable operation
-ID; only `transactional-action` invokes `settleProposalAttempt` as an atomic
-game transaction. Outbox draining deletes nothing until Rin returns a complete
-`MutationResult` for the same Session, including a positive JSON-safe revision,
-lowercase SHA-256 head and explicit boolean duplicate flag. A missing, partial
-or crossed-Session ACK fails closed before the Store callback. The SDK intentionally supplies no unsafe
-in-memory production default. See
-[Host durability profiles](../../docs/host-durability.md).
-
-`OpaqueSnapshotPersistence` stores bounded UTF-8 JSON bytes and returns the
-complete object, including additive fields unknown to this SDK version. The
-injected store must protect Snapshot bytes like the Event Log.
-
-Run directly from this checkout:
-
-```bash
-node sdk/javascript/examples/quickstart.js
-cd sdk/javascript && npm test
-```
-
-Calls are Promise-based. Apply engine state only after returning to the
-engine's main thread and validating the proposal against a local allowlist.
-
-Session Transfer is streamed and never returned as one large string. The
-caller owns the source/sink and decides when to close it. Transfer has an
-independent two-minute default deadline; configure `transferTimeoutMs` without
-weakening the ordinary five-second request deadline:
-
-```js
-import { createReadStream, createWriteStream } from "node:fs";
-import { Readable, Writable } from "node:stream";
-
-const request = {
-  protocol_version: "rin.protocol/v2",
-  session_id: "session.example",
-};
-const output = Writable.toWeb(createWriteStream("session.ndjson"));
-await rin.exportSession(request, output);
-await output.getWriter().close();
-
-await rin.importSession(
-  Readable.toWeb(createReadStream("session.ndjson")),
-  {
-    game_id: "game.example",
-    content_id: "base",
-    content_version: "1",
-    content_hash: "trusted-build-hash",
-  },
-);
-```
-
-`exportSession` resolves only after a valid terminal `complete` frame. A
-terminal `error`, truncation, invalid order, or oversized frame rejects the
-Promise. `importSession` sends the Binding through independent trusted headers
-and accepts only a `ReadableStream` or async `Uint8Array` iterable.
+A resolved Promise is not proof that a game action completed. After submitting
+an action, use `waitOperation` to reach a terminal state and inspect
+`execution_confirmed` and the Host `outcome`.

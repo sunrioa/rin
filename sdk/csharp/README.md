@@ -1,114 +1,27 @@
-# Rin C# SDK
+# Rin C# Control SDK
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-An asynchronous client for .NET 6+ and a compatibility build for
-.NET Standard 2.0 hosts such as Unity Mono.
-
-`Rin.Client` uses `HttpClient` and `System.Text.Json`. The .NET 6 build needs
-no package runtime; the .NET Standard 2.0 build pins `System.Text.Json` and its
-runtime dependencies. Keep one client for the lifetime of the plugin or game.
+`Rin.Client` is a source-first `rin.control/v2` client targeting .NET 6 and
+.NET Standard 2.0. This repository does not promise a published NuGet package;
+reference `Rin.Client/Rin.Client.csproj` directly or pin the source revision.
 
 ```csharp
 using Rin.Client;
 
-using var rin = new RinClient(new RinClientOptions
-{
-    BaseUrl = "http://127.0.0.1:7374",
-    Token = Environment.GetEnvironmentVariable("RIN_TOKEN") ?? "",
-});
-
-var capabilities = await rin.NegotiateCapabilitiesAsync();
-Console.WriteLine(capabilities.ReleaseVersion);
-```
-
-External controllers use the Control V2 client shared with MCP:
-
-```csharp
 using var control = new RinControlClient(new RinControlClientOptions
 {
-    Token = "a-local-secret-containing-at-least-32-bytes",
+    Token = Environment.GetEnvironmentVariable("RIN_CONTROL_TOKEN")!,
 });
+
+var info = await control.InfoAsync();
 var worlds = await control.ListWorldsAsync();
 ```
 
-It covers actor observation, capability discovery, controller leases, action
-submission and confirmation, Operation wait/cancel, and emergency stop. It is
-loopback-only, requires a token, and treats only a terminal Operation with a
-Host Outcome as proof of execution.
+Methods return `JsonElement`; inputs may be anonymous objects or ordinary DTOs.
+The default endpoint is `http://127.0.0.1:7375`. The client rejects redirects
+and bounds response size, JSON depth, timeout, and JavaScript-safe integers.
 
-Capability negotiation fails closed unless the Runtime speaks
-`rin.protocol/v2` and supports the authoritative outcome-reporting preset.
-Create stable identities once with `RinIds.Create("request")` and
-`RinIds.Create("event")`, persist them with the operation, and reuse them for
-every exact retry.
-
-OpenAPI-aligned models and typed overloads cover the authoritative
-create/propose/action-report path. `MutationResult` and `ProposalResult` retain
-additive response fields through `AdditiveFields`.
-
-`WorkflowCoordinator` combines the compatible `ProposalAttemptCoordinator` and
-`OutcomeOutbox` primitives behind `BeginAsync`, `ResumePendingWorkAsync`,
-`ApplyAndEnqueueOutcomeAsync`, and `DrainOutboxAsync`. Supply an
-`IWorkflowStore` and validated `HostDurability`. An idempotent apply receives
-the stable operation ID; only `transactional-action` calls
-`IProposalAttemptStore.SettleAsync` as one game transaction. Entries are
-acknowledged only after a complete same-Session `MutationResult` with a
-positive JSON-safe revision, lowercase SHA-256 head and explicit boolean
-duplicate flag. Errors retain the exact report; a missing, partial or crossed
-Session ACK fails closed before the Store callback. Reports are never converted
-into Observations. The SDK
-does not ship an in-memory production default. See
-[Host durability profiles](../../docs/host-durability.md).
-
-`OpaqueSnapshotPersistence` stores bounded JSON bytes through
-`IOpaqueSnapshotStore` and loads a complete `JsonElement`, preserving additive
-members unknown to this SDK version.
-
-Build the source project with:
-
-```bash
-dotnet run --project sdk/csharp/Rin.Client.Tests/Rin.Client.Tests.csproj
-dotnet build sdk/csharp/Rin.Client/Rin.Client.csproj \
-  -p:RinTargetFramework=netstandard2.0
-```
-
-Unity and BepInEx callers must await off the render loop, then marshal the
-validated result back to Unity's main thread before touching game objects.
-
-Session Transfer is available on the .NET 6+ target. It is intentionally
-excluded from the .NET Standard 2.0 compatibility build because legacy Unity
-stream APIs cannot provide the same bounded asynchronous contract.
-It uses caller-owned streams and never buffers the complete
-lineage. Transfer has an independent two-minute default deadline; configure
-`RinClientOptions.TransferTimeout` without weakening the ordinary five-second
-request deadline:
-
-```csharp
-var request = new
-{
-    protocol_version = RinClient.ProtocolVersion,
-    session_id = "session.example",
-};
-
-await using (var output = File.Create("session.ndjson"))
-{
-    await rin.ExportSessionAsync(request, output);
-}
-
-await using (var input = File.OpenRead("session.ndjson"))
-{
-    await rin.ImportSessionAsync(
-        input,
-        new RinBinding(
-            "game.example",
-            "base",
-            "1",
-            "trusted-build-hash"));
-}
-```
-
-The client does not close either stream. Export succeeds only after a valid
-terminal `complete` frame; terminal errors, truncation, invalid order, and
-oversized frames throw. Import sends the Binding in independent trusted
-headers.
+Every asynchronous method accepts a `CancellationToken`. Cancellation or
+timeout means that the result is unknown, not that the game did not execute.
+Query the same operation until an authoritative terminal state is available.
