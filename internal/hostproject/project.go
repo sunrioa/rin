@@ -25,18 +25,14 @@ type Manifest struct {
 	Generator     struct {
 		Name            string `json:"name"`
 		RinVersion      string `json:"rin_version"`
-		ProtocolVersion string `json:"protocol_version"`
+		ContractVersion string `json:"contract_version"`
 		Deterministic   bool   `json:"deterministic"`
 	} `json:"generator"`
 	Project struct {
-		ID          string `json:"id"`
-		Name        string `json:"name"`
-		Version     string `json:"version"`
-		Namespace   string `json:"namespace,omitempty"`
-		JavaPackage string `json:"java_package,omitempty"`
-		CodeName    string `json:"code_name,omitempty"`
-		PluginGUID  string `json:"plugin_guid,omitempty"`
-		Runtime     string `json:"runtime,omitempty"`
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		Version string `json:"version"`
+		Runtime string `json:"runtime"`
 	} `json:"project"`
 	Host struct {
 		ID               string `json:"id"`
@@ -86,16 +82,19 @@ func Inspect(root string) (Report, error) {
 	if err := decodeFile(filepath.Join(absolute, "rin-scaffold.json"), &manifest); err != nil {
 		return Report{}, fmt.Errorf("read rin-scaffold.json: %w", err)
 	}
-	if manifest.SchemaVersion != 1 || manifest.Generator.Name != "rin" ||
+	if manifest.SchemaVersion != 2 || manifest.Generator.Name != "rin" ||
 		!manifest.Generator.Deterministic {
 		return Report{}, errors.New("unsupported or non-deterministic scaffold manifest")
 	}
-	if manifest.Generator.ProtocolVersion != host.ContractVersion {
+	if manifest.Generator.ContractVersion != host.ContractVersion {
 		return Report{}, fmt.Errorf(
-			"host protocol %q does not match %q",
-			manifest.Generator.ProtocolVersion, host.ContractVersion)
+			"host contract %q does not match %q",
+			manifest.Generator.ContractVersion, host.ContractVersion)
 	}
-	if manifest.Project.ID == "" || manifest.Host.ID == "" {
+	if manifest.Project.ID == "" || manifest.Project.Runtime == "" ||
+		manifest.Host.ID != "custom" || manifest.SDK.Delivery != "contract-only" ||
+		manifest.CapabilityProfile != "contract-only" ||
+		manifest.RealHostValidation != "required" {
 		return Report{}, errors.New("scaffold manifest has no project or host identity")
 	}
 	seen := make(map[string]struct{}, len(manifest.Files))
@@ -132,32 +131,27 @@ func Inspect(root string) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	if manifest.Host.ID == "custom" {
-		if manifest.Project.Runtime == "" {
-			return Report{}, errors.New("custom host has no runtime")
-		}
-		var config struct {
-			SchemaVersion   int      `json:"schema_version"`
-			ProtocolVersion string   `json:"protocol_version"`
-			ProjectID       string   `json:"project_id"`
-			Engine          string   `json:"engine"`
-			Runtime         string   `json:"runtime"`
-			Durability      string   `json:"durability"`
-			CapabilityPaths []string `json:"capability_paths"`
-		}
-		if err := decodeFile(filepath.Join(absolute, "rin-host.json"), &config); err != nil {
-			return Report{}, fmt.Errorf("read rin-host.json: %w", err)
-		}
-		if config.SchemaVersion != 1 || config.ProtocolVersion != host.ContractVersion ||
-			config.ProjectID != manifest.Project.ID || config.Engine != "custom" ||
-			config.Runtime != manifest.Project.Runtime ||
-			config.Durability != string(host.DurabilityAdvisory) ||
-			len(config.CapabilityPaths) != 1 || config.CapabilityPaths[0] != "capabilities" {
-			return Report{}, errors.New("rin-host.json does not match the scaffold manifest")
-		}
-		if len(capabilities) == 0 {
-			return Report{}, errors.New("custom host must declare at least one capability")
-		}
+	var config struct {
+		SchemaVersion   int      `json:"schema_version"`
+		ContractVersion string   `json:"contract_version"`
+		ProjectID       string   `json:"project_id"`
+		Engine          string   `json:"engine"`
+		Runtime         string   `json:"runtime"`
+		Durability      string   `json:"durability"`
+		CapabilityPaths []string `json:"capability_paths"`
+	}
+	if err := decodeFile(filepath.Join(absolute, "rin-host.json"), &config); err != nil {
+		return Report{}, fmt.Errorf("read rin-host.json: %w", err)
+	}
+	if config.SchemaVersion != 2 || config.ContractVersion != host.ContractVersion ||
+		config.ProjectID != manifest.Project.ID || config.Engine != "custom" ||
+		config.Runtime != manifest.Project.Runtime ||
+		config.Durability != string(host.DurabilityAdvisory) ||
+		len(config.CapabilityPaths) != 1 || config.CapabilityPaths[0] != "capabilities" {
+		return Report{}, errors.New("rin-host.json does not match the scaffold manifest")
+	}
+	if len(capabilities) == 0 {
+		return Report{}, errors.New("custom host must declare at least one capability")
 	}
 	return Report{
 		Root: absolute, Manifest: manifest, CheckedFiles: len(manifest.Files),

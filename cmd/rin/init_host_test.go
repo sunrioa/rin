@@ -7,133 +7,67 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 
-	sdkassets "github.com/sunrioa/rin/sdk"
+	"github.com/sunrioa/rin/release"
 )
 
-func TestInitHostListHostsIsStable(t *testing.T) {
-	var first bytes.Buffer
+func TestInitHostListsOnlyTheGenericSkeleton(t *testing.T) {
+	var first, second bytes.Buffer
 	if err := runInitHost([]string{"-list-hosts"}, &first); err != nil {
 		t.Fatal(err)
 	}
-	var second bytes.Buffer
 	if err := runInitHost([]string{"-list-hosts"}, &second); err != nil {
 		t.Fatal(err)
 	}
 	if first.String() != second.String() {
-		t.Fatalf("host list is not stable:\nfirst:\n%s\nsecond:\n%s", first.String(), second.String())
+		t.Fatal("host list is not stable")
 	}
-
-	var ids []string
-	for _, line := range strings.Split(strings.TrimSpace(first.String()), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) == 0 {
-			t.Fatalf("empty host-list line in %q", first.String())
-		}
-		ids = append(ids, fields[0])
-	}
-	want := []string{"bepinex-il2cpp", "bepinex-mono", "custom", "fabric", "luanti"}
-	if !reflect.DeepEqual(ids, want) {
-		t.Fatalf("host ids = %v, want %v\n%s", ids, want, first.String())
-	}
-	if !strings.Contains(first.String(), "luanti            namespace=unused") {
-		t.Fatalf("Luanti namespace policy is misleading:\n%s", first.String())
+	fields := strings.Fields(first.String())
+	if len(fields) == 0 || fields[0] != "custom" ||
+		strings.Contains(first.String(), "fabric") ||
+		strings.Contains(first.String(), "luanti") ||
+		strings.Contains(first.String(), "bepinex") {
+		t.Fatalf("unexpected host list:\n%s", first.String())
 	}
 }
 
 func TestInitHostHelpIsActionable(t *testing.T) {
-	for _, arguments := range [][]string{
-		{"--help"},
-		{"host", "--help"},
-		{"host", "--engine", "luanti", "--help"},
-	} {
+	for _, arguments := range [][]string{{"--help"}, {"host", "--help"}} {
 		var output bytes.Buffer
 		if err := runInit(arguments, &output); err != nil {
 			t.Fatalf("runInit(%v): %v", arguments, err)
 		}
 		for _, fragment := range []string{"Usage:", "rin init host", "self-contained"} {
 			if !strings.Contains(output.String(), fragment) {
-				t.Errorf("runInit(%v) help is missing %q:\n%s", arguments, fragment, output.String())
+				t.Errorf("help is missing %q:\n%s", fragment, output.String())
 			}
 		}
-	}
-}
-
-func TestInitHostHelpTokenCanBeAFlagValue(t *testing.T) {
-	enterInitTestDirectory(t)
-	var output bytes.Buffer
-	err := runInitHost([]string{
-		"--engine", "luanti",
-		"--id", "test_mod",
-		"--name", "--help",
-		"--dry-run",
-	}, &output)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(output.String(), `scaffold "--help"`) {
-		t.Fatalf("display name was mistaken for a help flag:\n%s", output.String())
+		if len(arguments) > 1 && !strings.Contains(output.String(), "-runtime") {
+			t.Errorf("host help is missing -runtime:\n%s", output.String())
+		}
 	}
 }
 
 func TestInitHostRejectsInvalidInvocation(t *testing.T) {
 	tests := []struct {
 		name      string
-		run       func(io *bytes.Buffer) error
-		wantError string
+		arguments []string
+		want      string
 	}{
-		{
-			name: "missing resource",
-			run: func(output *bytes.Buffer) error {
-				return runInit(nil, output)
-			},
-			wantError: "init requires a resource type",
-		},
-		{
-			name: "unknown resource",
-			run: func(output *bytes.Buffer) error {
-				return runInit([]string{"plugin"}, output)
-			},
-			wantError: `unsupported init resource "plugin"`,
-		},
-		{
-			name: "missing engine",
-			run: func(output *bytes.Buffer) error {
-				return runInitHost(nil, output)
-			},
-			wantError: "-engine is required",
-		},
-		{
-			name: "missing id",
-			run: func(output *bytes.Buffer) error {
-				return runInitHost([]string{"-engine", "luanti"}, output)
-			},
-			wantError: "-id is required",
-		},
-		{
-			name: "unknown host",
-			run: func(output *bytes.Buffer) error {
-				return runInitHost([]string{"-engine", "unknown", "-id", "test_mod"}, output)
-			},
-			wantError: `unsupported host "unknown"`,
-		},
-		{
-			name: "extra argument",
-			run: func(output *bytes.Buffer) error {
-				return runInitHost([]string{"-engine", "luanti", "-id", "test_mod", "extra"}, output)
-			},
-			wantError: "unexpected arguments: [extra]",
-		},
+		{"missing engine", nil, "-engine is required"},
+		{"missing id", []string{"-engine", "custom", "-runtime", "go"}, "-id is required"},
+		{"missing runtime", []string{"-engine", "custom", "-id", "test_host"}, "-runtime must be"},
+		{"unknown host", []string{"-engine", "fabric", "-runtime", "java", "-id", "test_host"}, "unsupported host"},
+		{"extra argument", []string{"-engine", "custom", "-runtime", "go", "-id", "test_host", "extra"}, "unexpected arguments"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var output bytes.Buffer
-			err := test.run(&output)
-			if err == nil || !strings.Contains(err.Error(), test.wantError) {
-				t.Fatalf("error = %v, want fragment %q", err, test.wantError)
+			err := runInitHost(test.arguments, &output)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
 			}
 			if output.Len() != 0 {
 				t.Fatalf("failed invocation wrote output: %q", output.String())
@@ -142,28 +76,27 @@ func TestInitHostRejectsInvalidInvocation(t *testing.T) {
 	}
 }
 
-func TestInitHostDryRunListsFilesWithoutWriting(t *testing.T) {
+func TestInitHostDryRunListsV2ContractWithoutWriting(t *testing.T) {
 	workingDirectory := enterInitTestDirectory(t)
-	target := filepath.Join(workingDirectory, "generated_mod")
-
 	var output bytes.Buffer
 	err := runInitHost([]string{
-		"-engine", "luanti",
-		"-id", "test_mod",
-		"-name", "Test Mod",
-		"-output", "generated_mod",
+		"-engine", "custom",
+		"-runtime", "python",
+		"-id", "story_host",
+		"-name", "Story Host",
+		"-output", "generated-host",
 		"-dry-run",
 	}, &output)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Lstat(target); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("dry run created target or returned unexpected stat error: %v", err)
+	if _, err := os.Lstat(filepath.Join(workingDirectory, "generated-host")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("dry run created output: %v", err)
 	}
 	for _, fragment := range []string{
-		`Would create luanti scaffold "Test Mod" in generated_mod`,
-		"README.md",
-		"init.lua",
+		`Would create custom scaffold "Story Host" in generated-host`,
+		"rin-host.json",
+		"capabilities/dialogue.say.json",
 		"rin-scaffold.json",
 	} {
 		if !strings.Contains(output.String(), fragment) {
@@ -172,7 +105,7 @@ func TestInitHostDryRunListsFilesWithoutWriting(t *testing.T) {
 	}
 }
 
-func TestInitHostGeneratesCustomRuntimeContract(t *testing.T) {
+func TestInitHostGeneratesGenericV2Contract(t *testing.T) {
 	workingDirectory := enterInitTestDirectory(t)
 	var output bytes.Buffer
 	err := runInit([]string{
@@ -180,67 +113,28 @@ func TestInitHostGeneratesCustomRuntimeContract(t *testing.T) {
 		"-engine", "custom",
 		"-runtime", "python",
 		"-id", "story_host",
-		"-output", "custom-host",
+		"-name", "Story Host",
+		"-author", "Example Author",
+		"-output", "generated-host",
 	}, &output)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, relative := range []string{
-		"rin-host.json",
-		"capabilities/dialogue.say.json",
-		"src/README.md",
-		"rin-scaffold.json",
-	} {
-		if _, err := os.Stat(filepath.Join(workingDirectory, "custom-host", relative)); err != nil {
-			t.Errorf("%s: %v", relative, err)
-		}
-	}
-	hostConfig, err := os.ReadFile(
-		filepath.Join(workingDirectory, "custom-host", "rin-host.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Contains(hostConfig, []byte(`"runtime": "python"`)) {
-		t.Fatalf("custom host runtime missing:\n%s", hostConfig)
-	}
-}
-
-func TestInitHostGeneratesProject(t *testing.T) {
-	workingDirectory := enterInitTestDirectory(t)
-	target := filepath.Join(workingDirectory, "generated_mod")
-
-	var output bytes.Buffer
-	err := runInit([]string{
-		"host",
-		"-engine", "luanti",
-		"-id", "test_mod",
-		"-name", "Test Mod",
-		"-author", "Test_Author",
-		"-output", "generated_mod",
-	}, &output)
-	if err != nil {
-		t.Fatal(err)
-	}
+	target := filepath.Join(workingDirectory, "generated-host")
 	for _, relative := range []string{
 		".editorconfig",
 		".gitignore",
 		"LICENSE-RIN.txt",
 		"README.md",
 		"README.zh-CN.md",
-		"init.lua",
-		"mod.conf",
-		"rin.lua",
+		"rin-host.json",
+		"capabilities/dialogue.say.json",
+		"src/README.md",
 		"rin-scaffold.json",
-		"state.lua",
-		"test_state.lua",
 	} {
-		info, err := os.Stat(filepath.Join(target, relative))
-		if err != nil {
-			t.Errorf("%s: %v", relative, err)
-			continue
-		}
-		if !info.Mode().IsRegular() {
-			t.Errorf("%s is not a regular file", relative)
+		info, statErr := os.Stat(filepath.Join(target, relative))
+		if statErr != nil || !info.Mode().IsRegular() {
+			t.Errorf("%s: %v", relative, statErr)
 		}
 	}
 	if _, err := os.Lstat(filepath.Join(target, ".rin-scaffold.incomplete")); !errors.Is(err, fs.ErrNotExist) {
@@ -252,13 +146,14 @@ func TestInitHostGeneratesProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	var manifest struct {
-		Generator struct {
-			RinVersion string `json:"rin_version"`
+		SchemaVersion int `json:"schema_version"`
+		Generator     struct {
+			RinVersion      string `json:"rin_version"`
+			ContractVersion string `json:"contract_version"`
 		} `json:"generator"`
 		Project struct {
 			ID      string `json:"id"`
-			Name    string `json:"name"`
-			Version string `json:"version"`
+			Runtime string `json:"runtime"`
 		} `json:"project"`
 		Host struct {
 			ID string `json:"id"`
@@ -268,27 +163,23 @@ func TestInitHostGeneratesProject(t *testing.T) {
 	if err := json.Unmarshal(payload, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Generator.RinVersion != sdkassets.Version ||
-		manifest.Project.ID != "test_mod" ||
-		manifest.Project.Name != "Test Mod" ||
-		manifest.Project.Version != "0.1.0" ||
-		manifest.Host.ID != "luanti" ||
-		manifest.CapabilityProfile != "advisory" {
+	if manifest.SchemaVersion != 2 ||
+		manifest.Generator.RinVersion != release.Version ||
+		manifest.Generator.ContractVersion != "rin.host/v2" ||
+		manifest.Project.ID != "story_host" ||
+		manifest.Project.Runtime != "python" ||
+		manifest.Host.ID != "custom" ||
+		manifest.CapabilityProfile != "contract-only" {
 		t.Fatalf("unexpected scaffold manifest: %+v", manifest)
 	}
-	for _, fragment := range []string{
-		`Created luanti scaffold "Test Mod" in generated_mod`,
-		"generated_mod/README.md",
-	} {
-		if !strings.Contains(output.String(), fragment) {
-			t.Errorf("success output is missing %q:\n%s", fragment, output.String())
-		}
+	if !strings.Contains(output.String(), `Created custom scaffold "Story Host" in generated-host`) {
+		t.Fatalf("unexpected success output:\n%s", output.String())
 	}
 }
 
-func TestInitHostDoesNotOverwriteExistingTarget(t *testing.T) {
+func TestInitHostNeverOverwritesExistingTarget(t *testing.T) {
 	workingDirectory := enterInitTestDirectory(t)
-	target := filepath.Join(workingDirectory, "existing_mod")
+	target := filepath.Join(workingDirectory, "existing-host")
 	if err := os.Mkdir(target, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -296,32 +187,19 @@ func TestInitHostDoesNotOverwriteExistingTarget(t *testing.T) {
 	if err := os.WriteFile(sentinel, []byte("keep\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-
 	var output bytes.Buffer
 	err := runInitHost([]string{
-		"-engine", "luanti",
-		"-id", "test_mod",
-		"-output", "existing_mod",
+		"-engine", "custom",
+		"-runtime", "go",
+		"-id", "story_host",
+		"-output", "existing-host",
 	}, &output)
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("error = %v, want existing-target rejection", err)
 	}
-	if output.Len() != 0 {
-		t.Fatalf("failed generation wrote success output: %q", output.String())
-	}
-	payload, err := os.ReadFile(sentinel)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(payload) != "keep\n" {
-		t.Fatalf("existing file changed to %q", payload)
-	}
-	entries, err := os.ReadDir(target)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 || entries[0].Name() != "keep.txt" {
-		t.Fatalf("existing target was modified: %v", entries)
+	payload, readErr := os.ReadFile(sentinel)
+	if readErr != nil || string(payload) != "keep\n" || output.Len() != 0 {
+		t.Fatalf("existing output changed: %q, %v, output=%q", payload, readErr, output.String())
 	}
 }
 

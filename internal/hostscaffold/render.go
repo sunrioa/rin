@@ -53,19 +53,7 @@ func Render(options Options) (*Plan, error) {
 	if err != nil {
 		return nil, err
 	}
-	var files []renderedFile
-	switch normalized.Host {
-	case HostCustom:
-		files, err = renderCustom(normalized)
-	case HostFabric:
-		files, err = renderFabric(normalized)
-	case HostBepInExMono, HostBepInExIL2CPP:
-		files, err = renderBepInEx(normalized)
-	case HostLuanti:
-		files, err = renderLuanti(normalized)
-	default:
-		err = fmt.Errorf("unsupported host %q", normalized.Host)
-	}
+	files, err := renderCustom(normalized)
 	if err != nil {
 		return nil, err
 	}
@@ -176,19 +164,15 @@ type scaffoldManifest struct {
 type generatorManifest struct {
 	Name            string `json:"name"`
 	RinVersion      string `json:"rin_version"`
-	ProtocolVersion string `json:"protocol_version"`
+	ContractVersion string `json:"contract_version"`
 	Deterministic   bool   `json:"deterministic"`
 }
 
 type projectManifest struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Version     string `json:"version"`
-	Namespace   string `json:"namespace,omitempty"`
-	JavaPackage string `json:"java_package,omitempty"`
-	CodeName    string `json:"code_name,omitempty"`
-	PluginGUID  string `json:"plugin_guid,omitempty"`
-	Runtime     string `json:"runtime,omitempty"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	Runtime string `json:"runtime"`
 }
 
 type hostManifest struct {
@@ -224,24 +208,13 @@ func renderManifest(options normalizedOptions, files []renderedFile) ([]byte, er
 	})
 	project := projectManifest{
 		ID: options.ID, Name: options.Name, Version: options.Version,
-		Namespace: options.Namespace, Runtime: options.Runtime,
-	}
-	switch options.Host {
-	case HostFabric:
-		project.JavaPackage = options.JavaPackage
-	case HostBepInExMono, HostBepInExIL2CPP:
-		project.CodeName = options.CodeName
-		project.PluginGUID = options.PluginGUID
-	}
-	sdkDelivery := "vendored-source"
-	if options.Host == HostCustom {
-		sdkDelivery = "contract-only"
+		Runtime: options.Runtime,
 	}
 	manifest := scaffoldManifest{
-		SchemaVersion: 1,
+		SchemaVersion: 2,
 		Generator: generatorManifest{
 			Name: "rin", RinVersion: options.RinVersion,
-			ProtocolVersion: host.ContractVersion, Deterministic: true,
+			ContractVersion: host.ContractVersion, Deterministic: true,
 		},
 		Project: project,
 		Host: hostManifest{
@@ -252,10 +225,10 @@ func renderManifest(options normalizedOptions, files []renderedFile) ([]byte, er
 		},
 		SDK: sdkManifest{
 			Language: options.HostDescriptor.Language,
-			Delivery: sdkDelivery,
+			Delivery: "contract-only",
 			License:  "MIT; see LICENSE-RIN.txt",
 		},
-		CapabilityProfile:  "advisory",
+		CapabilityProfile:  "contract-only",
 		RealHostValidation: options.HostDescriptor.RealHostValidation,
 		Files:              entries,
 	}
@@ -264,37 +237,4 @@ func renderManifest(options normalizedOptions, files []renderedFile) ([]byte, er
 		return nil, fmt.Errorf("encode scaffold manifest: %w", err)
 	}
 	return append(payload, '\n'), nil
-}
-
-func replaceRequired(input, old, replacement, file string) (string, error) {
-	if !strings.Contains(input, old) {
-		return "", fmt.Errorf("template %s is missing required marker %q", file, old)
-	}
-	return strings.ReplaceAll(input, old, replacement), nil
-}
-
-func replaceCommands(commands []string, codeName string) []string {
-	result := make([]string, len(commands))
-	for index, command := range commands {
-		result[index] = strings.ReplaceAll(command, "MOD", codeName)
-	}
-	return result
-}
-
-func sortedEmbeddedFiles(filesystem fs.FS, root string) ([]string, error) {
-	var names []string
-	err := fs.WalkDir(filesystem, root, func(name string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if !entry.IsDir() {
-			names = append(names, name)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	sort.Strings(names)
-	return names, nil
 }

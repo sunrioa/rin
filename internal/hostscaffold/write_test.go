@@ -19,7 +19,7 @@ func TestGenerateWritesACompletePortableTree(t *testing.T) {
 	if err := os.Mkdir(parent, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	options := testOptions(HostFabric)
+	options := testOptions(HostCustom)
 	options.Output = "父目录 with spaces/guide_npc"
 	result, err := GenerateAt(base, options)
 	if err != nil {
@@ -34,15 +34,6 @@ func TestGenerateWritesACompletePortableTree(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(expectedRoot, manifestPath)); err != nil {
 		t.Fatal(err)
-	}
-	if runtime.GOOS != "windows" {
-		info, err := os.Stat(filepath.Join(expectedRoot, "gradlew"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if info.Mode().Perm() != 0o755 {
-			t.Fatalf("gradlew mode = %04o, want 0755", info.Mode().Perm())
-		}
 	}
 }
 
@@ -107,7 +98,7 @@ func TestGenerateNeverOverwritesExistingOutput(t *testing.T) {
 			target := filepath.Join(base, "guide_npc")
 			test.setup(t, target)
 			before := snapshotTree(t, base)
-			_, err := GenerateAt(base, testOptions(HostLuanti))
+			_, err := GenerateAt(base, testOptions(HostCustom))
 			if err == nil {
 				t.Fatal("GenerateAt() unexpectedly overwrote existing output")
 			}
@@ -121,7 +112,7 @@ func TestGenerateNeverOverwritesExistingOutput(t *testing.T) {
 
 func TestOutputValidationRejectsEscapesAndWindowsHazards(t *testing.T) {
 	base := t.TempDir()
-	options := testOptions(HostLuanti)
+	options := testOptions(HostCustom)
 	invalid := []string{
 		"../escape",
 		"nested/../../escape",
@@ -158,7 +149,7 @@ func TestOutputValidationRejectsCaseCollisionAndSymlinkAncestor(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(base, "Guide_Npc"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	options := testOptions(HostLuanti)
+	options := testOptions(HostCustom)
 	if _, err := GenerateAt(base, options); err == nil ||
 		!strings.Contains(err.Error(), "collides by case") {
 		t.Fatalf("case collision error = %v", err)
@@ -187,7 +178,7 @@ func TestOutputValidationRejectsCaseCollisionAndSymlinkAncestor(t *testing.T) {
 
 func TestWriteFailureRetainsIncompleteTreeAndForeignFiles(t *testing.T) {
 	base := t.TempDir()
-	plan, err := Render(testOptions(HostLuanti))
+	plan, err := Render(testOptions(HostCustom))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +213,7 @@ func TestWriteFailureRetainsIncompleteTreeAndForeignFiles(t *testing.T) {
 
 func TestWriteFailureWithoutForeignFilesRetainsIncompleteTree(t *testing.T) {
 	base := t.TempDir()
-	plan, err := Render(testOptions(HostLuanti))
+	plan, err := Render(testOptions(HostCustom))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +245,7 @@ func TestConcurrentTargetReplacementIsNeverCleanedByPath(t *testing.T) {
 		t.Skip("renaming an open directory has different sharing semantics on Windows")
 	}
 	base := t.TempDir()
-	plan, err := Render(testOptions(HostLuanti))
+	plan, err := Render(testOptions(HostCustom))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +293,7 @@ func TestConcurrentOutputAncestorReplacementCannotMisreportResultPath(t *testing
 	if err := os.Mkdir(parent, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	options := testOptions(HostLuanti)
+	options := testOptions(HostCustom)
 	options.Output = "parent/guide_npc"
 	plan, err := Render(options)
 	if err != nil {
@@ -353,7 +344,7 @@ func TestConcurrentTemplateParentSymlinkCannotEscapeTargetRoot(t *testing.T) {
 	}
 	base := t.TempDir()
 	outside := t.TempDir()
-	options, err := normalizeOptions(testOptions(HostLuanti))
+	options, err := normalizeOptions(testOptions(HostCustom))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -394,7 +385,7 @@ func TestConcurrentTemplateParentSymlinkCannotEscapeTargetRoot(t *testing.T) {
 
 func TestOutputValidationEnforcesPortableUTF16PathBudget(t *testing.T) {
 	base := t.TempDir()
-	options := testOptions(HostLuanti)
+	options := testOptions(HostCustom)
 	options.Output = strings.Repeat("a", portablepath.MaxAbsoluteUTF16)
 	_, err := GenerateAt(base, options)
 	if err == nil || !strings.Contains(err.Error(), "UTF-16") {
@@ -411,7 +402,7 @@ func TestOutputValidationEnforcesPortableUTF16PathBudget(t *testing.T) {
 
 func TestDotSlashOutputIsAccepted(t *testing.T) {
 	base := t.TempDir()
-	options := testOptions(HostLuanti)
+	options := testOptions(HostCustom)
 	options.Output = "./guide_npc"
 	if _, err := GenerateAt(base, options); err != nil {
 		t.Fatal(err)

@@ -10,7 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/sunrioa/rin/internal/portablepath"
-	sdkassets "github.com/sunrioa/rin/sdk"
+	"github.com/sunrioa/rin/release"
 )
 
 const (
@@ -19,54 +19,28 @@ const (
 	maxProjectVersionComponent = uint64(65534)
 	maxDisplayRunes            = 80
 	maxAuthorRunes             = 120
-	maxNamespaceBytes          = 200
 )
 
 var (
-	hostIDPattern    = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$`)
-	namespaceSegment = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-	luantiAuthor     = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
-	versionPattern   = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
+	hostIDPattern  = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$`)
+	versionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
 )
-
-var javaKeywords = map[string]struct{}{
-	"_": {}, "abstract": {}, "assert": {}, "boolean": {}, "break": {},
-	"byte": {}, "case": {}, "catch": {}, "char": {}, "class": {},
-	"const": {}, "continue": {}, "default": {}, "do": {}, "double": {},
-	"else": {}, "enum": {}, "exports": {}, "extends": {}, "final": {},
-	"finally": {}, "float": {}, "for": {}, "goto": {}, "if": {},
-	"implements": {}, "import": {}, "instanceof": {}, "int": {},
-	"interface": {}, "long": {}, "module": {}, "native": {}, "new": {},
-	"non-sealed": {}, "open": {}, "opens": {}, "package": {}, "permits": {},
-	"private": {}, "protected": {}, "provides": {}, "public": {},
-	"record": {}, "requires": {}, "return": {}, "sealed": {}, "short": {},
-	"static": {}, "strictfp": {}, "super": {}, "switch": {},
-	"synchronized": {}, "this": {}, "throw": {}, "throws": {},
-	"to": {}, "transient": {}, "transitive": {}, "try": {}, "uses": {},
-	"var": {}, "void": {}, "volatile": {}, "when": {}, "while": {},
-	"with": {}, "yield": {},
-}
 
 // Options controls a deterministic Host scaffold render.
 type Options struct {
-	Host      string
-	Runtime   string
-	ID        string
-	Name      string
-	Namespace string
-	Author    string
-	Version   string
-	Output    string
+	Host    string
+	Runtime string
+	ID      string
+	Name    string
+	Author  string
+	Version string
+	Output  string
 }
 
 type normalizedOptions struct {
 	Options
 	HostDescriptor HostDescriptor
 	RinVersion     string
-	JavaPackage    string
-	CodeName       string
-	PluginGUID     string
-	CommandName    string
 }
 
 func normalizeOptions(options Options) (normalizedOptions, error) {
@@ -78,25 +52,13 @@ func normalizeOptions(options Options) (normalizedOptions, error) {
 		"go": "Go", "javascript": "JavaScript", "python": "Python",
 		"csharp": "C#", "java": "Java", "lua": "Lua",
 	}
-	if host.ID == HostCustom {
-		language, ok := runtimeLanguages[options.Runtime]
-		if !ok {
-			return normalizedOptions{}, errors.New(
-				"-runtime for custom hosts must be go, javascript, python, csharp, java, or lua")
-		}
-		host.Language = language
-		host.RuntimePins = []RuntimePin{{Name: "runtime", Version: options.Runtime}}
-		host.UnixVerifyCommands = []string{
-			"rin conformance host",
-			"rin doctor host",
-		}
-		host.WindowsVerifyCommands = []string{
-			"rin.exe conformance host",
-			"rin.exe doctor host",
-		}
-	} else if options.Runtime != "" {
-		return normalizedOptions{}, errors.New("-runtime is only valid with -engine custom")
+	language, ok := runtimeLanguages[options.Runtime]
+	if !ok {
+		return normalizedOptions{}, errors.New(
+			"-runtime must be go, javascript, python, csharp, java, or lua")
 	}
+	host.Language = language
+	host.RuntimePins = []RuntimePin{{Name: "runtime", Version: options.Runtime}}
 	if len(options.ID) < 2 || len(options.ID) > 64 || !hostIDPattern.MatchString(options.ID) {
 		return normalizedOptions{}, errors.New(
 			"-id must be 2-64 lowercase ASCII letters, digits, or single underscores and start with a letter")
@@ -114,10 +76,6 @@ func normalizeOptions(options Options) (normalizedOptions, error) {
 		if err := validateDisplayValue("-author", options.Author, maxAuthorRunes); err != nil {
 			return normalizedOptions{}, err
 		}
-		if host.ID == HostLuanti && !luantiAuthor.MatchString(options.Author) {
-			return normalizedOptions{}, errors.New(
-				"-author for Luanti must be a 1-64 character ContentDB username using only ASCII letters, digits, underscores, or hyphens")
-		}
 	}
 	if options.Version == "" {
 		options.Version = defaultProjectVersion
@@ -125,38 +83,17 @@ func normalizeOptions(options Options) (normalizedOptions, error) {
 	if err := validateProjectVersion(options.Version); err != nil {
 		return normalizedOptions{}, err
 	}
-	namespace := options.Namespace
-	if host.RequiresNamespace {
-		if err := validateNamespace(namespace, options.ID); err != nil {
-			return normalizedOptions{}, err
-		}
-	} else if namespace != "" {
-		return normalizedOptions{}, fmt.Errorf("-namespace is not used by host %q", host.ID)
-	}
 	if options.Output == "" {
 		options.Output = options.ID
 	}
-	codeName := pascalIdentifier(options.ID)
-	result := normalizedOptions{
-		Options:        options,
-		HostDescriptor: host,
-		RinVersion:     sdkassets.Version,
-		CodeName:       codeName,
-		CommandName:    strings.ReplaceAll(options.ID, "_", "-"),
-	}
-	switch host.ID {
-	case HostFabric:
-		result.JavaPackage = namespace + "." + options.ID
-	case HostBepInExMono, HostBepInExIL2CPP:
-		result.PluginGUID = namespace + "." + strings.ReplaceAll(options.ID, "_", "-")
-	}
-	return result, nil
+	return normalizedOptions{
+		Options: options, HostDescriptor: host, RinVersion: release.Version,
+	}, nil
 }
 
 func validateProjectVersion(version string) error {
 	if len(version) > maxProjectVersionBytes {
-		return fmt.Errorf("-version must contain at most %d ASCII characters",
-			maxProjectVersionBytes)
+		return fmt.Errorf("-version must contain at most %d ASCII characters", maxProjectVersionBytes)
 	}
 	if !versionPattern.MatchString(version) {
 		return errors.New("-version must use numeric major.minor.patch form")
@@ -164,8 +101,7 @@ func validateProjectVersion(version string) error {
 	for _, component := range strings.Split(version, ".") {
 		value, err := strconv.ParseUint(component, 10, 16)
 		if err != nil || value > maxProjectVersionComponent {
-			return fmt.Errorf("-version components must be between 0 and %d",
-				maxProjectVersionComponent)
+			return fmt.Errorf("-version components must be between 0 and %d", maxProjectVersionComponent)
 		}
 	}
 	return nil
@@ -189,39 +125,4 @@ func validateDisplayValue(flagName, value string, maximum int) error {
 		}
 	}
 	return nil
-}
-
-func validateNamespace(namespace, id string) error {
-	if namespace == "" {
-		return errors.New("-namespace is required for this host")
-	}
-	if len(namespace) > maxNamespaceBytes {
-		return fmt.Errorf("-namespace must contain at most %d bytes", maxNamespaceBytes)
-	}
-	segments := strings.Split(namespace, ".")
-	if len(segments) < 2 {
-		return errors.New("-namespace must contain at least two lowercase reverse-domain segments")
-	}
-	for _, segment := range append(append([]string(nil), segments...), id) {
-		if !namespaceSegment.MatchString(segment) {
-			return errors.New(
-				"-namespace segments must start with a lowercase ASCII letter and contain only lowercase letters, digits, or underscores")
-		}
-		if _, reserved := javaKeywords[segment]; reserved {
-			return fmt.Errorf("Java package segment %q is reserved", segment)
-		}
-		if portablepath.IsWindowsReservedName(segment) {
-			return fmt.Errorf("package segment %q is reserved on Windows", segment)
-		}
-	}
-	return nil
-}
-
-func pascalIdentifier(id string) string {
-	var builder strings.Builder
-	for _, part := range strings.Split(id, "_") {
-		builder.WriteString(strings.ToUpper(part[:1]))
-		builder.WriteString(part[1:])
-	}
-	return builder.String()
 }

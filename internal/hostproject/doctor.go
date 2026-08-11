@@ -94,16 +94,6 @@ func doctor(
 		return DoctorReport{}, err
 	}
 	runtimeID := report.Manifest.Project.Runtime
-	if runtimeID == "" {
-		switch report.Manifest.Host.ID {
-		case "fabric":
-			runtimeID = "java"
-		case "bepinex-mono", "bepinex-il2cpp":
-			runtimeID = "csharp"
-		case "luanti":
-			runtimeID = "lua"
-		}
-	}
 	result := DoctorReport{
 		Conformance: report,
 		Platform:    runtime.GOOS + "/" + runtime.GOARCH,

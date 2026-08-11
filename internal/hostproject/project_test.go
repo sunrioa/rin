@@ -19,7 +19,7 @@ func TestInspectCustomHostAndAddSkill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Manifest.Generator.ProtocolVersion != host.ContractVersion ||
+	if report.Manifest.Generator.ContractVersion != host.ContractVersion ||
 		report.Manifest.Project.ID != "test_host" ||
 		len(report.Capabilities) != 1 {
 		t.Fatalf("unexpected report: %+v", report)

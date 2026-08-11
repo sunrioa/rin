@@ -9,8 +9,8 @@ import (
 
 func renderCustom(options normalizedOptions) ([]renderedFile, error) {
 	hostConfig := map[string]any{
-		"schema_version":   1,
-		"protocol_version": host.ContractVersion,
+		"schema_version":   2,
+		"contract_version": host.ContractVersion,
 		"project_id":       options.ID,
 		"engine":           "custom",
 		"runtime":          options.Runtime,
@@ -108,15 +108,15 @@ Runtime: %s
 
 Implement these engine-owned boundaries:
 
-1. Capture immutable observations on the authority thread.
-2. Persist the Pending Turn before submitting it to Rin.
-3. Resolve only registered capability IDs and validate their exact descriptor
-   digest, epoch, deadline, targets, and arguments.
-4. Execute on the authority thread with a stable operation ID.
-5. Persist the exact Action Report in the same save boundary as the effect,
-   then retry reporting without repeating the effect.
+1. Publish stable Host, world, actor, epoch, observation, and capability data.
+2. Bind each Action Request to the registered capability digest, arguments,
+   targets, observation sequence, and current epoch.
+3. Apply policy and control-authority checks immediately before execution.
+4. Execute only registered effects on the authority thread with the supplied
+   operation and idempotency identities.
+5. Report authoritative progress and a terminal Action Outcome.
 
-Do not place engine objects, threads, sockets, futures, tokens, model output, or
-arbitrary command strings in persisted workflow state.
+Do not place engine objects, threads, sockets, futures, tokens, arbitrary model
+text, or unregistered command strings in durable action state.
 `, options.Runtime)
 }

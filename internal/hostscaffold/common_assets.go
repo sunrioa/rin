@@ -34,10 +34,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 `
 
-func gitignoreFor(host string) string {
-	switch host {
-	case HostCustom:
-		return `.rin/
+func gitignoreFor(string) string {
+	return `.rin/
 build/
 dist/
 __pycache__/
@@ -45,28 +43,4 @@ node_modules/
 bin/
 obj/
 `
-	case HostFabric:
-		return `.gradle/
-build/
-logs/
-run/
-.idea/
-*.iml
-`
-	case HostBepInExMono, HostBepInExIL2CPP:
-		return `bin/
-obj/
-dist/
-.vs/
-*.user
-*.suo
-`
-	case HostLuanti:
-		return `*.luac
-worlds/
-debug.txt
-`
-	default:
-		return ""
-	}
 }

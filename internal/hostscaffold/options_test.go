@@ -7,59 +7,43 @@ import (
 	"github.com/sunrioa/rin/internal/portablepath"
 )
 
-func testOptions(host string) Options {
-	options := Options{
-		Host: host, ID: "guide_npc", Name: "向导 NPC",
-		Author: "example_author", Version: "0.1.0",
-		Output: "guide_npc",
+func testOptions(string) Options {
+	return Options{
+		Host: "custom", Runtime: "go", ID: "guide_npc", Name: "向导 NPC",
+		Author: "example author", Version: "0.1.0", Output: "guide_npc",
 	}
-	if host == HostCustom {
-		options.Runtime = "go"
-	} else if host != HostLuanti {
-		options.Namespace = "io.github.example"
-	}
-	return options
 }
 
-func TestHostsAreStableAndExplicit(t *testing.T) {
+func TestHostsExposeOnlyTheEngineNeutralSkeleton(t *testing.T) {
 	hosts := Hosts()
-	expected := []string{
-		HostBepInExIL2CPP,
-		HostBepInExMono,
-		HostCustom,
-		HostFabric,
-		HostLuanti,
+	if len(hosts) != 1 || hosts[0].ID != HostCustom {
+		t.Fatalf("Hosts() = %+v, want only %q", hosts, HostCustom)
 	}
-	if len(hosts) != len(expected) {
-		t.Fatalf("Hosts() returned %d entries, want %d", len(hosts), len(expected))
+	if hosts[0].TemplateStatus != "contract-skeleton" ||
+		hosts[0].RealHostValidation != "required" ||
+		!hosts[0].RequiresGameHook {
+		t.Fatalf("custom Host overstates its guarantees: %+v", hosts[0])
 	}
-	for index, id := range expected {
-		if hosts[index].ID != id {
-			t.Errorf("Hosts()[%d].ID = %q, want %q", index, hosts[index].ID, id)
-		}
-		if hosts[index].RealHostValidation != "required" {
-			t.Errorf("%s must retain an explicit real-host validation gate", id)
-		}
+	hosts[0].RuntimePins = append(hosts[0].RuntimePins, RuntimePin{Name: "mutated"})
+	if len(Hosts()[0].RuntimePins) != 0 {
+		t.Fatal("Hosts returned mutable catalog storage")
 	}
 }
 
-func TestCustomRuntimeIsExplicit(t *testing.T) {
-	options := testOptions(HostCustom)
-	options.Runtime = ""
-	if _, err := normalizeOptions(options); err == nil ||
-		!strings.Contains(err.Error(), "-runtime for custom hosts") {
-		t.Fatalf("missing custom runtime error = %v", err)
-	}
-	options.Runtime = "rust"
-	if _, err := normalizeOptions(options); err == nil ||
-		!strings.Contains(err.Error(), "-runtime for custom hosts") {
-		t.Fatalf("unsupported custom runtime error = %v", err)
-	}
-	options = testOptions(HostFabric)
-	options.Runtime = "java"
-	if _, err := normalizeOptions(options); err == nil ||
-		!strings.Contains(err.Error(), "only valid with -engine custom") {
-		t.Fatalf("runtime on fixed template error = %v", err)
+func TestEverySupportedRuntimeIsExplicit(t *testing.T) {
+	for _, runtime := range []string{"go", "javascript", "python", "csharp", "java", "lua"} {
+		options := testOptions(HostCustom)
+		options.Runtime = runtime
+		normalized, err := normalizeOptions(options)
+		if err != nil {
+			t.Errorf("%s: %v", runtime, err)
+			continue
+		}
+		if normalized.Runtime != runtime ||
+			len(normalized.HostDescriptor.RuntimePins) != 1 ||
+			normalized.HostDescriptor.RuntimePins[0].Version != runtime {
+			t.Errorf("%s produced wrong runtime metadata: %+v", runtime, normalized)
+		}
 	}
 }
 
@@ -70,173 +54,47 @@ func TestOptionValidationRejectsUnsafeValues(t *testing.T) {
 		mutate  func(*Options)
 		message string
 	}{
-		{
-			name: "unknown host",
-			mutate: func(options *Options) {
-				options.Host = "Fabric"
-			},
-			message: "unsupported host",
-		},
-		{
-			name: "short id",
-			mutate: func(options *Options) {
-				options.ID = "a"
-			},
-			message: "2-64",
-		},
-		{
-			name: "long id",
-			mutate: func(options *Options) {
-				options.ID = longID
-			},
-			message: "2-64",
-		},
-		{
-			name: "uppercase id",
-			mutate: func(options *Options) {
-				options.ID = "Guide"
-			},
-			message: "lowercase",
-		},
-		{
-			name: "double underscore",
-			mutate: func(options *Options) {
-				options.ID = "guide__npc"
-			},
-			message: "single underscores",
-		},
-		{
-			name: "Windows device id",
-			mutate: func(options *Options) {
-				options.ID = "con"
-			},
-			message: "reserved on Windows",
-		},
-		{
-			name: "display newline",
-			mutate: func(options *Options) {
-				options.Name = "Guide\nInjected"
-			},
-			message: "control characters",
-		},
-		{
-			name: "display surrounding whitespace",
-			mutate: func(options *Options) {
-				options.Name = " Guide "
-			},
-			message: "leading or trailing",
-		},
-		{
-			name: "missing namespace",
-			mutate: func(options *Options) {
-				options.Namespace = ""
-			},
-			message: "-namespace is required",
-		},
-		{
-			name: "one namespace segment",
-			mutate: func(options *Options) {
-				options.Namespace = "example"
-			},
-			message: "at least two",
-		},
-		{
-			name: "uppercase namespace",
-			mutate: func(options *Options) {
-				options.Namespace = "io.Example"
-			},
-			message: "lowercase",
-		},
-		{
-			name: "Java keyword namespace",
-			mutate: func(options *Options) {
-				options.Namespace = "com.class"
-			},
-			message: "reserved",
-		},
-		{
-			name: "invalid version",
-			mutate: func(options *Options) {
-				options.Version = "v1"
-			},
-			message: "major.minor.patch",
-		},
-		{
-			name: "version component exceeds common host limit",
-			mutate: func(options *Options) {
-				options.Version = "65535.0.0"
-			},
-			message: "between 0 and 65534",
-		},
-		{
-			name: "version exceeds portable length",
-			mutate: func(options *Options) {
-				options.Version = "12345678901234567.0.0"
-			},
-			message: "at most 17 ASCII characters",
-		},
+		{"unknown host", func(options *Options) { options.Host = "fabric" }, "unsupported host"},
+		{"missing runtime", func(options *Options) { options.Runtime = "" }, "-runtime must be"},
+		{"unknown runtime", func(options *Options) { options.Runtime = "rust" }, "-runtime must be"},
+		{"short id", func(options *Options) { options.ID = "a" }, "2-64"},
+		{"long id", func(options *Options) { options.ID = longID }, "2-64"},
+		{"uppercase id", func(options *Options) { options.ID = "Guide" }, "lowercase"},
+		{"double underscore", func(options *Options) { options.ID = "guide__npc" }, "single underscores"},
+		{"Windows device id", func(options *Options) { options.ID = "con" }, "reserved on Windows"},
+		{"display newline", func(options *Options) { options.Name = "Guide\nInjected" }, "control characters"},
+		{"display whitespace", func(options *Options) { options.Name = " Guide " }, "leading or trailing"},
+		{"author newline", func(options *Options) { options.Author = "A\nB" }, "control characters"},
+		{"invalid version", func(options *Options) { options.Version = "v1" }, "major.minor.patch"},
+		{"large version", func(options *Options) { options.Version = "65535.0.0" }, "between 0 and 65534"},
+		{"long version", func(options *Options) { options.Version = "12345678901234567.0.0" }, "at most 17"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			options := testOptions(HostFabric)
+			options := testOptions(HostCustom)
 			test.mutate(&options)
 			_, err := normalizeOptions(options)
 			if err == nil || !strings.Contains(err.Error(), test.message) {
-				t.Fatalf("normalizeOptions() error = %v, want fragment %q", err, test.message)
+				t.Fatalf("normalizeOptions() error = %v, want %q", err, test.message)
 			}
 		})
 	}
 }
 
-func TestProjectVersionAcceptsCommonHostBoundary(t *testing.T) {
-	for _, host := range Hosts() {
-		options := testOptions(host.ID)
-		options.Version = "65534.65534.65534"
-		if _, err := normalizeOptions(options); err != nil {
-			t.Errorf("%s rejected common host version boundary: %v", host.ID, err)
-		}
-	}
-}
-
-func TestLuantiRejectsUnusedNamespace(t *testing.T) {
-	options := testOptions(HostLuanti)
-	options.Namespace = "io.github.example"
-	_, err := normalizeOptions(options)
-	if err == nil || !strings.Contains(err.Error(), "not used") {
-		t.Fatalf("normalizeOptions() error = %v, want unused namespace error", err)
-	}
-}
-
-func TestLuantiAuthorMustBeAContentDBUsername(t *testing.T) {
-	options := testOptions(HostLuanti)
-	options.Author = "Example Author"
-	_, err := normalizeOptions(options)
-	if err == nil || !strings.Contains(err.Error(), "ContentDB username") {
-		t.Fatalf("normalizeOptions() error = %v, want ContentDB username error", err)
-	}
-
-	options.Author = "Wuzzy_2"
-	if _, err := normalizeOptions(options); err != nil {
-		t.Fatalf("normalizeOptions() rejected a portable ContentDB username: %v", err)
-	}
-}
-
-func TestDefaultsDoNotConflateHostAndRinVersions(t *testing.T) {
-	options := testOptions(HostFabric)
+func TestDefaultsKeepProjectAndRinVersionsSeparate(t *testing.T) {
+	options := testOptions(HostCustom)
 	options.Name = ""
 	options.Version = ""
+	options.Output = ""
 	normalized, err := normalizeOptions(options)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if normalized.Name != options.ID {
-		t.Fatalf("default display name = %q, want %q", normalized.Name, options.ID)
+	if normalized.Name != options.ID || normalized.Output != options.ID {
+		t.Fatalf("defaults = name %q output %q", normalized.Name, normalized.Output)
 	}
-	if normalized.Version != "0.1.0" {
-		t.Fatalf("default Host version = %q, want 0.1.0", normalized.Version)
-	}
-	if normalized.Version == normalized.RinVersion {
-		t.Fatal("default Host version unexpectedly equals the Rin version")
+	if normalized.Version != "0.1.0" || normalized.Version == normalized.RinVersion {
+		t.Fatalf("versions were conflated: %+v", normalized)
 	}
 }
 
@@ -252,12 +110,7 @@ func TestTemplatePathValidationUsesWindowsSemantics(t *testing.T) {
 			t.Errorf("ValidateRelative(%q) unexpectedly succeeded", candidate)
 		}
 	}
-	valid := []string{
-		"README.md",
-		"src/main/java/io/github/example/Guide.java",
-		"父目录/file.txt",
-	}
-	for _, candidate := range valid {
+	for _, candidate := range []string{"README.md", "src/adapter.go", "父目录/file.txt"} {
 		if err := portablepath.ValidateRelative(candidate); err != nil {
 			t.Errorf("ValidateRelative(%q): %v", candidate, err)
 		}

@@ -5,16 +5,9 @@ import (
 	"sort"
 )
 
-const (
-	HostCustom        = "custom"
-	HostFabric        = "fabric"
-	HostBepInExMono   = "bepinex-mono"
-	HostBepInExIL2CPP = "bepinex-il2cpp"
-	HostLuanti        = "luanti"
-)
+const HostCustom = "custom"
 
-// RuntimePin records a host dependency that the generated project keeps
-// fixed instead of resolving a floating "latest" version.
+// RuntimePin records a dependency that a generated host keeps fixed.
 type RuntimePin struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
@@ -26,7 +19,6 @@ type HostDescriptor struct {
 	Name                  string
 	Language              string
 	TemplateStatus        string
-	RequiresNamespace     bool
 	RequiresGameHook      bool
 	RealHostValidation    string
 	RuntimePins           []RuntimePin
@@ -36,105 +28,13 @@ type HostDescriptor struct {
 
 var hostCatalog = map[string]HostDescriptor{
 	HostCustom: {
-		ID:                 HostCustom,
-		Name:               "Custom game engine or runtime",
-		TemplateStatus:     "source-skeleton",
-		RequiresGameHook:   true,
-		RealHostValidation: "required",
-	},
-	HostFabric: {
-		ID:                 HostFabric,
-		Name:               "Fabric dedicated-server Mod",
-		Language:           "Java",
-		TemplateStatus:     "build-validated",
-		RequiresNamespace:  true,
-		RealHostValidation: "required",
-		RuntimePins: []RuntimePin{
-			{Name: "minecraft", Version: "1.21.1"},
-			{Name: "java", Version: "21"},
-			{Name: "fabric-loader", Version: "0.16.14"},
-			{Name: "fabric-api", Version: "0.116.14+1.21.1"},
-			{Name: "fabric-loom", Version: "1.11.8"},
-			{Name: "gradle", Version: "8.14.3"},
-		},
-		UnixVerifyCommands: []string{
-			"./gradlew clean build --no-daemon",
-		},
-		WindowsVerifyCommands: []string{
-			`.\gradlew.bat clean build --no-daemon`,
-		},
-	},
-	HostBepInExMono: {
-		ID:                 HostBepInExMono,
-		Name:               "BepInEx 6 Unity Mono plugin",
-		Language:           "C#",
-		TemplateStatus:     "preview-build-validated",
-		RequiresNamespace:  true,
-		RequiresGameHook:   true,
-		RealHostValidation: "required",
-		RuntimePins: []RuntimePin{
-			{Name: "bepinex", Version: "6.0.0-be.785"},
-			{Name: "target-framework", Version: "netstandard2.0"},
-			{Name: "unityengine.modules", Version: "5.6.1"},
-			{Name: "system.text.json", Version: "8.0.6"},
-		},
-		UnixVerifyCommands: []string{
-			"dotnet restore MOD.Core.Tests/MOD.Core.Tests.csproj --locked-mode",
-			"dotnet build MOD.Core.Tests/MOD.Core.Tests.csproj -c Release --no-restore --nologo",
-			"dotnet exec MOD.Core.Tests/bin/Release/net6.0/MOD.Core.Tests.dll",
-			"dotnet restore MOD.Mono/MOD.Mono.csproj --locked-mode",
-			"dotnet build MOD.Mono/MOD.Mono.csproj -c Release --no-restore --nologo",
-		},
-		WindowsVerifyCommands: []string{
-			"dotnet restore MOD.Core.Tests\\MOD.Core.Tests.csproj --locked-mode",
-			"dotnet build MOD.Core.Tests\\MOD.Core.Tests.csproj -c Release --no-restore --nologo",
-			"dotnet exec MOD.Core.Tests\\bin\\Release\\net6.0\\MOD.Core.Tests.dll",
-			"dotnet restore MOD.Mono\\MOD.Mono.csproj --locked-mode",
-			"dotnet build MOD.Mono\\MOD.Mono.csproj -c Release --no-restore --nologo",
-		},
-	},
-	HostBepInExIL2CPP: {
-		ID:                 HostBepInExIL2CPP,
-		Name:               "BepInEx 6 Unity IL2CPP plugin",
-		Language:           "C#",
-		TemplateStatus:     "preview-build-validated",
-		RequiresNamespace:  true,
-		RequiresGameHook:   true,
-		RealHostValidation: "required",
-		RuntimePins: []RuntimePin{
-			{Name: "bepinex", Version: "6.0.0-be.785"},
-			{Name: "target-framework", Version: "net6.0"},
-		},
-		UnixVerifyCommands: []string{
-			"dotnet restore MOD.Core.Tests/MOD.Core.Tests.csproj --locked-mode",
-			"dotnet build MOD.Core.Tests/MOD.Core.Tests.csproj -c Release --no-restore --nologo",
-			"dotnet exec MOD.Core.Tests/bin/Release/net6.0/MOD.Core.Tests.dll",
-			"dotnet restore MOD.IL2CPP/MOD.IL2CPP.csproj --locked-mode",
-			"dotnet build MOD.IL2CPP/MOD.IL2CPP.csproj -c Release --no-restore --nologo",
-		},
-		WindowsVerifyCommands: []string{
-			"dotnet restore MOD.Core.Tests\\MOD.Core.Tests.csproj --locked-mode",
-			"dotnet build MOD.Core.Tests\\MOD.Core.Tests.csproj -c Release --no-restore --nologo",
-			"dotnet exec MOD.Core.Tests\\bin\\Release\\net6.0\\MOD.Core.Tests.dll",
-			"dotnet restore MOD.IL2CPP\\MOD.IL2CPP.csproj --locked-mode",
-			"dotnet build MOD.IL2CPP\\MOD.IL2CPP.csproj -c Release --no-restore --nologo",
-		},
-	},
-	HostLuanti: {
-		ID:                 HostLuanti,
-		Name:               "Luanti server Mod",
-		Language:           "Lua",
-		TemplateStatus:     "harness-validated",
-		RealHostValidation: "required",
-		RuntimePins: []RuntimePin{
-			{Name: "lua-api", Version: "5.1-compatible"},
-		},
-		UnixVerifyCommands: []string{
-			"lua test_state.lua",
-		},
-		WindowsVerifyCommands: []string{
-			"lua .\\test_state.lua",
-		},
+		ID:                    HostCustom,
+		Name:                  "Custom game engine or runtime",
+		TemplateStatus:        "contract-skeleton",
+		RequiresGameHook:      true,
+		RealHostValidation:    "required",
+		UnixVerifyCommands:    []string{"rin conformance host", "rin doctor host"},
+		WindowsVerifyCommands: []string{"rin.exe conformance host", "rin.exe doctor host"},
 	},
 }
 

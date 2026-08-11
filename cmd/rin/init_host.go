@@ -38,8 +38,7 @@ func runInitHost(arguments []string, output io.Writer) error {
 	runtime := flags.String("runtime", "", "custom host runtime")
 	id := flags.String("id", "", "portable Host machine identifier")
 	name := flags.String("name", "", "human-readable Host name; defaults to -id")
-	namespace := flags.String("namespace", "", "lowercase reverse-domain owner namespace")
-	author := flags.String("author", "", "optional author; Luanti requires a ContentDB username")
+	author := flags.String("author", "", "optional author")
 	projectVersion := flags.String("version", "0.1.0", "new Host version")
 	destination := flags.String("output", "", "relative output directory; defaults to -id")
 	dryRun := flags.Bool("dry-run", false, "validate and list files without writing")
@@ -72,7 +71,7 @@ func runInitHost(arguments []string, output io.Writer) error {
 		return errors.New("-id is required")
 	}
 	options := hostscaffold.Options{
-		Host: *engine, Runtime: *runtime, ID: *id, Name: *name, Namespace: *namespace,
+		Host: *engine, Runtime: *runtime, ID: *id, Name: *name,
 		Author: *author, Version: *projectVersion, Output: *destination,
 	}
 	if *dryRun {
@@ -122,12 +121,11 @@ func writeInitHostHelp(output io.Writer) error {
   rin init host -list-hosts
 
 Options:
-  -engine string      custom, fabric, bepinex-mono, bepinex-il2cpp, or luanti
-  -runtime string     custom runtime: go, javascript, python, csharp, java, or lua
+  -engine string      custom
+  -runtime string     go, javascript, python, csharp, java, or lua
   -id string          portable 2-64 character Host machine identifier
   -name string        player-facing display name (defaults to -id)
-  -namespace string   lowercase reverse-domain owner; required except for Luanti
-  -author string      optional author; Luanti requires a ContentDB username
+  -author string      optional author
   -version string     new Host version (default "0.1.0")
   -output string      new relative directory below the current directory
   -dry-run            validate and list deterministic files without writing
@@ -146,13 +144,9 @@ func isHelpArgument(argument string) bool {
 
 func writeHostList(output io.Writer) error {
 	for _, host := range hostscaffold.Hosts() {
-		namespace := "unused"
-		if host.RequiresNamespace {
-			namespace = "required"
-		}
 		if _, err := fmt.Fprintf(
-			output, "%-16s  namespace=%-8s  %-26s  %s\n",
-			host.ID, namespace, host.TemplateStatus, host.Name,
+			output, "%-16s  %-26s  %s\n",
+			host.ID, host.TemplateStatus, host.Name,
 		); err != nil {
 			return err
 		}
