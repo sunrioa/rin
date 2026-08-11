@@ -1,56 +1,38 @@
-# Rin Documentation
+# Rin documentation
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Rin `0.7.0` is Preview, pre-1.0 software. Documentation is organized by public
-interfaces rather than by individual consuming games, but Preview minor
-releases do not carry a post-1.0 stability guarantee.
+These pages describe the current Harness V2 only. OpenAPI is authoritative for
+HTTP fields and routes, while public Go types are authoritative for in-process
+contracts. Documentation examples never replace authoritative game-adapter checks.
 
-| Topic | English | 简体中文 |
-| --- | --- | --- |
-| Runtime HTTP wire schema | [`api/openapi.json`](../api/openapi.json) | [`api/openapi.json`](../api/openapi.json) |
-| Host Control wire schema | [`api/control-openapi.json`](../api/control-openapi.json) | [`api/control-openapi.json`](../api/control-openapi.json) |
-| Internal Agent task wire schema | [`api/agent-openapi.json`](../api/agent-openapi.json) | [`api/agent-openapi.json`](../api/agent-openapi.json) |
-| Architecture, storage, and authority boundary | [Architecture](architecture.md) | [架构](architecture.zh-CN.md) |
-| Engine-neutral host and capability contract | [Host contract](host-contract.md) | [宿主契约](host-contract.zh-CN.md) |
-| Sequential, simultaneous, chance, and hidden information | [OpenSpiel validation](open-spiel-validation.md) | [OpenSpiel 验证](open-spiel-validation.zh-CN.md) |
-| Universal Host ports and coordinator | [Host SDK](host-sdk.md) | [通用 Host SDK](host-sdk.zh-CN.md) |
-| Proposal, execution, and recovery | [Host action lifecycle](action-lifecycle.md) | [Host 动作生命周期](action-lifecycle.zh-CN.md) |
-| HTTP and state contract | [Protocol v2](protocol-v2.md) | [协议 v2](protocol-v2.zh-CN.md) |
-| Online-model configuration | [Model policy](model-policy.md) | [模型策略](model-policy.zh-CN.md) |
-| Persistent internal Agent Runtime | [Internal Agent Runtime](internal-agent-runtime.md) | [内部 Agent Runtime](internal-agent-runtime.zh-CN.md) |
-| Optional decision, memory, speech, and telemetry ports | [Optional extensions](optional-extensions.md) | [可选扩展端口](optional-extensions.zh-CN.md) |
-| MCP external control and version negotiation | [Quick start](mcp-control-plane.md) | [快速接入](mcp-control-plane.zh-CN.md) |
-| Ren'Py, Godot, Unity, and Unreal | [Game adapters](game-adapters.md) | [游戏适配器](game-adapters.zh-CN.md) |
-| Regions, quests, and NPC actions | [RPG event conventions](rpg-events.md) | [RPG 事件约定](rpg-events.zh-CN.md) |
-| Cross-language clients and mods | [SDK and mod kits](sdk-and-mods.md) | [SDK 与 Mod 套件](sdk-and-mods.zh-CN.md) |
-| Offline Host project generator | [Host scaffolding](host-scaffolding.md) | [通用 Host 脚手架](host-scaffolding.zh-CN.md) |
-| Real-game stability and crash validation | [Real-host validation](host-integration-validation.md) | [真实宿主验收](host-integration-validation.zh-CN.md) |
-| Accelerated-year storage and lifecycle validation | [Long-session validation](long-session-validation.md) | [长会话验证](long-session-validation.zh-CN.md) |
-| Host persistence guarantees and durability profiles | [Host durability profiles](host-durability.md) | [宿主持久保证分级](host-durability.zh-CN.md) |
-| Security and reporting | [Security](../SECURITY.en.md) | [安全](../SECURITY.md) |
-| Release changes | [Changelog](../CHANGELOG.md) | [变更日志](../CHANGELOG.zh-CN.md) |
-| Release and client compatibility | [Compatibility matrix](compatibility.md) | [兼容矩阵](compatibility.zh-CN.md) |
-| Supported scalable Session Transfer | [Scalable Session Transfer](session-transfer.md) | [可扩展 Session Transfer](session-transfer.zh-CN.md) |
-| Session lifecycle, quotas, deletion, and privacy | [Session lifecycle](session-lifecycle.md) | [Session 生命周期](session-lifecycle.zh-CN.md) |
-| Deployment, readiness, diagnostics, and metrics | [Deployment and monitoring](operations.md) | [部署与监控](operations.zh-CN.md) |
-| Playable slice, measured value, and release gates | [Player-value evidence](player-value.md) | [玩家价值证据](player-value.zh-CN.md) |
-| Release and immutable tag procedure | [Release guide](release-guide.md) | [发布指南](release-guide.zh-CN.md) |
-| Delivered milestones and Preview gates | [Roadmap](../ROADMAP.en.md) | [路线图](../ROADMAP.md) |
-| Repository overview | [README](../README.en.md) | [项目说明](../README.md) |
+## Reading order
 
-SDK-specific quick starts are under [`sdk/`](../sdk/README.md). Use
-[`rin init host`](host-scaffolding.md) to generate a self-contained Fabric,
-BepInEx, or Luanti project; the canonical source templates remain under
-[`examples/mods/`](../examples/mods/).
+1. [Architecture](architecture.md): component boundaries, trust, and the full data flow.
+2. [Host V2 contract](host-contract.md): observations, capabilities, actions, effects, and outcomes.
+3. [Operations and policy](operations.md): authorization, confirmation, delivery, recovery, cancellation, and execution proof.
+4. [Game adapters](game-adapters.md): what an engine integration must and must not implement.
+5. [MCP and Control Plane](mcp-control-plane.md): external Agents, the daemon, tools, installation, and updates.
+6. [Internal Agent Runtime](internal-agent-runtime.md): persona, memory, skills, models, and task execution.
+7. [Host scaffolding](host-scaffolding.md): generate a contract skeleton for a language and engine.
+8. [Integration acceptance](host-integration-validation.md): automated gates and human game testing.
 
-The standard [MIT License](../LICENSE) is the authoritative project license;
-dependency notices are recorded in
-[`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).
+Additional material:
 
-Runtime paths, methods, HTTP statuses, required fields, and JSON shapes are
-authoritative in `api/openapi.json`; Host Control uses
-`api/control-openapi.json`. Narrative documents define transaction and recovery
-semantics. The SDK route inventory is generated coverage metadata, not a second
-wire contract. Current phases and future non-goals live only in the
-[roadmap](../ROADMAP.en.md).
+- [SDK overview](../sdk/README.md)
+- [Security boundary](../SECURITY.en.md)
+- [Roadmap](../ROADMAP.en.md)
+
+## Contract sources
+
+| Contract | Source of truth |
+| --- | --- |
+| Host `rin.host/v2` | `host/*.go` |
+| Control `rin.control/v2` | `api/control-openapi.json`, `controlplane/*.go` |
+| Agent Task API `v1` | `api/agent-openapi.json`, `agentapi/*.go` |
+| MCP tools | `mcpbridge/server.go` |
+| Gameplay policy | `policy/*.go` |
+
+There is no promise of legacy protocol migration, engine-specific templates,
+or public remote Control deployment. Prove player value in a concrete game
+adapter before promoting a feature into the generic core.

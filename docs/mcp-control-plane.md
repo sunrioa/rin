@@ -236,9 +236,7 @@ effects configure a separate challenge TTL for each Host clock:
 
 A zero or omitted value disables confirmation for that clock and returns the
 auditable `policy.confirmation_clock_disabled` denial instead of an internal
-error. A challenge never outlives its BoundAction `valid_until`. This Preview
-version no longer accepts the old single `{"clock":"step","value":600}`
-shape.
+error. A challenge never outlives its BoundAction `valid_until`.
 
 The standard loop is:
 
@@ -348,8 +346,8 @@ The Control contract is
 The `/control/v2/*` client routes used by `rin-mcp` and language SDKs cover
 discovery, controller leases, actions, Operations, and emergency stop. Client
 request bodies never carry a Principal; the daemon always injects its fixed
-startup Principal to prevent identity spoofing. No `/control/v1/*` route is
-exposed; Hosts must use `/control/v2/host/*`.
+startup Principal to prevent identity spoofing. Hosts use
+`/control/v2/host/*`.
 
 Error responses always contain a human-readable `error` and may include a stable
 machine-readable `code`. Current service codes are `invalid`, `forbidden`,
@@ -370,7 +368,7 @@ Recovery rules:
 - newly queued requests, ACKs, cancellation, and Outcomes are immediately durable;
 - delivery counters and ActionRun progress are checkpoints folded into the next
   durable write or graceful shutdown;
-- a crash before ACK makes the old binding unsafe to reuse, so the Operation
+- a crash before ACK makes the original binding unsafe to reuse, so the Operation
   restores as `stale` and the controller must submit again from a fresh
   Observation;
 - accepted work with no reported run or Outcome is redelivered by the same
@@ -379,7 +377,7 @@ Recovery rules:
   `outcome-unknown`; the Host reconciles it from its Outcome Outbox;
 - a persisted `stale` or unresolved `outcome-unknown` state is never revived as
   queued or accepted work after restart;
-- requests bound to an old Epoch, old Observation, or legacy unbound state never
+- requests bound to a stale Epoch or Observation never
   reach a new timeline;
 - unfinished work without a Host expires to `stale` or `outcome-unknown` instead
   of occupying capacity forever;

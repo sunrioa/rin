@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	rinapi "github.com/sunrioa/rin/api"
+	"github.com/sunrioa/rin/release"
 )
 
 func TestControlOpenAPIReferencesEveryDaemonRoute(t *testing.T) {
@@ -20,6 +21,10 @@ func TestControlOpenAPIReferencesEveryDaemonRoute(t *testing.T) {
 		document["jsonSchemaDialect"] !=
 			"https://json-schema.org/draft/2020-12/schema" {
 		t.Fatal("Control OpenAPI uses the wrong dialect")
+	}
+	info, ok := document["info"].(map[string]any)
+	if !ok || info["version"] != release.Version {
+		t.Fatalf("Control OpenAPI release version = %#v, want %q", info["version"], release.Version)
 	}
 	assertControlReferencesResolve(t, document, document)
 	routes, err := rinapi.ParseControlRoutes()

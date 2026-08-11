@@ -2,421 +2,111 @@
 
 [English](host-scaffolding.md) | [简体中文](host-scaffolding.zh-CN.md)
 
-`rin init host` creates a self-contained starting project for one supported game
-host. It removes mechanical SDK vendoring and manifest wiring; it does not
-guess game-specific save, thread, or world-mutation APIs. Rin `0.7.0` and the
-generated projects are Preview software, and every generated integration starts
-with the `advisory` host durability profile.
+`rin init host` generates an offline, deterministic `rin.host/v2` contract
+skeleton. It does not download templates, install dependencies, generate model
+code, or pretend to integrate a game engine.
 
-Generation, compilation, and real-game stability are separate evidence levels.
-A successful command proves that its inputs and embedded template passed local
-validation. A successful build proves that the generated source compiles
-against the pinned host dependencies. Neither result proves that the Mod is
-stable in a particular game; use the
-[real-host validation matrix](host-integration-validation.md) before making that
-claim.
-
-## Command contract
-
-List the templates embedded in the installed Rin binary:
+## Create
 
 ```bash
-rin init host --list-hosts
+rin init host \
+  -engine custom \
+  -runtime java \
+  -id my-game-host \
+  -name "My Game Host" \
+  -version 0.1.0 \
+  -output ./my-game-host
 ```
 
-Generate a project:
+Supported runtimes are `go`, `javascript`, `python`, `csharp`, `java`, and
+`lua`. The sole engine template is currently `custom`; it represents the
+generic contract, not a completed engine integration.
+
+Inspect without writing:
+
+```bash
+rin init host -engine custom -runtime java -id my-game-host -dry-run
+rin init host -list-hosts
+```
+
+The destination must not exist. The generator never overwrites a path or picks
+a different name automatically.
+
+## Files
 
 ```text
-rin init host \
-  --engine custom|fabric|bepinex-mono|bepinex-il2cpp|luanti \
-  --id <host_id> \
-  [--runtime go|javascript|python|csharp|java|lua] \
-  [--name <display name>] \
-  [--namespace io.github.user] \
-  [--author <author>] \
-  [--version 0.1.0] \
-  [--output relative/path] \
-  [--dry-run]
+my-game-host/
+  README.md
+  README.zh-CN.md
+  LICENSE-RIN.txt
+  rin-host.json
+  rin-scaffold.json
+  capabilities/
+    dialogue.say.json
+  src/
+    README.md
 ```
 
-`--engine` and `--id` are required. `--name` defaults to the Host ID,
-`--version` defaults to `0.1.0`, and `--output` defaults to `./<host_id>`.
-`custom` also requires `--runtime` and covers games or engines outside the
-embedded templates without assuming a scene graph, entity system, save format,
-or movement API.
-`--namespace` is required for Fabric and both BepInEx backends; Luanti rejects
-it because this template has no global owner-namespace field. For Fabric it is
-the Java package prefix; for BepInEx it is the globally unique plugin-GUID
-prefix, while the generated C# namespace comes from `--id`. `--author` is
-optional and is never inferred from the operating system, Git configuration,
-or repository metadata. For Luanti, a supplied `--author` is written to
-`mod.conf` and therefore must be a ContentDB username: 1–64 ASCII letters,
-digits, underscores, or hyphens.
+- `rin-host.json`: schema 2, `rin.host/v2`, runtime, durability, and capability directory.
+- `rin-scaffold.json`: generator, project, and SHA-256 for every file, used to detect drift.
+- `capabilities/dialogue.say.json`: a sealed `CapabilitySpec` example.
+- `src/README.md`: authority boundaries the concrete game must implement.
+- `LICENSE-RIN.txt`: covers Rin-generated scaffold material only and does not license the game or mod.
 
-`--dry-run` performs the same validation and rendering, prints the deterministic
-file and SHA-256 inventory, and writes nothing. It is the recommended first
-command when integrating into an existing game repository.
+The default capability is an example and cannot make a game display dialogue.
+You must implement argument and object binding, effect preview, authority-thread
+execution, and outcome reporting.
 
-The five exact host IDs are `custom`, `fabric`, `bepinex-mono`,
-`bepinex-il2cpp`, and `luanti`; names are case-sensitive and broad aliases are
-not accepted.
+## Verification commands
 
-### Identifier rules
-
-- `--id` must be 2–64 characters and match
-  `[a-z][a-z0-9]*(?:_[a-z0-9]+)*`. The deliberately narrow grammar is portable
-  across the supported templates. It is stricter than Fabric's accepted
-  grammar, which also permits hyphens.
-- `--name` is the player-facing display name. It must be valid UTF-8, nonempty,
-  and free of NUL, newlines, and control characters.
-- `--namespace` is a lowercase, dot-separated reverse-domain owner namespace
-  such as `io.github.example`. Empty segments, language keywords, path
-  separators, and Windows device-name segments are rejected.
-- `--version` must use the numeric `major.minor.patch` form, contain at most
-  17 ASCII characters, and keep every component between `0` and `65534`.
-  It is the generated Host project's version, not the Rin version.
-- `--output` is a relative path below the current directory. Absolute paths,
-  `.`/`..` traversal, alternate Windows separators, drive or UNC paths, and
-  output ancestors below the current directory that are symbolic links are
-  rejected. Its parent directory must already exist.
-
-These restrictions apply on every operating system, not only on Windows.
-Every path component is checked case-insensitively and against Windows device
-names such as `CON`, `PRN`, `AUX`, `NUL`, `COM1` through `COM9`, and `LPT1`
-through `LPT9`. Components with Windows-reserved characters, trailing spaces,
-or trailing periods are also rejected. This keeps a project generated on
-Linux or macOS movable to Windows without renaming files. The generator also
-requires the deepest generated absolute path to fit a portable budget of 240
-UTF-16 code units. On Windows, generate under a short ASCII path outside
-OneDrive or other synchronizing folders; for example, use `C:\src` rather than
-a deeply nested Desktop or Documents path.
-
-## Safe and deterministic output
-
-The generator is offline: it reads only templates and SDK sources embedded in
-the exact `rin` binary being run. It does not download a newer template, inspect
-an unrelated Git checkout, read credentials, or execute host build tools.
-Given the same Rin binary and arguments, generated relative paths, UTF-8 file
-bytes, and the sorted SHA-256 manifest are identical regardless of time,
-current username, or destination directory.
-
-Each project includes the complete source-first SDK required by its host and a
-hash manifest that records every generated file except the manifest itself,
-its origin Rin release, and its SHA-256 digest. Generated builds must not
-depend on paths such as
-`../../../sdk`; the project remains buildable after it is moved outside the Rin
-repository. The vendored SDK retains Rin's MIT license notice. The generator
-does not select a license for the game author's own Mod. Fabric scaffolds also
-carry the exact Gradle 8.14.3 `LICENSE` and `NOTICE` as
-`LICENSE-GRADLE.txt` and `NOTICE-GRADLE.txt` for the redistributed Wrapper.
-BepInEx Mono scaffolds carry a reviewed, hash-pinned license/notice set only
-for the eight .NET runtime DLLs their install ZIP redistributes. IL2CPP
-scaffolds neither redistribute those DLLs nor claim their Mono-only notices.
-
-The destination must not already exist, even when it is an empty directory or
-a symbolic link. There is intentionally no overwrite or force mode. The
-generator also rejects case-insensitive sibling collisions and symbolic links
-in the destination ancestry below the current directory. If generation fails
-after creating the target, it leaves the partial tree in place and normally retains
-`.rin-scaffold.incomplete`; do not build or install that tree. Inspect it and
-delete or move it manually before retrying. The generator never performs
-automatic path-based cleanup, so it cannot delete a directory or file that a
-concurrent process replaced. Generate into a new sibling directory and review
-the diff when upgrading a scaffold.
-
-Generation itself requires no network. The first Fabric or BepInEx build may
-contact the pinned Gradle, Maven, or NuGet sources to obtain dependencies.
-Wrapper distributions, dependency versions, and lock files remain fixed by
-the template; do not replace them with floating versions merely to make a
-restore succeed.
-
-## Quick starts
-
-The examples below use generic public identifiers. Run them from the directory
-that is allowed to contain the new project.
-
-### Any game or engine
+Run from the generated directory or pass `-project`:
 
 ```bash
-rin init host --engine custom --runtime python --id story_host
-cd story_host
-rin add skill --id movement.follow --effect world-mutation \
-  --execution long-running
-rin conformance host
-rin doctor host
+rin conformance host -project ./my-game-host
+rin doctor host -project ./my-game-host
 ```
 
-Windows PowerShell:
+Conformance checks:
 
-```powershell
-rin.exe init host --engine custom --runtime csharp --id game_host
-Set-Location game_host
-rin.exe add skill --id movement.follow --effect world-mutation `
-  --execution long-running
-rin.exe conformance host
-rin.exe doctor host
-```
+- a real directory rather than a symlink;
+- manifest schema, Host contract, and project identity;
+- generated-file SHA-256, Windows case collisions, and portable paths;
+- agreement between `rin-host.json` and the manifest;
+- every capability schema, digest, version, risk, and execution bound;
+- no duplicate ID and version.
 
-`rin add skill` accepts only namespaced capability IDs and exact versions.
-`--input-schema` and `--output-schema` may provide JSON Schema files up to
-64 KiB; the command canonicalizes each schema, computes the descriptor digest,
-and writes without overwriting under `capabilities/`. `conformance host`
-validates protocol v2, Windows paths, the scaffold manifest, and every sealed
-capability. It reports files changed after generation while allowing normal
-Host implementation edits. `doctor host` additionally runs the selected
-runtime's version command with a two-second deadline. A PATH entry is reported
-as `available` only when the command exits successfully and returns recognized
-version output; stale version-manager shims are reported as `unusable`.
-Missing, unusable, and timed-out runtimes remain warnings because the same Host
-project may be built on another supported platform.
+Doctor reports integration status and next work. These commands prove only the
+contract skeleton, never real game behavior.
 
-### Fabric
+## Integration order
 
-```bash
-rin init host \
-  --engine fabric \
-  --id guide_npc \
-  --name "Guide NPC" \
-  --namespace io.github.example \
-  --author example \
-  --output guide_npc
+1. Define stable Host, World, Actor, and epoch identities from the game save.
+2. Implement an authority dispatcher for every world read and mutation.
+3. Publish bounded observations and a capability catalog.
+4. Implement `Bind` and `Preview` without mutating the world.
+5. Configure known effect kinds/scopes, rules, budgets, and confirmation.
+6. Implement idempotent `Execute`, `Cancel`, `Verify`, and an outcome outbox.
+7. Connect to `rin-control` for Host register, publish, poll, ACK, run, and outcome.
+8. Run fault injection and real-game acceptance.
 
-cd guide_npc
-./gradlew clean build --no-daemon
-```
+## Safety properties
 
-Windows PowerShell:
+Before writing, the generator renders every file and validates total size,
+relative paths, case collisions, reserved names, symlinks, and destination
+existence. It writes a temporary sibling directory and publishes atomically;
+only one concurrent creator of the same destination may succeed.
 
-```powershell
-rin.exe init host --engine fabric --id guide_npc --name "Guide NPC" `
-  --namespace io.github.example --author example --output guide_npc
-Set-Location guide_npc
-.\gradlew.bat clean build --no-daemon
-```
+`rin-scaffold.json` is an integrity inventory, not a signature. Someone able to
+modify files can recalculate SHA-256. Use your own signing and supply-chain
+process for releases.
 
-The Fabric template pins Minecraft `1.21.1`, Fabric Loader `0.16.14`, Fabric
-API `0.116.14+1.21.1`, Loom `1.11.8`, Gradle `8.14.3`, and Java 21. It vendors
-the Rin Java SDK and builds a common Mod for integrated and dedicated logical
-servers. Its build includes an official dedicated-server GameTest and Saved
-Data round trip. The Gradle license and notice files apply to the redistributed
-Wrapper, not to the generated Mod. Do not silently change one member of this
-tested set without repeating the build and real-server gates.
+## What it does not generate
 
-### BepInEx Mono
+- engine SDKs, loaders, Gradle projects, Unity packages, or Unreal plugins;
+- a background daemon or MCP server;
+- API keys, tokens, or model-provider configuration;
+- arbitrary commands, shells, dynamic code, or a private game executor;
+- a claim of real-engine validation.
 
-```bash
-rin init host \
-  --engine bepinex-mono \
-  --id guide_npc \
-  --name "Guide NPC" \
-  --namespace io.github.example \
-  --output guide_npc_mono
-
-cd guide_npc_mono
-dotnet restore GuideNpc.Core.Tests/GuideNpc.Core.Tests.csproj --locked-mode
-dotnet build GuideNpc.Core.Tests/GuideNpc.Core.Tests.csproj -c Release --no-restore --nologo
-dotnet exec GuideNpc.Core.Tests/bin/Release/net6.0/GuideNpc.Core.Tests.dll
-dotnet restore GuideNpc.Mono/GuideNpc.Mono.csproj --locked-mode
-dotnet build GuideNpc.Mono/GuideNpc.Mono.csproj --configuration Release --no-restore --nologo
-python package_bepinex.py
-python package_bepinex.py --verify-archive dist/guide-npc-bepinex-mono-0.1.0.zip
-```
-
-Windows PowerShell uses the same `dotnet` commands:
-
-```powershell
-rin.exe init host --engine bepinex-mono --id guide_npc --name "Guide NPC" `
-  --namespace io.github.example --output guide_npc_mono
-Set-Location guide_npc_mono
-dotnet restore GuideNpc.Core.Tests\GuideNpc.Core.Tests.csproj --locked-mode
-dotnet build GuideNpc.Core.Tests\GuideNpc.Core.Tests.csproj -c Release --no-restore --nologo
-dotnet exec GuideNpc.Core.Tests\bin\Release\net6.0\GuideNpc.Core.Tests.dll
-dotnet restore GuideNpc.Mono\GuideNpc.Mono.csproj --locked-mode
-dotnet build GuideNpc.Mono\GuideNpc.Mono.csproj --configuration Release --no-restore --nologo
-python package_bepinex.py
-python package_bepinex.py --verify-archive dist/guide-npc-bepinex-mono-0.1.0.zip
-```
-
-The template targets `netstandard2.0` and pins the upstream
-`6.0.0-be.785` BepInEx 6 Mono package. BepInEx 6 remains an unreleased,
-bleeding-edge line; compile success is not evidence that the plugin loads in a
-particular Unity game. The packaging helper performs locked publish, requires
-`System.Text.Json.dll` and its complete pinned managed dependency set, includes
-`LICENSE-RIN.txt` plus the reviewed .NET license/notice set, rejects every DLL
-outside the reviewed Mono allowlist, and records every install file checksum in the ZIP
-manifest. Verification also enforces the approved SHA-256 of every notice
-asset. Adding another managed dependency requires an explicit runtime and
-redistribution-license review before changing the allowlist. The helper supports
-Python 3.9 and newer.
-
-### BepInEx IL2CPP
-
-```bash
-rin init host \
-  --engine bepinex-il2cpp \
-  --id guide_npc \
-  --name "Guide NPC" \
-  --namespace io.github.example \
-  --output guide_npc_il2cpp
-
-cd guide_npc_il2cpp
-dotnet restore GuideNpc.Core.Tests/GuideNpc.Core.Tests.csproj --locked-mode
-dotnet build GuideNpc.Core.Tests/GuideNpc.Core.Tests.csproj -c Release --no-restore --nologo
-dotnet exec GuideNpc.Core.Tests/bin/Release/net6.0/GuideNpc.Core.Tests.dll
-dotnet restore GuideNpc.IL2CPP/GuideNpc.IL2CPP.csproj --locked-mode
-dotnet build GuideNpc.IL2CPP/GuideNpc.IL2CPP.csproj --configuration Release --no-restore --nologo
-python package_bepinex.py
-python package_bepinex.py --verify-archive dist/guide-npc-bepinex-il2cpp-0.1.0.zip
-```
-
-Windows PowerShell:
-
-```powershell
-rin.exe init host --engine bepinex-il2cpp --id guide_npc --name "Guide NPC" `
-  --namespace io.github.example --output guide_npc_il2cpp
-Set-Location guide_npc_il2cpp
-dotnet restore GuideNpc.Core.Tests\GuideNpc.Core.Tests.csproj --locked-mode
-dotnet build GuideNpc.Core.Tests\GuideNpc.Core.Tests.csproj -c Release --no-restore --nologo
-dotnet exec GuideNpc.Core.Tests\bin\Release\net6.0\GuideNpc.Core.Tests.dll
-dotnet restore GuideNpc.IL2CPP\GuideNpc.IL2CPP.csproj --locked-mode
-dotnet build GuideNpc.IL2CPP\GuideNpc.IL2CPP.csproj --configuration Release --no-restore --nologo
-python package_bepinex.py
-python package_bepinex.py --verify-archive dist/guide-npc-bepinex-il2cpp-0.1.0.zip
-```
-
-The template targets .NET 6 and pins BepInEx
-`6.0.0-be.785`. It deliberately does not vendor generated game-specific
-Interop assemblies. Install the correct BepInEx build into one concrete game,
-let that game generate its Interop files, and implement the owning-thread hook
-before attempting an effect. The helper packages the three reviewed project
-DLLs plus `LICENSE-RIN.txt`; archive verification rejects every additional DLL,
-including BepInEx, Unity, or game-specific Interop runtimes. Extending this
-allowlist requires a runtime and redistribution-license review. It intentionally
-omits the Mono-only .NET license/notice set because those eight DLLs are not
-redistributed.
-
-Both BepInEx package variants use fixed ZIP timestamps, ordering, Unix
-regular-file modes, and creator metadata. Verification rejects directory,
-symbolic-link, encrypted, overlong, traversal, device-name, case-colliding, and
-unmanifested entries before the archive is presented for extraction.
-
-### Luanti
-
-```bash
-rin init host \
-  --engine luanti \
-  --id guide_npc \
-  --name "Guide NPC" \
-  --author example \
-  --output guide_npc
-
-cd guide_npc
-luac5.1 -p init.lua
-luac5.1 -p state.lua
-luac5.1 -p rin.lua
-lua5.1 test_state.lua
-luac5.4 -p init.lua
-luac5.4 -p state.lua
-luac5.4 -p rin.lua
-lua5.4 test_state.lua
-```
-
-On Windows, use the corresponding installed `luac.exe` and `lua.exe` commands.
-The generated Mod vendors the Rin Lua SDK and keeps syntax and state tests
-compatible with Lua 5.1 and 5.4. Add the generated Mod ID to
-`secure.http_mods`, then repeat the lifecycle test in an actual Luanti
-headless server. The generator does not write `mod.conf.release`; that field is
-owned by ContentDB.
-
-Repository CI also downloads the SHA-256-pinned official Luanti 5.16.1
-Windows release and loads both the source Mod and a newly generated scaffold
-in a real Dedicated Server twice. Local macOS verification repeats the same
-two lifecycles. This proves packaging, real ModStorage userdata, and graceful
-restart generations; it does not prove multiplayer, live Sidecar traffic,
-forced termination, or a long soak.
-
-## Required game-specific work
-
-The generated README identifies the following authority boundaries. A Mod is
-not ready to distribute until each one has been replaced and reviewed:
-
-1. **Stable save identity.** Derive Session identity from the real world,
-   profile, or save slot. Do not use an executable path, process ID, clock, or
-   a new random value on every launch.
-2. **Action allowlist.** Send only game-authored action IDs and validate every
-   returned ID and parameter before apply. Generated text is display data, not
-   a command, item ID, reflection target, or filesystem path.
-3. **Owning-thread apply.** Marshal Fabric work to the server thread, BepInEx
-   work to the game's owning Unity thread, and Luanti work through its scheduled
-   server callbacks. Never block a render or server-tick loop on network I/O.
-4. **Trusted content binding.** Compute `content_hash` from the running,
-   game-owned content manifest. Never copy the expected hash or Binding from an
-   imported save, Snapshot, or model response.
-5. **Durable workflow recovery.** Persist the complete Pending Turn, accepted
-   Job ID, operation marker, and Outcome Outbox. Resume or drain them before
-   accepting a new turn. An ambiguous timeout or cancellation must fail closed.
-6. **Sidecar lifecycle.** Decide whether the launcher, dedicated server, or game
-   installation starts Rin; use a writable per-user data directory, wait for
-   health, enforce one writer per data directory, and perform bounded shutdown.
-   Keep model-provider credentials in the Sidecar. Pass `RIN_TOKEN` through the
-   process environment rather than a save or checked-in Mod config.
-
-The templates intentionally use reversible dialogue, wait, or refusal effects
-and remain `advisory`. Item grants, currency, quest advancement, inventory
-changes, and world edits require either an operation-keyed idempotent game API
-or a real transaction that commits the game effect, applied marker, and
-durable outcome together. See
-[host durability profiles](host-durability.md).
-
-## Implementation and validation checklist
-
-### Current scaffolding delivery
-
-- [x] Register `init host`, `add skill`, `conformance host`, `doctor host`,
-  the five exact Host names, and actionable help and error output.
-- [x] Enforce host-aware ID, display-name, namespace, semantic-version, output,
-  Windows-name, case-collision, and symbolic-link validation before writing;
-  `conformance host` reuses the same portable-path rules for every manifest
-  entry.
-- [x] Provide contract skeletons for Go, JavaScript, Python, C#, Java, and Lua;
-  embed existing templates and complete SDK sources in the Rin binary, generate
-  a sorted SHA-256 manifest, and preserve required script modes.
-- [x] Guarantee no overwrite, no traversal, deterministic dry-run parity, and
-  no automatic failure cleanup; retain an incomplete marker for manual review
-  without deleting concurrent replacements.
-- [x] Build generated Fabric and both BepInEx projects on Linux and Windows;
-  build and package each BepInEx backend, independently verify both install
-  ZIPs, parse and exercise Luanti output with Lua 5.1/5.4, and load it in an
-  official 5.16.1 Windows Dedicated Server.
-- [x] Keep generated READMEs explicit about pinned dependencies, remaining
-  game-owned TODOs, Preview status, and the `advisory` capability boundary.
-
-This checklist is an acceptance contract. Check an item only after the
-corresponding code and automated test have landed; documentation alone is not
-evidence.
-
-### Follow-up real-game validation
-
-- [ ] Load the generated Fabric JAR in a real Minecraft `1.21.1` Dedicated
-  Server on Linux and Windows; test two worlds, save/stop, forced termination,
-  concurrent players, and Sidecar restart.
-- [ ] Load the generated Mono plugin in a named representative game and replace
-  the demo save identity and main-thread effect hook.
-- [ ] Load the generated IL2CPP plugin in a concrete game after Interop
-  generation; test AOT behavior, unload, restart, and an actual game hook.
-- [ ] Extend the real Luanti server gate beyond graceful restart: connect a
-  live Sidecar, test real ModStorage save intervals, concurrent players,
-  `/shutdown`, and forced termination.
-- [ ] Run the shared crash matrix and at least the documented two-hour or
-  1,000-turn Preview soak gate for every host/backend claimed by a release.
-
-## Official host references
-
-- [Fabric `fabric.mod.json` specification](https://docs.fabricmc.net/develop/loader/fabric-mod-json)
-- [Fabric example Mod](https://github.com/FabricMC/fabric-example-mod)
-- [BepInEx 6 plugin setup](https://docs.bepinex.dev/master/articles/dev_guide/plugin_tutorial/1_setup.html)
-- [BepInEx IL2CPP installation](https://docs.bepinex.dev/master/articles/user_guide/installation/unity_il2cpp.html)
-- [Luanti Mod layout and `mod.conf`](https://api.luanti.org/mods/)
-- [Luanti HTTP API](https://docs.luanti.org/for-creators/api/http-api/)
-- [Windows file and path naming rules](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file)
-- [Semantic Versioning 2.0.0](https://semver.org/)
+This boundary is deliberate. A generic tool can generate contracts, but only
+an adapter author knows how to inspect and mutate a specific game safely.

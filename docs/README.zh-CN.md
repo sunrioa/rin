@@ -2,52 +2,35 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Rin `0.7.0` 是 Preview、pre-1.0 软件。文档按公共接口组织，不以某个使用方
-项目作为叙述中心，但 Preview minor 版本不提供 post-1.0 稳定性保证。
+文档只描述当前 Harness V2。HTTP 字段和路由以 OpenAPI 为准，Go 公共类型以源码为准；
+文档中的示例不能替代游戏 Adapter 的权威校验。
 
-首次了解完整链路可先阅读[总体流程图](flowchart.zh-CN.md)，再按下表进入各项协议与实现细节。
+## 阅读顺序
 
-| 主题 | 简体中文 | English |
-| --- | --- | --- |
-| Runtime HTTP Wire Schema | [`api/openapi.json`](../api/openapi.json) | [`api/openapi.json`](../api/openapi.json) |
-| Host Control Wire Schema | [`api/control-openapi.json`](../api/control-openapi.json) | [`api/control-openapi.json`](../api/control-openapi.json) |
-| 内部 Agent Task Wire Schema | [`api/agent-openapi.json`](../api/agent-openapi.json) | [`api/agent-openapi.json`](../api/agent-openapi.json) |
-| 架构、存储与权威边界 | [架构](architecture.zh-CN.md) | [Architecture](architecture.md) |
-| 引擎无关宿主与能力契约 | [宿主契约](host-contract.zh-CN.md) | [Host contract](host-contract.md) |
-| 顺序、同时、Chance 与隐藏信息 | [OpenSpiel 验证](open-spiel-validation.zh-CN.md) | [OpenSpiel validation](open-spiel-validation.md) |
-| 通用 Host 端口与 Coordinator | [通用 Host SDK](host-sdk.zh-CN.md) | [Host SDK](host-sdk.md) |
-| Proposal、执行与恢复 | [Host 动作生命周期](action-lifecycle.zh-CN.md) | [Host action lifecycle](action-lifecycle.md) |
-| HTTP 与状态契约 | [协议 v2](protocol-v2.zh-CN.md) | [Protocol v2](protocol-v2.md) |
-| 在线模型配置 | [模型策略](model-policy.zh-CN.md) | [Model policy](model-policy.md) |
-| 持久内部 Agent Runtime | [内部 Agent Runtime](internal-agent-runtime.zh-CN.md) | [Internal Agent Runtime](internal-agent-runtime.md) |
-| 可选决策、记忆、语音与遥测端口 | [可选扩展端口](optional-extensions.zh-CN.md) | [Optional extensions](optional-extensions.md) |
-| MCP 外部控制与版本协商 | [快速接入](mcp-control-plane.zh-CN.md) | [Quick start](mcp-control-plane.md) |
-| Ren'Py、Godot、Unity 与 Unreal | [游戏适配器](game-adapters.zh-CN.md) | [Game adapters](game-adapters.md) |
-| 区域、任务与 NPC 动作 | [RPG 事件约定](rpg-events.zh-CN.md) | [RPG event conventions](rpg-events.md) |
-| 跨语言客户端与 Mod | [SDK 与 Mod 套件](sdk-and-mods.zh-CN.md) | [SDK and mod kits](sdk-and-mods.md) |
-| 离线 Host 项目生成器 | [通用 Host 脚手架](host-scaffolding.zh-CN.md) | [Host scaffolding](host-scaffolding.md) |
-| 真实游戏稳定性与崩溃验收 | [真实宿主验收](host-integration-validation.zh-CN.md) | [Real-host validation](host-integration-validation.md) |
-| 加速一年存储与生命周期验证 | [长会话验证](long-session-validation.zh-CN.md) | [Long-session validation](long-session-validation.md) |
-| 宿主持久保证与分级 | [宿主持久保证分级](host-durability.zh-CN.md) | [Host durability profiles](host-durability.md) |
-| 安全与漏洞报告 | [安全](../SECURITY.md) | [Security](../SECURITY.en.md) |
-| 发布变化 | [变更日志](../CHANGELOG.zh-CN.md) | [Changelog](../CHANGELOG.md) |
-| 发布与 Client 兼容 | [兼容矩阵](compatibility.zh-CN.md) | [Compatibility matrix](compatibility.md) |
-| 已支持的可扩展 Session Transfer | [可扩展 Session Transfer](session-transfer.zh-CN.md) | [Scalable Session Transfer](session-transfer.md) |
-| Session 生命周期、配额、删除与隐私 | [Session 生命周期](session-lifecycle.zh-CN.md) | [Session lifecycle](session-lifecycle.md) |
-| 部署、Readiness、Diagnostics 与 Metrics | [部署与监控](operations.zh-CN.md) | [Deployment and monitoring](operations.md) |
-| 可玩切片、实测价值与发布门禁 | [玩家价值证据](player-value.zh-CN.md) | [Player-value evidence](player-value.md) |
-| 发布与不可变 Tag 流程 | [发布指南](release-guide.zh-CN.md) | [Release guide](release-guide.md) |
-| 已交付里程碑与 Preview 门禁 | [路线图](../ROADMAP.md) | [Roadmap](../ROADMAP.en.md) |
-| 仓库总览 | [项目说明](../README.md) | [README](../README.en.md) |
+1. [整体架构](architecture.zh-CN.md)：组件边界、信任关系与完整数据流。
+2. [Host V2 契约](host-contract.zh-CN.md)：Observation、Capability、Action、Effect 与 Outcome。
+3. [Operation 与策略](operations.zh-CN.md)：授权、确认、投递、恢复、取消和执行证明。
+4. [游戏 Adapter](game-adapters.zh-CN.md)：具体引擎必须实现和禁止实现的内容。
+5. [MCP 与 Control Plane](mcp-control-plane.zh-CN.md)：外部 Agent、Daemon、工具和安装更新。
+6. [内部 Agent Runtime](internal-agent-runtime.zh-CN.md)：人格、记忆、Skill、模型和任务执行。
+7. [Host 脚手架](host-scaffolding.zh-CN.md)：生成契约骨架并接入自己的语言与引擎。
+8. [集成验收](host-integration-validation.zh-CN.md)：自动门禁与真人游戏测试。
 
-各语言 SDK 快速开始位于 [`sdk/`](../sdk/README.zh-CN.md)。使用
-[`rin init host`](host-scaffolding.zh-CN.md) 可以生成自包含的 Fabric、BepInEx
-或 Luanti 项目；规范源码模板仍位于 [`examples/mods/`](../examples/mods/)。
+补充资料：
 
-标准 [MIT License](../LICENSE) 英文原文是项目许可证；
-依赖许可声明见 [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md)。
+- [SDK 总览](../sdk/README.zh-CN.md)
+- [安全边界](../SECURITY.md)
+- [路线图](../ROADMAP.md)
 
-Runtime 的 Path、Method、HTTP Status、必填字段与 JSON Shape 以
-`api/openapi.json` 为准；Host Control 以 `api/control-openapi.json` 为准。
-叙述文档定义事务与恢复语义。SDK Route Inventory 是生成的覆盖元数据，不是第二份
-Wire Contract。当前阶段和未来非目标只在[路线图](../ROADMAP.md)维护。
+## 契约来源
+
+| 契约 | 来源 |
+| --- | --- |
+| Host `rin.host/v2` | `host/*.go` |
+| Control `rin.control/v2` | `api/control-openapi.json`、`controlplane/*.go` |
+| Agent Task API `v1` | `api/agent-openapi.json`、`agentapi/*.go` |
+| MCP Tool | `mcpbridge/server.go` |
+| Gameplay Policy | `policy/*.go` |
+
+当前没有旧协议迁移、引擎专用模板或公共远程 Control 部署承诺。需要新增能力时，
+先在具体游戏 Adapter 中证明玩家价值，再判断是否确实属于通用核心。

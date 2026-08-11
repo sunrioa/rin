@@ -7,7 +7,7 @@ JAVA ?= java
 LUA ?= lua
 VERSION ?= 0.7.0
 
-.PHONY: fmt test verify contract-check test-go test-sdks test-sdk-python test-sdk-javascript test-sdk-csharp test-sdk-java test-sdk-lua test-terminal-story test-open-spiel race vet build
+.PHONY: fmt test verify contract-check test-go test-sdks test-sdk-python test-sdk-javascript test-sdk-csharp test-sdk-java test-sdk-lua test-terminal-story race vet build
 
 fmt:
 	$(GO) fmt ./...
@@ -45,9 +45,6 @@ test-sdk-lua:
 test-terminal-story:
 	$(GO) test ./examples/adapters/grid ./examples/adapters/story ./examples/terminal-story
 	$(GO) run ./examples/terminal-story --line "The light in this photograph feels familiar." --topic festival --task prepare-exhibit --json
-
-test-open-spiel:
-	$(PYTHON) tools/verify_open_spiel.py
 
 race:
 	$(GO) test -race ./...

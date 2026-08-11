@@ -1,147 +1,198 @@
-# Game adapters
+# Game adapter guide
 
-[English] | [简体中文](game-adapters.zh-CN.md)
+[English](game-adapters.md) | [简体中文](game-adapters.zh-CN.md)
 
-Adapters translate engine lifecycle events into Rin `0.7.0` **Preview**
-protocol objects. They do not give Rin authority over the game.
+An adapter connects a concrete game model to `rin.host/v2`. Rin does not require
+ECS, behavior trees, a particular scripting language, or a network topology. An
+adapter supplies trusted observations, capability binding, and authoritative
+execution.
 
-## Minimal host loop
+## Required boundary
 
-1. Restore a stable Session identity, Pending Turn, applied-operation markers,
-   and report outbox before network work.
-2. Capture one authoritative Observation, Epoch, host Timepoint, and monotonic
-   Observation Sequence.
-3. Build a Decision Window and 1–32 fully bound Action Offers.
-4. Persist the complete Pending Turn, then submit or resume the proposal.
-5. Match the returned Proposal to the durable Session, Request, Actor, Window,
-   and selected Offer.
-6. Recheck Epoch, deadline, capability digest, targets, and game rules on the
-   authority thread.
-7. Execute with a stable operation ID or reject.
-8. Persist the exact `ReportActionRequest` in an Outcome Outbox and retry until
-   acknowledged.
+Go HostKit expresses the complete interface below. Other languages should
+preserve the same semantics:
 
-Never turn a transport error or ambiguous Job result into permission to perform
-a second action.
+```text
+Manifest()
+Snapshot(target)
+Observe(query)
+ListCapabilities()
+Bind(target, request)
+Preview(target, request, binding)
+Execute(operation)
+Cancel(operation)
+Verify(operation)
+PolicyFacts(target)
+```
 
-## Threading
+`Snapshot`, `Observe`, `Bind`, `Preview`, `Execute`, `Cancel`, and `Verify` may
+touch game state and must run through the game's server/main/authority-thread
+dispatcher.
 
-- Rendering, input, and simulation threads must not block on HTTP or model
-  completion.
-- Capture engine objects on their owning thread, but persist only plain bounded
-  data and opaque `HostRef` values.
-- Resolve `HostRef` and execute capabilities only on the authority thread.
-- Threads, Tasks, Futures, sockets, HTTP objects, and tokens never enter a game
-  save.
+## Identity mapping
+
+Map stable identities from the game save:
+
+- `host_id`: adapter or service identity, not an ephemeral port;
+- `world_id`: stable current save/world identity;
+- `actor_id`: stable character identity within that save;
+- `Epoch.host`: increments when the authority instance changes;
+- `Epoch.world`: increments on scene, dimension, or map reload;
+- `Epoch.timeline`: increments on load, rollback, or branching;
+- `observation_sequence`: monotonically increases inside an epoch.
+
+Do not use an object address, transient runtime ID, display name, or position as
+a durable identity.
+
+## Observation design
+
+A capable model needs freedom, not a complete world dump. Prefer publishing:
+
+- the Actor's state, location, current activity, and danger;
+- bounded nearby entities, resources, and interactable objects;
+- ownership and scope for items, targets, and regions;
+- current long task, failure reason, and cancellation state;
+- facts relevant to the current task rather than all history.
+
+Paginate large sets. Expose objects through opaque `HostRef` values. Never place
+filesystem paths, object pointers, private NBT/component content, tokens, or
+server secrets in observations.
+
+## Capability design
+
+Capabilities express stable, verifiable game semantics, for example:
+
+```text
+navigation.move_to
+resource.harvest
+inventory.transfer
+crafting.craft
+combat.attack
+dialogue.say
+quest.accept
+building.place_batch
+```
+
+The harness should tell a model which effects are forbidden rather than teach
+every task as a fixed flow. Therefore:
+
+- expose a small composable set of atomic capabilities;
+- constrain arguments and targets through schemas and HostRefs;
+- express assets, regions, risk, and quantity through effects;
+- let the model replan from outcomes;
+- provide macros only for frequent, deterministic work that saves substantial
+  decision overhead.
+
+Do not make one capability per material, enemy, or narrative branch. Do not
+offer `execute_anything`, arbitrary class names, arbitrary scripts, or raw engine
+objects.
+
+## Atomic capabilities and real-time controllers
+
+One semantic action may span many ticks. After a model submits
+`navigation.move_to`, the adapter's navigation controller handles pathfinding,
+avoidance, and danger checks each tick; the model need not stream movement keys.
+
+A long-running action should:
+
+- expose progress with monotonic `progress_seq`;
+- stop when a target disappears, the epoch changes, budget expires, or danger rises;
+- implement its declared cooperative or preemptive cancellation;
+- return actual quantity, location, targets, and failure code;
+- never present “started” as “completed.”
+
+## Binding and TOCTOU
+
+`Bind` resolves controller intent without mutating the world. `Preview` derives
+real effects from resolved objects. Immediately before `Execute`, check again:
+
+- capability publication and digest;
+- controller, Actor, epoch, and observation;
+- target existence, allowed region, and distance;
+- ownership, container permission, tools, resources, cooldown, and game mode;
+- that policy authorized the same effect digest;
+- operation idempotency or safe exact retry.
+
+Return a structured error and let the controller replan from a new observation.
+Do not silently replace targets or broaden scope.
+
+## Effects and local rules
+
+An adapter maps game rules to standard fields. Harvesting a block might produce:
+
+```text
+kind=world.resource
+operation=delete
+ownership=unowned
+scope=world:wilderness
+quantity=1
+tags=[resource.common, tool.pickaxe]
+risk=low
+reversible=false
+```
+
+Administrators configure known kinds/scopes, rules, and budgets. Unknown third-
+party content should remain unknown and denied, or be classified by an explicit
+administrator allowlist or game tag. Never infer safety from a name suffix alone.
+
+## Multiplayer and maximum authority
+
+Public servers may support autonomous NPCs, but should default to disabled. The
+adapter needs in-game configuration for:
+
+- which players bind or control each Actor;
+- allowed dimensions, regions, containers, and assets;
+- effects that auto-execute, require confirmation, or remain forbidden;
+- action, block/item quantity, radius, and duration budgets;
+- exact allowlists for commands, command blocks, or administrator capabilities.
+
+The highest tier still exposes only registered, bindable, auditable
+capabilities. If console commands are a real product requirement, represent
+them as separate critical capabilities with enum or strict-schema arguments,
+system ownership, and owner/admin confirmation. Never expose an arbitrary
+command string or permission bypass.
+
+## Internal and external control
+
+An adapter publishes `decision_authority`:
+
+- `source=internal`: Rin Internal Agent uses game-configured persona and memory;
+- `source=external`: an external Agent with the matching principal controls via MCP;
+- `persona_mode=character-bound`: the external Agent preserves the game role;
+- `persona_mode=agent-avatar`: the character represents the external Agent persona.
+
+Only one controller lease exists at a time. External MCP must not depend on an
+internal thinker; macros and real-time controllers are deterministic adapter
+capabilities, not an internal model. An authority change increments its
+revision, ends the old lease, and fences unaccepted old actions.
+
+A game mod does not implement its own MCP server. It implements the Host Control
+client and adapter; every compatible game shares one `rin-mcp` installation.
 
 ## Persistence
 
-The reusable SDK coordinator owns workflow ordering; the game owns storage
-guarantees. Select an honest [Host durability profile](host-durability.md).
-A standalone JSON file normally proves only `advisory`. Claim
-`idempotent-action` only when game state makes `operation_id` retry-safe, and
-`transactional-action` only when the effect, marker, and outbox entry share one
-game transaction.
+At minimum, the game save owns:
 
-State readers must distinguish:
+- stable World/Actor IDs and epoch high-water marks;
+- decision authority, permission configuration, and emergency stop;
+- recovery state for accepted unfinished operations;
+- applied-operation markers and pending outcome outbox;
+- game-owned long tasks and world canon.
 
-- `not_found`: initializing a new identity is allowed;
-- valid state: resume it;
-- unreadable, malformed, oversized, or inconsistent state: fail closed.
+Do not save threads, sockets, futures, callbacks, engine objects, or API keys.
+After reconnect, register the Host, republish its read model, and reconcile the
+same operation IDs.
 
-Bound Pending Turns, markers, outbox entries, and state-file bytes. Flush and
-replace files portably; test interrupted replacement on Linux and Windows.
+## Validation
 
-## Ren'Py
+First pass the contract with Grid/Story adapters, then cover in the real game:
 
-Copy [`rin_client.py`](../adapters/renpy/rin_client.py),
-[`rin_epoch.py`](../adapters/renpy/rin_epoch.py), and
-[`rin_bridge.rpy`](../adapters/renpy/rin_bridge.rpy). Use the client from a
-background worker and return plain dictionaries to the main thread. Call
-`rin_bind_host_epoch` with game-supplied stable save and world IDs before
-creating offers.
+- main-thread and server authority;
+- normal save/load, world changes, disconnect, and forced termination;
+- redelivery without duplicated effects;
+- emergency-stop and cancellation latency;
+- multiplayer permissions and player assets;
+- authoritative outcomes for long tasks;
+- UI without render or tick blocking.
 
-The bridge stores only `rin_host_epoch_state` in the rollback/save store. A
-bounded, plain-data `persistent.rin_host_epoch_ledger` keeps Host and Timeline
-high-water marks outside rollback and merges replicas by maximum generation.
-`after_load` and the first interaction in each rollback sequence fork the
-Timeline and invalidate every registered result, including completed but
-unconsumed work. Scheduling and resuming fail closed unless the decision window
-and every offer match the current Epoch exactly; late worker results become
-`stale_epoch`. The bridge calls `renpy.block_rollback()` after load because the
-official Ren'Py guidance requires callback migrations not to be rolled back.
-
-The worker registry remains process-local; persistent story state must contain
-the complete Pending Turn and any returned Job ID. Never put a worker, lock,
-HTTP response, or token in rollback/save data.
-Bounded response-body reads spend from the transport deadline started before
-connection setup rather than resetting it for each socket read.
-
-The Python suite covers process restart, old-save load, repeated rollback,
-persistent-ledger merge, bounds, malformed state, worker invalidation, and late
-completion. The suite runs in Linux CI. Ren'Py 8.5.3 lint plus an engine-run
-rollback harness pass locally on macOS; Windows execution is not yet
-automated. A real project must still verify visible save/load, screen updates,
-shutdown, and Sidecar restart in its exact Ren'Py build.
-
-## Godot 4
-
-The [Godot reference](../examples/godot/README.md) uses `HTTPRequest` signals
-and a per-slot `RinWorkflow`. It stores bounded JSON under
-`user://rin/<slot>.json`, saves Pending Turn and outbox state before network
-work, and never performs world mutation inside the transport client.
-
-Call the workflow from gameplay events or authoritative simulation steps, not
-`_process()` every frame. Replace its advisory file store or make execution
-idempotent before using it for durable world mutation.
-
-## Unity
-
-The [Unity UPM package](../examples/unity/README.md) contains:
-
-- `RinClient`: bounded, no-redirect `UnityWebRequest` coroutine transport;
-- `RinUnityWorkflow`: startup recovery, Epoch management, Pending Turn,
-  operation marker, and report outbox;
-- `IRinUnityHost`: game-owned `CaptureTurn` and idempotent `Execute` boundary.
-
-`ActionOffer.arguments` remains an arbitrary JSON object without forcing a
-dialogue- or engine-specific DTO. The harness compiles the package and verifies
-restart, backup recovery, corrupt-state failure, disk-write failure, and raw
-argument preservation on Linux and Windows. This does not replace a licensed
-Unity Editor/Player test.
-
-## Unreal
-
-The Preview [Unreal Runtime Plugin](../examples/unreal/RinHost/README.md) uses a
-`UGameInstanceSubsystem` and an owning-Game-Instance world delegate. The game
-must inject stable Session, Host, World, and Timeline generations from its
-authoritative save; the adapter does not guess them from PIE or map names.
-Capability registration and `AuthorizeAndQueueInvocation` execute on the Game
-Thread, and a Behavior Tree MoveTo task demonstrates monotonic long-action
-reporting. World replacement and timeline forks convert unfinished work to
-`outcome-unknown`.
-
-Linux and Windows CI statically reject unsafe execution surfaces and
-case-insensitive or reserved paths. This is not an Unreal Header Tool, compiler,
-Editor, packaged Player, SaveGame transaction, or navigation runtime test.
-
-## Mod hosts
-
-Fabric, BepInEx Mono/IL2CPP, and Luanti examples demonstrate server/main-thread
-dispatch plus durable SDK workflow stores. They are advisory references, not
-proof that a generated NPC is safe for every game's save or threading model.
-Use [`rin init host`](host-scaffolding.md) to generate a pinned starting project,
-then complete the [real-host validation matrix](host-integration-validation.md).
-
-## Engine-independent review
-
-- Offers contain only actions already legal at capture time.
-- High-authority effects remain in game code.
-- Pathfinding uses engine navigation/physics APIs when available; vision
-  models are an optional observation source, not the default movement system.
-- TTS consumes approved dialogue after the text decision; audio playback never
-  changes action authority.
-- Long operations report queued/running/terminal progress and use cooperative
-  cancellation where the engine supports it.
-- Storage metrics, retention, snapshot/export, and logs are configured for the
-  expected lifetime of the Session.
+See [integration acceptance](host-integration-validation.md) for the full gate.

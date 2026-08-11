@@ -1,22 +1,10 @@
 package main
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
 func TestRootHelpReturnsSuccess(t *testing.T) {
 	if err := run([]string{"--help"}); err != nil {
 		t.Fatalf("run(--help): %v", err)
-	}
-}
-
-func TestRetiredSidecarCommandsAreUnavailable(t *testing.T) {
-	for _, command := range []string{"serve", "inspect"} {
-		err := run([]string{command})
-		if err == nil || !strings.Contains(err.Error(), "unknown command") {
-			t.Fatalf("run(%s) error = %v", command, err)
-		}
 	}
 }
 

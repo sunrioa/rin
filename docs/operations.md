@@ -1,174 +1,175 @@
-# Deployment and monitoring
+# Operations and gameplay policy
 
-[简体中文](operations.zh-CN.md) | [English](operations.md)
+[English](operations.md) | [简体中文](operations.zh-CN.md)
 
-Rin exposes separate liveness, readiness, diagnostics, and metrics surfaces.
-They contain counters and state classifications only; they never include
-Session IDs, Actor IDs, event text, model prompts/responses, credentials, or
-filesystem paths.
+The Control Plane turns an `ActionRequest` into a durable, waitable,
+cancellable, reconcilable operation. Gameplay policy evaluates actual effects
+bound by the Host before an operation may enter the execution queue.
 
-## Probes and authentication
+## Sole mutation gateway
 
-| Endpoint | Authentication | Meaning |
-| --- | --- | --- |
-| `GET /health` | None | Cheap process liveness and compatibility identity; it does not touch the Store or Provider |
-| `GET /ready` | None | The Session Store can be listed and each configured Job Manager is still running |
-| `GET /v2/diagnostics` | Bearer token when `RIN_TOKEN` is set | Bounded JSON snapshot of Runtime, queue, retained Job, checkpoint, uncertainty, and Provider-breaker state |
-| `GET /metrics` | Bearer token when `RIN_TOKEN` is set | Dependency-free Prometheus text exposition with fixed metric names and no high-cardinality labels |
+`SubmitAction` is the only V2 controller mutation gateway:
 
-Use `/health` for a liveness probe and `/ready` for a readiness probe. A failed
-readiness check returns `503 not_ready`; do not use `/health` to decide whether
-to route game traffic.
+1. validate principal, scope, Actor visibility, and exclusive controller lease;
+2. validate epoch, observation sequence, capability digest, and idempotent identity;
+3. ask the Host to create a `BoundAction` and effect preview on its authority thread;
+4. recheck authority revision, lease, epoch, and observation after binding;
+5. evaluate every effect with gameplay policy;
+6. persist the operation before a Host may collect it.
 
-When `RIN_TOKEN` is configured, authenticated routes accept exactly one
-`Authorization: Bearer <token>` header (the scheme is case-insensitive);
-unprefixed credentials, extra fields, whitespace in the credential, and
-duplicate headers are rejected. Without a token, every request—including
-probes—must carry a loopback `Host`. Browser requests must additionally have a
-same-origin loopback `Origin` when present and `Sec-Fetch-Site` must be
-`same-origin` or `none`. This keeps native local game clients usable while
-rejecting DNS-rebinding and cross-site browser requests.
+Internal Agents, MCP, and language SDKs all reach this gateway. A game command
+or UI triggering the same autonomous behavior should use the same adapter
+execution service instead of maintaining a second permission system.
 
-Linux/macOS:
+## Policy
 
-```bash
-curl --fail http://127.0.0.1:7374/health
-curl --fail http://127.0.0.1:7374/ready
-curl --fail -H "Authorization: Bearer $RIN_TOKEN" \
-  http://127.0.0.1:7374/v2/diagnostics
+Policy is deterministic and never calls a model or network. It matches only
+standard Host-authored effect fields and trusted context, not model rationale
+or arbitrary prose in adapter attributes.
+
+### Safety kernel
+
+Configuration cannot override denial of:
+
+- arbitrary code, file access, native calls, authority forgery, or secret exposure;
+- unregistered effect kinds or scopes;
+- `ownership=unknown`;
+- invalid profile, epoch, or principal.
+
+### Profiles
+
+| Profile | Default behavior |
+| --- | --- |
+| `guarded` | allow low-risk reads, communication, and reversible owned actions; deny high risk; confirm the rest |
+| `survival` | allow known ordinary survival effects; confirm player/shared/system assets and high risk; deny critical |
+| `open` | allow known non-critical effects; still confirm critical risk |
+| `privileged-custom` | refine the same open-profile kernel with explicit rules and budgets |
+
+A profile supplies defaults. Rules at server, world, owner, actor, and task
+layers match kind, operation, ownership, scope, tags, risk, and reversibility to
+allow, deny, or require confirmation. Priority conflicts resolve deterministically.
+
+### Budgets
+
+Budgets at the same layers limit action count and quantity, optionally in a
+Host-clock window. An allow decision reserves budget first; usage commits only
+after the Host accepts execution. Rejection or persistence failure releases the
+reservation. Policy state persists usage and pending reservations but never a
+reusable confirmation.
+
+## Confirmation
+
+`require_confirmation` creates a single-use challenge bound to:
+
+- controller, Actor, and principal;
+- effect digest, policy revision, and epoch;
+- a Host-clock expiration.
+
+Confirmation does not rebind or silently alter the original action. The
+Control Plane asks the Host for a fresh snapshot, rechecks epoch, observation,
+lease, and emergency stop, consumes the challenge, and reevaluates the same
+`BoundAction`. A changed condition makes the operation stale or requires a new
+confirmation.
+
+## State machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> awaiting_confirmation: policy requires confirmation
+    [*] --> queued: policy allows
+    [*] --> rejected: policy denies
+    awaiting_confirmation --> queued: valid confirmation
+    awaiting_confirmation --> stale: binding or authority changed
+    queued --> delivered: Host polls
+    delivered --> accepted: Host ACK
+    delivered --> rejected: Host rejects
+    accepted --> running: Host reports progress
+    accepted --> succeeded: immediate Outcome
+    running --> succeeded: successful Outcome
+    accepted --> failed: failed Outcome
+    running --> failed: failed Outcome
+    queued --> stale: Host or epoch expires before delivery
+    accepted --> outcome_unknown: restart or reconciliation gap
+    running --> outcome_unknown: result cannot yet be proven
+    outcome_unknown --> succeeded: late authoritative Outcome
+    outcome_unknown --> failed: late authoritative Outcome
+    queued --> cancelled: cancellation confirmed
+    accepted --> interrupted: Host interruption
 ```
 
-Windows PowerShell:
+Terminal states also include `cancelled`, `interrupted`, `stale`, and
+`rejected`. State moves forward only; a late or decreasing `progress_seq` is
+rejected.
 
-```powershell
-Invoke-RestMethod http://127.0.0.1:7374/health
-Invoke-RestMethod http://127.0.0.1:7374/ready
-$headers = @{ Authorization = "Bearer $env:RIN_TOKEN" }
-Invoke-RestMethod -Headers $headers http://127.0.0.1:7374/v2/diagnostics
-```
+## Execution proof
 
-For a local Windows game integration, place `rin.exe` beside a writable
-`rin-data` directory and use the checked-in launcher:
+An operation view explicitly exposes:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File tools/start-rin.ps1 `
-  -Rin .\rin.exe -DataDirectory .\rin-data
-```
+- `terminal`: whether the state is stable and final;
+- `execution_confirmed`: whether an authoritative successful Host outcome exists;
+- `reconciliation_pending`: whether Host reconciliation is still expected;
+- `delivery_attempts`: how many times a Host actually collected the request;
+- `run`, `outcome`, `output`, and rejection details.
 
-The launcher uses literal paths, creates only the requested data directory,
-binds loopback by default, and propagates the Sidecar exit code. Check
-`/ready` before starting the game.
+A caller may tell a player that execution completed only when
+`status=succeeded`, a valid Host outcome exists, and
+`execution_confirmed=true`.
 
-## Remote deployment
+`queued` means durably enqueued, `accepted` means Host acceptance, `running`
+means in progress, and `changed=false` means only that a long poll observed no
+new version. `stale` with `delivery_attempts=0` proves the Host never collected
+the request.
 
-The supported remote path terminates TLS at a trusted reverse proxy and always
-configures a `RIN_TOKEN` of at least 32 bytes. Prefer running the proxy on the
-same host: Rin then remains on its default loopback listener and no
-remote-listen override is needed.
+## Idempotency and waiting
 
-```bash
-export RIN_TOKEN="$(openssl rand -hex 32)"
-rin serve -addr 127.0.0.1:7374
-```
+An identical action under the same principal and `idempotency_key` returns the
+same operation. Reusing the key with another payload conflicts. After a network
+timeout, query or exactly retry the original identity; do not resend under a
+new key.
 
-A minimal Caddyfile for a DNS name with Caddy-managed HTTPS is:
+`wait_operation` uses an opaque cursor and waits at most 25 seconds per call.
+Copy the cursor without parsing it. A wait timeout does not cancel the operation.
 
-```caddyfile
-rin.example.com {
-    @private path /metrics /v2/diagnostics
-    respond @private 404
-    reverse_proxy 127.0.0.1:7374
-}
-```
+## Host delivery and recovery
 
-Clients send `Authorization: Bearer <token>` through HTTPS. Keep the token out
-of proxy logs and do not publish `/metrics` or `/v2/diagnostics`; scrape those
-locally instead. See the official
-[Caddy reverse proxy documentation](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy)
-for production proxy controls.
+A leased Host long-polls the daemon:
 
-If the proxy and Rin must run on separate machines, restrict the plaintext
-listener to a private network and firewall it so only the proxy can connect.
-Rin then requires all three declarations:
+1. `poll` receives binding gateways, operations, and cancellation requests;
+2. return a binding or snapshot idempotently by gateway ID;
+3. acknowledge an operation ID idempotently;
+4. optionally report a Run;
+5. publish the sole Outcome from game results and a durable outbox.
 
-```bash
-export RIN_TOKEN="$(openssl rand -hex 32)"
-export RIN_TLS_PROXY=true
-rin serve -addr 10.0.0.12:7374 -allow-remote
-```
+If the Host disconnects before ACK, a request whose binding can no longer be
+proven becomes `stale`. After ACK, the same operation may be redelivered and the
+adapter must deduplicate according to its durability profile. Evidence of
+execution without a result enters `outcome-unknown`, allowing a later
+authoritative outcome.
 
-`-tls-proxy` is the CLI equivalent of `RIN_TLS_PROXY=true`. It is only an
-operator assertion that a trusted proxy terminates TLS; it does not enable TLS
-or make a public plaintext listener safe. A non-loopback listener fails before
-opening the data directory unless `-allow-remote`, a token, and this assertion
-are all present.
+Control state uses a single-writer lock and atomic file replacement. The Host
+republishes its read model and lease after reconnect; persisted operation
+identities and terminal outcomes do not change across daemon restart.
 
-Capacity, concurrency, timeout, and boolean environment variables fail fast
-when explicitly set to an invalid value; Rin does not silently replace a typo
-with a default. The same rule applies to explicit CLI limits. Runtime,
-Proposal Job, and Generation lower/upper bounds are all validated before Rin
-opens or performs recovery on the data directory, so a rejected configuration
-does not create or maintain Store files.
+## Cancellation and emergency stop
 
-The bundled Sidecar starts a checkpoint-independent event-log scrub
-immediately, then every 15 minutes. Each pass verifies at most 4,096 events and
-has a 30-second deadline. Configure these bounds with
-`RIN_SCRUB_INTERVAL`, `RIN_SCRUB_MAX_EVENTS`, and `RIN_SCRUB_TIMEOUT`, or the
-matching `-scrub-*` flags. A timeout preserves the verified cursor and the next
-pass resumes from it. `Engine.VerifyAll()` remains available for an explicit
-one-shot full audit.
+Cancellation requests a stop and cannot undo effects that already happened.
+A capability declares unsupported, cooperative, or preemptive cancellation;
+the Host reports the actual final state.
 
-## What to monitor
+Emergency stop is an Actor-level, owner-controlled safety latch:
 
-The JSON diagnostics snapshot reports:
+- it blocks new actions from internal and external sources;
+- it requests cancellation for all unfinished operations;
+- it does not restore already changed world state;
+- clearing it still requires a valid controller lease and fresh observation.
 
-- known, loaded, and currently unreadable Sessions, grouped by bounded error
-  code;
-- unresolved durable-mutation barriers;
-- active/pending checkpoint work, checkpoint failures, and quota skips;
-- incremental scrub activity, cursor revision/target, failures, and completed
-  cycles;
-- Runtime closed state and active Engine operation count;
-- Proposal and Generation queue depth/capacity, retained/max-retained Jobs, and
-  status counts;
-- Generation cache size, retained payload bytes and their configured ceiling,
-  and Provider Circuit Breaker state;
-- HTTP request count, in-flight count, 4xx/5xx counts, and cumulative duration.
+## Macros
 
-Prometheus exposition uses fixed names including
-`rin_http_requests_total`, `rin_sessions_unreadable_known`,
-`rin_uncertainty_barriers`, `rin_checkpoint_failures_total`,
-`rin_scrub_completed_cycles_total`, `rin_scrub_failures_total`,
-`rin_scrub_active`,
-`rin_proposal_queue_depth`, and (when Generation is configured)
-`rin_provider_circuit_not_closed`.
+A macro is a capability that may create child operations, not an arbitrary plan
+script. Its parent must be Host-accepted or running, and parent plus child share
+the Actor, controller lease, principal, and a non-empty `task_id`. Every child
+still receives independent binding, policy, operation, and outcome checks, with
+a maximum of 1,024 children.
 
-Suggested alerts:
-
-- readiness remains failed for more than one probe window;
-- known unreadable Sessions, uncertainty barriers, checkpoint failures, or
-  scrub failures increase;
-- a queue remains near capacity or retained Jobs remain near their cap;
-- the Provider Circuit Breaker remains non-closed;
-- 5xx responses increase.
-
-A full queue alone does not make the process unready: removing a healthy
-instance during load can amplify saturation. Queue metrics and `429` responses
-are the overload signals.
-
-## Request correlation and shutdown
-
-Clients may send `Rin-Request-ID` using 1–96 ASCII letters, digits, `.`, `_`, or
-`-`. Rin echoes a valid value or generates one. Structured request logs contain
-only this ID, method, matched route template, status, and duration; raw paths,
-query strings, headers, and bodies are excluded.
-
-On shutdown, stop routing new traffic after `/ready` fails, allow the HTTP
-server to drain, close Job Managers, call `Engine.Close(ctx)`, and only then
-close the caller-owned Store. `Engine.Close` rejects new operations and waits
-for in-flight requests, transfer writers, and checkpoint workers. The bundled
-CLI first cancels and joins the background scrub, then performs this bounded
-ordering after SIGINT/SIGTERM (or the corresponding Windows console/service
-signal). Never copy or modify the live data directory without following the
-backup rules in
-[Session lifecycle](session-lifecycle.md).
+This lets a model compose collection, movement, crafting, and building work
+while preserving per-step authorization, budgets, cancellation, and diagnosis.

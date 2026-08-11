@@ -2,347 +2,69 @@
 
 [简体中文](CHANGELOG.zh-CN.md) | [English](CHANGELOG.md)
 
-This changelog records repository-level changes. Rin `0.7.0` is a Preview
-release: it is pre-1.0, and compatibility is documented rather than guaranteed
-across every future minor release.
+The current source is `0.7.0` Preview. Breaking changes are allowed before 1.0;
+pin an exact commit or tag for every distribution.
 
-## Unreleased
-
-### Added
-
-- Added an optional `allowed_capabilities` hard boundary to internal Agent
-  tasks. The Runtime exposes only the intersection with the Host catalog and
-  rejects out-of-scope pending actions during restore; the field can only
-  narrow authority and cannot bypass Policy or final Host validation.
-- Added an explicit default Persona binding for dynamically created actors and
-  a task-only Java `RinAgentClient` that reuses the bounded Control transport.
-- Added a durable internal-Agent Macro parent-child loop. Once the Macro parent
-  reaches `accepted` or `running`, the model re-observes and submits atomic
-  children with the exact parent ID through the same ActionGateway. Restart,
-  confirmation, unknown outcomes, and child-before-parent cancellation retain
-  their audit facts.
-- Added optional engine-neutral `ActionOffer.planning` metadata for bounded
-  multi-step work, including intent, plan identity and revision, conditions,
-  stable blocked reasons, and risk. Host validation, Control Plane/MCP output,
-  OpenAPI, and JavaScript, C#, and Java SDK surfaces carry the same shape
-  without allowing clients to submit plan nodes or world parameters.
-- Added `rin mcp install`, `status`, `update`, and `uninstall` for selecting
-  Codex, Claude Code, and OpenClaw from one CLI. The installer uses each
-  client's official MCP command, keeps the daemon token in one private local
-  file, protects unmanaged same-name registrations, and atomically updates one
-  stable `rin-mcp` executable without rewriting client configs.
-- Added the long-lived `rin-control` daemon, a typed fixed-Principal client API,
-  the [`api/control-openapi.json`](api/control-openapi.json) route contract, and
-  a capability-matched official MCP conformance gate.
-- An engine-neutral Go `host` contract with validated host manifests,
-  authoritative epochs, opaque object references, versioned capabilities,
-  game-bound action offers, invocations, action-run states, and outcomes.
-- A concurrency-safe capability registry with root-closed JSON Schema 2020-12
-  inputs/outputs, deterministic descriptor digests, dynamic revocation, and a
-  final time-of-check/time-of-use authorization pass.
-- Fuzz, race, stale-epoch, expiry, digest-drift, revocation, durability, and
-  action-transition tests for the contract.
-- Official Luanti 5.16.1 dedicated-server lifecycle verification for the
-  source Mod and generated standalone scaffold, including real ModStorage
-  userdata, persistent authority generations, exact Offer binding, and
-  interrupted Active Run recovery.
-- SHA-256-pinned OpenSpiel 2.0.1 semantic tests on macOS/Linux/Windows for
-  sequential turns, atomic simultaneous windows, host-owned chance
-  transitions, and hidden-information noninterference.
-- Vendor-neutral optional ports for derived memory search, approved-text
-  speech synthesis, immutable audio references, and content-free telemetry,
-  with bounded validation, cancellation, privacy, and degradation tests.
-- An accelerated-year File Store regression covering 1,460 observations, 365
-  proposal/outcome cycles, monthly snapshots, restart, historical retrieval,
-  storage accounting, and final Session archive.
-- Host scenarios for authority-thread nonblocking and recovery-state cleanup.
-- A shared real-Sidecar conformance corpus for Python, JavaScript, C#, Java,
-  and Lua clients, covering strict wire errors, exact mutation retry, timeout,
-  health, and successful Session creation.
-- `store.OpenFileReadOnly` and read-only `rin inspect`; missing or invalid
-  revision indexes are rebuilt only in memory, and optional checkpoint,
-  lifecycle, and Transfer write capabilities are not exposed.
-- `protocol.NewHostValidatedPayload`, which checks a Host-owned JSON Schema,
-  exact digest, strict JSON, and defensive data copy before an Observation.
-
-### Changed
-
-- Control operations are now Action-only end to end. The daemon no longer
-  exposes `/control/v1/*`, publishes legacy actor Offers, or persists message,
-  directive, utterance, Offer, and Invocation request variants. Operation state
-  uses `rin.control.operations/v5`; unacknowledged bindings restore as `stale`
-  and must be resubmitted from a fresh Observation.
-- Internal Agent task history now classifies pre-queue ActionGateway rejections
-  as stable `gateway.*` codes. Provider text and internal error details are not
-  persisted, and a rejected child is never reported as executed.
-- Internal Task snapshots now use `rin.cognition.tasks/v2`, persisting the Macro
-  parent Operation and pending-action kind. This Preview release does not read
-  v1 snapshots.
-- Policy `confirmation_ttl` is now an object keyed by `event`, `step`, and
-  `realtime`. This Preview release does not retain the old single-clock shape;
-  an unconfigured Host clock receives a deterministic policy denial.
-- `rin-mcp` is now a stateless multi-instance STDIO thin proxy and no longer owns
-  the Host listener or Control state directory. Frequent delivery counters and
-  ActionRun progress are checkpoints folded into graceful shutdown or the next
-  durable mutation.
-- The wire contract is now `rin.protocol/v2`. Decision Windows, fully bound
-  Action Offers, Epochs, typed Invocation/Run/Outcome reports, and
-  `/v2/action/report[-batch]` replace v1 ActionSpec/Commit semantics.
-- The v1 wire, reducer compatibility branches, old recovery example, obsolete
-  semantic-baseline/migration documents, and compatibility aliases were
-  deleted. Development users must start a new lineage or use explicit
-  export/import.
-- Unity now exposes a compact `IRinUnityHost` boundary, preserves arbitrary
-  JSON arguments, and uses a durable Pending Turn plus exact report outbox.
-- Runtime/server code remains standard-library-only, while the separate Host
-  Contract uses the maintained `santhosh-tekuri/jsonschema` validator. License
-  metadata is recorded in `THIRD-PARTY-NOTICES.md`.
-- Capability discovery is explicitly not action authority: models select only
-  arguments and targets already bound by a game-authored `ActionOffer`.
-- The misleading `HostCapabilities`/`HostProfile` SDK model is replaced by
-  `HostDurability`/`HostDurabilityProfile` in JavaScript, C#, Java, embedded
-  scaffold assets, and reference Mods. Old names, error codes, and documentation
-  paths are removed rather than retained as compatibility aliases.
-- Luanti state schema v1 is removed. Schema v2 binds state to host-supplied content,
-  preserves JSON-empty collections explicitly, advances Host/Timeline on
-  server restart, and reconciles an interrupted effect as `outcome-unknown`
-  instead of replaying it.
-- The public decision and generation boundaries are now
-  `DecisionProvider`, `DecisionContext`, `DecisionDraft`, and
-  `StructuredGenerationProvider`. Obsolete Go type names and the unused
-  free-form draft text fields were removed without compatibility aliases.
-- `Engine.Close(ctx)` now rejects new operations and drains in-flight calls,
-  transfer imports, and asynchronous checkpoint workers before the
-  caller-owned Store is closed. The CLI uses this ordering on every exit path.
-- OpenAPI now generates each HTTP route's request-schema binding; the HTTP
-  decoder consumes that metadata instead of a handwritten Go type switch.
-- Observation structured data is now named `HostValidatedPayload` with a
-  `HostSchemaRef`, making the authenticated Host validation boundary explicit.
-  The ambiguous old names were removed without aliases.
-- Removed the ineffective `AllowLegacySessionCreation` option and the
-  `ValidateRequiredFields` compatibility alias. Public Go APIs that accept
-  `context.Context` now reject nil before dependency calls or state changes.
-
-### Fixed
-
-- Confirmation challenges are now bound to the exact BoundAction, Host, Owner,
-  Principal, and Epoch instead of being reused across bindings with the same
-  effect digest. A challenge also never outlives its action binding.
-- Host Control requests now bind the submission Epoch, Observation Sequence, and
-  complete Host Offer. MCP no longer fabricates Invocations or bypasses execution
-  budgets. Control state has a cross-platform exclusive lock and orphan work
-  expires without a Host.
-- Event replay and Transfer import now validate each typed payload before
-  reduction, so a self-consistent malicious event returns a corrupt-log error
-  instead of dereferencing missing action lifecycle records.
-- All workflow SDKs require a complete, well-formed same-Session
-  `MutationResult` before deleting an Outcome Outbox entry; partial HTTP-200
-  acknowledgements remain durable for retry.
-- Terminal Story rule-tree fallback rechecks the disk save while holding the
-  cross-process lease and cannot apply after another process starts Rin work.
-- File Store removes per-Session and per-artifact mutexes after their final
-  active or queued user exits, so high-cardinality Transfer abort and artifact
-  churn do not leave an unbounded process-lifetime lock map.
-- Transfer import builds the final segmented Identifier Ledger directly,
-  enforces a separate configurable retained-index byte budget, and performs
-  post-publication hash/State readback without constructing two additional
-  complete identity maps.
-- OpenAPI and compatibility documentation now require
-  `identifier-history-v2`, matching Runtime validation so generated consumers
-  no longer advertise an Identifier History version that Runtime rejects.
-- Epochs are bound to their containing Session, host sequence fields enforce
-  positive JSON-safe integers, and wire/persisted JSON rejects duplicate
-  object member names consistently.
-- Exact Archive/Delete retries now re-fence visible markers and finish
-  post-rename deletion directories. Transfer Publish can confirm or exactly
-  retry a complete target after a parent-directory sync failure.
-- Exact retries of uncertain event appends reuse their original storage
-  reservation instead of being blocked by charging a possibly present event
-  twice.
-- HostKit workflow state v2 preflights Action/Outbox capacity before effects,
-  authorizes trusted Principal scopes on the authority thread, validates local
-  structured Output, retains execution uncertainty, and compacts acknowledged
-  terminal actions.
-- Correct current documentation evidence for the 28-route SDK inventory,
-  100-turn Terminal Story gate, Windows/macOS Luanti verification, and
-  Linux/macOS Ren'Py coverage; remove the deleted recovery-example command.
-- Health capability negotiation now encodes an empty recommended feature
-  baseline as `[]` instead of `null`, matching every SDK's array contract.
-- The Windows Luanti lifecycle gate allows bounded cold-start time and reports
-  archive, checked-in Host, and generated Host failures as separate CI steps.
-- File Store checkpoints are atomically gzip-compressed as rebuildable
-  projections; authoritative event logs remain plain hash-chained JSONL.
-- The accelerated-year capacity test has a dedicated ordinary-test gate;
-  Race builds retain concurrency/lifecycle tests without duplicating that
-  disk-volume workload past Go's standard timeout.
-- Luanti lifecycle verification accepts exact and build-qualified version
-  output and allocates a fresh UDP port per server run, matching Windows and
-  macOS release binaries without relying on the engine's default port. CI
-  failures expose escaped server diagnostics as step annotations. The
-  temporary test uses Luanti's world-embedded game layout so game discovery
-  does not depend on platform-specific user search paths.
-- Example indexes no longer reference the removed recovery example. Relative
-  documentation-link tests reject untracked local paths that could hide stale
-  links in a developer worktree.
-- `rin doctor host` now runs a bounded, output-limited version probe, rejects
-  stale command shims, and tries Windows-compatible Python command names.
-- A non-loopback listener now fails before touching the data directory unless
-  remote listening, Bearer authentication, and TLS reverse-proxy termination
-  are all declared. Same-host TLS proxy plus loopback Rin is the documented
-  production path.
-- Terminal Story save mutations now use a cross-process disk CAS, refresh the
-  Outbox under that lease, preserve a successful durable commit when lock
-  release is uncertain, and fail closed on every pre-existing lock instead of
-  attempting racy PID-based recovery.
-
-## [0.6.0] - 2026-07-24 - Preview
-
-The `v0.6.0` tag is created from the verified main branch only after the
-release checklist passes. See the [release guide](docs/release-guide.md).
+## Unreleased: Harness V2
 
 ### Added
 
-- Versioned host-capability validation and shared Pending Turn workflow
-  coordinators for JavaScript, C#, and Java.
-- A pinned, installable Fabric 1.21.1 server Mod with stable Saved Data
-  identity, restartable Pending Turn/Outbox state, and Linux/Windows builds.
-- A game-authoritative Observation -> Proposal -> apply/reject -> Commit
-  lifecycle, with `outcome-reporting-v1` for late outcome merging and durable
-  game-side Outbox recovery.
-- Durable, lineage-wide request and Event ID history, including exact retry
-  results and fail-closed recovery from uncertain Store appends.
-- Feature-gated memory archives, conflicting actor-local beliefs, candidate
-  goals, actor activity, world arbitration, and atomic batch outcome reporting.
-- Timeline, revision Replay, internal replay checkpoints, `rin inspect`, and
-  explicit full-history verification through `Engine.VerifyAll()`.
-- Asynchronous Proposal and structured Generation Jobs with bounded queues,
-  retention, cancellation, provider retries, and circuit breaking.
-- Source-first Python, JavaScript, C#, Java, and Lua clients, plus Ren'Py,
-  Godot, Unity, Fabric, BepInEx, and Luanti integration examples.
-- An offline `rin init host` generator for engine-neutral Go, JavaScript,
-  Python, C#, Java, and Lua contract skeletons plus standalone Fabric, single-backend
-  BepInEx Mono/IL2CPP, and Luanti projects. `rin add skill`,
-  `rin conformance host`, and `rin doctor host` provide sealed capability
-  generation, contract checks, and cross-platform runtime diagnostics.
-- A type-checked universal HostKit reference with explicit transport,
-  authority-thread, state, identity, observation, capability, execution, and
-  artifact ports; its Coordinator persists before network, validates exact
-  offers, tracks long-running actions, retries an exact Outbox, and reconciles
-  stale Epochs.
-- A dependency-free C99 Host reference and shared Host scenario contract,
-  compiled with warnings-as-errors on GCC/Clang and MSVC.
-- A Preview Unreal Runtime Plugin skeleton with explicit persisted Epoch
-  binding, Game Thread capability authorization, world-change
-  `outcome-unknown` handling, and a Behavior Tree movement ActionRun example.
-  Linux and Windows CI enforce its layout and restricted execution surface;
-  real Unreal builds remain a documented manual gate.
-- A rollback-aware Ren'Py Host Epoch coordinator. Save data holds only a plain
-  Epoch, persistent data keeps bounded monotonic high-water marks, load and
-  rollback fork timelines, and process-local proposal workers become stale
-  without allowing late results to revive an older branch.
-- A Fabric logical-server runtime shared by integrated and dedicated servers.
-  Real lifecycle events bind fresh Host/Timeline generations, exact Epoch
-  checks reject work from an earlier server, shutdown closes authority
-  dispatch, and an official dedicated-server GameTest runs during the build.
-- A Unity authority lifecycle with Domain/Scene generations, durable opaque
-  Offer arguments and Active Runs, cancellable long-action handles, stale
-  callback rejection, and a game-owned NavMesh movement example.
-- A Godot 4.6.3 authority lifecycle with durable Host/World/Timeline
-  generations, complete Offer binding, Active Run recovery, and official
-  headless lifecycle tests on Linux and Windows.
-- An OpenAPI 3.1 wire schema at [`api/openapi.json`](api/openapi.json) and a
-  [compatibility matrix](docs/compatibility.md).
-- Bounded-frame NDJSON Session Transfer with immutable export boundaries,
-  per-event and stream checksums, trusted Binding headers, same-root staged
-  import, atomic publication, terminal error frames, and caller-owned
-  JavaScript/C# stream helpers. End-to-end coverage moves a lineage larger
-  than 16 MiB, replays it, and resumes mutation.
-- Authenticated Session stats, archive, and fail-closed deletion with permanent
-  ID tombstones, plus configurable soft/hard managed-storage quotas. File Store
-  lifecycle recovery is covered on Linux, macOS, and Windows.
-- Separate liveness/readiness probes, authenticated bounded diagnostics,
-  dependency-free Prometheus metrics, and content-free structured request
-  correlation.
-- An installable Node.js terminal-story vertical slice with a durable
-  JavaScript workflow, cross-platform acceptance job, raw benchmark evidence,
-  and an equally persistent rule-tree comparison.
+- Engine-neutral `rin.host/v2` contracts for observations, capability specs,
+  action requests, bound actions, effects, runs, and outcomes.
+- `rin.control/v2` with a resident Control Daemon, Host leases, controller
+  leases, emergency stop, action gateway, policy, operations, confirmation,
+  cancellation, and result reconciliation.
+- Optional Internal Agent Runtime with persona, memory, skills, structured model
+  decisions, asynchronous Agent Task API, and macro parent-child loops.
+- Thin MCP 2026-07-28 proxy plus local install, status, update, and uninstall
+  commands for Codex, Claude Code, and OpenClaw.
+- Python, JavaScript, C#, Java, and Lua Control V2 clients plus Go HostKit.
+- Grid, Story, and Terminal V2 validation adapters.
+- Generic Host contract scaffolding for Go, JavaScript, Python, C#, Java, and Lua.
 
 ### Changed
 
-- New Sessions must use the `outcome-reporting-v1` safe baseline. Existing
-  histories and exact Create retries without it retain their historical
-  reducer and Commit semantics.
-- Restore now requires `expected_binding` from the running game's trusted
-  content manifest. It must match both the imported Snapshot and any existing
-  target Session.
-- `rin.reducer-projection/v2` reconstructs Proposal presentation from
-  game-authored action descriptions and uses fair bounded memory-summary
-  sampling. It does not rewrite authoritative event bytes.
-- Bounded recalled-memory tags now influence deterministic allowlisted action
-  selection below Goal preferences, making offline recall behaviorally useful
-  without exposing private memory text.
-- The bundled File Store lazily loads Sessions, uses a revision index and
-  derived checkpoints, retains the event log indefinitely, and supports only
-  local filesystems with the documented locking and sync guarantees.
+- Models now choose capabilities, arguments, and targets inside a Host-published
+  catalog and trusted observation rather than selecting a few prebound options.
+- Authorization now evaluates Host-bound effects, ownership, scope, risk, rules,
+  and budgets rather than capability names alone.
+- Internal models and external MCP share controller lease, action gateway,
+  policy, operation, and Host outcome semantics.
+- MCP processes are stateless STDIO proxies. The resident `rin-control` owns the
+  port, persistent state, and fixed principal.
+- SDKs converge on source-first Control V2 clients with OpenAPI as the exact HTTP contract.
+- Host scaffolding generates only a `custom` contract skeleton and no longer
+  claims to generate a real engine project.
 
-### Hardened
+### Security
 
-- Host integrations now declare an explicit `advisory`,
-  `idempotent-action`, or `transactional-action` durability profile. The
-  repository records non-increasing example-code budgets so protocol workflow
-  logic cannot silently grow further inside game adapters.
-- Java centralizes Proposal freshness and terminal Commit-to-safe-Observe
-  recovery; the Fabric adapter remains honestly `advisory` because Saved Data
-  dirty marking is not a synchronous transaction boundary.
-- Inline Snapshot compact JSON is capped at 16 MiB; default request and bundled
-  client response limits are 32 MiB. Oversized state is rejected, never
-  truncated.
-- Snapshot and checkpoint hashes are documented as checksums, not signatures
-  or provenance proof. Event hashes are likewise unkeyed and do not prevent a
-  writer from rebuilding a complete chain.
-- Provider prompts, credentials, and raw HTTP bodies are excluded from errors,
-  logs, and durable Session state. Validated Generation content remains bounded
-  process-local Job/cache data until returned to the caller.
-- Public HTTP JSON integers use the exact interoperable range
-  `-9007199254740991` through `9007199254740991`, with narrower non-negative
-  constraints where the schema specifies them.
-- Commit and Batch Commit item `accepted` fields must be present explicitly;
-  omission is not interpreted as `false`.
-- Raw game-facing HTTP request bodies and successful Provider JSON responses
-  are strictly checked before decoding; invalid UTF-8 and unpaired Unicode
-  surrogates are rejected. Non-2xx Provider bodies are used only for bounded
-  error classification, never as Generation content or Session state.
+- Controllers cannot declare effects, ownership, risk, authorization, or success.
+- The built-in safety kernel denies arbitrary code, file access, native calls,
+  authority forgery, secret exposure, and unknown effect/scope/ownership.
+- The Control Daemon accepts loopback only and requires a token of at least 32
+  bytes. Agent API tokens and model API keys are separate.
+- The Internal Agent places persona, memory, skills, observations, and player
+  text under `untrusted_context`, then validates closed-schema output against
+  the machine-selected allowed set.
+- Operations distinguish queue, acceptance, running, success, failure, stale,
+  and unknown result. Only a Host outcome sets `execution_confirmed=true`.
 
-### Compatibility notes
+### Removed
 
-- `rin.protocol/v1` remains the wire identifier, but Preview v1 has gained
-  additive response fields, feature-gated semantics, and stricter request
-  validation. Pin the Sidecar, client source, and conformance inventory to one
-  repository revision.
-- Requests reject unknown fields. Clients must tolerate unknown additive
-  response fields.
-- HTTP failures use the error envelope. A Proposal or Generation Job can
-  instead reach an HTTP `200` terminal state whose `data.error` describes the
-  asynchronous operation failure.
-- SDKs remain source-first and are not published to language registries.
+- Removed runtimes, planner DSLs, compatibility branches, and migration tools
+  with no V2 consumer.
+- Removed Ren'Py, Godot, Unity, Unreal, Fabric, BepInEx, Luanti, and native
+  examples that copied retired contracts, along with their toolchains and
+  misleading conformance claims.
+- Removed engine-specific templates. Concrete game integrations belong in
+  independent adapter repositories.
+- Removed documents that described deleted architecture, migration, or
+  duplicated workflows.
 
-### Known limitations
+### Acceptance status
 
-- Rin is Preview software and does not yet provide a post-1.0 compatibility or
-  deprecation guarantee.
-- Complete inline Snapshots remain non-streaming and capped at 16 MiB; Session
-  Transfer is the supported complete-lineage migration/backup path.
-- The bundled File Store supports local `darwin`, `linux`, and `windows`
-  filesystems and is not supported on network, FUSE, or cloud-synchronized
-  filesystems.
-- Event and Snapshot hashes do not authenticate an adversarially rewritten
-  history.
-- Real-version manual installation and interaction checks for the Fabric,
-  BepInEx, and Luanti examples remain release follow-up work.
-
-## Earlier implementation milestones
-
-The repository history contains implementation milestones named 0.1 through
-0.5. They were development phases, not a promise that corresponding public
-release tags exist. Their delivered capabilities are summarized in the
-[roadmap](ROADMAP.en.md).
+- The Rin Go core, race suite, OpenAPI contracts, five language SDKs, and three
+  V2 examples have automated gates.
+- A real game adapter must still complete installation, save/load, forced
+  termination, multiplayer authority, emergency stop, UI, long-play, and
+  character-naturalness acceptance.

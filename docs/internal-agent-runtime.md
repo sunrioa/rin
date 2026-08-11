@@ -8,6 +8,13 @@ controller lease, policy decision, Operation, and authoritative outcome still
 uses the shared Control Plane. Without an Agent configuration, `rin-control`
 keeps its existing behavior.
 
+The runtime currently advances explicitly created tasks. It does not create a
+new background task merely because a persona has an `initiative_policy`. A game
+may create tasks for a proactive greeting, checking player state, or continuing
+an unresolved topic from trusted events. Initiative then constrains expression
+and consecutive actions inside that task, preserving a visible trigger,
+cooldown, and cancellation path.
+
 ## Identity boundaries
 
 | Identity | Source | Authority |
@@ -77,13 +84,58 @@ rejected. For an unauthenticated local OpenAI-compatible service, set
 `authentication` to `none` and leave `RIN_AGENT_API_KEY` unset. Startup validates
 configuration without sending a model probe request.
 
+## Persona, memory, and skills
+
+`PersonaProfile` describes identity and presentation only: identity, traits,
+values, voice, boundaries, relationship stances, initiative, and presentation
+rules. It contains no scopes, policy rules, API keys, or executable hooks.
+Bindings resolve in Actor+Controller, Actor, then default order.
+
+Memory namespaces provide structural isolation:
+
+| Domain | Visibility | Purpose |
+| --- | --- | --- |
+| `actor-episodic` | controllers of one Actor | shared experiences |
+| `actor-semantic` | controllers of one Actor | stable preferences, promises, and relationship facts |
+| `controller-working` | current controller | current task working memory |
+| `controller-private` | current controller | private reasoning and externally hidden content |
+| `controller-belief` | current controller | unverified hypotheses |
+
+Each memory carries provenance, authority, confidence, importance, TTL,
+subjects, tags, and superseded records. Model-created candidates are always
+non-authoritative subjective records; Host outcomes provide authoritative world
+evidence. Retrieval is bounded by record and character budgets instead of
+sending all history to the prompt. Forget creates tombstones and consolidation
+can replace several records with a sourced summary.
+
+A skill is inert procedural guidance containing a summary, trigger tags,
+instructions, and digest. It has no entrypoint, scope, or capability grant. The
+model first sees summaries and may expand at most one skill. Instructions asking
+for privileged behavior still cannot change the allowed capabilities, binding,
+or policy.
+
+An external MCP controller keeps its persona and private memory in the external
+Agent. Internal persona does not override it and Rin does not automatically copy
+that private state into Internal Agent memory.
+
+## Model decisions
+
+One model response is exactly `action`, `wait`, `complete`, or `inspect`:
+
+- `action` selects one allowed capability, strict JSON arguments, and listed target handles;
+- `inspect` expands at most four capabilities and one skill for one round;
+- `wait` means there is no grounded action now;
+- `complete` still requires the runtime to verify the goal through observation or outcome.
+
+The trusted contract is separate from `untrusted_context`. Persona, memory,
+skills, observation, player text, and capability descriptions are untrusted
+data and cannot alter the allowed set, epoch, controller, or budgets.
+
 ## State and calls
 
 - [`api/agent-openapi.json`](../api/agent-openapi.json) is the Task HTTP contract.
 - State is fixed at `<RIN_CONTROL_DATA_DIR>/agent/tasks.json` and `memory.json`.
-- Task snapshots use `rin.cognition.tasks/v2`. This Preview version does not
-  read v1; finish or cancel old internal tasks before upgrading rather than
-  copying live Operation state.
+- Task snapshots use `rin.cognition.tasks/v2`.
 - State files use private permissions, atomic replacement, and single-writer
   process locks. Configuration cannot redirect these paths.
 - `scheduled=true` only means background coordination was queued. It is not

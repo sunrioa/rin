@@ -6,6 +6,11 @@
 持续推进有预算的任务，但所有世界读取、控制租约、策略判断、Operation 和权威结果仍
 经过同一个 Control Plane。未提供 Agent 配置时，`rin-control` 保持原有行为。
 
+Runtime 当前推进显式创建的 Task，不会仅凭 Persona 的 `initiative_policy` 在后台
+凭空创建新任务。游戏可以根据可信事件创建“主动问候、检查玩家状态、继续未完成话题”
+等 Task；Initiative 字段用于约束模型在该 Task 内的表达与连续行动。这样主动性仍有
+可见来源、冷却和取消入口。
+
 ## 身份边界
 
 | 身份 | 来源 | 权限 |
@@ -71,12 +76,52 @@ API Key 不是配置字段；在 JSON 中加入 `api_key` 会被拒绝。连接�
 OpenAI-compatible 服务时，把 `authentication` 设为 `none` 并确保
 `RIN_AGENT_API_KEY` 未设置。启动只校验配置，不向模型服务发送探测请求。
 
+## Persona、Memory 与 Skill
+
+`PersonaProfile` 只描述身份与表现：Identity、Traits、Values、Voice、Boundary、
+Relationship Stance、Initiative 和 Presentation Rule。它不包含 Scope、Policy Rule、
+API Key 或可执行 Hook。Persona Binding 按 Actor+Controller、Actor、默认值的顺序选择。
+
+Memory 通过 Namespace 结构化隔离：
+
+| Domain | 可见范围 | 用途 |
+| --- | --- | --- |
+| `actor-episodic` | 同一 Actor 的 Controller | 共同经历 |
+| `actor-semantic` | 同一 Actor 的 Controller | 稳定偏好、承诺和关系事实 |
+| `controller-working` | 当前 Controller | 当前任务工作记忆 |
+| `controller-private` | 当前 Controller | 私有思考和外部不可见内容 |
+| `controller-belief` | 当前 Controller | 尚未证实的判断 |
+
+每条 Memory 有来源、是否权威、置信度、重要度、TTL、Subject、Tag 与 Supersedes。
+模型生成的 Memory Candidate 永远是非权威主观记录；Host Outcome 才能形成权威世界
+证据。检索受条数和字符预算约束，不会把全部历史塞入 Prompt。Forget 使用 Tombstone，
+Consolidate 可以把多条记录压缩为带来源的摘要。
+
+Skill 是惰性的过程指导，只包含摘要、触发 Tag、说明和 Digest。它没有执行入口、
+Scope 或 Capability Grant。模型先看到摘要，最多按需展开一个 Skill；即使 Skill
+文字要求越权，模型输出仍受允许 Capability、Binding 和 Policy 约束。
+
+外部 MCP Controller 的人格和私有记忆由外部 Agent 管理，不会被 Internal Persona
+覆盖，也不会自动复制进 Rin Memory。
+
+## 模型决策
+
+一次模型输出只能是 `action`、`wait`、`complete` 或 `inspect`：
+
+- `action` 选择一个允许 Capability、严格 JSON 参数和已列出的 Target Handle；
+- `inspect` 最多展开 4 个 Capability 和 1 个 Skill，并且最多一轮；
+- `wait` 表示当前没有有根据的行动；
+- `complete` 仍需 Runtime 用 Observation/Outcome 验证任务目标。
+
+可信 Contract 与 `untrusted_context` 分离。Persona、Memory、Skill、Observation、
+玩家文本和 Capability Description 都属于不可信数据，不能改变允许集合、Epoch、
+Controller 或预算。
+
 ## 状态与调用
 
 - Task HTTP 契约以 [`api/agent-openapi.json`](../api/agent-openapi.json) 为准。
 - 状态固定写入 `<RIN_CONTROL_DATA_DIR>/agent/tasks.json` 和 `memory.json`。
-- Task Snapshot 使用 `rin.cognition.tasks/v2`。Preview 版本不读取 v1；升级前应结束或取消
-  旧内部任务，不复制运行中的 Operation 状态。
+- Task Snapshot 使用 `rin.cognition.tasks/v2`。
 - 状态文件使用私有权限、原子替换和单写者进程锁；配置不能改变状态路径。
 - `scheduled=true` 只表示任务已进入后台队列，不表示模型已决策、游戏已执行或
   目标已经完成。

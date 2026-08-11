@@ -3,7 +3,7 @@
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "info": {
     "title": "Rin Control API",
-    "version": "0.8.0",
+    "version": "0.7.0",
     "description": "Engine-neutral V2 contract shared by the Rin Control Daemon, authoritative game Hosts, MCP, and thin language clients."
   },
   "servers": [

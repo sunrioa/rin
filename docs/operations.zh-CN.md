@@ -1,156 +1,157 @@
-# 部署与监控
+# Operation 与 Gameplay Policy
 
-[简体中文](operations.zh-CN.md) | [English](operations.md)
+[English](operations.md) | [简体中文](operations.zh-CN.md)
 
-Rin 将 Liveness、Readiness、Diagnostics 和 Metrics 分开暴露。这些接口只包含
-Counter 与状态分类；绝不包含 Session ID、Actor ID、Event 文本、模型
-Prompt/Response、凭据或文件系统路径。
+Control Plane 把一次 `ActionRequest` 变成可持久、可等待、可取消和可对账的
+Operation。Gameplay Policy 在 Operation 入队前检查 Host 绑定出的实际 Effect。
 
-## Probe 与鉴权
+## 唯一修改入口
 
-| Endpoint | 鉴权 | 含义 |
-| --- | --- | --- |
-| `GET /health` | 无 | 廉价的进程 Liveness 与兼容身份；不访问 Store 或 Provider |
-| `GET /ready` | 无 | Session Store 可执行 List，且每个已配置 Job Manager 仍在运行 |
-| `GET /v2/diagnostics` | 设置 `RIN_TOKEN` 时使用 Bearer Token | Runtime、Queue、Retained Job、Checkpoint、Uncertainty 与 Provider Breaker 的有界 JSON Snapshot |
-| `GET /metrics` | 设置 `RIN_TOKEN` 时使用 Bearer Token | 无依赖的 Prometheus 文本；Metric Name 固定且没有高基数 Label |
+`SubmitAction` 是 V2 唯一的 Controller 世界修改入口：
 
-Liveness Probe 使用 `/health`，Readiness Probe 使用 `/ready`。Readiness 失败返回
-`503 not_ready`；不得用 `/health` 判断是否应把游戏流量路由到该实例。
+1. 校验 Principal、Scope、Actor 可见性和独占 Controller Lease；
+2. 校验 Request 的 Epoch、Observation Sequence、Capability Digest 和幂等身份；
+3. 请求 Host 在权威线程生成 `BoundAction` 与 Effect Preview；
+4. 再次确认 Authority Revision、Lease、Epoch 和 Observation 未变化；
+5. 用 Gameplay Policy 评估所有 Effect；
+6. 持久化 Operation 后才允许 Host 领取。
 
-配置 `RIN_TOKEN` 后，鉴权 Route 只接受一个
-`Authorization: Bearer <token>` Header（Scheme 大小写不敏感）；无前缀凭据、
-多余字段、Credential 内空白与重复 Header 都会被拒绝。未配置 Token 时，包括
-Probe 在内的每个请求都必须使用 Loopback `Host`；Browser 请求若带 `Origin`，
-必须与 Loopback Host 同源，且 `Sec-Fetch-Site` 只能是 `same-origin` 或
-`none`。Native 本地游戏 Client 可继续工作，同时会拒绝 DNS Rebinding 与跨站
-Browser 请求。
+内部 Agent、MCP 和语言 SDK 最终都调用这条入口。游戏命令或 UI 若要触发同类自主
+行动，也应进入相同的 Adapter 执行服务，不能维护第二套权限语义。
 
-Linux/macOS：
+## Policy
 
-```bash
-curl --fail http://127.0.0.1:7374/health
-curl --fail http://127.0.0.1:7374/ready
-curl --fail -H "Authorization: Bearer $RIN_TOKEN" \
-  http://127.0.0.1:7374/v2/diagnostics
+Policy 是确定性的，不调用模型或网络。它只匹配 Host 编写的标准 Effect 字段和
+可信 Context，不读取模型理由或 Adapter Attributes 中的任意文字。
+
+### 安全内核
+
+以下情况始终拒绝，配置不能覆盖：
+
+- arbitrary code、file access、native call、authority forgery、secret exposure；
+- 未注册的 Effect Kind 或 Scope；
+- `ownership=unknown`；
+- 无效 Profile、Epoch 或 Principal。
+
+### Profile
+
+| Profile | 默认行为 |
+| --- | --- |
+| `guarded` | 允许低风险读取、交流和可逆自有操作；高风险拒绝；其余要求确认 |
+| `survival` | 允许已知普通生存 Effect；玩家/共享/系统资产或高风险要求确认；critical 拒绝 |
+| `open` | 允许已知非 critical Effect；critical 仍要求确认 |
+| `privileged-custom` | 与 open 相同的内核下，由显式 Rule 和 Budget 细化 |
+
+Profile 只提供默认值。Rule 可在 server、world、owner、actor、task 五层按 Kind、
+Operation、Ownership、Scope、Tag、Risk 和 Reversible 匹配 allow、deny 或
+require_confirmation。优先级冲突必须得到确定结果。
+
+### Budget
+
+Budget 按相同层级限制动作数和数量，并可绑定 Host Clock Window。Allow 决策先保留
+Budget；只有 Host 接受并实际进入执行链后才提交 Usage，拒绝或持久化失败会释放。
+Policy State 保存 Usage 与未完成 Reservation，但不保存可重用确认。
+
+## 确认
+
+`require_confirmation` 生成单次 Challenge，绑定：
+
+- Controller、Actor、Principal；
+- Effect Digest、Policy Revision 和 Epoch；
+- Host Clock 到期时间。
+
+确认时不会重新绑定或悄悄修改原 Action。Control Plane 先向 Host 获取新 Snapshot，
+确认 Epoch、Observation、Lease 和急停均未变化，再消费 Challenge 并重新评估同一个
+`BoundAction`。任一条件变化都会变为 `stale` 或再次要求确认。
+
+## 状态机
+
+```mermaid
+stateDiagram-v2
+    [*] --> awaiting_confirmation: policy requires confirmation
+    [*] --> queued: policy allows
+    [*] --> rejected: policy denies
+    awaiting_confirmation --> queued: valid confirmation
+    awaiting_confirmation --> stale: binding or authority changed
+    queued --> delivered: Host polls
+    delivered --> accepted: Host ACK
+    delivered --> rejected: Host rejects
+    accepted --> running: Host reports progress
+    accepted --> succeeded: immediate Outcome
+    running --> succeeded: successful Outcome
+    accepted --> failed: failed Outcome
+    running --> failed: failed Outcome
+    queued --> stale: Host/epoch expires before delivery
+    accepted --> outcome_unknown: restart or reconciliation gap
+    running --> outcome_unknown: result cannot yet be proven
+    outcome_unknown --> succeeded: late authoritative Outcome
+    outcome_unknown --> failed: late authoritative Outcome
+    queued --> cancelled: cancellation confirmed
+    accepted --> interrupted: Host interruption
 ```
 
-Windows PowerShell：
+实际终态还包括 `cancelled`、`interrupted`、`stale` 和 `rejected`。状态转换只能前进；
+`progress_seq` 必须单调，迟到或倒退的 Run 被拒绝。
 
-```powershell
-Invoke-RestMethod http://127.0.0.1:7374/health
-Invoke-RestMethod http://127.0.0.1:7374/ready
-$headers = @{ Authorization = "Bearer $env:RIN_TOKEN" }
-Invoke-RestMethod -Headers $headers http://127.0.0.1:7374/v2/diagnostics
-```
+## 执行证明
 
-Windows 本地游戏接入可把 `rin.exe` 与可写的 `rin-data` 目录放在一起，并使用
-仓库内启动器：
+Operation View 显式包含：
 
-```powershell
-powershell -ExecutionPolicy Bypass -File tools/start-rin.ps1 `
-  -Rin .\rin.exe -DataDirectory .\rin-data
-```
+- `terminal`：是否已经稳定终止；
+- `execution_confirmed`：是否存在 Host 权威成功 Outcome；
+- `reconciliation_pending`：是否仍等待 Host 对账；
+- `delivery_attempts`：Host 实际领取次数；
+- `run`、`outcome`、`output` 和拒绝原因。
 
-启动器使用 Literal Path，只创建指定数据目录，默认仅绑定 Loopback，并透传
-Sidecar Exit Code。启动游戏前请检查 `/ready`。
+只有 `status=succeeded`、存在合法 Host Outcome 且
+`execution_confirmed=true` 才能向玩家报告行动已经完成。
 
-## 远程部署
+`queued` 仅表示已耐久入队；`accepted` 仅表示 Host 接受；`running` 仅表示执行中；
+`changed=false` 仅表示长轮询期间没有新版本。`stale` 且
+`delivery_attempts=0` 明确表示 Host 从未领取请求。
 
-受支持的远程路径必须由可信 Reverse Proxy 终止 TLS，并始终配置至少 32 字节的
-`RIN_TOKEN`。优先让 Proxy 与 Rin 运行在同一台主机：Rin 继续使用默认 Loopback
-监听，不需要开启远程监听。
+## 幂等与等待
 
-```bash
-export RIN_TOKEN="$(openssl rand -hex 32)"
-rin serve -addr 127.0.0.1:7374
-```
+同一 Principal 和 `idempotency_key` 的完全相同 Action 返回同一 Operation。相同
+Key 配不同 Payload 会冲突。网络超时后应查询或精确重试原身份，不能换 Key 重发。
 
-使用 DNS 域名并由 Caddy 管理 HTTPS 的最小 Caddyfile：
+`wait_operation` 使用不透明 Cursor，单次最长等待 25 秒。客户端复制 Cursor 即可，
+不应解析其格式。超时不会取消 Operation。
 
-```caddyfile
-rin.example.com {
-    @private path /metrics /v2/diagnostics
-    respond @private 404
-    reverse_proxy 127.0.0.1:7374
-}
-```
+## Host 投递与恢复
 
-客户端通过 HTTPS 发送 `Authorization: Bearer <token>`。不得把 Token 写入 Proxy
-日志，也不得公开 `/metrics` 或 `/v2/diagnostics`；应在本机采集它们。生产 Proxy
-控制项见 Caddy 官方
-[Reverse Proxy 文档](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy)。
+Host 通过 Lease 长轮询：
 
-若 Proxy 与 Rin 必须分处不同主机，只能在私网监听明文端口，并用防火墙限制为
-仅 Proxy 可访问。此时 Rin 要求同时作出三项声明：
+1. `poll` 收到 Binding Gateway、Operation 或取消请求；
+2. 用 Gateway ID 幂等返回 Binding/Snapshot；
+3. 对 Operation ID 幂等 `ack`；
+4. 可选上报 `run`；
+5. 从游戏结果和持久 Outbox 上报唯一 `outcome`。
 
-```bash
-export RIN_TOKEN="$(openssl rand -hex 32)"
-export RIN_TLS_PROXY=true
-rin serve -addr 10.0.0.12:7374 -allow-remote
-```
+Host 在 ACK 前断线时，无法证明绑定仍适用的请求会变为 `stale`。ACK 后断线时，
+同一 Operation 可以重投；Adapter 必须按其 Durability Profile 去重。已经看到执行
+迹象但缺少结果时进入 `outcome-unknown`，允许 Host 后续提交权威 Outcome。
 
-`-tls-proxy` 等价于 `RIN_TLS_PROXY=true`。它只声明已有可信 Proxy 负责 TLS，
-不会为 Rin 启用 TLS，也不能让公网明文监听变安全。非 Loopback 监听若缺少
-`-allow-remote`、Token 或该声明，会在打开数据目录前直接失败。
+Control 状态使用单写者锁和原子文件替换。Host Read Model 与 Lease 由 Host 重连后
+重新发布；Operation 身份和已持久终态不会因 Daemon 重启而改变。
 
-容量、并发、Timeout 与 Boolean 环境变量一旦显式设置为非法值，Rin 会立即失败，
-不会把拼写错误静默替换成默认值；命令行显式 Limit 也遵循同一规则。Runtime、
-Proposal Job 与 Generation 的上下限全部在打开数据目录或执行恢复维护前完成校验，
-因此被拒绝的配置不会创建或维护 Store 文件。
+## 取消与急停
 
-随附 Sidecar 会在启动后立即运行一次 checkpoint-independent Event Log Scrub，
-之后默认每 15 分钟运行一次。每个 Pass 最多校验 4,096 个事件，Deadline 为
-30 秒。可通过 `RIN_SCRUB_INTERVAL`、`RIN_SCRUB_MAX_EVENTS`、
-`RIN_SCRUB_TIMEOUT` 或对应 `-scrub-*` Flag 配置。Timeout 会保留已经验证的
-Cursor，下个 Pass 从该位置继续；显式一次性全量审计仍使用
-`Engine.VerifyAll()`。
+取消只请求停止，不能撤销已经发生的 Effect。Capability 声明 unsupported、
+cooperative 或 preemptive 取消语义；最终状态由 Host 报告。
 
-## 监控内容
+Emergency Stop 是 Actor 级、Owner 控制的持久安全闩：
 
-JSON Diagnostics Snapshot 包含：
+- 阻止内部和外部来源提交新动作；
+- 请求取消所有未完成 Operation；
+- 不自动恢复已执行世界修改；
+- 解除后仍需重新获取有效 Controller Lease 和新 Observation。
 
-- 已知、已加载和当前不可读 Session 数，以及有界错误码分组；
-- 尚未解决的持久 Mutation Barrier；
-- Active/Pending Checkpoint、Checkpoint Failure 与 Quota Skip；
-- Incremental Scrub 是否 Active、Cursor Revision/Target、Failure 与完成
-  Cycle 数；
-- Runtime Closed 状态与 Active Engine Operation 数；
-- Proposal/Generation Queue Depth/Capacity、Retained/Max-retained Job 和状态计数；
-- Generation Cache 大小、Retained Payload 当前字节数与配置上限，以及 Provider
-  Circuit Breaker 状态；
-- HTTP Request、In-flight、4xx/5xx 以及累计耗时。
+## Macro
 
-Prometheus 输出使用固定名称，包括 `rin_http_requests_total`、
-`rin_sessions_unreadable_known`、`rin_uncertainty_barriers`、
-`rin_checkpoint_failures_total`、`rin_scrub_completed_cycles_total`、
-`rin_scrub_failures_total`、`rin_scrub_active`、`rin_proposal_queue_depth`，
-以及配置 Generation 后的 `rin_provider_circuit_not_closed`。
+Macro 是可产生子 Operation 的 Capability，不是任意计划脚本。Parent 必须已经被 Host
+接受或运行，父子共享 Actor、Controller Lease、Principal 和非空 `task_id`。每个
+Child 仍独立执行 Binding、Policy、Operation 和 Outcome，最多 1024 个子 Operation。
 
-建议告警：
-
-- Readiness 连续超过一个 Probe Window 失败；
-- Known Unreadable Session、Uncertainty Barrier、Checkpoint Failure 或
-  Scrub Failure 增长；
-- Queue 长时间接近 Capacity，或 Retained Job 接近上限；
-- Provider Circuit Breaker 长时间未关闭；
-- 5xx Response 增长。
-
-单纯 Queue Full 不会使进程 Unready：在高负载时摘除健康实例会放大饱和。
-Queue Metric 与 `429` Response 才是 Overload Signal。
-
-## Request Correlation 与停机
-
-Client 可发送 `Rin-Request-ID`，值为 1–96 个 ASCII 字母、数字、`.`、`_` 或
-`-`。Rin 会回显合法值，否则生成新值。结构化 Request Log 只包含该 ID、
-Method、匹配后的 Route Template、Status 和 Duration；不记录 Raw Path、
-Query、Header 或 Body。
-
-停机时，应在 `/ready` 失败后停止路由新流量，让 HTTP Server Drain，关闭
-Job Manager，调用 `Engine.Close(ctx)`，最后才能关闭由调用方拥有的 Store。
-`Engine.Close` 会拒绝新操作，并等待在途 Request、Transfer Writer 与
-Checkpoint Worker。随附 CLI 会先取消并 Join 后台 Scrub，再在 SIGINT/SIGTERM
-（或对应 Windows Console/Service Signal）后按此顺序执行有界 Graceful
-Shutdown。不得绕过
-[Session 生命周期](session-lifecycle.zh-CN.md)的备份规则复制或修改在线
-Data Directory。
+这样模型可以组合采集、移动、合成和建造等连续任务，同时保留逐步授权、预算、取消
+和故障定位。

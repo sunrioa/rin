@@ -82,7 +82,7 @@ export RIN_CONTROL_TOKEN="replace-with-the-same-random-secret"
    包含 Token；
 4. 写入安装清单，记录由 Rin 接管的 Agent；明确失败且复查确认未写入时回滚记录。
 
-使用 `--config` 时，该私密文件中的 Token 和 URL 不受 Agent 进程偶然继承的旧
+使用 `--config` 时，该私密文件中的 Token 和 URL 不受 Agent 进程偶然继承的环境
 环境变量影响；只有显式 `--control-url` 参数可以临时覆盖文件中的 URL。未使用
 配置文件时，原有 `RIN_CONTROL_URL` 与 `RIN_CONTROL_TOKEN` 行为保持不变。
 
@@ -217,8 +217,7 @@ export RIN_CONTROL_SCOPES="actor.read,actor.control,actor.execute,operation.canc
 
 值为 `0` 或省略表示该 Clock 禁止确认；策略会返回
 `policy.confirmation_clock_disabled`，不会产生内部错误。Challenge 有效期始终不超过
-对应 BoundAction 的 `valid_until`。Preview 版本不再接受旧的单一
-`{"clock":"step","value":600}` 形状。
+对应 BoundAction 的 `valid_until`。
 
 标准循环为：
 
@@ -264,7 +263,7 @@ Host 可以为 Actor 发布 `decision_authority`：
   的 Client 可以取得普通控制租约；
 - `persona_mode=character-bound` 要求外部 Agent 扮演 Host 定义的角色；
 - `persona_mode=agent-avatar` 允许外部 Agent 使用自己的性格与私有记忆来表现角色；
-- 每次转交都会单调增加 `revision`。尚未被 Host 接受的旧修订 Operation 会失效，
+- 每次转交都会单调增加 `revision`。尚未被 Host 接受的上一修订 Operation 会失效，
   已接受的有界动作可以完成，避免半途破坏世界事务。
 
 控制权只决定“谁做下一次语义决策”。导航、战斗和建造仍由 Host 的逐 Tick
@@ -303,8 +302,7 @@ Control 契约由
 
 `/control/v2/*` Client 路由供 `rin-mcp` 和语言 SDK 使用，覆盖发现、控制租约、动作、
 Operation 与急停。Client 请求体不携带 Principal；daemon 始终注入启动时固定的
-Principal，避免身份伪造。所有 `/control/v1/*` 路由均不再暴露；Host 只能使用
-`/control/v2/host/*`。
+Principal，避免身份伪造。Host 只使用 `/control/v2/host/*`。
 
 错误响应始终包含供人阅读的 `error`，并可包含稳定的机器可读 `code`。当前服务码为
 `invalid`、`forbidden`、`not_found`、`lease_expired`、`unavailable`、
@@ -315,14 +313,14 @@ Principal，避免身份伪造。所有 `/control/v1/*` 路由均不再暴露；
 
 `RIN_CONTROL_DATA_DIR` 中的 `operations.json` 使用 0600 权限、严格 JSON、
 临时文件同步和原子替换。目录带跨平台进程锁，只能由一个 `rin-control` 写入。
-状态文件只接受 `rin.control.operations/v5` 的 Action-only Schema，不读取旧请求格式，
+状态文件使用 `rin.control.operations/v5` 的 Action-only Schema，
 也不保存 Token、模型 Key、Prompt 或游戏存档。
 
 恢复规则：
 
 - 新入队请求、ACK、取消和 Outcome 立即持久化；
 - 投递次数和 ActionRun 进度是检查点，在下一个耐久写入或正常关闭时合并；
-- 进程在 ACK 前崩溃时，旧绑定不可安全重用，请求恢复为 `stale`，模型必须基于最新
+- 进程在 ACK 前崩溃时，原绑定不可安全重用，请求恢复为 `stale`，模型必须基于最新
   Observation 重新提交；
 - ACK 后尚无 Run 或 Outcome 的请求按相同 Operation ID 重投，由 Host 从持久
   Pending Journal 恢复；
@@ -330,7 +328,7 @@ Principal，避免身份伪造。所有 `/control/v1/*` 路由均不再暴露；
   Outcome Outbox 对账；
 - 已持久化的 `stale` 或未解决 `outcome-unknown` 在重启后不会复活为 queued 或
   accepted 请求；
-- 绑定旧 Epoch、旧 Observation 或旧版无 Binding 的请求不会交给新时间线；
+- 绑定过期 Epoch 或 Observation 的请求不会交给新时间线；
 - 无 Host 的未完成请求在 TTL 后变为 `stale` 或 `outcome-unknown`，不会永久占满
   队列；
 - Host Lease 和 Read Model 仍由 Host 所有，重连后必须重新注册和发布。

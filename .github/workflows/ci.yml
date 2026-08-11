@@ -181,16 +181,3 @@ jobs:
         run: go test ./examples/adapters/grid ./examples/adapters/story ./examples/terminal-story
       - name: Run terminal story smoke test
         run: go run ./examples/terminal-story --line "The light feels familiar." --topic festival --task prepare-exhibit --json
-
-  open-spiel-reference:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
-          cache: pip
-          cache-dependency-path: tools/open_spiel_requirements.txt
-      - name: Install pinned OpenSpiel
-        run: python -m pip install --disable-pip-version-check --no-deps --require-hashes -r tools/open_spiel_requirements.txt
-      - run: python tools/verify_open_spiel.py

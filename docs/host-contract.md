@@ -1,143 +1,156 @@
-# Host Contract
+# Host V2 contract
 
 [English](host-contract.md) | [简体中文](host-contract.zh-CN.md)
 
-The `host` Go package is Rin's engine-neutral boundary for describing a game
-host and the operations it can safely expose. Protocol v2 reuses its exact
-Epoch, capability, offer, invocation, run, and outcome shapes on the HTTP
-boundary; the game still owns local registration and execution.
+`rin.host/v2` is the engine-neutral contract between Rin and an authoritative
+game adapter. It standardizes verifiable identity, observation, capability,
+intent, effects, and outcomes without standardizing a game's world model.
 
-## Why this boundary exists
+## Host manifest
 
-A universal game integration cannot pretend that every engine shares one
-world, tick, object model, or navigation system. It can standardize the facts
-needed to make a safe decision:
+`HostManifest` declares static adapter facts:
 
-- `HostManifest` declares authority, deployment, control, clock and decision
-  modes, actor concurrency, and persistence guarantees.
-- `CapabilityDescriptor` gives one namespaced capability an exact semantic
-  version, bounded JSON Schema input/output, effect, execution shape, risk,
-  permissions, timeout, cancellation, and durability requirements.
-- `ActionOffer` is a game-authored candidate with arguments and targets
-  already bound to an authoritative `Epoch`.
-- `ActionInvocation` carries the accepted offer to the local executor and
-  receives a final time-of-check/time-of-use authorization immediately before
-  authority-thread dispatch.
-- `ActionRun` and `ActionOutcome` distinguish queueing, execution, uncertain
-  recovery, and terminal evidence. Cancellation is not rollback; a reversible
-  capability still needs a separate compensating operation.
+- adapter, engine, runtime, and platform identity;
+- `standalone`, `server`, or `client-advisory` authority;
+- loopback, dedicated, remote HTTPS, embedded offline, or computer-control deployment;
+- event, step, and realtime clocks plus sequential, simultaneous, and asynchronous decisions;
+- maximum concurrent Actors and actual durability guarantees.
 
-This split follows the useful common ground in Unity ML-Agents' action
-contracts, Unreal Gameplay Ability activation, ROS 2 Actions' long-running
-goal lifecycle, and OpenSpiel/PettingZoo's different decision-time models.
-Rin does not import those frameworks or reproduce their engine-specific world
-models. The [OpenSpiel validation](open-spiel-validation.md) now exercises
-sequential, simultaneous, chance, and hidden-information mappings on real game
-states.
+Durability describes crash and retry behavior only:
 
-## Discovery is not authority
+| Profile | Guarantee |
+| --- | --- |
+| `advisory` | no idempotent recovery promise for world mutations |
+| `idempotent-action` | the same operation may be redelivered without duplicating effects |
+| `transactional-action` | game effect and outcome record commit in one game transaction |
 
-`Registry.Snapshot` answers “what can this host implementation do?” It never
-answers “what may this actor do now?”
+Declaring a stronger profile does not create the guarantee. A real adapter must
+prove it with fault injection and the game's save mechanism.
 
-For every decision the game creates bounded `ActionOffer` values. A policy
-selects an `offer_id`; it does not invent a method name, arbitrary JSON
-arguments, object pointer, console command, shell command, or generated code.
-The host then validates:
+## Epoch and clocks
 
-1. the exact capability ID and semantic version still exist;
-2. the descriptor SHA-256 digest has not changed;
-3. arguments match the root-closed JSON Schema;
-4. the offer has not expired and its Epoch still matches;
-5. the capability has not been dynamically revoked;
-6. the trusted current `Principal` grants every `required_scope`;
-7. the same checks still hold immediately before authority-thread execution
-   and cancellation.
+An `Epoch` combines stable Session and World IDs with three positive generations:
 
-Scopes come only from game-owned identity state. They are not accepted from a
-model response, offer, HTTP request body, or generated arguments. HostKit also
-feeds the executor's structured local Output through the descriptor's exact
-Output Schema before retaining it in restartable workflow state.
+- `host` changes when the authoritative Host instance is replaced;
+- `world` changes when a scene, dimension, map, or world reloads;
+- `timeline` changes on save load, rollback, or timeline branching.
 
-The registry can therefore be shared by Ren'Py labels, Unity components,
-Unreal abilities, Godot nodes, server Mods, Web games, and custom engines
-without granting any one of them special semantics.
+Generations are not render frames or ticks. A `Timepoint` represents an event,
+step, or realtime Host clock. Actions, bindings, leases, and outcomes use epochs
+to fence stale timelines; clocks express deadlines, execution budgets, and
+confirmation expiry.
 
-## Bounded plan metadata
+## Observation
 
-`ActionOffer.planning` is an optional, engine-neutral explanation of the
-bounded plan containing an offer. It lets internal policies and MCP clients
-read the `intent`, `plan_id`, `step_index`, `plan_revision`, preconditions,
-postconditions, stable `blocked_reason`, and risk without moving game rules
-into Rin.
+An `ObservationEnvelope` is a bounded Host-authored snapshot containing:
 
-This metadata is not another execution input. Coordinates, object references,
-items, recipes, and commands remain inside a complete Host-authored offer, and
-a caller still selects only its `offer_id`. Goal search, pathfinding, planning,
-and post-state verification belong to the game adapter. Rin validates, copies,
-and exposes the metadata. A plan revision requires a newly published offer;
-the old one remains fenced by its observation, epoch, deadline, and final Host
-revalidation.
+- Host, World, Actor, epoch, monotonic sequence, and observation time;
+- a game-specific payload identified by `SchemaRef`;
+- standardized `facts`, `resources`, and path-free `artifacts`;
+- an optional pagination continuation token.
 
-## Epoch and object references
+`ObservationFact` fits scalar facts such as health, stance, or relationship
+state. `ObservationResource` additionally declares kind, tags, ownership,
+scope, quantity, and Host-validated attributes. An artifact carries only an ID,
+media type, size, and SHA-256, never a filesystem path or arbitrary fetch URL.
 
-`Epoch` contains stable Session and World IDs plus three positive JSON-safe
-generations:
+A `HostRef` is opaque. A controller may copy it from an observation but cannot
+construct or resolve its key. Only the owning adapter resolves it on the
+authority thread. An `ephemeral` reference must not cross epochs or enter
+long-term state.
 
-- `host` changes when the owning host process or authoritative instance is
-  replaced;
-- `world` changes on a scene, map, level, shard, or equivalent world reload;
-- `timeline` changes on save forks, rollback, rewind, or authoritative branch.
+## Capability
 
-The Epoch Session ID must equal the containing request and Session state.
-Observation, decision, invocation, and outcome boundaries reject a nested
-Epoch from another Session.
+A `CapabilitySpec` describes one action type:
 
-These values are not render frames, physics frames, simulation steps, or wall
-clock time. `HostRef` is opaque outside its adapter. Only that adapter may
-resolve it on the engine's authority thread; an ephemeral reference must not be
-persisted.
+- exact namespaced ID and semantic version;
+- closed input, output, and effect-attribute JSON Schemas;
+- `atomic` or `macro` kind;
+- immediate, queued, or long-running execution;
+- unsupported, cooperative, or preemptive cancellation;
+- risk floor, scopes, durability, and Host-clock execution budget;
+- input, output, and effect limits plus child-operation declaration;
+- an immutable digest over canonical fields.
 
-## Schema and descriptor rules
+Discovery says what the Host implements, not whether an invocation is
+authorized. Actor authority, controller lease, target state, effect policy,
+and adapter-local rules are checked independently.
 
-The package uses self-contained JSON Schema 2020-12 documents. A schema must:
+## Schema
 
-- be at most 64 KiB and have an object root;
-- declare the exact 2020-12 `$schema` URI and `type: "object"`;
-- explicitly set `additionalProperties: false`;
-- contain no duplicate JSON property names or externally loaded references.
+Rin uses self-contained JSON Schema 2020-12. Capability schemas are bounded,
+closed root objects and cannot load external references. Rin hashes canonical
+schemas and seals all three schemas plus execution limits into the capability
+digest.
 
-Nested object schemas must close their own properties when that is required;
-the contract enforces this rule at the root and does not rewrite authored
-subschemas.
+A controller submits the exact digest. Changing argument schema, risk, budget,
+or execution semantics invalidates old requests even if the ID and version were
+not changed. Published integrations should also increment the semantic version.
 
-Canonical compact JSON is hashed with SHA-256. Capability descriptors bind the
-schema hashes and operational limits into a second deterministic digest.
-The implementation uses the maintained
-[`santhosh-tekuri/jsonschema`](https://github.com/santhosh-tekuri/jsonschema)
-validator instead of maintaining a partial schema engine.
+## ActionRequest
 
-## Durability is a separate axis
+The only action intent authored by a controller is `ActionRequest`:
 
-The existing [host durability profiles](host-durability.md) describe
-crash/retry durability only:
+```text
+request_id / idempotency_key
+controller_id / actor_id / task_id
+capability id + version + spec_digest
+arguments / target_refs
+expected_epoch / observation_sequence
+```
 
-- `advisory`: no world-mutation recovery claim;
-- `idempotent-action`: durable pending work/outbox and idempotent application;
-- `transactional-action`: effect and outcome outbox can be published atomically.
+Arguments match the capability input schema and targets originate in a trusted
+observation. A request contains no effect, risk, ownership, authorization
+result, or executable function.
 
-They do not enumerate gameplay capabilities. A descriptor states the minimum
-durability it needs, and the registry rejects registration when the host cannot
-provide it. Risk, permissions, execution mode, cancellation, and reversibility
-remain independent axes.
+## Binding and effect preview
 
-## Delivered boundary
+The adapter runs `Bind` on the authority thread:
 
-The Go package provides validation, deterministic sealing,
-concurrent registration/discovery, dynamic revocation, offer/invocation/output
-checks, action-state transitions, and race/fuzz coverage. Protocol v2 and the
-language SDKs carry the typed lifecycle. The
-[Universal Host SDK](host-sdk.md) adds the eight engine-facing ports, durable
-Pending Decision/ActionRun/Outbox state, authority dispatch, exact retry, and
-Epoch reconciliation. Generated Host projects are covered separately by the
-[Host scaffolding guide](host-scaffolding.md).
+1. capture the current snapshot;
+2. validate capability, digest, epoch, and observation sequence;
+3. resolve arguments and `HostRef` values;
+4. return normalized targets and validity deadline;
+5. derive effects from real game objects;
+6. let the Registry seal an immutable `BoundAction`.
+
+Standard `Effect` fields include:
+
+- kind and read/create/update/delete/transfer/consume/execute/communicate operation;
+- subject, target, tags, ownership, scope, quantity, and unit;
+- reversibility and low/moderate/high/critical risk;
+- game-specific attributes validated by the capability effect schema.
+
+These fields are Host-derived. Controller prose, an argument such as
+`safe=true`, or model-reported risk cannot affect policy.
+
+## Execution results
+
+`ActionRun` reports operation ID, status, monotonic `progress_seq`, progress in
+the 0-10000 range, and Host time. `ActionOutcome` is the sole terminal fact and
+binds the epoch, world sequence, occurrence time, and optional evidence.
+
+Cancellation is a request, not rollback. `cancelled` means the Host confirmed a
+stop, `interrupted` means the environment interrupted execution, and
+`outcome-unknown` means the final effect can no longer be proven. A successful
+outcome also includes structured output matching the capability output schema.
+
+## Adapter interface
+
+The neutral Go HostKit `Adapter` boundary is:
+
+```text
+Manifest
+Snapshot / Observe / ListCapabilities
+Bind / Preview
+Execute / Cancel / Verify
+PolicyFacts
+```
+
+Every method that can inspect or mutate game state runs through an
+`AuthorityDispatcher`. HostKit helps with schemas, binding, final epoch checks,
+and output validation; it cannot implement a particular game's main-thread
+dispatch, navigation, container transactions, asset ownership, or save system.
+
+See `host/` for exact Go types and
+[`api/control-openapi.json`](../api/control-openapi.json) for their HTTP projection.

@@ -2,475 +2,174 @@
 
 [English](architecture.md) | [简体中文](architecture.zh-CN.md)
 
-Rin 是管理智能体状态与决策的引擎中立控制层，不是模拟或修改游戏世界的权威。
+Rin 是游戏 Agent Harness，不是游戏引擎、NPC 实现或完整 Agent 框架。它负责把
+Controller 的语义意图放入一条可约束、可恢复、可审计的执行链；具体游戏继续拥有
+对象、规则、线程、实时控制和存档。
 
-本文描述 Rin `0.7.0` Preview。HTTP Wire Shape 以
-[`api/openapi.json`](../api/openapi.json) 为准；本文解释组件和 Trust Boundary。
+## 目标
 
-## 权威边界
+- 让强模型在 Host 已注册的能力空间内自行选择行动，而不是从少量预制选项中挑选。
+- 用代码检查实际 Effect，Prompt 只帮助决策，不能承担权限控制。
+- 让内部模型、外部 MCP 和未来 Controller 共用同一条执行链。
+- 保持核心引擎无关、轻量且可嵌入测试；Minecraft 只是首个真实 Adapter。
+- 把模型决策保持为低频语义控制，把逐帧或逐 Tick 行为留给游戏。
+
+## 总体结构
 
 ```mermaid
-flowchart LR
-    G["Game engine\nworld authority"] -->|Observation| R["Rin runtime\nmemory + goals + policy"]
-    R -->|ActionProposal| V["Schema + boundary + freshness validation"]
-    V -->|action offer only| G
-    G -->|Applied/rejected outcome report| R
-    R --> E["Hash-chained event log"]
-    R --> S["Checksummed snapshot"]
-    R -->|"bounded prompt packet"| P["Optional model provider"]
-    P -->|"structured draft"| V
+flowchart TB
+    subgraph Controllers["Controller"]
+        MCP["外部 Agent / MCP\n外部人格与私有记忆"]
+        Agent["Internal Agent Runtime\nPersona / Memory / Skill / Model"]
+    end
+
+    MCP --> Gateway["Controller Lease 与 Action Gateway"]
+    Agent --> Gateway
+
+    subgraph Rin["Rin 通用核心"]
+        Gateway --> Control["Control Plane"]
+        Control --> Policy["Gameplay Policy"]
+        Control --> Ops["Operation Store 与投递"]
+        AgentAPI["Agent Task API"] --> Agent
+    end
+
+    Control <--> Catalog["Host 发布的 Actor / Observation / Capability"]
+    Ops <--> Host["权威 Game Host"]
+
+    subgraph Adapter["具体游戏 Adapter"]
+        Host --> Binder["Bind 与 Effect Preview"]
+        Host --> Executor["实时控制器与权威执行"]
+        Executor --> Evidence["Run / Outcome / Evidence"]
+    end
+
+    Evidence --> Ops
 ```
 
-游戏引擎始终拥有世界权威。Rin 不直接修改场景、任务、物品、战斗、角色位置、关键选择或存档。Policy 只能从本次请求的 `offers` 中选择一个动作；运行时还会检查角色、目标、记忆引用、边界、会话 revision 和内容绑定。
+## 信任边界
 
-## 组件
+### Controller
 
-### Host Contract
+Controller 只能表达：要操作哪个 Actor、使用哪个 Capability、参数、已观察到的
+不透明目标引用，以及期望的 Epoch/Observation。Controller 不能：
 
-引擎无关的 [`host` Contract](host-contract.zh-CN.md) 描述权威游戏进程、精确带版本
-的能力实现、每轮 Offer、权威 Epoch 和动作运行结果。Capability Discovery 不等于
-Action Authorization：Policy 只能选择由游戏绑定的 Offer；Adapter 在派发到引擎
-权威线程之前，还会重新检查 Schema、Digest、过期时间、Epoch 和当前注册状态。
+- 创造未发布的能力或目标；
+- 声明对象所有权、Effect、风险、可逆性或策略结果；
+- 直接访问游戏对象、Java/C#/C++ API、文件、Shell 或控制台；
+- 把请求已入队解释为游戏成功。
 
-Host Contract 当前以本地 Go 包形式存在；它既没有改变 HTTP `rin.protocol/v2`
-Wire Shape，也不声称既有语言 Adapter 已经实现新 Registry。
+外部模式使用外部 Agent 的人格和私有记忆。内部模式使用 Rin 配置的 Persona、
+Memory 和 Skill。两者只在认知来源上不同，不拥有不同的世界权限。
 
-### 协议
+### Rin core
 
-`protocol` 是唯一需要被其他语言复刻的层。所有请求显式携带
-`rin.protocol/v2`，未知 JSON 字段会被 HTTP 层拒绝，标识符禁止路径分隔符。
+Rin 信任 Host 发布的结构化身份和 Effect，但不信任模型文字。核心负责：
 
-Observation 的 `HostValidatedPayload` 位于已认证 Host 的信任边界内。Host 必须在
-发送前按精确引用的游戏 Schema 校验 Data；Rin 只校验有界严格 JSON envelope
-并保留 Schema 身份。Digest 不是校验证明，模型或远端 Provider 输出未经 Host
-校验不得直接复制到该字段。
+- Principal、Scope、Host Lease、Controller Lease 与 Emergency Stop；
+- Schema、Digest、Epoch、Observation Sequence 和幂等身份检查；
+- 确定性的 Effect Policy、确认挑战和预算；
+- Operation 状态、投递、取消、重启恢复和对账；
+- 内部 Agent 的有界模型上下文、任务、人格、记忆与 Skill Provider。
 
-### 运行时
+Rin 不解析游戏引擎对象，也不自行修改游戏世界。
 
-`runtime.Engine` 是确定性状态机。每个 Session 单独加锁；Policy 在锁外执行，因此
-远程模型变慢不会阻塞新的 Observation 或 State Read。Protocol v2 始终使用游戏
-权威的类型化动作生命周期与发生时间合并语义。启用 `arbitration-v1` 的 Session
-使用随权威 Observation 和 Outcome 结算前进的 `world_revision`，因此同一轮多个
-Actor 可以并行提出动作。游戏已处理的 Outcome 即使延迟到达也会被记录。
+### Game Host
 
-详细记忆保持固定窗口。`memory-archive-v1` 从较旧的一半中确定性选择低显著性
-批次，再生成带 tick 范围和代表性来源 ID 的有界、有损 Summary。分层文本会
-预留最旧 head 锚点，为高重要度与较近期片段分配更多预算，并预留最新 tail；
-来源取样保留已知最旧与最新 ID，其余槽位按所代表的 tick 范围分布。高重要度
-只会提高保留预算，并不保证文本永久跨越此后的每次合并。
+Host 是世界权威。只有 Host 可以：
 
-超过 32 条 Summary 时，Runtime 继续合并时间最旧的四条直接 Summary lineage。
-该成员关系与 Summary ID 派生必须稳定，因为旧 `proposal.created` 事件可能已在
-`recalled_memory_ids` 中持久化其中一个 ID。`belief-conflicts-v1` 为每个角色
-保留最多八条来源声明，同时维持旧 `beliefs` 字段作为当前选中投影。两者都完全
-由事件重放恢复，不依赖向量数据库。
+- 在引擎线程读取真实状态并生成 Observation；
+- 解析 `HostRef`，规范化参数并创建 `BoundAction`；
+- 根据真实对象生成 Effect Preview；
+- 在执行前重新检查游戏规则和 TOCTOU 条件；
+- 驱动寻路、战斗、建造等实时控制器；
+- 用实际结果产生唯一权威 Outcome。
 
-Memory 压缩只是认知遗忘：它不会删除或脱敏权威事件日志，不会抹除永久
-Identifier History，也不是隐私擦除机制。Replay、checkpoint、备份及仍被保留的
-Snapshot 可能继续包含已经不在有界 cognition State 中的文本。
+## 两条认知入口，一条执行链
 
-持久 Request 身份有意与这些有界 cognition 投影分离。每个 managed Session 都
-保留一份 `identifier-history-v2` ledger：Request entry 将 mutation 类型和
-canonical typed-request digest 绑定到原始结果，Event entry 则永久记录每个
-已接受的 Observe/Outcome Event ID。`SessionState.Receipts` 仍是 1,024 项的
-兼容与诊断热投影；淘汰 Receipt 不会删除 Identifier History。
+### 外部 MCP
 
-Request digest 是请求经严格 typed 解码后 canonical JSON 的 SHA-256。完全相同
-的重试因此忽略 Object 成员顺序和空白，但必须匹配每个 typed 字段与数组顺序。
-duplicate 会返回原始 Mutation revision/head 或 typed Proposal/Arbitration，
-并设置 `duplicate=true`。这些坐标标识首次操作，不是当前 live head。
-
-### 决策 Provider
-
-`DecisionProvider` 接口只返回结构化 `DecisionDraft`。运行时不信任实现：动作
-必须来自白名单，记忆和目标 ID 必须真实存在，stance 必须合法；角色边界被触发时
-还必须选择游戏编写的响应动作。`DecisionDraft` 不提供玩家文本自由字段。
-
-运行时是唯一的玩家文本信息流门禁：`ActionProposal.summary` 一律由选中的、
-游戏编写的 `ActionOffer.description` 重建，`ActionProposal.rationale` 一律
-来自固定 stance 模板。Goal、Boundary、Memory、Belief、Prompt 和 Provider 文本
-都不是该函数的输入。这是按构造隔离，不是私密字符串黑名单。
-`goal_id`、`boundary_id`、`recalled_memory_ids`、`policy_source` 以及完整
-`proposed_goal` 保留私有的结构化审计/集成数据，玩家 UI 不得直接显示。
-Action 里只有显式授权展示的 `description` 可作为文案；ID、Kind、Target 与
-Parameter 仍是集成数据，除非游戏另行授权。
-
-Reducer 投影 `rin.reducer-projection/v2` 会对旧 `proposal.created` 事件、导入
-Snapshot、保留的 Recent Action、Checkpoint 与持久化 exact-retry 结果执行同样
-的重建。变化只发生在派生展示投影中：权威事件字节、事件 Hash、Request/Result
-坐标、动作与审计 ID 都不变。因此旧 Proposal 的 exact retry 可返回升级后的
-`summary`/`rationale`，同时保留原 Revision 与 Head。原始 Event 和 Restore
-Payload 仍可能含有旧私密字符串，升级不会擦除这些底层记录。
-
-内置 `cognition.Deterministic` 是离线决策基线：
-
-1. 标签命中边界时只选择对应的 `refuse`、`redirect` 或 `wait` 动作。
-2. 否则优先服务高优先级主动目标。
-3. 用重要度、近期性、标签和召回次数选择最多三条记忆。
-4. 对重复动作降权，以固定 seed 和请求上下文确定性打破平局。
-
-在线模型 Policy 只替换第 2–4 步，不绕过运行时验证器。
-
-### 模型策略
-
-模型 Policy 只构造最小上下文包。系统指令与游戏数据分成两个 message，玩家输入、剧情文本和内容包字段全部位于 `untrusted_game_data`；同时给出独立 `contract`，列出唯一合法的 action、memory 和 goal ID。供应商即使不支持严格 JSON Schema，返回结果仍会在本地执行 unknown-field、类型、长度和 ID 白名单校验。
-
-角色边界在调用供应商之前本地处理。触发边界时直接使用 `boundary-guard`，不会依赖
-模型自行拒绝。模型输出 Schema 不包含 `summary` 或 `rationale`；返回其中任一字段
-都会按未知字段失败。Prompt 明确禁止复制私有决策文本，而运行时玩家文本门禁对自定义
-Policy 与不合规 Provider 同样是最终权威。
-
-### 供应商韧性
-
-OpenAI-compatible 客户端由标准库实现。每次调用具有 attempt timeout 和 total timeout，只重试网络、429、408 和 5xx 等暂时错误；连续失败会打开 circuit breaker，开放期直接进入离线回退。原始 Provider HTTP 正文、Prompt 和 Key 不写入错误、日志或持久 Session State。经验证的结构化 Generation Result 会保留在有界进程内 Job Record 与 Semantic Cache 中，直到返回调用方；它仍是不可信的调用方 Content。
-
-Attempt 与 total deadline 依赖 `provider.StructuredGenerationProvider` 的协作取消
-硬契约：实现必须观察
-`ctx.Done()` 并及时返回。Go 无法强制抢占一个永久阻塞的第三方 Client。
-
-模型 Draft 按 Lineage Generation、Revision、World Revision、Head Hash、完整决策
-Actor State 的 Digest 与语义请求建立有界内存缓存。相同 Key 的并发调用合并成一次
-供应商请求；Restore 或 Transfer 改变权威 Lineage 后，即使 World Revision 重复，
-也不会复用另一权威状态生成的 Draft。
-
-永久 Request/Event Identity Ledger 对每个已加载 Session 只保留一个最多 512 项的
-Hot Map；更旧 Identity 会封装为带 Bloom 路由的不可变编码 Segment。普通新 ID
-无需解码 Cold Segment，旧 Exact Retry 只按需解码可能命中的 Segment。Snapshot 与
-Checkpoint 在 Session Lock 内只捕获不可变 Segment 引用，随后在锁外临时物化完整
-协议 `IdentifierHistory`。因此公开 Snapshot/Transfer 格式仍完整且不变，但百万
-Turn Session 不再常驻百万项 Go Map。
-
-### 异步任务
-
-`jobs.Manager` 使用有界 worker 和 queue。游戏先提交 `/v2/jobs/propose`，继续渲染与接收输入，再通过 GET 轮询。若思考期间 Session 变化，Job 结束为 `stale`，不会写入旧提案；取消会沿 context 传递到 HTTP Provider。
-
-Job 元数据只在进程内保留，并可能在 retention TTL 后淘汰。成功 Proposal 本身
-已经进入事件日志；Job 被淘汰或 Sidecar 重启后，客户端可以重新提交完全相同
-的请求，Engine 的持久 Session 身份 ledger 会返回原始 Proposal，但进程内 Job
-记录需要重建。Job 时间戳和中间状态不持久。
-
-取消运行中的 Proposal Job 只在调用方 Request Context 内等待。如果 Policy 或
-Store 未能在 deadline 前发布权威竞态结果，DELETE 返回
-`408 job_cancel_incomplete`；调用方必须继续轮询或 exact retry，不能据此假定
-Proposal 一定没有持久化。
-
-### 结构化生成
-
-`generation.Manager` 为游戏拥有的受限 Prompt 提供另一条有界异步队列。它
-复用同一个 resilient Provider，但不接触 Session State，也不写事件日志。同一
-请求只在进程内 Job 记录仍保留时去重；去掉 request ID 后的语义内容只做短期
-缓存。Job 淘汰或重启后，完全相同的请求仍可能再次调用 Provider。取消沿
-context 传播到 Provider。
-
-编码后的 Generation Request、保留的 Job Result 与语义 Cache Result 共用默认
-64 MiB Payload 预算。Active Request 不会被淘汰；由纳入 Close join 的周期 Worker
-清理过期项，并在接纳新 Payload 前先淘汰 Terminal Job 或旧 Cache。
-
-Generation 只保证传输、大小和顶层 JSON Object 合法。各游戏仍必须验证自己的 `ScenePacket`、任务、对白或结局 Schema。若验证失败，游戏丢弃结果并使用本地内容；模型输出永远不会自动成为 Canon。
-
-### 游戏适配器
-
-Ren'Py、Godot 和 Unity Adapter 只转换 JSON/HTTP 与各自异步机制，不复制
-Runtime 状态机。Host 将所选 Action Offer 与持久 Pending Turn 匹配，再验证
-Epoch 与 Deadline，按游戏规则执行或拒绝，并持久化确切类型化 Report。
-Submit、Poll、Timeout 或 Cancel 结果不明时必须 Fail Closed，并按确切请求
-身份恢复；Adapter 不得生成替代动作。
-
-JavaScript、C#、Java、Lua、Godot 与 Unity 的 `WorkflowCoordinator` 负责这套通用 Pending Turn
-状态机，但不能凭空创造存储保证。应用前，它会强制检查接入声明的
-[宿主持久 Profile](host-durability.zh-CN.md)。稳定身份、持久化、
-动作校验、引擎线程调度与世界修改仍由宿主负责。
-
-Ren'Py worker registry、Godot `HTTPRequest` 和 Unity coroutine 都只存在于进程内。游戏存档保存 Snapshot 与普通结果，不保存线程、Future、Socket、HTTP 对象或 API Token。
-
-### 多角色协调
-
-候选目标由游戏提供上限和语义范围，Policy 只能建议；只有游戏已经应用并以
-Accepted Terminal Lifecycle 回报的目标才写进 Actor。Activity 由游戏区域或
-模拟系统更新，Dormant Actor 不会自行唤醒。Arbitration 对同一 World Revision
-的 Proposal 稳定排序并记录冲突，但不执行动作；游戏可以调整、拒绝，再用原子
-Batch Action Report 汇报实际结果。完整事务与 Outbox 规则见
-[Host 动作生命周期](action-lifecycle.zh-CN.md)。
-
-这使 Rin 可以服务视觉小说、RPG NPC 和模拟居民，同时不承担寻路、碰撞、任务规则或 Scene Tree 等引擎职责。
-
-### 可观测性
-
-Timeline 只从事件 payload 提取 ID 和枚举状态，不返回玩家原话、剧情摘要、
-Action Outcome 或模型内容。在随附 File Store 上，Timeline 读取有界 revision
-range，不会为每一页重新对完整日志运行 reducer。Replay 使用不晚于目标
-revision 的最新可用 checkpoint，再对剩余 tail 运行正常 reducer，生成完整且
-可验证的 Snapshot，但不会把导出的 Snapshot 写回 Store。Session 加载完成后，
-Timeline 与 Replay 只在 Session lock 下捕获 live boundary，随后释放 mutation
-lock，再执行 range I/O 与重放；第一次 lazy load 仍会串行完成。`rin inspect`
-通过只读 Store 视图输出机器可读诊断，并从 genesis 重放所选 Session；它不会
-创建目录、完成待处理维护、写 checkpoint 或修复派生 index 文件。健康 revision
-index 可让它直接定位请求的 Timeline 尾部窗口；缺失或损坏的 index 只在内存
-重建。
-
-Replay State 对应指定 revision，但 Snapshot 会携带完整的本地 lineage
-Identifier History，包括在所选 State revision 之后产生的 tombstone；否则
-Restore 较旧 Replay 结果会让后来的 ID 重新可用。因此 Identifier result
-revision 可以大于重放 State revision。
-
-Engine Open 有意采用 lazy load：它只枚举 Session ID，不读取每个 Session 的
-全部历史。对某 Session 的第一次操作才通过 checkpoint + tail 恢复路径校验并
-加载该 Session。恢复成功后，如果没有选中可用 checkpoint，或
-所选 checkpoint 的 tail 已达到 16,384 个事件，Runtime 会 best-effort 异步
-排队一个恢复出的 head checkpoint；read 返回时它可能尚未持久化。这个派生缓存
-写入不属于 read 成功边界，失败会被忽略；有界 worker 与并发契约见
-[存储](#存储)。`Engine.VerifyAll()` 是显式运维操作，会忽略 checkpoint，从
-genesis 到 head 重放并审计每个 Session 的完整 hash chain。
-`Engine.Scrub(ctx, maxEvents)` 提供相同的 checkpoint-independent Reducer 与
-Identifier 校验，但会保存内存游标，且单次调用绝不超过给定 Event Budget。随附
-Sidecar 会在后台运行 Scrub，并同时用事件数和 Timeout 限制每次 Pass。普通
-`rin inspect` 只读取指定 Session、输出 `"mode":"read-only"`，不会隐式执行
-整个数据目录的全量审计。
-
-### Mutation 与状态闭包
-
-每个事件都先应用到隔离的候选 State。Reducer 随后校验完整
-`SessionState`，包括 Feature 门禁、容量、revision/tick 上界、Actor 引用和
-成对的 Belief 投影；只有通过校验的候选状态才能追加到 Store 并发布为 live
-State。因此 reducer 或候选校验失败既不会改变事件日志，也不会改变内存中的
-Session。Store 写入失败则遵循 outcome 协议单独定义的 append 确认与对账规则。
-
-Identifier History 采用同一 durability boundary。成功 append 会同时发布 State
-和对应 Request/Event ID entry；失败或未决 append 既不能暴露没有事件的
-tombstone，也不能暴露没有 tombstone 的事件，对账会从确认持久的 tail 同时
-恢复两者。
-
-Store 错误导致 append 是否持久化无法确定时，Engine 不会发布候选 State 或
-Identifier History，而是为该精确逻辑事件保留一道 uncertainty barrier：只有
-mutation 类型与 canonical typed-request digest 都相同的请求可以尝试确认，
-该 Session 的其他 mutation 全部在它之后 fail closed。非 Proposal 操作暴露
-`mutation_outcome_unknown`；Proposal 为保持线格式兼容继续使用
-`proposal_outcome_unknown`。exact retry 成功后，Engine 对账已确认的持久 tail，
-并且只发布一次 State 与 Identifier History。Create 与 fresh Restore 也会在
-把 Session 注册进内存前遵循同一规则。
-
-Policy 调用收到 State、Actor 和请求的隔离副本。Policy 可以在本地读取或修改
-这些值，但不能绕过事件直接改变 live Session。Runtime 的有界保留也会闭合
-引用：Memory 归档会把 recalled ID 改写到替代 Summary，未启用归档时会移除
-被淘汰的引用，Belief 与 BeliefSet 则按确定性顺序成对淘汰。
-
-### 存储
-
-同一 Session 的所有 Store 操作必须可线性化，且 `Load` 对 `Create` 与
-`Append` 提供 read-after-write 强一致性。Engine 会把 Create 失败后立即得到
-`ErrNotFound` 视为“首事件确定未写入”，并把 Append 失败后立即读到权威旧 tail
-视为“候选事件确定未写入”。自定义 Store 若不能保证任一观察具有权威性，就
-必须让 `Load` 返回 uncertainty error，绝不能返回陈旧数据；最终一致 Store
-不满足 Runtime 的 Store 契约。
-
-文件存储结构：
-
-```text
-rin-data/
-├── .rin.lock
-└── sessions/
-    └── session.id/
-        ├── events.jsonl
-        ├── events.idx
-        ├── checkpoint-<revision>-<hash>.json.gz
-        └── snapshot-<revision>-<hash>.json
+```mermaid
+sequenceDiagram
+    participant E as 外部 Agent
+    participant M as rin-mcp
+    participant C as rin-control
+    participant H as Game Host
+    E->>M: 读取 Actor、观察与能力
+    M->>C: Control V2
+    C-->>M: Principal 可见的快照
+    E->>M: 获取 Controller Lease
+    E->>M: 提交 ActionRequest
+    M->>C: submit action
+    C->>H: bind gateway request
+    H-->>C: BoundAction + Effects
+    C->>C: Policy 决策
+    C->>H: Operation delivery
+    H-->>C: ACK / Run / Outcome
+    C-->>M: terminal Operation
+    M-->>E: execution_confirmed + Outcome
 ```
 
-事件哈希覆盖 sequence、type、request ID、记录时间、上一事件哈希和 payload。
-`events.jsonl` 是权威数据，采用 `retain_forever`：Rin 不会自动删除或压缩事件，
-因为 Replay、永久 Request/Event ID 身份与审计都依赖完整 lineage。运维方必须
-按该策略规划容量、备份与归档，不能在 Rin 背后删除正在使用的日志。
+`rin-mcp` 是无状态薄代理。关闭它不会关闭 Daemon 或游戏，多个 MCP Client 也不会
+争用监听端口；独占的是 Actor 的 Controller Lease，而不是 MCP 进程。
 
-事件链使用无密钥 SHA-256，可发现断裂或未同步编辑的 History，但不是签名、MAC
-或来源证明。能替换完整 Log 的一方可以重算全部 Event Hash 与派生 Artifact。
-因此，对抗性防篡改依赖外部访问控制；需要时还要使用独立保护的外部 Anchor。
+### Internal Agent
 
-`events.idx` 是 revision/offset/hash 派生索引，用于读取 head 与有界 range。
-索引缺失、陈旧或格式错误时，会从 `events.jsonl` 原子重建；重建会完整扫描
-一次日志。健康索引在第一次访问后缓存，因此后续 Timeline page 不会反复扫描
-或 materialize 完整事件日志。删除索引不会丢失权威数据，但下一次访问要承担
-重建成本。
+Internal Agent 接收异步 Task，循环执行 `Observe -> Recall -> Decide -> Act -> Verify`。
+模型只看到有界摘要，并可进行一次 Capability/Skill 详细检查。模型输出经过封闭
+JSON Schema 和允许集合复验，再转换成与 MCP 完全相同的 `ActionRequest`。
 
-基础 `Store` API 保持源码兼容；可选 `RangeStore` 提供 `Head` 与有界
-`LoadRange`，可选 `CheckpointStore` 提供 `LoadCheckpoint` 与
-`SaveCheckpoint`。Checkpoint 加速要求同一个 Store 同时实现这两个接口，因为
-Runtime 需要通过 `RangeStore` 校验 checkpoint 的 event-chain anchor。内部
-checkpoint 使用
-`CheckpointFormatVersion = "rin.checkpoint/v1"` 和
-`ReducerProjectionVersion = "rin.reducer-projection/v2"`。Projection v2
-引入公平的有界 Memory 文本/来源取样，以及由游戏文本规范化生成的 Proposal
-展示投影；Summary lineage ID 与 v1 保持兼容，因此已经持久化的 recalled 引用
-仍能重放。v1 checkpoint 会被视为过期并回退到更旧的兼容 candidate 或 genesis，
-权威事件日志不会改变。Checkpoint 是派生缓存，不是公共 Snapshot、备份或权威
-来源，并包含 Session/revision/head anchor、lineage
-epoch、完整 State 与 Identifier History 投影以及 checksum。Runtime 使用前会
-校验 wrapper、projection version、checksum、内含 Snapshot 以及对应 event-chain
-anchor。checkpoint 缺失、损坏、过期或不匹配时，会尝试更旧 candidate，最终
-回退到 genesis replay。checksum 只能发现意外损坏，不提供认证或来源证明。
-checkpoint 写入失败不会撤销已经持久的 mutation，也不会让成功恢复的 read 失败。
+内部 Runtime 不因模型返回一句“完成”就认定任务成功；它必须用新 Observation 或
+权威 Operation Outcome 验证目标。Provider 故障、控制权变化、预算耗尽和未知结果
+会让 Task 暂停或进入明确终态，不会切换到隐藏执行旁路。
 
-可选 `TransferStore` 提供 `BeginTransfer`，返回单 consumer
-`TransferWriter`。随附 File Store 把逐条验证的 EventRecord 写入同一数据根下
-不可见的 staging directory，并增量构建派生索引。Checksum、sequence、chain、
-截断或写入失败都不能创建目标 Session。`Publish` 会同步完整 staged log 与索引，
-再用一次同目录 atomic rename 暴露它们；`Abort` 幂等，启动时会清理遗留的
-`.transfer-*.tmp` directory。Writer 生命周期内会一直持有目标 Session lock，
-因此调用方在 import 失败或取消时必须调用 Abort。未实现该可选能力的 Store
-必须在 Runtime 边界返回 transfer-unavailable，不能通过公共 `Create`/`Append`
-模拟 import。
+## 状态归属
 
-Runtime export 强制要求 `RangeStore`：它在 Session lock 下捕获 revision、head、
-Binding 与 lineage generation，随后释放 mutation serialization，并且只通过该
-immutable anchor 分页读取有界 range；并发 mutation 不会进入本次导出。Runtime
-import 会检查调用方可信 Binding，在 staging 期间增量重放 State，并把完整
-Identifier History 直接写入最终使用的分段 Ledger；核对 manifest boundary、
-lineage generation 与配置的 Identity Index Byte Budget 后只发布一次。随后通过
-有界分页从 genesis 读回，逐条验证 Event Hash，并比较重建 State 与原 Stream；
-Hash Chain 已承诺的 Identity 不会再构建一份重复 Map。Import 与 Export 都要求
-`RangeStore`。Runtime 不会为 Transfer 回退到聚合 `Store.Load` 或公共
-`Create`/`Append`。
+| 状态 | 所有者 | 持久位置 |
+| --- | --- | --- |
+| 世界、实体、物品、剧情 Canon | 游戏 Host | 游戏自己的存档 |
+| Actor Authority 与安全配置 | 游戏 Host | 同一游戏存档 |
+| Host/Controller Lease | Control Plane | 运行时投影，重连时重建 |
+| Action Operation 与 Outcome | Control Plane | Control 数据目录 |
+| 内部 Agent Task 与主观 Memory | Agent Runtime | Control 数据目录下 `agent/` |
+| Persona、Skill、Provider 配置 | 管理员 | 私有 Agent 配置文件 |
+| 外部 Agent 人格与私有记忆 | 外部 Agent | Rin 不复制 |
 
-Runtime 会在 Session 创建后（包括 Restore 新建 Session）排队 revision 1
-checkpoint，之后采用分层调度：从 256 到 8,192 使用二次幂 revision，再按每
-16,384 个 revision 自动排队。这样既把最坏 event tail 限制在 16,384 以内，也
-不会每 256 个事件反复序列化越来越大的永久 Identifier History。成功 lazy
-recovery 时，仅在没有可用 checkpoint，或所选 checkpoint tail 已达到 16,384
-个事件时排队修复；更短的有效 tail 不会导致每次重启都重写 exact-head
-checkpoint。小于 revision 256 的 Session 是有意保留的例外：回退到更旧
-checkpoint 后会廉价地修复 exact head，从而替换被拒绝的同名派生 Artifact。
+V2 当前只承诺同一游戏存档内持续角色，不默认跨存档、跨服务器或跨游戏同步人格与记忆。
 
-checkpoint 构建与持久化是 best-effort 异步工作。持有 Session mutation lock
-期间，Runtime 只捕获已发布且不可变的 State 引用、不可变 Identifier Ledger
-Segment 引用，并复制有界的 Hot Identifier Map。完整物化、校验、hash 与
-`SaveCheckpoint` I/O 都在该锁之外执行。在一个 Engine 内，每个 managed
-Session 最多只有一个 worker 和一个 latest pending capture，因此 active save
-期间跨过多个阈值时，只保留最新 pending revision。多个 Engine 共享 Store 时，
-各自都可能拥有这样的 worker。mutation 或成功的 lazy read 不等待派生
-checkpoint 完成，所以调用返回时 checkpoint 可能尚不可见。
+## 同步与实时性
 
-同一 Session 的 `SaveCheckpoint` 可能与 `Append`、`Load`、`Head` 或
-`LoadRange` 并发。File Store 会用 gzip 保存体积较大的可重建 Checkpoint；
-权威 Event Log 仍是普通 JSONL。CheckpointStore 必须 concurrency-safe，并把昂贵的派生
-Artifact 工作与权威事件操作所需的同步隔离。`Engine.Close(ctx)` 会阻止新操作，
-并在调用方关闭 Store 前等待在途调用、Transfer Import 与 Checkpoint Worker。
-Context 可以限制等待时间，但不能抢占永久阻塞 `SaveCheckpoint` 的不合规 Store；
-超时后的 Engine 仍保持关闭，依赖恢复后可再次调用 `Close` 完成排空。File Store
-默认保留每个 Session 最近 2 个有效 checkpoint 文件。Checkpoint 不会
-经过 Snapshot JSON API，因此有意不应用公共 16 MiB inline Snapshot 上限；
-但它仍是与事件日志同敏感级别的数据。
+模型调用和 MCP 请求不是逐帧控制。推荐频率是：
 
-公共 Snapshot 文件按 revision 与 State hash 命名，但其路径内容并非不可变。
-File Store 会原子替换同一路径，以修复损坏 artifact，或持久化 State
-revision/hash 相同但 Identifier History 更新的 Snapshot。使用方必须校验
-`identifier_history_hash`，不能把文件名当作完整 Snapshot identity。File Store
-默认保留每个 Session 最近 2 个有效 Snapshot 文件。该保留策略只清理本地文件，
-既不截断 Identifier History，也不改变 Snapshot/Replay/Restore 的 16 MiB
-inline 契约。
+- Host 周期发布有界 Read Model；
+- Controller 在事件、任务阶段或明显状态变化时做一次语义决策；
+- Adapter 在游戏线程逐 Tick 执行已经授权的长任务；
+- Run 只上报单调、有界进度；Outcome 报告最终可信结果。
 
-Snapshot 的 `state_hash` 覆盖有界 State，`identifier_history_hash` 则独立覆盖
-canonical `identifier_history`，包括 `identifier-history-v2` 版本与
-`coverage_complete` 标记。History 会保留原始 Proposal/Arbitration 结果，因此
-随 mutation 线性增长，也可能重新携带已从 cognition State 淘汰的文本。
-Snapshot 文件和正文必须使用与完整事件日志同级的保密与完整性控制。这些
-SHA-256 值是 canonical checksum：可发现意外损坏或未更新 checksum 的修改，
-但不是签名或来源证明，无法阻止能重算 checksum 的修改者。Snapshot 是可信、
-不透明的序列化状态，不是不可信输入的导入格式。
+这种“低频规划 + 实时本地执行”允许 NPC 自主完成连续工作，同时避免网络延迟直接
+阻塞渲染或服务器 Tick。
 
-File Store 打开数据目录前会在 `.rin.lock` 取得 non-blocking exclusive lease。
-第二个进程打开同一目录会失败；lease 一直保持到
-`(*store.File).Close`，该方法幂等且会等待正在执行的 Store 调用。嵌入式用户
-因此必须始终调用 `Close`；`rin serve` 与 `rin inspect` 命令会自动调用它。
-随附数据目录独占锁支持 `darwin`、`linux` 与 `windows`。Unix 使用 non-blocking
-`flock`，`windows` 使用无共享模式的独占文件 handle；进程退出时操作系统释放
-lease。其他所有 GOOS 上，`store.OpenFile` 返回
-`ErrDataDirectoryLockUnsupported` 并 fail closed。多实例部署必须实现外部协调
-的 Store，不能共享 JSONL 目录。
+## 包边界
 
-随附 File Store 只支持本机独占文件锁、同目录原子 rename 与下述平台持久化
-primitive 都具有可靠本地语义的本地文件系统。即使只有一个 Rin 进程，也不支持
-NFS、SMB、FUSE mount 或云同步目录。远程或共享存储必须使用外部协调的 Store，
-不能让 JSONL Store 直接指向这些目录。
+| 包 | 责任 |
+| --- | --- |
+| `host` | 引擎中立契约与 Schema 密封 |
+| `policy` | Effect 授权、确认、预算和持久 Usage |
+| `controlplane` | Host/Controller 生命周期与 Operation |
+| `cognition` | Persona、Memory、Skill、模型封装和 Agent Loop |
+| `agentapi` / `agentdaemon` | 异步 Task HTTP 与后台调度 |
+| `mcpbridge` | MCP Tool 到 Control V2 的映射 |
+| `sdk/hostkit` | Adapter Authority Dispatch 辅助 |
+| `examples/adapters` | 不被核心导入的验证实现 |
 
-文件创建与 append 会同步 `events.jsonl`，对应索引写入单独同步。在 Unix 上，
-新 Session 目录 rename 到位后还会同步父目录；Snapshot、checkpoint 与重建索引
-均通过已同步的临时文件、rename 和 directory sync 发布，保留策略删除旧文件后
-也会再次 directory sync。Unix 临时文件使用 `0600`，Windows 文件继承数据根
-目录 ACL，且部署方必须把 ACL 限制到 Sidecar 账户。Unix 使用 file/directory
-`fsync`。Windows 使用 `FlushFileBuffers` 同步文件，并以
-`MoveFileExW(MOVEFILE_WRITE_THROUGH)` 发布 rename；Windows 没有规定可对
-directory handle 调用 `FlushFileBuffers`。如果事件已持久而索引更新前崩溃，
-留下的陈旧派生索引会从日志重建。这些是本地文件系统 crash-consistency 措施，
-不是对存储硬件、kernel、filesystem、备份或运维故障的绝对保证。
+架构测试会拒绝核心包导入游戏示例、Adapter、Mod、Minecraft 或 Fabric 类型。
 
-Lazy load 只是转移成本，不会让无限增长的 lineage 免费。Engine Open 成本与
-Session 目录枚举相关，而不再读取每个日志正文。某 Session 第一次访问仍需
-读取其索引与完整 Identifier History；索引缺失或不可用会触发
-`O(total events)` 日志扫描。有可用 checkpoint 时，状态重建成本随后与
-checkpoint body 及其 event tail 相关。稳态 Timeline 分页与请求的 range
-相关；Replay 与目标 checkpoint tail 以及结果携带的完整 Identifier History
-相关。`Engine.VerifyAll()` 为独立全量审计而有意保持
-`O(total event-log bytes)`。`Engine.Scrub` 会把相同工作拆成有界 Pass；Active
-Cursor 只保留一个 Session Projection，并在抵达捕获的 Head 后释放。
+## 故障模型
 
-旧 entry 若无法恢复完整 request digest，或者其 ID 在历史上曾被重复使用，
-就会成为 ambiguous tombstone：旧日志仍可读取，但后来请求不能安全复用该
-ID。
+- Host 断线前未领取的 Operation 最终变为 `stale`。
+- Host 已接受但结果尚未对账的 Operation 可以恢复投递或进入
+  `outcome-unknown`，不能猜测结果。
+- Controller Lease、Authority Revision 或 Epoch 变化会隔离旧意图。
+- Emergency Stop 阻止新动作，并向未完成 Operation 发出取消请求。
+- 单个数据目录只允许一个写进程；不支持共享文件系统上的多实例写入。
 
-## NPC 调度
-
-每个 Actor 声明 `think_every_ticks`。游戏应用动作并回报 Accepted Terminal
-Lifecycle 后，`next_think_tick = max(current, report.tick + think_every_ticks)`，因此延迟结果
-不会让调度倒退。游戏可在区域进入、回合结束、分钟推进或关键事件后调用
-`/v2/scheduler/due`，不应在渲染帧中轮询模型。
-
-紧急事件可在 propose 请求中设置 `urgent: true`，但它只绕过调度时间，不绕过边界和动作白名单。
-
-## 存档与回滚
-
-- 游戏存档应保存 Rin 返回的 Snapshot，而不是内部文件路径。
-- Snapshot 带内容包 Binding 和状态哈希。Rin 在计算哈希或保存前先校验克隆的
-  State，因此每个成功返回的 Snapshot 都通过与 Restore 相同的结构校验。
-- Restore 必须携带来自运行中游戏可信内容 manifest 的 `expected_binding`，
-  调用方不得从待导入 Snapshot 推导它。它必须与 `snapshot.state.binding`
-  一致；existing target Session 是第三方，其 Binding 也必须一致。Fresh
-  target 只会在前两者匹配后建立。
-- 新 Snapshot 还携带 `identifier_history` 与 `identifier_history_hash`。
-  History 位于有界 State 之外，保存永久 Request/Event ID tombstone 和原始
-  操作结果。
-- 不带 History 的旧 Snapshot 仍可读取，但 coverage 永久不完整：只能从有界
-  State 中仍可发现的 ID 建立索引。`coverage_complete=false` 会沿以后所有
-  Snapshot 与 Restore 合并持续传播。
-- Restore 会保留 Pending Proposal，既让存档中
-  尚未处理的 Proposal Attempt 能恢复，也让 Outcome Outbox 能补报读档前已经
-  应用的动作。恢复出的 Proposal 不授权执行；游戏必须依赖持久化 Attempt 和
-  applied-operation marker 区分两种状态，重新校验尚未处理的动作，并且绝不
-  重做已经处理的动作。
-- 已提交事件、记忆、事实、目标进度和调度 tick 会恢复。
-- Restore 会开始一个新的本地事件链 generation；保留的 Proposal、Memory、
-  Belief、Activity 和 Arbitration revision 元数据会在发布恢复状态前重基到该
-  generation。导入的历史 Receipt revision 设为 0，本次 Restore Receipt 则记录
-  新的本地 generation。
-- Restore 会合并当前与导入的 Identifier History。被放弃的 future branch 中
-  的 ID 仍作为 tombstone 保留；verified mapping 不兼容时拒绝 Restore，不会
-  覆盖任一方。
-- 从其他 generation 导入的 duplicate 结果保留原始操作 revision/head。这些
-  坐标可能无法在新本地事件链中 Replay，不能当作其当前 head。
-- 新数据目录可以导入 Snapshot；此时本地事件链从一条 restore 事件开始。
-- 重复载入同一存档时，调用方应让 restore request ID 同时绑定 Snapshot hash 与当前 Sidecar head，以区分网络重试和真正的再次回档。
-- Identifier History 会随 lineage 增长。完整 inline Snapshot compact JSON
-  上限为 16 MiB，且绝不会截断；超过后 Snapshot、Replay 或 Restore 返回
-  `413 snapshot_too_large`。服务端默认请求正文上限和所有随附客户端默认响应
-  上限均为 32 MiB，为 envelope、Restore 与 EventRecord 预留空间。此类
-  lineage 不能使用 inline JSON Snapshot、Replay 或 Restore endpoint，但可通过
-  NDJSON Session Transfer export/import endpoint 与 JavaScript/C# stream helper
-  进行有界内存迁移和备份。
-- Live `SessionState` 使用独立 compact JSON 预算，避免 State endpoint 超过随附
-  SDK 的响应上限。默认 16 MiB，可通过 `-session-state-max-bytes` /
-  `RIN_SESSION_STATE_MAX_BYTES` 配置，但最高为给 envelope 留出空间的 24 MiB。
-  Create、普通 Mutation 与 Transfer Import 会在持久化 Event 前计算下一版完整
-  State；超限返回 `413 state_too_large`，不改变日志。Replay 同样执行配置预算；
-  若旧数据由更大的上限创建，运维方必须先在 24 MiB ceiling 内显式提高配置。
-
-## 模型接入规则
-
-推荐把模型调用实现为另一个 `Policy`，或由上层 Showrunner 先生成结构化 Draft。供应商请求必须有超时和取消，API Key 只从进程环境或宿主安全存储读取。模型不接触事件文件、快照路径、游戏脚本和任意工具执行。
+详细语义见 [Operation 与策略](operations.zh-CN.md)和
+[Host V2 契约](host-contract.zh-CN.md)。

@@ -1,127 +1,184 @@
-# 游戏 Adapter
+# 游戏 Adapter 指南
 
-[English](game-adapters.md) | [简体中文]
+[English](game-adapters.md) | [简体中文](game-adapters.zh-CN.md)
 
-Adapter 把引擎生命周期事件转换成 Rin `0.7.0` **Preview** 协议对象，不会把游戏
-权威交给 Rin。
+Adapter 把具体游戏的世界模型接到 `rin.host/v2`。Rin 不要求游戏使用 ECS、行为树、
+特定脚本语言或特定网络架构；Adapter 只需提供可信观察、能力绑定和权威执行。
 
-## 最小 Host 循环
+## 必须实现
 
-1. 网络工作前恢复稳定 Session 身份、Pending Turn、Applied Operation Marker
-   与 Report Outbox。
-2. 捕获一条权威 Observation、Epoch、Host Timepoint 和单调 Observation
-   Sequence。
-3. 创建 Decision Window 与 1–32 个完整绑定的 Action Offer。
-4. 先持久化完整 Pending Turn，再提交或恢复 Proposal。
-5. 将返回 Proposal 与持久 Session、Request、Actor、Window 和所选 Offer 匹配。
-6. 在权威线程再次检查 Epoch、Deadline、Capability Digest、Target 与游戏规则。
-7. 用稳定 Operation ID 执行，或拒绝。
-8. 将确切 `ReportActionRequest` 保存到 Outcome Outbox，直到确认成功。
+Go HostKit 用以下接口表达完整边界，其他语言应保持相同语义：
 
-不得把传输错误或结果不明的 Job 当成执行第二个动作的许可。
+```text
+Manifest()
+Snapshot(target)
+Observe(query)
+ListCapabilities()
+Bind(target, request)
+Preview(target, request, binding)
+Execute(operation)
+Cancel(operation)
+Verify(operation)
+PolicyFacts(target)
+```
 
-## 线程
+`Snapshot`、`Observe`、`Bind`、`Preview`、`Execute`、`Cancel` 和 `Verify` 都可能
+接触游戏状态，必须通过游戏自己的 Server/Main/Authority Thread Dispatcher。
 
-- Render、Input、Simulation 线程不得等待 HTTP 或模型完成。
-- 在所属线程捕获引擎对象，但只持久化普通有界数据与不透明 `HostRef`。
-- 只能在权威线程解析 `HostRef` 和执行 Capability。
-- Thread、Task、Future、Socket、HTTP Object 与 Token 不得进入游戏存档。
+## 身份映射
+
+Adapter 必须从游戏存档生成稳定身份：
+
+- `host_id`：一种 Adapter 或服务实例，不应包含临时端口；
+- `world_id`：当前存档/世界的稳定 ID；
+- `actor_id`：同一存档内角色的稳定 ID；
+- `Epoch.host`：Host 进程或权威实例变化时递增；
+- `Epoch.world`：场景、维度或地图重载时递增；
+- `Epoch.timeline`：读档、回滚或分支时递增；
+- `observation_sequence`：同一 Epoch 内单调递增。
+
+不要用实体内存地址、临时 Runtime ID、显示名或当前位置作为长期身份。
+
+## Observation 设计
+
+模型需要足够自由地判断，但不需要完整世界转储。优先发布：
+
+- Actor 自身状态、当前位置、当前活动和危险；
+- 经过范围和数量限制的附近实体、资源和交互对象；
+- 物品、目标和区域的所有权与 Scope；
+- 当前长任务、失败原因和可取消状态；
+- 与当前任务相关的事实，而不是所有历史。
+
+大集合使用分页。对象通过不透明 `HostRef` 暴露，文件路径、对象指针、NBT/组件
+私密内容、Token 和服务器秘密不得进入 Observation。
+
+## Capability 设计
+
+Capability 应表达游戏中稳定、可验证的语义动作，例如：
+
+```text
+navigation.move_to
+resource.harvest
+inventory.transfer
+crafting.craft
+combat.attack
+dialogue.say
+quest.accept
+building.place_batch
+```
+
+强模型 Harness 的重点是“告诉模型不能造成什么”，而不是用大量固定任务教它每一步。
+因此建议：
+
+- 提供少量组合性强的原子能力；
+- 参数与目标由 Schema 和 HostRef 约束；
+- 用 Effect 表达资产、区域、风险和数量；
+- 允许模型依据 Outcome 自行重新规划；
+- 仅为高频、可稳定实现且能节省大量决策的工作提供 Macro。
+
+不要为每种材料、敌人或剧情分支创建一个能力。也不要提供 `execute_anything`、任意
+类名、任意脚本或可直接访问引擎对象的万能能力。
+
+## 原子能力与实时控制器
+
+一个语义动作可以在游戏中持续很多 Tick。模型提交一次 `navigation.move_to` 后，
+Adapter 的导航控制器逐 Tick 寻路、避障和检测危险；模型不需要连续发送前进键。
+
+长任务应：
+
+- 可查询进度并使用单调 `progress_seq`；
+- 在目标消失、Epoch 变化、超预算或环境危险时停止；
+- 支持声明的 cooperative/preemptive 取消；
+- 在完成后返回实际数量、位置、目标和失败码；
+- 不把“已启动”包装成“已完成”。
+
+## Binding 与 TOCTOU
+
+`Bind` 解析 Controller 意图但不执行世界修改。`Preview` 根据已解析对象产生真实
+Effect。进入 `Execute` 前仍要检查：
+
+- Capability 仍发布且 Digest 一致；
+- Controller、Actor、Epoch 和 Observation 仍匹配；
+- 目标仍存在、仍在允许区域并且距离合理；
+- 所有权、容器权限、工具、资源、冷却和游戏模式仍允许；
+- Policy 允许的是同一个 Effect Digest；
+- Operation ID 尚未应用或可以安全精确重试。
+
+检查失败返回结构化错误，让 Controller 根据新 Observation 重新规划；不要静默换
+目标或扩大范围。
+
+## Effect 与本地规则
+
+Adapter 必须把游戏规则映射为标准字段。例如采集方块可能生成：
+
+```text
+kind=world.resource
+operation=delete
+ownership=unowned
+scope=world:wilderness
+quantity=1
+tags=[resource.common, tool.pickaxe]
+risk=low
+reversible=false
+```
+
+管理员可以配置已知 Kind/Scope、Rule 和 Budget。未知第三方内容应默认标成未知并
+拒绝，或通过管理员白名单/游戏 Tag 显式分类；不能仅凭名称后缀猜测安全。
+
+## 多人与最高权限
+
+公开服务器可以支持自主 NPC，但默认关闭。Adapter 应提供游戏内配置来决定：
+
+- 哪些玩家可以绑定或控制哪个 Actor；
+- 哪些维度、区域、容器和资产可用；
+- 自动执行、要求确认或永久禁止的 Effect；
+- 动作次数、方块/物品数量、半径和持续时间预算；
+- 命令、命令方块或管理员能力的精确白名单。
+
+所谓最终档位仍只能开放已注册、可绑定、可审计的 Capability。控制台命令若确有
+产品需求，应成为独立 critical Capability，参数使用枚举或严格 Schema，Effect
+明确标记 `system` 所有权并要求 Owner/Admin 确认；不能开放任意命令字符串或权限
+绕过。
+
+## 内部与外部控制
+
+Adapter 发布 `decision_authority`：
+
+- `source=internal`：由 Rin Internal Agent 使用游戏配置的人格与记忆；
+- `source=external`：由匹配 Principal 的外部 Agent 通过 MCP 控制；
+- `persona_mode=character-bound`：外部 Agent 应保持游戏角色设定；
+- `persona_mode=agent-avatar`：角色表现为外部 Agent 自身人格。
+
+同一时刻只有一个 Controller Lease。外部 MCP 不应依赖内部思考器；Macro 和实时
+执行器属于 Adapter 的确定性游戏能力，而不是内部模型。切换 Authority 时应递增
+Revision、终止旧租约并隔离未接受的旧动作。
+
+游戏 Mod 不需要实现自己的 MCP Server。它只实现 Host Control Client 和 Adapter，
+所有兼容游戏复用同一个 `rin-mcp`。
 
 ## 持久化
 
-复用 SDK Coordinator 负责 Workflow 顺序；游戏负责存储保证。应诚实选择
-[Host Durability Profile](host-durability.zh-CN.md)。独立 JSON 文件通常只能
-证明 `advisory`；只有游戏状态让 `operation_id` 可安全重试时才能声明
-`idempotent-action`；只有效果、Marker 与 Outbox Entry 共用一个游戏事务时
-才能声明 `transactional-action`。
+游戏存档至少保存：
 
-State Reader 必须区分：
+- 稳定 World/Actor ID 和 Epoch 高水位；
+- `decision_authority`、权限配置和 Emergency Stop；
+- 已接受但未完成 Operation 的必要恢复状态；
+- 已应用 Operation Marker 与待发送 Outcome Outbox；
+- 游戏拥有的长期任务和世界 Canon。
 
-- `not_found`：可以初始化新身份；
-- 有效状态：恢复；
-- 不可读、格式错误、超限或不一致：Fail Closed。
+不要保存线程、Socket、Future、回调、引擎对象或 API Key。Host 重连后重新注册、
+发布 Read Model，并用同一 Operation ID 对账。
 
-Pending Turn、Marker、Outbox Entry 与状态文件字节数都必须有上限。文件 Flush
-与 Replace 要跨平台，并在 Linux、Windows 测试中断替换。
+## 验证
 
-## Ren'Py
+先用 Grid/Story Adapter 跑通契约，再在真实游戏覆盖：
 
-复制 [`rin_client.py`](../adapters/renpy/rin_client.py)、
-[`rin_epoch.py`](../adapters/renpy/rin_epoch.py) 与
-[`rin_bridge.rpy`](../adapters/renpy/rin_bridge.rpy)。从后台 Worker 使用 Client，
-只把普通 Dictionary 送回主线程；创建 Offer 前，用游戏提供的稳定存档与 World ID
-调用 `rin_bind_host_epoch`。
+- 主线程和服务器权威；
+- 正常存读档、世界切换、断线和强制终止；
+- 重投不重复效果；
+- 急停和取消延迟；
+- 多人权限和玩家资产；
+- 长任务的真实 Outcome；
+- UI 不阻塞渲染或 Tick。
 
-Bridge 只把 `rin_host_epoch_state` 放入 Rollback/Save Store。有界、纯数据的
-`persistent.rin_host_epoch_ledger` 在 Rollback 外保存 Host/Timeline 高水位，
-Replica Merge 取最大 Generation。`after_load` 和每段 Rollback 的首次 Interaction
-会 Fork Timeline，并使全部已登记结果失效，包括已经完成但尚未消费的结果。
-首次调度和恢复都要求 Decision Window 与每个 Offer 精确匹配当前 Epoch；迟到
-Worker 结果变成 `stale_epoch`。Bridge 在 Load 后调用
-`renpy.block_rollback()`，因为 Ren'Py 官方指南要求 Callback Migration 不得再次
-被 Rollback。
-
-Registry 仍是进程内对象；持久剧情状态必须保存完整 Pending Turn 与返回的 Job ID。
-Worker、Lock、HTTP Response 与 Token 都不得写入 Rollback/Save Data。
-读取有界响应体时，Adapter 会沿用连接建立前启动的 Transport Deadline，
-不会因每次 Socket Read 而重新计时。Python 测试
-覆盖进程重启、旧存档 Load、重复 Rollback、Persistent Ledger Merge、上限、损坏
-状态、Worker 失效与迟到完成。该 Suite 在 Linux CI 运行；本地 macOS 的
-Ren'Py 8.5.3 Lint 和真引擎 Rollback Harness 已通过，Windows 执行尚未自动化。
-真实项目仍须在准确 Ren'Py Build 中验证可见 Save/Load、Screen 更新、Shutdown
-与 Sidecar Restart。
-
-## Godot 4
-
-[Godot Reference](../examples/godot/README.zh-CN.md) 使用 `HTTPRequest` Signal
-和每 Save Slot 一个 `RinWorkflow`。它把有界 JSON 存在
-`user://rin/<slot>.json`，网络前保存 Pending Turn 与 Outbox，而且 Transport
-Client 不修改世界。
-
-应从 Gameplay Event 或权威 Simulation Step 调用，不得在每帧 `_process()` 中
-调用。用于持久世界修改前，应替换 Advisory File Store 或让执行真正幂等。
-
-## Unity
-
-[Unity UPM Package](../examples/unity/README.zh-CN.md) 包含：
-
-- `RinClient`：有界、禁止 Redirect 的 `UnityWebRequest` Coroutine Transport；
-- `RinUnityWorkflow`：Startup Recovery、Epoch、Pending Turn、Operation Marker
-  与 Report Outbox；
-- `IRinUnityHost`：游戏所有的 `CaptureTurn` 与幂等 `Execute` 边界。
-
-`ActionOffer.arguments` 保持任意 JSON Object，不强制使用对白或某个引擎专用 DTO。
-Harness 会在 Linux、Windows 编译 Package，并验证 Restart、Backup Recovery、
-损坏状态、磁盘写入失败与原始 Argument 保留。这不能替代有 License 的 Unity
-Editor/Player 测试。
-
-## Unreal
-
-Preview [Unreal Runtime Plugin](../examples/unreal/RinHost/README.zh-CN.md)
-使用 `UGameInstanceSubsystem` 与限定所属 Game Instance 的 World Delegate。
-游戏必须从权威存档注入稳定 Session、Host、World 与 Timeline Generation；
-Adapter 不会从 PIE 或地图名称猜测它们。Capability 注册与
-`AuthorizeAndQueueInvocation` 在 Game Thread 执行，Behavior Tree MoveTo
-Task 演示单调的长动作回报。替换 World 或 Fork Timeline 会把未完成工作改为
-`outcome-unknown`。
-
-Linux 与 Windows CI 会静态拒绝不安全执行入口、大小写冲突和保留路径，但这不等于
-Unreal Header Tool、编译器、Editor、打包 Player、SaveGame 事务或导航 Runtime
-测试。
-
-## Mod Host
-
-Fabric、BepInEx Mono/IL2CPP 与 Luanti 示例展示 Server/Main Thread Dispatch 和
-持久 SDK Workflow Store。它们是 Advisory Reference，不证明生成 NPC 已适配
-每个游戏的存档与线程模型。用 [`rin init host`](host-scaffolding.zh-CN.md) 生成
-固定起点后，还要完成[真实 Host 验收矩阵](host-integration-validation.zh-CN.md)。
-
-## 引擎无关审查
-
-- Offer 只包含捕获时已经合法的动作。
-- 高权威效果留在游戏代码。
-- 有引擎导航/物理 API 时优先使用；Vision Model 是可选 Observation 来源，不是
-  默认移动系统。
-- TTS 消费已经批准的对白；音频播放不改变动作权威。
-- 长 Operation 回报 Queued/Running/Terminal 进度，并在引擎支持时使用协作取消。
-- 根据 Session 预期寿命配置 Storage Metric、Retention、Snapshot/Export 与 Log。
+完整清单见[集成验收](host-integration-validation.zh-CN.md)。

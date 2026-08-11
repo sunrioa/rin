@@ -1,165 +1,152 @@
-# Real-host integration validation
+# Host integration acceptance
 
 [English](host-integration-validation.md) | [简体中文](host-integration-validation.zh-CN.md)
 
-Rin `0.7.0` is Preview software. Compilation, mocked engine APIs, and
-restart-focused unit tests are useful gates, but they do not prove that a Mod
-is stable inside a real game. Until the relevant rows below have recorded
-evidence, the engine and Mod examples remain `advisory`.
+Contracts, unit tests, and headless game tests are release gates, but they do
+not prove that an NPC behaves naturally, remains stable, or protects player
+assets in a real game. Record automated and human evidence separately for each
+adapter.
 
-## Current automated and local evidence
+## Rin core gate
 
-| Integration | Existing evidence | Not yet proved |
-| --- | --- | --- |
-| Fabric | Real Mod JAR/NBT round trip, official dedicated-server GameTest, and authority matrix | Live Sidecar recovery, multiplayer, forced-stop, and packaged-client integrated-server smoke |
-| BepInEx Mono/IL2CPP | Real BepInEx package compilation and Core restart tests | Plugin load, game hooks, save identity, and shutdown in representative games |
-| Luanti | Windows CI uses the official 5.16.1 LuaJIT Dedicated Server to verify the source Mod, generated scaffold, and real ModStorage restart; the same verifier passes locally on macOS | Live Sidecar traffic, concurrent players, forced termination, map-save timing, and soak |
-| Godot | Official 4.6.3 headless authority generations, exact Offer binding, Active Run recovery, restart, and file-failure tests on Linux/Windows | Live Sidecar traffic in an editor session and exported build |
-| Unity | Strict API stubs: Scene/Domain generations, NavMesh compile, cancellation, late callbacks, Active Run/opaque-argument recovery, and Windows-safe replacement | Unity Editor package import and Mono/IL2CPP Player builds |
-| Unreal | Runtime Plugin structure, forbidden-surface, and Windows path tests | Unreal Header Tool/compiler, Editor load, packaged builds, SaveGame and navigation runtime |
-| Ren'Py | Linux CI runs the Python adapter/Epoch tests; local macOS runs Ren'Py 8.5.3 lint and the rollback harness | Windows adapter execution, visible engine save/load, interaction restart, and packaged builds |
-| OpenSpiel | Real 2.0.1 sequential/simultaneous/chance/hidden-information games on macOS/Linux/Windows | Semantic oracle only; no engine thread, save, Sidecar, or long-world-action lifecycle |
-| Terminal Story | V2 Adapter conformance plus internal Agent and external MCP integration on Windows, macOS, and Linux | It is an in-memory reference game, not evidence for another engine's Mod lifecycle |
+```bash
+make verify
+make build
+```
 
-## Shared crash and recovery matrix
+`make verify` covers:
 
-The checked-in `rin.host-scenarios/v1` contract indexes executable evidence
-for stale Epoch rejection, stable Operation idempotency, dynamic capability
-revocation, exact Outbox retry, long-action Epoch cancellation, authority
-thread nonblocking, recovery cleanup, simultaneous decisions, host-owned
-chance, and hidden-information noninterference. A scenario entry proves only
-the listed evidence files and their CI runners; it does not imply every engine
-has passed every case. Host-specific gaps below remain manual release gates.
+- Go formatting, vet, race, and all package tests;
+- Host, Control, and Agent OpenAPI consistency;
+- Python, JavaScript, C#, Java, and Lua SDKs;
+- Grid, Story, and Terminal V2 adapter flows;
+- MCP tools, authorization, and official-protocol-related tests.
 
-Run every applicable case against a copy of a real save. Kill the game or
-Sidecar at the named boundary; do not substitute an exception thrown inside a
-unit test.
+A successful build proves the Rin core only. A game still needs its loader,
+server, save, and UI tests.
 
-1. After persisting a Pending Turn, before sending its request.
-2. After the Sidecar accepts a request, while its response is lost.
-3. Before and after persisting an asynchronous Job ID, including Sidecar
-   restart while polling.
-4. After applying the game effect, before persisting its operation marker or
-   Outcome Outbox entry. An `advisory` integration may expose this duplication
-   window; promotion requires a game transaction or an idempotent operation
-   primitive that closes it.
-5. After sending an outcome while its acknowledgement is lost.
-6. During temporary-file/backup replacement and during the host's normal
-   autosave.
-7. With the Sidecar absent, started late, restarted, and unavailable during
-   orderly game shutdown.
+## Minimum adapter automation
 
-For every restart, verify that request and event IDs remain stable, no turn
-overlaps another turn, an already applied operation is not applied twice,
-unresolved work remains recoverable, and the Outcome Outbox eventually drains.
+### Contract
 
-## Host-specific gates
+- deterministic manifest, capability schemas, and digests;
+- bounded, paginated, strict-JSON observations with correct epochs and sequences;
+- unforgeable HostRefs and fail-closed stale references;
+- binding without world mutation and Host-only effect derivation;
+- output matching the capability output schema.
 
-### Fabric
+### Authority thread
 
-- The official GameTest starts a real Minecraft Dedicated Server and checks
-  lifecycle binding plus server-thread dispatch. Unit tests cover integrated
-  and dedicated classification, persisted generations, and stale Epoch
-  rejection; metadata must remain `environment: "*"`.
-- Install the built JAR in the pinned Minecraft `1.21.1` Fabric Dedicated
-  Server and verify startup, command/event hooks, and server-thread access.
-- Exercise two different worlds, reopen the same world, use `save-all flush`,
-  normal `/stop`, forced termination, and at least two concurrent players.
-- Confirm the save/world identity is not shared across worlds and recovery
-  state follows the authoritative world save. Run on Windows as well as Linux.
-- Add Fabric GameTests for deterministic gameplay behavior; retain a real
-  server smoke test for lifecycle and packaging. Quick-play a singleplayer
-  world on each target OS and confirm the log binds `integrated` authority.
+- every game read and write occurs on the server/main/authority thread;
+- HTTP, model, and disk waits never block the render or server tick;
+- late callbacks cannot mutate a new epoch from an old world;
+- exact redelivery of one operation never duplicates world effects.
 
-### BepInEx
+### Policy and authority
 
-- Treat BepInEx 6 as bleeding-edge/unreleased and pin the exact runtime build.
-- For Mono, load the DLL in one named representative game, source
-  `SaveIdentity` from the actual save/profile, verify main-thread effect
-  application, dependency resolution, quit, and restart.
-- For IL2CPP, repeat in a concrete game after its first-run interop generation.
-  Replace the example `ApplyDialogue` delegate with a real game hook and test
-  AOT/native backend behavior. A build against generic packages is not enough.
+- unknown effects, scopes, and ownership deny by default;
+- tests for every profile, rule, budget, and confirmation path;
+- expired controller leases, authority changes, and emergency stop block actions;
+- multiplayer autonomy defaults off and remains region/asset/budget bounded when enabled;
+- critical capabilities cannot bypass owner/admin confirmation or native game permissions.
 
-### Luanti
+### Operation
 
-- A real Luanti headless server—the official 5.16.1 Dedicated Server—now
-  loads the source Mod and a newly generated standalone scaffold twice against
-  one real world. The test uses
-  real ModStorage userdata, runs the SDK/state suites in engine LuaJIT, keeps
-  World identity stable, advances Host/Timeline generations, and is repeated
-  in Windows CI with a SHA-256-pinned official ZIP.
-- Keep `secure.http_mods` configured. Test real ModStorage across map-save
-  intervals, `/shutdown`, forced termination, and world reopen; the automated
-  graceful restart is not evidence for these failure boundaries.
-- Exercise simultaneous players, slow/unavailable Sidecar responses, and the
-  platform's loopback/redirect policy on Windows and Linux.
+- `queued` is never reported as success;
+- an operation never collected by a Host becomes `stale` with zero delivery attempts;
+- ACK, Run, and Outcome order, duplication, and regression are validated;
+- late Host outcomes reconcile `outcome-unknown`;
+- cancel and emergency stop never claim rollback;
+- every macro world mutation is an auditable child operation.
 
-### Godot
+### Security
 
-- Run an actual scene against a live Sidecar in the editor and in exported
-  Windows and Linux builds.
-- Verify `user://` persistence, scene reload, application exit, network
-  partition, UI responsiveness, and that callbacks touching nodes return to
-  the main thread.
+- tokens, API keys, filesystem paths, and private prompts never enter protocol,
+  logs, saves, or fixtures;
+- configuration and state reject symlinks, traversal, duplicate JSON fields, and oversized input;
+- unknown third-party items, blocks, entities, or components are not trusted from names alone;
+- pickup, container, combat, and destruction follow configurable asset policy.
 
-### Unity
+## Fault-injection matrix
 
-- Import the package through Unity Package Manager at the declared minimum
-  `2021.3` API level and at every Unity version the project intends to claim.
-- Build and run Windows Mono and IL2CPP Players. Test scene/domain reload,
-  `Application.persistentDataPath`, stripping/AOT, coroutine/main-thread
-  behavior, application quit, and the shared crash matrix.
-- Start the NavMesh action, change scene while path following, reload scripts
-  in the Editor, and destroy the Host. Confirm one terminal
-  `cancelled`/`outcome-unknown` report, unchanged raw arguments, and no effect
-  from a late callback. Repeat past the authored deadline.
+Using a copy of a real save, exit normally and terminate forcefully at each point:
 
-### Unreal
+1. before submitting an action;
+2. after Control persistence but before Host poll;
+3. after Host delivery but before ACK;
+4. after ACK but before the real-time controller starts;
+5. after world mutation but before writing the outcome outbox;
+6. after writing the outcome but before daemon acknowledgement;
+7. near controller lease, Host lease, or confirmation expiry;
+8. during a long task while changing world, loading a save, or unloading the Actor.
 
-- Copy `examples/unreal/RinHost` into a real project's `Plugins` directory and
-  build with the project's exact Unreal Engine version. Run Unreal Header Tool,
-  load the Editor, and package Development and Shipping Windows builds.
-- Restore stable Session/Host/World/Timeline generations from a real SaveGame;
-  test PIE instances, server travel, seamless and non-seamless map changes,
-  save/load, shutdown, forced termination, and world reopen.
-- Run the Behavior Tree movement example on the authoritative game thread.
-  Cancel during path following, unload the World while running, and verify
-  late callbacks cannot revive an old Epoch or duplicate an operation.
-- Replace the bounded in-memory markers with a SaveGame/database transaction
-  before claiming idempotent or transactional durability.
+After each recovery verify:
 
-### Ren'Py
+- operation ID, idempotency key, and applied marker remain stable;
+- an applied effect is not duplicated;
+- unexecuted stale-epoch work does not revive;
+- the outcome outbox drains and unprovable results remain explicitly unknown;
+- the Host must reregister and republish its read model before new work;
+- Internal Tasks and external MCP observe the same terminal result.
 
-- Run inside the actual engine and verify save/load, rollback, interaction
-  restart, and clean shutdown.
-- Bind stable game-owned save/world IDs, then confirm a loaded older save and
-  the first interaction after rollback both increase Timeline above the
-  persistent high-water mark. Confirm old worker completion becomes
-  `stale_epoch`.
-- Confirm that serialized state contains plain recovery data, not live worker,
-  socket, lock, or callback objects.
+## Human single-player acceptance
 
-## Soak and release evidence
+Complete a long playthrough in a new save and an existing save:
 
-As a recommended Preview release gate, run at least two hours or 1,000 turns
-per claimed host/backend while injecting timeouts, connection resets, Sidecar
-restarts, and game restarts. This is a repeatable minimum, not proof that every
-game is stable. Require:
+- installation, startup, configuration, disable, and update are understandable;
+- internal mode can converse, observe, propose, and execute allowed safe actions;
+- external MCP mode does not invoke an internal thinker and can use the same capabilities;
+- the character composes atomic capabilities into continuous work and replans after failure;
+- emergency stop halts navigation, harvesting, combat, and building promptly;
+- world changes, death, sleep, container close, and disappearing targets do not deadlock;
+- UI, logs, and errors distinguish queued, running, complete, failed, and unknown;
+- render rate or server tick has no unacceptable stall.
 
-- no unbounded thread, task, handle, memory, recovery-file, or outbox growth;
-- no duplicate world effect and no permanently overlapping turn;
-- eventual recovery or an explicit terminal error for every accepted turn;
-- no credential, full player text, or save payload in normal logs;
-- no unacceptable frame or server-tick stall under the game's own budget.
+## Human multiplayer acceptance
 
-Record the Rin commit and artifact hash, exact game/loader/engine/backend and
-versions, OS and filesystem, complete Mod list, source of the save identity,
-test/crash point, expected and actual result, relevant sanitized logs, and
-remaining Pending Turn/Attempt/Outbox counts.
+Validate on LAN and a representative dedicated server:
 
-Only promote host durability after this evidence is reviewed. Call an
-operation `idempotent` only after the same operation ID has been repeated
-without repeating its game effect. Call it `transactional` only when the game
-effect, operation marker, and durable outcome are committed by one real
-transaction.
+- autonomy defaults off and only an authorized player can enable it;
+- Actor owner, controller, and other players are never confused;
+- tamed, named, leashed, or protected assets are not attacked;
+- unauthorized containers and player items are not read or moved;
+- region protection, server permissions, command allowlists, and emergency stop
+  override model intent;
+- only one of two external Agents competing for an Actor gets the lease;
+- multiple Actors and MCP clients do not cross-wire operations or outcomes.
+
+## Behavioral-naturalness acceptance
+
+Automation cannot judge whether a character feels alive. Human reviewers record:
+
+- whether current activity, recent failure, and long-term preferences affect expression;
+- whether the character proposes sensible small goals without spamming or looping;
+- whether it knows when to wait, ask, refuse, or stop;
+- repeated actions, repeated dialogue, and repeated exploration regions;
+- whether memory references have evidence and avoid presenting inference as fact;
+- whether token use, latency, and provider cost match player value.
+
+Improve persona, memory, skills, model prompts, and observation quality for this
+section. Never weaken policy or asset protection merely to appear more autonomous.
+
+## Release evidence
+
+Record for every acceptance run:
+
+- Rin and adapter commits plus artifact SHA-256;
+- game, engine, loader, OS, runtime, and mod list;
+- single/multiplayer topology, permission profile, model, and provider;
+- steps, expected result, actual result, redacted logs, and terminal operation;
+- tick/frame time, model latency, tokens, task success, and human intervention;
+- known issues and explicitly unverified claims.
+
+Claim `idempotent-action` only after real fault tests prove that one operation
+does not duplicate effects. Claim `transactional-action` only when game effects
+and outcomes commit through one real transaction.
+
+## Stop condition
+
+After automated work, only full real-game play, GUI/installation experience,
+and subjective character/voice/interactivity review should remain. Any issue
+reproducible in code, a headless server, a fixture, or static analysis should be
+resolved before human acceptance.

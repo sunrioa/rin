@@ -1,114 +1,145 @@
-# Host Contract
+# Host V2 契约
 
 [English](host-contract.md) | [简体中文](host-contract.zh-CN.md)
 
-`host` Go 包是 Rin 用来描述游戏宿主及其可安全开放操作的引擎无关边界。
-Protocol v2 在 HTTP 边界复用其精确 Epoch、Capability、Offer、Invocation、
-Run 与 Outcome Shape；本地注册和执行权仍属于游戏。
+`rin.host/v2` 是 Rin 与权威游戏 Adapter 之间的引擎无关契约。它统一可验证的
+身份、观察、能力、意图、效果和结果，不统一游戏世界模型。
 
-## 为什么需要这条边界
+## Host Manifest
 
-通用游戏接入不能假装所有引擎共享同一种 World、Tick、对象模型或导航系统；
-可以统一的是安全决策所需的事实：
+`HostManifest` 声明 Adapter 的静态事实：
 
-- `HostManifest` 声明权威、部署、控制、时钟、决策方式、Actor 并发和持久保证。
-- `CapabilityDescriptor` 为一个带命名空间的能力声明精确语义版本、有界输入/输出
-  JSON Schema、效果、执行形态、风险、权限、超时、取消和持久要求。
-- `ActionOffer` 是游戏编写的候选动作，参数和目标已经绑定到权威 `Epoch`。
-- `ActionInvocation` 把已接受 Offer 交给本地执行器，并在派发到权威线程之前执行
-  最终 TOCTOU 授权检查。
-- `ActionRun` 与 `ActionOutcome` 区分排队、执行、未决恢复和带证据的终态。
-  Cancel 不等于 Rollback；即使能力标记为可逆，也仍需单独的补偿操作。
+- Adapter、引擎、Runtime 与平台身份；
+- `standalone`、`server` 或 `client-advisory` 权威模式；
+- loopback、dedicated、remote HTTPS、embedded offline 或 computer-control 部署描述；
+- event、step、realtime 时钟和 sequential、simultaneous、asynchronous 决策方式；
+- 最大 Actor 并发和实际 Durability 保证。
 
-这组公共部分参考了 Unity ML-Agents 的动作契约、Unreal Gameplay Ability 的激活
-方式、ROS 2 Actions 的长任务生命周期，以及 OpenSpiel/PettingZoo 的不同决策
-时间模型。Rin 不依赖这些框架，也不复制它们各自的游戏世界模型。
-[OpenSpiel 验证](open-spiel-validation.zh-CN.md)已经针对真实游戏 State 执行
-顺序、同时、Chance 与隐藏信息映射。
+Durability 只描述崩溃与重试能力：
 
-## Discovery 不等于 Authority
+| Profile | 保证 |
+| --- | --- |
+| `advisory` | 不承诺世界修改的幂等恢复 |
+| `idempotent-action` | 相同 Operation 可重复投递而不重复效果 |
+| `transactional-action` | 世界效果和结果记录由同一游戏事务提交 |
 
-`Registry.Snapshot` 只回答“这个宿主实现具备什么能力”，不会回答“这个 Actor
-当前可以做什么”。
+声明高等级不能创造保证；真实 Adapter 必须用故障注入和游戏存档机制证明它。
 
-每轮由游戏创建有界 `ActionOffer`。Policy 只能选择 `offer_id`，不能自行生成
-方法名、任意 JSON 参数、对象指针、控制台命令、Shell 或动态代码。宿主随后检查：
+## Epoch 与时钟
 
-1. 精确 Capability ID 和语义版本仍然存在；
-2. Descriptor SHA-256 Digest 没有变化；
-3. 参数符合根节点封闭的 JSON Schema；
-4. Offer 未过期且 Epoch 仍然匹配；
-5. Capability 尚未被动态撤销；
-6. 可信的当前 `Principal` 已授予所有 `required_scope`；
-7. 即将进入权威线程执行或取消前，上述条件仍然成立。
+`Epoch` 由稳定的 Session/World ID 和三个正整数 Generation 组成：
 
-Scope 只能来自游戏拥有的 Identity State，不能来自模型响应、Offer、HTTP Request
-Body 或生成参数。HostKit 还会先用 Descriptor 的精确 Output Schema 校验 Executor
-返回的本地结构化 Output，再将其放入可重启 Workflow State。
+- `host`：权威 Host 实例更换；
+- `world`：场景、维度、地图或世界重新加载；
+- `timeline`：读档、回滚或分支时间线。
 
-因此同一 Registry 可以服务 Ren'Py Label、Unity Component、Unreal Ability、
-Godot Node、服务端 Mod、Web 游戏和自研引擎，而不偏向其中任意一种宿主。
+Generation 不是渲染帧或 Tick。`Timepoint` 才表示 Host 的 event、step 或 realtime
+时钟。Action、Binding、Lease 和 Outcome 使用 Epoch 隔离旧时间线；时钟用于
+Deadline、Execution Budget 和确认过期。
 
-## 有界计划元数据
+## Observation
 
-`ActionOffer.planning` 是可选、引擎无关的计划说明。它让内部策略和 MCP Client
-理解一个 Offer 属于哪项连续工作，而不把游戏规则搬进 Rin。字段包括 `intent`、
-`plan_id`、`step_index`、`plan_revision`、前置条件、后置条件、稳定的
-`blocked_reason` 和风险级别。
+`ObservationEnvelope` 是 Host 编写的有界快照，包含：
 
-这份元数据不是新的执行入口。坐标、对象引用、物品、配方和命令仍只能存在于 Host
-已经绑定并验证的 Offer 中；调用方仍只选择 `offer_id`。规划、目标搜索、寻路和每一步
-后状态验证属于游戏 Adapter，Rin 只负责携带、校验、持久复制并向控制客户端展示元数据。
-计划修订后 Host 必须发布新 Offer，旧 Offer 继续受 Observation、Epoch、Deadline 和
-执行前复核约束。
+- Host、World、Actor、Epoch、单调 Sequence 和观察时间；
+- 由 `SchemaRef` 标识的游戏专属 Payload；
+- 标准化的 `facts`、`resources` 和无路径的 `artifacts`；
+- 可选分页 Continuation Token。
 
-## Epoch 与对象引用
+`ObservationFact` 适合生命值、姿态、关系状态等标量事实。`ObservationResource`
+额外声明 Kind、Tag、所有权、Scope、数量和 Host 验证的 Attributes。Artifact 只
+携带 ID、媒体类型、大小和 SHA-256，不携带文件路径或任意下载 URL。
 
-`Epoch` 包含稳定 Session/World ID 和三个正数、JSON-safe 的 Generation：
+`HostRef` 是不透明引用。Controller 可以从 Observation 复制它，但不能构造或解析
+其 `key`；只有所属 Adapter 可以在权威线程解析。标记为 `ephemeral` 的引用不得
+跨 Epoch 或写入长期状态。
 
-- `host`：宿主进程或权威实例被替换时变化；
-- `world`：Scene、Map、Level、Shard 或等价世界重载时变化；
-- `timeline`：存档分叉、Rollback、Rewind 或权威分支时变化。
+## Capability
 
-Epoch 的 Session ID 必须等于外层 Request 与 Session State。Observation、
-Decision、Invocation 与 Outcome 边界都会拒绝来自另一 Session 的嵌套 Epoch。
+`CapabilitySpec` 描述一种动作类型：
 
-它们不是渲染帧、物理帧、模拟 Step 或墙钟时间。`HostRef` 在 Adapter 外部是不透明
-引用，只能由所属 Adapter 在引擎权威线程解析；Ephemeral Ref 不得持久化。
+- 精确的命名空间 ID 与语义版本；
+- 封闭的 Input、Output 和 Effect Attribute JSON Schema；
+- `atomic` 或 `macro`；
+- immediate、queued 或 long-running 执行方式；
+- unsupported、cooperative 或 preemptive 取消方式；
+- 风险下限、所需 Scope、Durability 和 Host Clock Execution Budget；
+- 输入、输出、Effect 数量上限及是否产生子 Operation；
+- 对规范化字段计算的不可变 Digest。
 
-## Schema 与 Descriptor 规则
+Discovery 只说明 Host 实现了什么，不说明某次行动已获授权。当前 Actor 的 Authority、
+Controller Lease、目标状态、Effect Policy 和 Adapter 本地规则仍会分别检查。
 
-本包使用自包含 JSON Schema 2020-12。Schema 必须：
+## Schema
 
-- 不超过 64 KiB，且根节点为 Object；
-- 声明精确的 2020-12 `$schema` URI 和 `type: "object"`；
-- 显式设置 `additionalProperties: false`；
-- 不含重复 JSON Property Name，也不能加载外部引用。
+Rin 使用自包含 JSON Schema 2020-12。Capability Schema 必须是封闭根 Object，
+有严格大小限制，不加载外部引用。Rin 对规范化 Schema 计算 SHA-256，并把三个
+Schema 和执行限制密封到 Capability Digest。
 
-需要封闭的嵌套 Object Schema 必须自行声明对应规则；Contract 强制封闭根节点，
-不会擅自改写创作者提供的 Subschema。
+Controller 必须提交精确 Digest。Host 修改参数 Schema、风险、预算或执行语义时，
+即使 Capability ID/Version 未变，旧请求也会失败。正式发布应同时提升语义版本。
 
-实现对紧凑规范 JSON 计算 SHA-256，并把 Schema Hash 与运行限制绑定进第二层
-Descriptor Digest。Schema 校验复用维护成熟的
-[`santhosh-tekuri/jsonschema`](https://github.com/santhosh-tekuri/jsonschema)，
-不在项目内维护一套不完整的 Schema Engine。
+## ActionRequest
 
-## Durability 是独立维度
+Controller 唯一可编写的行动意图是 `ActionRequest`：
 
-已有[宿主持久保证分级](host-durability.zh-CN.md)只描述崩溃/重试持久保证：
+```text
+request_id / idempotency_key
+controller_id / actor_id / task_id
+capability id + version + spec_digest
+arguments / target_refs
+expected_epoch / observation_sequence
+```
 
-- `advisory`：不承诺世界修改恢复；
-- `idempotent-action`：持久 Pending Work/Outbox，并且应用可幂等；
-- `transactional-action`：效果和 Outcome Outbox 可以原子发布。
+参数必须符合 Capability Input Schema，目标必须来自可信 Observation。Request 不含
+Effect、风险、所有权、授权结果或任意执行函数。
 
-它们不枚举 Gameplay Capability。Descriptor 声明所需最低持久级别，宿主达不到时
-Registry 会拒绝注册。风险、权限、执行方式、取消和可逆性继续保持相互独立。
+## Binding 与 Effect Preview
 
-## 已交付边界
+Adapter 在权威线程执行 `Bind`：
 
-当前 Go 包已提供验证、确定性 Seal、并发注册/发现、动态撤销、Offer/Invocation/
-Output 检查、动作状态转换，以及 Race/Fuzz 覆盖。Protocol v2 与各语言 SDK
-承载类型化生命周期；[通用 Host SDK](host-sdk.zh-CN.md)进一步提供八个引擎侧
-端口、持久 Pending Decision/ActionRun/Outbox、Authority Dispatch、精确重试与
-Epoch 对账。生成 Host 工程由[通用 Host 脚手架指南](host-scaffolding.zh-CN.md)
-单独说明。
+1. 获取当前 Snapshot；
+2. 验证 Capability、Digest、Epoch 和 Observation Sequence；
+3. 解析参数与 `HostRef`；
+4. 返回规范化目标和有效期；
+5. 根据真实游戏对象生成 Effect Preview；
+6. Registry 密封不可变 `BoundAction`。
+
+`Effect` 的标准字段包括：
+
+- Kind 与 read/create/update/delete/transfer/consume/execute/communicate Operation；
+- Subject/Target、Tag、所有权、Scope、数量和单位；
+- 可逆性和 low/moderate/high/critical 风险；
+- 通过 Capability Effect Schema 校验的游戏专属 Attributes。
+
+这些字段必须由 Host 推导。Controller 文字、参数中的“safe=true”或模型自报风险
+不能影响 Policy。
+
+## 执行结果
+
+`ActionRun` 上报 Operation ID、状态、单调 `progress_seq`、0-10000 的进度和 Host
+时间。`ActionOutcome` 是唯一终态事实，绑定 Epoch、World Sequence、发生时间和
+可选 Evidence。
+
+取消是请求，不是回滚。`cancelled` 表示 Host 确认停止；`interrupted` 表示环境
+中断；`outcome-unknown` 表示已经无法证明最终效果。成功 Outcome 还必须提供符合
+Capability Output Schema 的结构化 Output。
+
+## Adapter 接口
+
+Go HostKit 的中立 `Adapter` 边界是：
+
+```text
+Manifest
+Snapshot / Observe / ListCapabilities
+Bind / Preview
+Execute / Cancel / Verify
+PolicyFacts
+```
+
+所有可能读取或修改游戏状态的方法都通过 `AuthorityDispatcher`。HostKit 可以帮助
+做 Schema、Binding、最终 Epoch 和 Output 检查，但不能替具体游戏实现主线程切换、
+导航、容器事务、资产识别或世界存档。
+
+精确 Go 类型见 `host/`，HTTP 投影见
+[`api/control-openapi.json`](../api/control-openapi.json)。

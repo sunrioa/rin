@@ -1,143 +1,146 @@
-# 真实宿主接入验收
+# Host 集成验收
 
 [English](host-integration-validation.md) | [简体中文](host-integration-validation.zh-CN.md)
 
-Rin `0.7.0` 是 Preview 软件。编译通过、模拟引擎 API 和面向重启的单元测试是有价值的
-门禁，但不能证明 Mod 在真实游戏内稳定。下列对应行尚未形成实测证据前，引擎与 Mod
-示例仍属于 `advisory`。
+契约、单元测试和 Headless GameTest 是发布门禁，但不能证明 NPC 在真实游戏里自然、
+稳定且不会破坏玩家资产。每个 Adapter 都要分别记录自动证据与真人证据。
 
-## 当前自动化与本地实测证据
+## Rin 核心门禁
 
-| 接入 | 已有证据 | 尚未证明 |
-| --- | --- | --- |
-| Fabric | 真实 Mod JAR/NBT 往返、官方 Dedicated Server GameTest 与 Authority Matrix | 实时 Sidecar 恢复、多人、强制停止和打包客户端 Integrated Server Smoke |
-| BepInEx Mono/IL2CPP | 真实 BepInEx Package 编译与 Core 重启测试 | 代表性游戏中的 Plugin 加载、游戏 Hook、存档身份和关机流程 |
-| Luanti | Windows CI 使用官方 5.16.1 LuaJIT Dedicated Server 验证源码 Mod、生成脚手架与真实 ModStorage 重启；同一校验器已在本地 macOS 通过 | 实时 Sidecar、并发玩家、强制终止、地图保存时序与 Soak |
-| Godot | Linux/Windows 官方 4.6.3 Headless Authority Generation、精确 Offer Binding、Active Run 恢复、重启与文件失败测试 | Editor Session 与 Export Build 中的实时 Sidecar 流量 |
-| Unity | 严格 API Stub：Scene/Domain Generation、NavMesh 编译、取消、迟到 Callback、Active Run/不透明参数恢复与 Windows-safe Replace | Unity Editor Package 导入和 Mono/IL2CPP Player 构建 |
-| Unreal | Runtime Plugin 结构、不安全入口与 Windows 路径测试 | Unreal Header Tool/编译器、Editor 加载、打包、SaveGame 与导航 Runtime |
-| Ren'Py | Linux CI 运行 Python Adapter/Epoch 测试；本地 macOS 运行 Ren'Py 8.5.3 Lint 与 Rollback Harness | Windows Adapter 执行、可见引擎 Save/Load、Interaction Restart 与打包 Build |
-| OpenSpiel | macOS/Linux/Windows 上真实 2.0.1 顺序/同时/Chance/隐藏信息游戏 | 仅作语义 Oracle；不含引擎线程、存档、Sidecar 或长世界动作生命周期 |
-| Terminal Story | Windows、macOS、Linux 上的 V2 Adapter 一致性、内部 Agent 与外部 MCP 集成测试 | 它是内存参考游戏，不能证明另一款引擎的 Mod 生命周期 |
+```bash
+make verify
+make build
+```
 
-## 通用崩溃与恢复矩阵
+`make verify` 覆盖：
 
-仓库内 `rin.host-scenarios/v1` Contract 会索引以下场景的可执行证据：旧 Epoch
-拒绝、稳定 Operation 幂等、动态 Capability 撤销、精确 Outbox Retry、长动作
-Epoch Cancel、Authority Thread 非阻塞、恢复清理、同时决策、Host-owned Chance
-与隐藏信息 Noninterference。一个 Scenario Entry 只证明列出的 Evidence File
-及其 CI Runner，不表示每个引擎都已经通过所有场景；下列 Host-specific 缺口仍是
-人工发布门禁。
+- Go Format、Vet、Race 和全包测试；
+- Host、Control 与 Agent OpenAPI 契约一致性；
+- Python、JavaScript、C#、Java、Lua SDK；
+- Grid、Story、Terminal 三个 V2 Adapter 流程；
+- MCP Tool、权限和官方协议相关测试。
 
-所有适用场景都应针对真实存档的副本执行。在指定边界强制结束游戏或 Sidecar，不要用
-单元测试中抛出的异常代替真实进程终止。
+构建成功只证明 Rin 核心；具体游戏仍需自己的 Loader、服务端、存档和 UI 测试。
 
-1. 已持久化 Pending Turn、尚未发送请求。
-2. Sidecar 已接受请求，但响应丢失。
-3. 持久化异步 Job ID 前后，包括轮询期间重启 Sidecar。
-4. 已应用游戏效果、尚未持久化 Operation Marker 或 Outcome Outbox Entry。
-   `advisory` 接入可以暴露这个重复窗口；晋级必须依靠游戏事务或可封闭窗口的幂等
-   Operation Primitive。
-5. 已发送 Outcome，但确认响应丢失。
-6. 临时文件/备份替换期间，以及宿主正常自动存档期间。
-7. Sidecar 缺席、延迟启动、重启，以及游戏正常关闭期间不可用。
+## Adapter 自动化最低要求
 
-每次重启后都要验证 Request/Event ID 保持稳定、Turn 不重叠、已经应用的 Operation
-不会再次应用、未决工作仍可恢复，且 Outcome Outbox 最终排空。
+### 契约
 
-## 各宿主门禁
+- Manifest、Capability Schema 和 Digest 可重复；
+- Observation 有界、分页、严格 JSON 且 Epoch/Sequence 正确；
+- HostRef 不可伪造、过期引用失败关闭；
+- Binding 不修改世界，Effect 完全由 Host 生成；
+- Output 符合 Capability Output Schema。
 
-### Fabric
+### 权威线程
 
-- 官方 GameTest 会启动真实 Minecraft Dedicated Server，检查 Lifecycle Binding
-  与 Server Thread Dispatch。单测覆盖 Integrated/Dedicated 分类、持久
-  Generation 与旧 Epoch 拒绝；Metadata 必须保持 `environment: "*"`。
-- 把构建的 JAR 安装到锁定版本的 Minecraft `1.21.1` Fabric Dedicated Server，
-  验证启动、Command/Event Hook 和 Server Thread 访问。
-- 使用两个不同世界，重开同一世界，执行 `save-all flush`、正常 `/stop`、强制终止，
-  并使用至少两个并发玩家。
-- 确认 Save/World Identity 不会跨世界共用，恢复状态随权威世界存档保存；除 Linux
-  外还需在 Windows 执行。
-- 为确定性玩法行为增加 Fabric GameTest，并保留真实 Server Smoke Test 覆盖生命周期
-  和打包。每个目标 OS 都要 Quick-play 单人世界，并确认日志绑定 `integrated`
-  Authority。
+- 所有游戏读写在 Server/Main/Authority Thread；
+- HTTP、模型和磁盘等待不阻塞 Render/Server Tick；
+- 迟到回调无法在新 Epoch 修改旧世界；
+- 同一个 Operation 精确重投不会重复世界效果。
 
-### BepInEx
+### Policy 与权限
 
-- 将 BepInEx 6 视为 Bleeding-edge/未正式发布版本，并锁定精确 Runtime Build。
-- Mono 必须在一款具名代表性游戏中加载 DLL，从真实存档/Profile 获取
-  `SaveIdentity`，验证主线程效果应用、依赖解析、退出和重启。
-- IL2CPP 必须在具体游戏完成首次 Interop 生成后重复验收。把示例 `ApplyDialogue`
-  Delegate 替换为真实游戏 Hook，并测试 AOT/Native Backend；只对通用 Package
-  编译通过不算完成。
+- 未知 Effect、Scope、Ownership 默认拒绝；
+- 每个 Profile、Rule、Budget 和确认路径有测试；
+- Controller Lease 过期、Authority Revision 变化和 Emergency Stop 都会阻止动作；
+- 多人默认关闭自主控制，显式开放后仍受区域、资产和预算约束；
+- critical 能力不能绕过 Owner/Admin 确认和游戏原生权限。
 
-### Luanti
+### Operation
 
-- 真实 Luanti Headless Server（官方 5.16.1 Dedicated Server）已对同一真实
-  World 各加载源码 Mod 与新生成的
-  独立脚手架两次。测试使用真实 ModStorage userdata，在引擎 LuaJIT 内运行
-  SDK/State Suite，确认 World Identity 不变、Host/Timeline Generation 前进；
-  Windows CI 还会使用 SHA-256 固定的官方 ZIP 重复执行。
-- 保持 `secure.http_mods` 配置，并跨地图保存周期、`/shutdown`、强制终止和
-  World 重开验证真实 ModStorage；自动化的正常重启不能替代这些故障边界。
-- 覆盖并发玩家、Sidecar 缓慢/不可用响应，以及 Windows 和 Linux 上的
-  Loopback/Redirect Policy。
+- `queued` 不被报告为成功；
+- Host 从未领取时得到 `stale` 和 `delivery_attempts=0`；
+- ACK、Run 和 Outcome 顺序、重复和倒退都被校验；
+- `outcome-unknown` 可以由迟到 Host Outcome 对账；
+- Cancel 与 Emergency Stop 不声称回滚；
+- Macro 的每个世界修改都是可审计 Child Operation。
 
-### Godot
+### 安全
 
-- 在 Editor 和导出的 Windows/Linux Build 中运行真实 Scene，并连接实时 Sidecar。
-- 验证 `user://` 持久化、Scene Reload、应用退出、网络分区、UI 响应性，以及触碰
-  Node 的 Callback 回到主线程。
+- Token、API Key、文件路径和私有 Prompt 不出现在协议、日志、存档或夹具；
+- 配置和状态拒绝符号链接、路径穿越、重复 JSON 字段和超限输入；
+- 未知第三方物品、方块、实体或组件不会仅凭名称被视为安全；
+- 自动拾取、容器、战斗和破坏行为遵循可配置资产策略。
 
-### Unity
+## 故障注入矩阵
 
-- 在声明的最低 `2021.3` API Level，以及项目准备公开声称支持的每个 Unity 版本中，
-  通过 Unity Package Manager 导入 Package。
-- 构建并运行 Windows Mono 与 IL2CPP Player，验证 Scene/Domain Reload、
-  `Application.persistentDataPath`、Stripping/AOT、Coroutine/主线程、应用退出和
-  通用崩溃矩阵。
-- 在寻路期间切换 Scene、在 Editor Reload Script，并销毁 Host；确认只产生一个
-  `cancelled`/`outcome-unknown` 终态报告，原始参数不变，迟到 Callback 不再产生
-  效果。超过宿主编写 Deadline 的路径也要重复验证。
+在真实存档副本中，分别于以下时点正常退出和强制终止：
 
-### Unreal
+1. Action 尚未提交；
+2. Control 已持久入队但 Host 尚未 Poll；
+3. Host 已收到但尚未 ACK；
+4. Host 已 ACK、尚未开始实时控制器；
+5. 世界已改变、Outcome Outbox 尚未写入；
+6. Outcome 已写入、Daemon 尚未确认；
+7. Controller Lease、Host Lease 或确认即将过期；
+8. 长任务运行中切换世界、读档或卸载 Actor。
 
-- 将 `examples/unreal/RinHost` 复制到真实项目 `Plugins` 目录，用项目的准确 Unreal
-  Engine 版本运行 Unreal Header Tool、编译、Editor 加载，并打包 Windows
-  Development 与 Shipping Build。
-- 从真实 SaveGame 恢复稳定 Session/Host/World/Timeline Generation；覆盖 PIE
-  多实例、Server Travel、无缝/非无缝地图切换、存读档、正常关闭、强制终止和
-  World 重开。
-- 在权威 Game Thread 运行 Behavior Tree 移动示例；寻路期间取消、运行中卸载
-  World，并确认迟到 Callback 不能恢复旧 Epoch 或重复 Operation。
-- 声称 Idempotent/Transactional Durability 前，必须用 SaveGame/Database
-  Transaction 替换有界内存 Marker。
+每次恢复后检查：
 
-### Ren'Py
+- Operation ID、Idempotency Key 和 Applied Marker 保持一致；
+- 已执行效果不会重复；
+- 未执行的旧 Epoch 动作不会复活；
+- Outcome Outbox 最终排空，无法证明的结果明确为 `outcome-unknown`；
+- Host 重新注册和发布 Read Model 后才能接收新任务；
+- 内部 Task 和外部 MCP 都看到相同终态。
 
-- 在真实引擎中验证 Save/Load、Rollback、Interaction Restart 和正常关闭。
-- 绑定由游戏拥有的稳定 Save/World ID，确认加载旧存档和 Rollback 后首次
-  Interaction 都会把 Timeline 提升到 Persistent 高水位以上，并确认旧 Worker
-  完成结果变成 `stale_epoch`。
-- 确认序列化状态只包含普通恢复数据，不包含存活的 Worker、Socket、Lock 或
-  Callback Object。
+## 真人单人验收
 
-## Soak 与发布证据
+至少完成一次新存档和一次已有存档的长时间游玩：
 
-建议把每个声称支持的宿主/Backend 至少两小时或 1,000 Turn 的运行作为 Preview
-发布门禁，并注入 Timeout、Connection Reset、Sidecar Restart 和 Game Restart。
-这是可重复的最低门禁，不是所有游戏必然稳定的证明。必须满足：
+- 安装、启动、配置、禁用和更新流程可理解；
+- 内部模式能对话、观察、主动提出并直接执行允许的安全行动；
+- 外部 MCP 模式不调用内部思考器，仍可完成相同 Capability；
+- 角色能组合原子能力完成一项连续工作，并在失败后合理重新规划；
+- 急停在可接受时间内停止导航、采集、战斗和建造；
+- 世界切换、死亡、睡眠、容器关闭和目标消失不会卡死；
+- UI、日志和错误能区分“已排队、执行中、已完成、失败、结果未知”；
+- 游戏帧率或服务端 Tick 没有不可接受的停顿。
 
-- Thread、Task、Handle、Memory、恢复文件和 Outbox 均无无界增长；
-- 无重复世界效果，也无永久重叠 Turn；
-- 每个 Accepted Turn 最终恢复，或得到明确 Terminal Error；
-- 正常日志不含 Credential、完整玩家文本或存档 Payload；
-- 在游戏自己的预算内没有不可接受的 Frame/Server Tick Stall。
+## 真人多人验收
 
-记录 Rin Commit 与 Artifact Hash、准确的游戏/Loader/Engine/Backend 及版本、OS 与
-文件系统、完整 Mod List、Save Identity 来源、测试/崩溃点、预期和实际结果、相关的
-脱敏日志，以及剩余 Pending Turn/Attempt/Outbox 数量。
+在局域网和代表性专用服务器分别验证：
 
-只有这些证据完成审查后才能提升宿主持久等级。只有同一个 Operation ID 重复执行且
-游戏效果不重复，才可称为 `idempotent`；只有游戏效果、Operation Marker 与持久
-Outcome 由同一个真实事务提交，才可称为 `transactional`。
+- 自主模式默认关闭，只有有权玩家可以开启；
+- Actor 所有者、控制者和其他玩家身份不会混淆；
+- 不攻击驯服、命名、拴住或受保护的资产；
+- 不读取或移动未授权容器和玩家物品；
+- 区域保护、服务端权限、命令白名单和急停优先于模型意图；
+- 两个外部 Agent 竞争同一 Actor 时只有一个 Lease 成功；
+- 多个 Actor 和多个 MCP Client 不会互相串 Operation 或 Outcome。
+
+## 行为自然度验收
+
+自动测试不能判断“像活人”。真人应记录：
+
+- 是否会结合当前活动、近期失败和长期偏好调整表达；
+- 是否会主动提出合理小目标，而不是刷屏或无限循环；
+- 是否知道何时等待、询问、拒绝或停止；
+- 是否会重复同一行动、同一句话或同一片区域；
+- 记忆引用是否有证据、是否把推测误当事实；
+- Token、延迟和模型费用是否匹配实际玩家价值。
+
+该部分只影响 Persona、Memory、Skill、模型提示和 Adapter 观察质量，不得通过降低
+Policy 或资产保护来“提高自主性”。
+
+## 发布证据
+
+每次验收记录：
+
+- Rin 与 Adapter Commit、构建 Artifact SHA-256；
+- 游戏、引擎、Loader、OS、Java/.NET/Runtime 和 Mod 列表；
+- 单人/多人类型、权限 Profile、模型和 Provider；
+- 测试步骤、预期、实际、脱敏日志和最终 Operation；
+- Tick/帧时间、模型延迟、Token、任务成功率和人工干预次数；
+- 已知问题与明确未验证项。
+
+只有真实故障测试证明同一 Operation 不重复效果，才能声明
+`idempotent-action`；只有游戏效果和 Outcome 由同一真实事务提交，才能声明
+`transactional-action`。
+
+## 停止条件
+
+自动工作完成后，只应剩下三类人工项：真实游戏完整试玩、GUI/安装体验确认、角色
+自然度与语音/交互主观评价。任何可通过代码、Headless Server、Fixture 或静态扫描
+复现的问题都不应推给真人验收。

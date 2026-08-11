@@ -9,6 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/release"
 )
 
 // Gateway binds one configured external principal to Control V2 tools.
@@ -50,7 +51,7 @@ func NewClient(
 		principal: clonePrincipal(principal),
 	}
 	gateway.server = mcp.NewServer(
-		&mcp.Implementation{Name: "rin", Version: "0.8.0"},
+		&mcp.Implementation{Name: "rin", Version: release.Version},
 		&mcp.ServerOptions{
 			Instructions: "Inspect only Host-published observations and capability specs. Acquire the actor's controller lease before submitting a typed action. The Host binds effects and Rin policy authorizes them; never invent effects, permissions, targets, or execution results. queued, delivered, accepted, and running are not completion. Report success only when execution_confirmed=true with an authoritative Host outcome. outcome-unknown is unresolved and must not be retried automatically.",
 			Capabilities: &mcp.ServerCapabilities{},

@@ -59,8 +59,8 @@ func writeRootHelp(output *os.File) error {
   rin mcp [install|status|update|uninstall]
   rin version
 
-Rin game Hosts connect to the separately managed rin-control daemon. The
-retired Session/Proposal Sidecar is not part of Harness V2.
+Rin game Hosts connect to the separately managed rin-control daemon. Controllers
+use the V2 Host, Control, and Agent contracts described in this repository.
 `)
 	return err
 }
