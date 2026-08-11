@@ -9,6 +9,8 @@
 
 ### 新增
 
+- 新增运行时动态 Actor 的显式默认 Persona 绑定，以及复用有界 Control Transport 的
+  Task-only Java `RinAgentClient`。
 - 新增持久化内部 Agent Macro 父子循环。Macro 父 Operation 进入 `accepted` 或
   `running` 后，模型重新观察并通过同一 ActionGateway 提交带精确 Parent ID 的 Atomic
   Child；重启恢复、确认、结果未知和先子后父取消均保留审计事实。

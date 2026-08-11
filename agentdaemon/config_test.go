@@ -76,6 +76,20 @@ func TestNormalizeConfigRejectsControlPlaneAuthority(t *testing.T) {
 	}
 }
 
+func TestNormalizeConfigAcceptsOnlyUnscopedDefaultPersonaBinding(t *testing.T) {
+	config := testConfig(AuthenticationNone)
+	config.PersonaBindings = []cognition.PersonaBinding{{
+		PersonaID: "companion", Version: "v1",
+	}}
+	if _, err := normalizeConfig(config); err != nil {
+		t.Fatalf("default persona binding was rejected: %v", err)
+	}
+	config.PersonaBindings[0].ControllerID = "controller.internal"
+	if _, err := normalizeConfig(config); err == nil {
+		t.Fatal("controller-scoped default persona binding was accepted")
+	}
+}
+
 func TestNormalizeConfigRejectsRemotePlaintextModelTransport(t *testing.T) {
 	config := testConfig(AuthenticationBearerEnv)
 	config.Model.BaseURL = "http://models.example.test/v1"

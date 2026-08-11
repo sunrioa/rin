@@ -131,6 +131,9 @@ func (provider *LocalPersonaProvider) Load(
 		binding, exists = provider.bindings[personaBindingKey(request.ActorID, "")]
 	}
 	if !exists {
+		binding, exists = provider.bindings[personaBindingKey("", "")]
+	}
+	if !exists {
 		return PersonaProfile{}, ErrProviderNotFound
 	}
 	return clonePersonaProfile(provider.profiles[providerKey(binding.PersonaID, binding.Version)]), nil
@@ -252,7 +255,11 @@ func SealPersonaProfile(profile PersonaProfile) (PersonaProfile, error) {
 }
 
 func validatePersonaBinding(binding PersonaBinding) error {
-	if err := validateProviderID("actor_id", binding.ActorID); err != nil {
+	if binding.ActorID == "" {
+		if binding.ControllerID != "" {
+			return errors.New("default persona binding cannot select a controller")
+		}
+	} else if err := validateProviderID("actor_id", binding.ActorID); err != nil {
 		return err
 	}
 	if binding.ControllerID != "" {

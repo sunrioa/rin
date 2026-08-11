@@ -52,6 +52,74 @@ func TestLocalPersonaProviderUsesControllerBindingThenActorFallback(t *testing.T
 	}
 }
 
+func TestLocalPersonaProviderUsesDefaultOnlyAfterExactBindings(t *testing.T) {
+	provider, err := cognition.NewLocalPersonaProvider(
+		[]cognition.PersonaProfile{
+			{PersonaID: "persona.default", Version: "v1", Identity: "Default identity."},
+			{PersonaID: "persona.actor", Version: "v1", Identity: "Actor identity."},
+			{PersonaID: "persona.controller", Version: "v1", Identity: "Controller identity."},
+		},
+		[]cognition.PersonaBinding{
+			{PersonaID: "persona.default", Version: "v1"},
+			{ActorID: "actor.mira", PersonaID: "persona.actor", Version: "v1"},
+			{
+				ActorID: "actor.mira", ControllerID: "controller.external",
+				PersonaID: "persona.controller", Version: "v1",
+			},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		name       string
+		actorID    string
+		controller string
+		personaID  string
+	}{
+		{name: "dynamic actor", actorID: "actor.runtime.42", controller: "controller.internal", personaID: "persona.default"},
+		{name: "actor override", actorID: "actor.mira", controller: "controller.internal", personaID: "persona.actor"},
+		{name: "controller override", actorID: "actor.mira", controller: "controller.external", personaID: "persona.controller"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			profile, loadErr := provider.Load(context.Background(), cognition.PersonaRequest{
+				ActorID: test.actorID, ControllerID: test.controller,
+			})
+			if loadErr != nil || profile.PersonaID != test.personaID {
+				t.Fatalf("Load = %+v, %v", profile, loadErr)
+			}
+		})
+	}
+
+	snapshot, err := provider.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Bindings[0].ActorID != "" || snapshot.Bindings[0].ControllerID != "" {
+		t.Fatalf("snapshot lost the explicit default binding: %+v", snapshot.Bindings)
+	}
+}
+
+func TestLocalPersonaProviderRejectsInvalidDefaultBindings(t *testing.T) {
+	profile := []cognition.PersonaProfile{{
+		PersonaID: "persona.default", Version: "v1", Identity: "Default identity.",
+	}}
+	_, err := cognition.NewLocalPersonaProvider(profile, []cognition.PersonaBinding{
+		{ControllerID: "controller.internal", PersonaID: "persona.default", Version: "v1"},
+	})
+	if err == nil {
+		t.Fatal("default binding selected a controller")
+	}
+	_, err = cognition.NewLocalPersonaProvider(profile, []cognition.PersonaBinding{
+		{PersonaID: "persona.default", Version: "v1"},
+		{PersonaID: "persona.default", Version: "v1"},
+	})
+	if err == nil {
+		t.Fatal("duplicate default bindings were accepted")
+	}
+}
+
 func TestLocalPersonaProviderReturnsImmutableValuesAndSnapshot(t *testing.T) {
 	profile := cognition.PersonaProfile{
 		PersonaID: "persona.mira",

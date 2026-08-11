@@ -50,12 +50,14 @@
     }
   }],
   "persona_bindings": [{
-    "actor_id": "actor.companion",
     "persona_id": "companion",
     "version": "v1"
   }]
 }
 ```
+
+不填写 `actor_id` 的绑定是运行时动态 Actor 的显式默认人格。精确的
+Actor+Controller 绑定和 Actor 绑定优先；只能配置一个默认绑定，且默认绑定不能选择 Controller。
 
 ```bash
 chmod 600 /absolute/path/agent.json

@@ -159,7 +159,7 @@ public final class RinControlClient {
                 .thenApply(RinControlClient::asObjectList);
     }
 
-    private CompletableFuture<Map<String, Object>> requestObject(
+    CompletableFuture<Map<String, Object>> requestObject(
             String method,
             String path,
             Map<String, ?> input) {

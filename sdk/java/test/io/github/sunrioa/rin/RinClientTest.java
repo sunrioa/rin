@@ -30,6 +30,7 @@ public final class RinClientTest {
         HostControlSessionTest.run();
         HostActionContractTest.run();
         RinControlClientTest.run();
+        RinAgentClientTest.run();
         require(
                 RinClient.DEFAULT_MAX_RESPONSE_BYTES == 32 * 1024 * 1024,
                 "default response limit does not match the inline transport budget");

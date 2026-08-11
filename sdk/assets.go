@@ -28,6 +28,7 @@ const Version = protocol.ContractReleaseVersion
 //go:embed java/src/main/java/io/github/sunrioa/rin/PendingTurn.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/ProposalFreshness.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/ResolvedPendingTurn.java
+//go:embed java/src/main/java/io/github/sunrioa/rin/RinAgentClient.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/RinApiException.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/RinClient.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/RinConfigurationException.java

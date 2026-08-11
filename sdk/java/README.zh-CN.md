@@ -34,6 +34,9 @@ control.listWorlds().thenAccept(System.out::println).join();
 急停；只允许本机回环连接并强制使用 Token。只有带 Host Outcome 的 Operation
 终态才能证明游戏已执行。
 
+`RinAgentClient` 只暴露可选内部 Agent 的 Task API。它必须使用独立 Agent Token；
+固定方法不能调用 `/control/v2`，也不能提升 `rin-control` 配置的 Task Principal。
+
 `JsonCodec.decodeObject` 必须拒绝非 Object 根节点。调用返回
 `CompletableFuture`；Minecraft 或其他引擎状态修改必须重新安排到引擎
 拥有的游戏线程。配置的 Deadline 直接使用 JDK `HttpRequest.timeout`；取消返回的

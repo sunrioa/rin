@@ -35,6 +35,10 @@ submission and confirmation, Operation wait/cancel, and emergency stop. It is
 loopback-only, requires a token, and treats only a terminal Operation with a
 Host Outcome as proof of execution.
 
+`RinAgentClient` exposes only the optional internal Agent Task API. Construct
+it with the separate Agent token; its fixed methods cannot call `/control/v2`
+or elevate the Task Principal configured by `rin-control`.
+
 `JsonCodec.decodeObject` must reject a non-object root. Calls return
 `CompletableFuture`; schedule any Minecraft or other engine mutation back on
 the owning game thread. The configured deadline is the JDK

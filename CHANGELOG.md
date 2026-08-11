@@ -10,6 +10,8 @@ across every future minor release.
 
 ### Added
 
+- Added an explicit default Persona binding for dynamically created actors and
+  a task-only Java `RinAgentClient` that reuses the bounded Control transport.
 - Added a durable internal-Agent Macro parent-child loop. Once the Macro parent
   reaches `accepted` or `running`, the model re-observes and submits atomic
   children with the exact parent ID through the same ActionGateway. Restart,

@@ -54,12 +54,15 @@ Create a JSON file readable only by the current user, such as
     }
   }],
   "persona_bindings": [{
-    "actor_id": "actor.companion",
     "persona_id": "companion",
     "version": "v1"
   }]
 }
 ```
+
+A binding without `actor_id` is the explicit default for dynamically created
+actors. Exact actor-and-controller and actor-only bindings take precedence.
+Only one default is allowed, and it cannot select a controller.
 
 ```bash
 chmod 600 /absolute/path/agent.json
