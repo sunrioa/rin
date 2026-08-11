@@ -202,6 +202,12 @@ func (runtime *AgentRuntime) GetTask(
 	return runtime.tasks.Load(ctx, taskID)
 }
 
+// SnapshotTasks returns the durable task projection used by application-level
+// schedulers to recover unfinished work after a daemon restart.
+func (runtime *AgentRuntime) SnapshotTasks(ctx context.Context) (TaskSnapshot, error) {
+	return runtime.tasks.Snapshot(ctx)
+}
+
 func (runtime *AgentRuntime) ResumeTask(
 	ctx context.Context,
 	taskID string,
