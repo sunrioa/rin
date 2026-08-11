@@ -26,6 +26,7 @@ import java.util.concurrent.Flow;
 
 /** Thin loopback client for the engine-neutral Control V2 contract. */
 public final class RinControlClient {
+    public static final String VERSION = "0.7.0";
     public static final String CONTRACT_VERSION = "rin.control/v2";
     public static final String DEFAULT_BASE_URL = "http://127.0.0.1:7375";
     public static final int MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
@@ -175,9 +176,9 @@ public final class RinControlClient {
                 .timeout(timeout)
                 .header("Accept", "application/json")
                 .header("Authorization", "Bearer " + token)
-                .header("User-Agent", "rin-control-java/" + RinClient.VERSION);
+                .header("User-Agent", "rin-control-java/" + VERSION);
         if (input != null) {
-            RinClient.validateRequestJson(input);
+            JsonValues.validateRequest(input);
             final String encoded;
             try {
                 encoded = codec.encodeObject(input);

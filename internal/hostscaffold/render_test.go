@@ -146,7 +146,7 @@ func TestRenderRecordsEmbeddedSDKIdentitySeparatelyFromProjectVersion(t *testing
 			manifest.Generator.RinVersion, sdkassets.Version)
 	}
 	sdkSource := string(renderedByPath(
-		t, plan, "src/main/java/io/github/sunrioa/rin/RinClient.java").Data)
+		t, plan, "src/main/java/io/github/sunrioa/rin/RinControlClient.java").Data)
 	if !strings.Contains(sdkSource, `VERSION = "`+sdkassets.Version+`"`) ||
 		strings.Contains(sdkSource, `VERSION = "`+options.Version+`"`) {
 		t.Fatal("project version changed the vendored SDK identity")
@@ -213,8 +213,8 @@ func TestFabricRenderIsStandaloneAndCustomized(t *testing.T) {
 	}
 	assertVendoredAsset(
 		t, plan,
-		"src/main/java/io/github/sunrioa/rin/RinClient.java",
-		sdkassets.FS, "java/src/main/java/io/github/sunrioa/rin/RinClient.java",
+		"src/main/java/io/github/sunrioa/rin/RinControlClient.java",
+		sdkassets.FS, "java/src/main/java/io/github/sunrioa/rin/RinControlClient.java",
 	)
 }
 

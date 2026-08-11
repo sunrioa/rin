@@ -407,7 +407,7 @@ public final class HostControlSession {
             }
             result.put(key, entry.getValue());
         }
-        return PendingTurn.copyJsonObject(result);
+        return JsonValues.copyObject(result);
     }
 
     private static Map<String, Object> mapOf(Object... entries) {

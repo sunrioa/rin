@@ -74,7 +74,7 @@ func TestEmbeddedSDKInventoryMatchesCanonicalSources(t *testing.T) {
 
 func TestEmbeddedSDKVersionMatchesClientProjections(t *testing.T) {
 	expectedFragments := map[string]string{
-		"java/src/main/java/io/github/sunrioa/rin/RinClient.java": `VERSION = "` +
+		"java/src/main/java/io/github/sunrioa/rin/RinControlClient.java": `VERSION = "` +
 			sdkassets.Version + `"`,
 		"csharp/Rin.Client/RinClient.cs": `ClientVersion = "` +
 			sdkassets.Version + `"`,

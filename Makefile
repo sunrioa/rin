@@ -61,7 +61,7 @@ test-sdk-java:
 	mkdir -p .cache/java-sdk
 	find sdk/java/src/main/java sdk/java/test -name '*.java' > .cache/java-sdk/sources.txt
 	$(JAVAC) --add-modules jdk.httpserver -d .cache/java-sdk @.cache/java-sdk/sources.txt
-	$(JAVA) --add-modules jdk.httpserver -cp .cache/java-sdk io.github.sunrioa.rin.RinClientTest
+	$(JAVA) --add-modules jdk.httpserver -cp .cache/java-sdk io.github.sunrioa.rin.RinSdkTest
 
 test-sdk-lua:
 	$(LUA) sdk/lua/test_client.lua

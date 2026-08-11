@@ -15,29 +15,18 @@ const Version = release.Version
 // FS contains only the explicitly reviewed Java, C#, and Lua SDK sources and
 // project metadata.
 //
-//go:embed java/src/main/java/io/github/sunrioa/rin/HostActions.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/HostActionContract.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/HostControlSession.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/HostControlTransport.java
-//go:embed java/src/main/java/io/github/sunrioa/rin/HostDurability.java
-//go:embed java/src/main/java/io/github/sunrioa/rin/HostDurabilityProfile.java
-//go:embed java/src/main/java/io/github/sunrioa/rin/JsonCodec.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/JsonValueCodec.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/JsonValues.java
-//go:embed java/src/main/java/io/github/sunrioa/rin/OutcomeOutboxEntry.java
-//go:embed java/src/main/java/io/github/sunrioa/rin/PendingTurn.java
-//go:embed java/src/main/java/io/github/sunrioa/rin/ProposalFreshness.java
-//go:embed java/src/main/java/io/github/sunrioa/rin/ResolvedPendingTurn.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/RinAgentClient.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/RinApiException.java
-//go:embed java/src/main/java/io/github/sunrioa/rin/RinClient.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/RinConfigurationException.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/RinControlClient.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/RinException.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/RinProtocolException.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/RinTransportException.java
-//go:embed java/src/main/java/io/github/sunrioa/rin/WorkflowCoordinator.java
-//go:embed java/src/main/java/io/github/sunrioa/rin/WorkflowStore.java
 //go:embed csharp/Rin.Client/AssemblyInfo.cs
 //go:embed csharp/Rin.Client/AuthoritativeWorkflow.cs
 //go:embed csharp/Rin.Client/HostActions.cs
