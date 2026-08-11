@@ -73,10 +73,29 @@ OpenAI-compatible 服务时，把 `authentication` 设为 `none` 并确保
 
 - Task HTTP 契约以 [`api/agent-openapi.json`](../api/agent-openapi.json) 为准。
 - 状态固定写入 `<RIN_CONTROL_DATA_DIR>/agent/tasks.json` 和 `memory.json`。
+- Task Snapshot 使用 `rin.cognition.tasks/v2`。Preview 版本不读取 v1；升级前应结束或取消
+  旧内部任务，不复制运行中的 Operation 状态。
 - 状态文件使用私有权限、原子替换和单写者进程锁；配置不能改变状态路径。
 - `scheduled=true` 只表示任务已进入后台队列，不表示模型已决策、游戏已执行或
   目标已经完成。
 - 停止时先取消并等待 Agent worker，再释放 Task/Memory 锁，最后关闭 Control Plane。
+
+## Macro 父子循环
+
+内部 Runtime 与外部 MCP 使用同一套父子 Operation 契约。模型选择声明
+`kind=macro` 且 `produces_child_operations=true` 的能力后，只有 Host 将父 Operation
+推进到 `accepted` 或 `running`，Task 才记录 `macro_operation_id` 并进入下一次观察。
+后续模型请求携带可信 `parent_operation_id`，所选 Atomic Child 仍逐项经过 Host Binding、
+Policy、执行与权威 Outcome。
+
+- queued、delivered、awaiting-confirmation、accepted 和 running 都不是完成证据；父 Operation 只有
+  权威终态后才从 Task 清除。
+- 运行父 Macro 时，模型只看到 Atomic Capability；Control Plane 仍支持嵌套 Macro，但当前
+  内部 Runtime 不自动创建第二层父任务。
+- 有运行中 Child 时取消 Task，会先取消 Child，再取消 Parent；父操作稳定终止前 Task 保持
+  `cancelling`。
+- Child 或 Parent 的 `outcome-unknown` 会保留准确 Operation ID，并停止继续决策。
+- Provider 故障或预算耗尽会暂停而不是释放控制后遗留父 Macro；用户仍可恢复或取消 Task。
 
 模型只能提出基于当前 Observation 和 Capability 的 ActionRequest。Host 仍负责绑定
 目标、预览 Effect、执行 Policy、修改世界并返回 Outcome；人格、记忆或 Task Token

@@ -256,8 +256,11 @@ func (runtime *AgentRuntime) CancelTask(
 	if err != nil || terminalTaskStatus(task.Status) {
 		return task, err
 	}
-	if task.PendingOperationID == "" {
+	if task.PendingOperationID == "" && task.MacroOperationID == "" {
 		return runtime.finishCancelledTask(ctx, task, "before-operation")
+	}
+	if task.PendingOperationID == "" && task.MacroOperationID != "" {
+		clearPendingTaskAction(&task)
 	}
 	if task.Status != TaskCancelling {
 		task.Status = TaskCancelling
@@ -271,7 +274,14 @@ func (runtime *AgentRuntime) CancelTask(
 			return task, err
 		}
 	}
-	settled, _, err := runtime.advancePendingAction(ctx, task)
+	if task.PendingOperationID != "" {
+		var keepRunning bool
+		task, keepRunning, err = runtime.advancePendingAction(ctx, task)
+		if err != nil || !keepRunning || task.MacroOperationID == "" {
+			return task, err
+		}
+	}
+	settled, _, err := runtime.advanceMacroOperation(ctx, task)
 	return settled, err
 }
 
@@ -312,6 +322,13 @@ func (runtime *AgentRuntime) advanceTask(
 ) (TaskSession, bool, error) {
 	if task.PendingAction != nil {
 		return runtime.advancePendingAction(ctx, task)
+	}
+	if task.MacroOperationID != "" {
+		advanced, ready, err := runtime.advanceMacroOperation(ctx, task)
+		if err != nil || !ready {
+			return advanced, false, err
+		}
+		task = advanced
 	}
 	if task.Status == TaskCancelling {
 		cancelled, err := runtime.finishCancelledTask(ctx, task, "no-pending-operation")
@@ -365,6 +382,14 @@ func (runtime *AgentRuntime) advanceTask(
 		paused, pauseErr := runtime.pauseTask(ctx, task, "capabilities.invalid", err)
 		return paused, false, pauseErr
 	}
+	if task.MacroOperationID != "" {
+		specs = slices.DeleteFunc(specs, func(spec host.CapabilitySpec) bool {
+			return spec.Kind == host.CapabilityMacro
+		})
+		summaries = slices.DeleteFunc(summaries, func(summary CapabilitySummary) bool {
+			return summary.Kind == host.CapabilityMacro
+		})
+	}
 	persona, err := runtime.persona.Load(ctx, PersonaRequest{
 		ActorID: task.ActorID, ControllerID: task.ControllerID,
 	})
@@ -403,7 +428,8 @@ func (runtime *AgentRuntime) advanceTask(
 	input := ModelInput{
 		Task: ModelTaskContext{
 			TaskID: task.TaskID, SessionID: task.SessionID, ActorID: task.ActorID,
-			ControllerID: task.ControllerID, Goal: task.Goal, Tags: task.Tags,
+			ControllerID: task.ControllerID, ParentOperationID: task.MacroOperationID,
+			Goal: task.Goal, Tags: task.Tags,
 		},
 		Persona: persona, Observation: observation, Memories: memories,
 		Capabilities: summaries, Skills: skills,
@@ -529,6 +555,11 @@ func (runtime *AgentRuntime) applyModelDecision(
 		saved, err := runtime.saveTask(ctx, task)
 		return saved, false, err
 	case ModelDecisionComplete:
+		if task.MacroOperationID != "" {
+			err := errors.New("model cannot complete a task while its macro is running")
+			paused, pauseErr := runtime.pauseTask(ctx, task, "model.invalid", err)
+			return paused, false, pauseErr
+		}
 		warning, err := runtime.appendModelDecisionMemories(
 			ctx, task, observation, runtime.stepID(task, "decision"), decision.MemoryCandidates,
 		)
@@ -577,6 +608,8 @@ func (runtime *AgentRuntime) applyModelDecision(
 			return paused, false, pauseErr
 		}
 		task.PendingAction = &request
+		task.PendingActionMacro = summary.Kind == host.CapabilityMacro &&
+			summary.ProducesChildOperations
 		task.PendingMemories = buildPendingModelMemories(task, observation, request, decision.MemoryCandidates)
 		task.ActionCount++
 		appendTaskEvent(&task, TaskEvent{
@@ -620,6 +653,7 @@ func (runtime *AgentRuntime) advancePendingAction(
 	if task.PendingOperationID == "" {
 		view, err := runtime.control.SubmitAction(ctx, runtime.principal, controlplane.SubmitActionInput{
 			HostID: task.HostID, WorldID: task.WorldID, Request: *task.PendingAction,
+			ParentOperationID: task.MacroOperationID,
 		})
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
@@ -629,7 +663,7 @@ func (runtime *AgentRuntime) advancePendingAction(
 			}
 			if errors.Is(err, controlplane.ErrStale) || errors.Is(err, controlplane.ErrLeaseExpired) ||
 				errors.Is(err, controlplane.ErrForbidden) || errors.Is(err, controlplane.ErrInvalid) {
-				task.PendingAction = nil
+				clearPendingTaskAction(&task)
 				task.Step++
 				appendTaskEvent(&task, TaskEvent{
 					Kind: "action.rejected", Step: task.Step, Code: "gateway-rejected",
@@ -677,6 +711,9 @@ func (runtime *AgentRuntime) advancePendingAction(
 			return task, false, saveErr
 		}
 	}
+	if task.PendingActionMacro && macroOperationStarted(view) {
+		return runtime.activatePendingMacro(ctx, task, view)
+	}
 	if !view.Terminal && view.Status != controlplane.OperationAwaitingConfirmation {
 		update, waitErr := runtime.control.WaitOperation(ctx, runtime.principal, controlplane.WaitOperationInput{
 			OperationID: view.OperationID, AfterCursor: view.Cursor,
@@ -697,6 +734,9 @@ func (runtime *AgentRuntime) advancePendingAction(
 			return saved, false, saveErr
 		}
 		return task, false, nil
+	}
+	if task.PendingActionMacro && macroOperationStarted(view) {
+		return runtime.activatePendingMacro(ctx, task, view)
 	}
 	if !view.Terminal {
 		if task.Status == TaskWaitingConfirmation {
@@ -721,17 +761,17 @@ func (runtime *AgentRuntime) advancePendingAction(
 	}
 	warning := false
 	if view.Outcome != nil {
-		warning = runtime.appendOutcomeMemory(ctx, task, view)
+		warning = runtime.appendOutcomeMemory(ctx, task, view, "outcome")
 	}
-	if cancelling {
+	if cancelling && task.MacroOperationID == "" {
 		task.Status = TaskCancelled
+	} else if cancelling {
+		task.Status = TaskCancelling
 	} else {
 		task.Status = TaskActive
 	}
 	task.PauseCode = ""
-	task.PendingAction = nil
-	task.PendingOperationID = ""
-	task.PendingMemories = nil
+	clearPendingTaskAction(&task)
 	task.Step++
 	code := string(view.Status)
 	summary := view.RejectionMessage
@@ -743,7 +783,7 @@ func (runtime *AgentRuntime) advancePendingAction(
 		Kind: "operation.terminal", Step: task.Step, Code: code, Summary: summary,
 		OperationID: view.OperationID, AtUnixMillis: runtime.now().UnixMilli(),
 	})
-	if cancelling {
+	if cancelling && task.Status == TaskCancelled {
 		appendTaskEvent(&task, TaskEvent{
 			Kind: "task.cancelled", Step: task.Step, Code: code,
 			OperationID: view.OperationID, AtUnixMillis: runtime.now().UnixMilli(),
@@ -753,10 +793,154 @@ func (runtime *AgentRuntime) advancePendingAction(
 		appendTaskEvent(&task, runtime.warningEvent(task, "memory.degraded"))
 	}
 	saved, saveErr := runtime.saveTask(ctx, task)
-	if saveErr == nil && cancelling {
+	if saveErr == nil && task.Status == TaskCancelled {
 		runtime.releaseController(saved)
 	}
 	return saved, saveErr == nil, saveErr
+}
+
+func (runtime *AgentRuntime) activatePendingMacro(
+	ctx context.Context,
+	task TaskSession,
+	view controlplane.OperationView,
+) (TaskSession, bool, error) {
+	task.MacroOperationID = view.OperationID
+	clearPendingTaskAction(&task)
+	if task.Status != TaskCancelling {
+		task.Status = TaskActive
+	}
+	task.PauseCode = ""
+	task.Step++
+	appendTaskEvent(&task, TaskEvent{
+		Kind: "macro.started", Step: task.Step,
+		OperationID: view.OperationID, AtUnixMillis: runtime.now().UnixMilli(),
+	})
+	saved, err := runtime.saveTask(ctx, task)
+	return saved, err == nil, err
+}
+
+func macroOperationStarted(view controlplane.OperationView) bool {
+	return !view.Terminal &&
+		(view.Status == controlplane.OperationAccepted ||
+			view.Status == controlplane.OperationRunning)
+}
+
+func (runtime *AgentRuntime) advanceMacroOperation(
+	ctx context.Context,
+	task TaskSession,
+) (TaskSession, bool, error) {
+	cancelling := task.Status == TaskCancelling
+	var view controlplane.OperationView
+	var err error
+	if cancelling {
+		view, err = runtime.control.CancelOperation(runtime.principal, task.MacroOperationID)
+	} else {
+		view, err = runtime.control.GetOperation(runtime.principal, task.MacroOperationID)
+	}
+	if err != nil {
+		if cancelling {
+			return task, false, err
+		}
+		paused, pauseErr := runtime.pauseTask(ctx, task, "operation.unavailable", err)
+		return paused, false, pauseErr
+	}
+	if !view.Terminal && !cancelling &&
+		view.Status != controlplane.OperationAwaitingConfirmation &&
+		view.Status != controlplane.OperationAccepted &&
+		view.Status != controlplane.OperationRunning {
+		update, waitErr := runtime.control.WaitOperation(
+			ctx,
+			runtime.principal,
+			controlplane.WaitOperationInput{
+				OperationID: view.OperationID,
+				AfterCursor: view.Cursor,
+				WaitMillis:  runtime.operationWaitMillis,
+			},
+		)
+		if waitErr != nil {
+			return task, false, waitErr
+		}
+		view = update.Operation
+		if !update.Changed && !view.Terminal {
+			return task, false, nil
+		}
+	}
+	if view.Status == controlplane.OperationAwaitingConfirmation {
+		if task.Status != TaskWaitingConfirmation {
+			task.Status = TaskWaitingConfirmation
+			task.PauseCode = ""
+			saved, saveErr := runtime.saveTask(ctx, task)
+			return saved, false, saveErr
+		}
+		return task, false, nil
+	}
+	if !view.Terminal {
+		if cancelling {
+			return task, false, nil
+		}
+		if view.Status != controlplane.OperationAccepted &&
+			view.Status != controlplane.OperationRunning {
+			return task, false, nil
+		}
+		if task.Status == TaskWaitingConfirmation {
+			task.Status = TaskActive
+			task.PauseCode = ""
+			var saveErr error
+			task, saveErr = runtime.saveTask(ctx, task)
+			if saveErr != nil {
+				return task, false, saveErr
+			}
+		}
+		return task, true, nil
+	}
+	if operationOutcomeIsUnknown(view) {
+		task.Status = TaskOutcomeUnknown
+		task.PauseCode = "operation.outcome-unknown"
+		appendTaskEvent(&task, TaskEvent{
+			Kind: "macro.unknown", Step: task.Step, Code: string(view.Status),
+			OperationID: view.OperationID, AtUnixMillis: runtime.now().UnixMilli(),
+		})
+		saved, saveErr := runtime.saveTask(ctx, task)
+		if saveErr == nil {
+			runtime.releaseController(saved)
+		}
+		return saved, false, saveErr
+	}
+	warning := false
+	if view.Outcome != nil {
+		warning = runtime.appendOutcomeMemory(ctx, task, view, "macro-outcome")
+	}
+	operationID := task.MacroOperationID
+	task.MacroOperationID = ""
+	if cancelling {
+		task.Status = TaskCancelled
+	} else {
+		task.Status = TaskActive
+	}
+	task.PauseCode = ""
+	appendTaskEvent(&task, TaskEvent{
+		Kind: "macro.terminal", Step: task.Step, Code: string(view.Status),
+		Summary: view.RejectionMessage, OperationID: operationID,
+		AtUnixMillis: runtime.now().UnixMilli(),
+	})
+	if view.Outcome != nil {
+		task.History[len(task.History)-1].Code = string(view.Outcome.Status)
+		task.History[len(task.History)-1].Summary = view.Outcome.Summary
+	}
+	if cancelling {
+		appendTaskEvent(&task, TaskEvent{
+			Kind: "task.cancelled", Step: task.Step, Code: string(view.Status),
+			OperationID: operationID, AtUnixMillis: runtime.now().UnixMilli(),
+		})
+	}
+	if warning {
+		appendTaskEvent(&task, runtime.warningEvent(task, "memory.degraded"))
+	}
+	saved, saveErr := runtime.saveTask(ctx, task)
+	if saveErr == nil && cancelling {
+		runtime.releaseController(saved)
+	}
+	return saved, saveErr == nil && !cancelling, saveErr
 }
 
 func (runtime *AgentRuntime) finishCancelledTask(
@@ -766,9 +950,8 @@ func (runtime *AgentRuntime) finishCancelledTask(
 ) (TaskSession, error) {
 	task.Status = TaskCancelled
 	task.PauseCode = ""
-	task.PendingAction = nil
-	task.PendingOperationID = ""
-	task.PendingMemories = nil
+	clearPendingTaskAction(&task)
+	task.MacroOperationID = ""
 	appendTaskEvent(&task, TaskEvent{
 		Kind: "task.cancelled", Step: task.Step, Code: code,
 		AtUnixMillis: runtime.now().UnixMilli(),
@@ -810,6 +993,9 @@ func (runtime *AgentRuntime) ensureController(
 		runtime.principal, target, lease.LeaseID, runtime.controllerLeaseMillis,
 	)
 	if errors.Is(err, controlplane.ErrLeaseExpired) || errors.Is(err, controlplane.ErrNotFound) {
+		if task.MacroOperationID != "" {
+			return runtime.pauseTask(ctx, task, "controller.parent-lease-lost", err)
+		}
 		lease, err = runtime.control.AcquireController(runtime.principal, controlplane.AcquireControllerInput{
 			ActorControlTarget: target, ControllerID: task.ControllerID,
 			LeaseTTLMillis: runtime.controllerLeaseMillis,
@@ -852,8 +1038,12 @@ func (runtime *AgentRuntime) failTask(
 	code string,
 	cause error,
 ) (TaskSession, error) {
+	if task.MacroOperationID != "" {
+		return runtime.pauseTask(ctx, task, code, cause)
+	}
 	task.Status = TaskFailed
 	task.PauseCode = code
+	clearPendingTaskAction(&task)
 	appendTaskEvent(&task, TaskEvent{
 		Kind: "task.failed", Step: task.Step, Code: code,
 		AtUnixMillis: runtime.now().UnixMilli(),
@@ -1191,6 +1381,7 @@ func (runtime *AgentRuntime) appendOutcomeMemory(
 	ctx context.Context,
 	task TaskSession,
 	view controlplane.OperationView,
+	kind string,
 ) bool {
 	if runtime.memory == nil || view.Outcome == nil {
 		return runtime.memory == nil
@@ -1208,7 +1399,8 @@ func (runtime *AgentRuntime) appendOutcomeMemory(
 		importance = 0.7
 	}
 	_, err := runtime.memory.Append(ctx, MemoryRecord{
-		MemoryID: task.TaskID + ".outcome." + strconv.FormatUint(uint64(task.Step+1), 10),
+		MemoryID: task.TaskID + "." + kind + "." +
+			strconv.FormatUint(uint64(task.Step+1), 10),
 		Namespace: MemoryNamespace{
 			SessionID: task.SessionID, ActorID: task.ActorID, Domain: MemoryActorEpisodic,
 		},
@@ -1220,6 +1412,13 @@ func (runtime *AgentRuntime) appendOutcomeMemory(
 		Confidence: 1, Importance: importance, CreatedAt: view.Outcome.OccurredAt,
 	})
 	return err != nil
+}
+
+func clearPendingTaskAction(task *TaskSession) {
+	task.PendingAction = nil
+	task.PendingActionMacro = false
+	task.PendingOperationID = ""
+	task.PendingMemories = nil
 }
 
 func operationOutcomeIsUnknown(view controlplane.OperationView) bool {

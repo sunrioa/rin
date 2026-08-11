@@ -103,6 +103,17 @@ func TestLocalTaskStoreRestoresExactPendingAction(t *testing.T) {
 	}
 }
 
+func TestRestoreLocalTaskStoreRejectsV1Snapshot(t *testing.T) {
+	snapshot := cognition.TaskSnapshot{
+		Version:  "rin.cognition.tasks/v1",
+		Revision: 1,
+		Tasks:    []cognition.TaskSession{validTaskSession("task.old-snapshot")},
+	}
+	if _, err := cognition.RestoreLocalTaskStore(10, snapshot); err == nil {
+		t.Fatal("v1 task snapshot was accepted")
+	}
+}
+
 func TestLocalTaskStoreCapacityAndCancellation(t *testing.T) {
 	store, err := cognition.NewLocalTaskStore(1)
 	if err != nil {

@@ -10,6 +10,11 @@ across every future minor release.
 
 ### Added
 
+- Added a durable internal-Agent Macro parent-child loop. Once the Macro parent
+  reaches `accepted` or `running`, the model re-observes and submits atomic
+  children with the exact parent ID through the same ActionGateway. Restart,
+  confirmation, unknown outcomes, and child-before-parent cancellation retain
+  their audit facts.
 - Added optional engine-neutral `ActionOffer.planning` metadata for bounded
   multi-step work, including intent, plan identity and revision, conditions,
   stable blocked reasons, and risk. Host validation, Control Plane/MCP output,
@@ -56,6 +61,9 @@ across every future minor release.
 
 ### Changed
 
+- Internal Task snapshots now use `rin.cognition.tasks/v2`, persisting the Macro
+  parent Operation and pending-action kind. This Preview release does not read
+  v1 snapshots.
 - Policy `confirmation_ttl` is now an object keyed by `event`, `step`, and
   `realtime`. This Preview release does not retain the old single-clock shape;
   an unconfigured Host clock receives a deterministic policy denial.

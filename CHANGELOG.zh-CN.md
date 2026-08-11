@@ -9,6 +9,9 @@
 
 ### 新增
 
+- 新增持久化内部 Agent Macro 父子循环。Macro 父 Operation 进入 `accepted` 或
+  `running` 后，模型重新观察并通过同一 ActionGateway 提交带精确 Parent ID 的 Atomic
+  Child；重启恢复、确认、结果未知和先子后父取消均保留审计事实。
 - 新增可选、引擎无关的 `ActionOffer.planning` 有界长任务元数据，包含意图、计划
   标识与修订、前后置条件、稳定阻塞原因和风险。Host 校验、Control Plane/MCP 输出、
   OpenAPI 以及 JavaScript、C#、Java SDK 使用同一结构，同时不允许 Client 提交计划
@@ -48,6 +51,8 @@
 
 ### 变化
 
+- 内部 Task Snapshot 升级为 `rin.cognition.tasks/v2`，持久化 Macro 父 Operation 与
+  待提交动作类型；Preview 版本不读取 v1 快照。
 - Policy 的 `confirmation_ttl` 改为按 `event`、`step`、`realtime` 配置的对象；
   Preview 版本不保留旧单时钟形状兼容。未配置的 Host Clock 会得到确定性策略拒绝。
 - `rin-mcp` 改为可多实例运行的无状态 STDIO 薄代理，不再占用 Host 监听端口或

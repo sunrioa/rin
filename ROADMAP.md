@@ -107,6 +107,8 @@ Rin 不是游戏引擎、通用自动化平台或模型代理服务。渲染、�
   Rin 不在控制源之间复制私有记忆。
 - [x] 自动行为与外部入口共用 Capability、精确 Offer 和 Host 最终授权；语义决策
   与逐 Tick 执行保持分层。
+- [x] 内部 Agent 可持久驱动一层 Macro 父 Operation 及其 Atomic Child；重启、确认、
+  `outcome-unknown` 和先子后父取消均保留同一 ActionGateway 审计链。
 - [ ] 安静时段、每日上限和更丰富的自主目标等待真人确认当前主动性有价值后再做。
 
 ### 5. 有界世界任务

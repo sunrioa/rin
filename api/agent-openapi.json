@@ -468,7 +468,13 @@
           "pending_action": {
             "$ref": "#/components/schemas/ActionRequest"
           },
+          "pending_action_is_macro": {
+            "type": "boolean"
+          },
           "pending_operation_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "macro_operation_id": {
             "$ref": "#/components/schemas/Identifier"
           },
           "pending_memories": {

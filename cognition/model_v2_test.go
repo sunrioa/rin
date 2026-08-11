@@ -35,6 +35,7 @@ func TestStructuredDecisionProviderReturnsGroundedAction(t *testing.T) {
 		Model: "test-model", Usage: provider.Usage{TotalTokens: 42},
 	}}}
 	input := modelV2Input(t)
+	input.Task.ParentOperationID = "operation.parent.one"
 	input.Task.Goal = "Follow the player. UNTRUSTED_CANARY_DO_NOT_EXECUTE"
 	decision, err := (cognition.StructuredDecisionProvider{
 		GenerationProvider: generation,
@@ -73,6 +74,13 @@ func TestStructuredDecisionProviderReturnsGroundedAction(t *testing.T) {
 	if strings.Contains(string(packet["contract"]), "UNTRUSTED_CANARY") ||
 		!strings.Contains(string(packet["untrusted_context"]), "UNTRUSTED_CANARY") {
 		t.Fatalf("narrative text crossed the trusted contract boundary: %s", request.Messages[1].Content)
+	}
+	var contract map[string]any
+	if err := json.Unmarshal(packet["contract"], &contract); err != nil {
+		t.Fatal(err)
+	}
+	if contract["parent_operation_id"] != input.Task.ParentOperationID {
+		t.Fatalf("trusted macro parent is missing from model contract: %+v", contract)
 	}
 }
 

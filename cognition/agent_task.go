@@ -11,7 +11,7 @@ import (
 	"github.com/sunrioa/rin/host"
 )
 
-const TaskSnapshotVersion = "rin.cognition.tasks/v1"
+const TaskSnapshotVersion = "rin.cognition.tasks/v2"
 
 var ErrTaskRevisionConflict = errors.New("cognition task revision conflict")
 
@@ -68,7 +68,9 @@ type TaskSession struct {
 
 	ControllerLease    controlplane.ControllerLease `json:"controller_lease"`
 	PendingAction      *host.ActionRequest          `json:"pending_action,omitempty"`
+	PendingActionMacro bool                         `json:"pending_action_is_macro,omitempty"`
 	PendingOperationID string                       `json:"pending_operation_id,omitempty"`
+	MacroOperationID   string                       `json:"macro_operation_id,omitempty"`
 	PendingMemories    []MemoryRecord               `json:"pending_memories,omitempty"`
 
 	LastObservationID   string      `json:"last_observation_id,omitempty"`
@@ -291,27 +293,38 @@ func sealTaskSession(task TaskSession) (TaskSession, error) {
 			return TaskSession{}, errors.New("pending action does not belong to the task")
 		}
 		task.PendingAction = &request
-	} else if task.PendingOperationID != "" || len(task.PendingMemories) != 0 {
+	} else if task.PendingActionMacro || task.PendingOperationID != "" ||
+		len(task.PendingMemories) != 0 {
 		return TaskSession{}, errors.New("pending operation or memories require a pending action")
+	}
+	if task.PendingActionMacro && task.MacroOperationID != "" {
+		return TaskSession{}, errors.New("nested pending macros are not supported")
 	}
 	if task.PendingOperationID != "" {
 		if err := validateProviderID("pending_operation_id", task.PendingOperationID); err != nil {
 			return TaskSession{}, err
 		}
 	}
-	if task.Status == TaskWaitingConfirmation && task.PendingOperationID == "" {
+	if task.MacroOperationID != "" {
+		if err := validateProviderID("macro_operation_id", task.MacroOperationID); err != nil {
+			return TaskSession{}, err
+		}
+	}
+	if task.Status == TaskWaitingConfirmation && task.PendingOperationID == "" &&
+		task.MacroOperationID == "" {
 		return TaskSession{}, errors.New("waiting task has no pending operation")
 	}
-	if task.Status == TaskCancelling &&
+	if task.Status == TaskCancelling && task.MacroOperationID == "" &&
 		(task.PendingAction == nil || task.PendingOperationID == "") {
-		return TaskSession{}, errors.New("cancelling task requires a pending operation")
+		return TaskSession{}, errors.New("cancelling task requires a pending or macro operation")
 	}
-	if task.Status == TaskOutcomeUnknown &&
+	if task.Status == TaskOutcomeUnknown && task.MacroOperationID == "" &&
 		(task.PendingAction == nil || task.PendingOperationID == "") {
 		return TaskSession{}, errors.New("outcome-unknown task requires reconciliation state")
 	}
-	if (task.Status == TaskCompleted || task.Status == TaskCancelled) && task.PendingAction != nil {
-		return TaskSession{}, errors.New("completed or cancelled task must not retain a pending action")
+	if (task.Status == TaskCompleted || task.Status == TaskFailed || task.Status == TaskCancelled) &&
+		(task.PendingAction != nil || task.MacroOperationID != "") {
+		return TaskSession{}, errors.New("terminal task must not retain an active operation")
 	}
 	if len(task.PendingMemories) > 8 {
 		return TaskSession{}, errors.New("task has too many pending memories")

@@ -64,6 +64,354 @@ func TestAgentRuntimeCompletesMultiStepTaskThroughControlPlane(t *testing.T) {
 	}
 }
 
+func TestAgentRuntimeDrivesMacroThroughAuditedChildOperation(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	macro := agentMacroCapabilitySpec(t)
+	fixture.environment.catalog.Specs = append(
+		fixture.environment.catalog.Specs,
+		macro,
+	)
+	fixture.model.decisions = []cognition.ModelDecision{
+		agentMacroDecision(),
+		agentActionDecision(),
+		{Kind: cognition.ModelDecisionComplete, Summary: "The collection macro finished."},
+	}
+	macroAccepted := queuedAgentOperation()
+	macroAccepted.OperationID = "operation.agent.macro"
+	macroAccepted.Status = controlplane.OperationAccepted
+	macroAccepted.Cursor = "cursor.macro.accepted"
+	macroAccepted.DeliveryAttempts = 1
+	macroSucceeded := succeededAgentOperationWithID(
+		fixture.environment.observation,
+		"operation.agent.macro",
+		"The Host completed the bounded macro.",
+	)
+	childSucceeded := succeededAgentOperationWithID(
+		fixture.environment.observation,
+		"operation.agent.child",
+		"The Host completed the authorized child action.",
+	)
+	fixture.control.submissionResults = []controlplane.OperationView{
+		{OperationID: "operation.agent.macro"},
+		{OperationID: "operation.agent.child"},
+	}
+	fixture.control.operationSequences = map[string][]controlplane.OperationView{
+		"operation.agent.macro": {macroAccepted, macroAccepted, macroSucceeded},
+		"operation.agent.child": {childSucceeded},
+	}
+	runtime := fixture.runtime(t, 24)
+	started := fixture.start(t, runtime, "task.macro")
+
+	completed, err := runtime.RunTask(context.Background(), started.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.Status != cognition.TaskCompleted || completed.MacroOperationID != "" ||
+		completed.PendingAction != nil || completed.Step != 2 ||
+		completed.ActionCount != 2 || completed.ModelCalls != 3 {
+		t.Fatalf("macro task did not complete through its child: %+v", completed)
+	}
+	if len(fixture.control.submissions) != 2 ||
+		fixture.control.submissions[0].ParentOperationID != "" ||
+		fixture.control.submissions[1].ParentOperationID != "operation.agent.macro" ||
+		fixture.control.submissions[0].Request.TaskID != started.TaskID ||
+		fixture.control.submissions[1].Request.TaskID != started.TaskID {
+		t.Fatalf("macro parent/child submissions are not linked: %+v", fixture.control.submissions)
+	}
+	if len(fixture.model.inputs) != 3 ||
+		fixture.model.inputs[0].Task.ParentOperationID != "" ||
+		fixture.model.inputs[1].Task.ParentOperationID != "operation.agent.macro" ||
+		len(fixture.model.inputs[1].Capabilities) != 1 ||
+		fixture.model.inputs[1].Capabilities[0].Kind != host.CapabilityAtomic ||
+		fixture.model.inputs[2].Task.ParentOperationID != "" {
+		t.Fatalf("model did not receive the bounded macro contract: %+v", fixture.model.inputs)
+	}
+	if !historyHasKind(completed.History, "macro.started") ||
+		!historyHasKind(completed.History, "macro.terminal") {
+		t.Fatalf("macro lifecycle is missing audit events: %+v", completed.History)
+	}
+}
+
+func TestAgentRuntimeRestoresActiveMacroBeforeSelectingChild(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	fixture.environment.catalog.Specs = append(
+		fixture.environment.catalog.Specs,
+		agentMacroCapabilitySpec(t),
+	)
+	fixture.model.decisions = []cognition.ModelDecision{agentMacroDecision()}
+	macroAccepted := queuedAgentOperation()
+	macroAccepted.OperationID = "operation.agent.restore-macro"
+	macroAccepted.Status = controlplane.OperationRunning
+	macroAccepted.Cursor = "cursor.restore.running"
+	macroAccepted.DeliveryAttempts = 1
+	fixture.control.submissionResults = []controlplane.OperationView{{
+		OperationID: "operation.agent.restore-macro",
+	}}
+	fixture.control.operationSequences = map[string][]controlplane.OperationView{
+		"operation.agent.restore-macro": {macroAccepted},
+	}
+	firstRuntime := fixture.runtime(t, 3)
+	started := fixture.start(t, firstRuntime, "task.restore-macro")
+	active, err := firstRuntime.RunTask(context.Background(), started.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active.MacroOperationID != "operation.agent.restore-macro" ||
+		active.PendingAction != nil || active.Step != 1 {
+		t.Fatalf("macro did not reach a restorable boundary: %+v", active)
+	}
+	snapshot, err := fixture.tasks.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := cognition.RestoreLocalTaskStore(10, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.tasks = restored
+	fixture.model.decisions = []cognition.ModelDecision{agentActionDecision()}
+	restarted := fixture.runtime(t, 1)
+	selected, err := restarted.RunTask(context.Background(), started.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected.MacroOperationID != "operation.agent.restore-macro" ||
+		selected.PendingAction == nil || selected.PendingActionMacro ||
+		len(fixture.model.inputs) != 2 ||
+		fixture.model.inputs[1].Task.ParentOperationID != selected.MacroOperationID {
+		t.Fatalf("restored macro lost its child boundary: %+v", selected)
+	}
+}
+
+func TestAgentRuntimeCancelsMacroChildBeforeParent(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	fixture.environment.catalog.Specs = append(
+		fixture.environment.catalog.Specs,
+		agentMacroCapabilitySpec(t),
+	)
+	fixture.model.decisions = []cognition.ModelDecision{
+		agentMacroDecision(), agentActionDecision(),
+	}
+	macroRunning := queuedAgentOperation()
+	macroRunning.OperationID = "operation.agent.cancel-macro"
+	macroRunning.Status = controlplane.OperationRunning
+	macroRunning.Cursor = "cursor.cancel-macro.running"
+	macroRunning.DeliveryAttempts = 1
+	childRunning := queuedAgentOperation()
+	childRunning.OperationID = "operation.agent.cancel-child"
+	childRunning.Status = controlplane.OperationRunning
+	childRunning.Cursor = "cursor.cancel-child.running"
+	childRunning.DeliveryAttempts = 1
+	fixture.control.submissionResults = []controlplane.OperationView{
+		{OperationID: macroRunning.OperationID},
+		{OperationID: childRunning.OperationID},
+	}
+	fixture.control.operationSequences = map[string][]controlplane.OperationView{
+		macroRunning.OperationID: {macroRunning},
+		childRunning.OperationID: {childRunning},
+	}
+	runtime := fixture.runtime(t, 5)
+	started := fixture.start(t, runtime, "task.cancel-macro")
+	pending, err := runtime.RunTask(context.Background(), started.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending.MacroOperationID != macroRunning.OperationID ||
+		pending.PendingOperationID != childRunning.OperationID {
+		t.Fatalf("macro child did not reach running state: %+v", pending)
+	}
+	fixture.control.cancelSequences = map[string][]controlplane.OperationView{
+		childRunning.OperationID: {cancelledAgentOperationWithID(
+			fixture.environment.observation, childRunning.OperationID,
+		)},
+		macroRunning.OperationID: {cancelledAgentOperationWithID(
+			fixture.environment.observation, macroRunning.OperationID,
+		)},
+	}
+	cancelled, err := runtime.CancelTask(context.Background(), started.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cancelled.Status != cognition.TaskCancelled || cancelled.MacroOperationID != "" ||
+		cancelled.PendingOperationID != "" || fixture.control.releaseCalls != 1 ||
+		!reflect.DeepEqual(fixture.control.cancelledOperationIDs, []string{
+			childRunning.OperationID, macroRunning.OperationID,
+		}) {
+		t.Fatalf("macro cancellation was not child-before-parent: task=%+v calls=%v",
+			cancelled, fixture.control.cancelledOperationIDs)
+	}
+}
+
+func TestAgentRuntimeKeepsCancellingWhenPendingMacroStarts(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	fixture.environment.catalog.Specs = append(
+		fixture.environment.catalog.Specs,
+		agentMacroCapabilitySpec(t),
+	)
+	fixture.model.decisions = []cognition.ModelDecision{agentMacroDecision()}
+	fixture.control.submissionResults = []controlplane.OperationView{{
+		OperationID: "operation.agent.starting-macro",
+	}}
+	runtime := fixture.runtime(t, 2)
+	started := fixture.start(t, runtime, "task.cancel-starting-macro")
+	pending, err := runtime.RunTask(context.Background(), started.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending.PendingOperationID != "operation.agent.starting-macro" ||
+		!pending.PendingActionMacro || pending.MacroOperationID != "" {
+		t.Fatalf("macro did not remain pending before cancellation: %+v", pending)
+	}
+
+	running := queuedAgentOperation()
+	running.OperationID = pending.PendingOperationID
+	running.Status = controlplane.OperationRunning
+	running.Cursor = "cursor.starting-macro.running"
+	running.DeliveryAttempts = 1
+	fixture.control.cancelSequences = map[string][]controlplane.OperationView{
+		running.OperationID: {
+			running,
+			cancelledAgentOperationWithID(fixture.environment.observation, running.OperationID),
+		},
+	}
+	cancelled, err := runtime.CancelTask(context.Background(), started.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cancelled.Status != cognition.TaskCancelled ||
+		cancelled.MacroOperationID != "" || cancelled.PendingAction != nil ||
+		!reflect.DeepEqual(fixture.control.cancelledOperationIDs, []string{
+			running.OperationID, running.OperationID,
+		}) {
+		t.Fatalf("starting macro escaped cancellation: task=%+v calls=%v",
+			cancelled, fixture.control.cancelledOperationIDs)
+	}
+}
+
+func TestAgentRuntimeKeepsUnknownMacroForReconciliation(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	fixture.environment.catalog.Specs = append(
+		fixture.environment.catalog.Specs,
+		agentMacroCapabilitySpec(t),
+	)
+	fixture.model.decisions = []cognition.ModelDecision{agentMacroDecision()}
+	macroAccepted := queuedAgentOperation()
+	macroAccepted.OperationID = "operation.agent.unknown-macro"
+	macroAccepted.Status = controlplane.OperationAccepted
+	macroAccepted.Cursor = "cursor.unknown-macro.accepted"
+	macroAccepted.DeliveryAttempts = 1
+	macroUnknown := macroAccepted
+	macroUnknown.Status = controlplane.OperationOutcomeUnknown
+	macroUnknown.Cursor = "cursor.unknown-macro.unknown"
+	macroUnknown.Terminal = true
+	macroUnknown.ReconciliationPending = true
+	fixture.control.submissionResults = []controlplane.OperationView{{
+		OperationID: macroAccepted.OperationID,
+	}}
+	fixture.control.operationSequences = map[string][]controlplane.OperationView{
+		macroAccepted.OperationID: {macroAccepted, macroUnknown},
+	}
+	runtime := fixture.runtime(t, 4)
+	started := fixture.start(t, runtime, "task.unknown-macro")
+	unknown, err := runtime.RunTask(context.Background(), started.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unknown.Status != cognition.TaskOutcomeUnknown ||
+		unknown.MacroOperationID != macroAccepted.OperationID ||
+		fixture.control.releaseCalls != 1 || len(fixture.control.submissions) != 1 {
+		t.Fatalf("unknown macro lost reconciliation state: %+v", unknown)
+	}
+}
+
+func TestAgentRuntimeActivatesMacroOnlyAfterConfirmationApproval(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	fixture.environment.catalog.Specs = append(
+		fixture.environment.catalog.Specs,
+		agentMacroCapabilitySpec(t),
+	)
+	fixture.model.decisions = []cognition.ModelDecision{agentMacroDecision()}
+	pending := queuedAgentOperation()
+	pending.Status = controlplane.OperationAwaitingConfirmation
+	fixture.control.operationAfterSubmit = pending
+	runtime := fixture.runtime(t, 8)
+	started := fixture.start(t, runtime, "task.confirm-macro")
+	waiting, err := runtime.RunTask(context.Background(), started.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if waiting.Status != cognition.TaskWaitingConfirmation ||
+		waiting.MacroOperationID != "" || waiting.PendingAction == nil ||
+		!waiting.PendingActionMacro {
+		t.Fatalf("unapproved macro became active: %+v", waiting)
+	}
+
+	approved := queuedAgentOperation()
+	approved.Status = controlplane.OperationAccepted
+	approved.Cursor = "cursor.confirm-macro.accepted"
+	approved.DeliveryAttempts = 1
+	fixture.control.operationAfterSubmit = approved
+	afterApproval := fixture.runtime(t, 1)
+	active, err := afterApproval.RunTask(context.Background(), started.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active.Status != cognition.TaskActive ||
+		active.MacroOperationID != approved.OperationID ||
+		active.PendingAction != nil || active.PendingActionMacro {
+		t.Fatalf("approved macro did not enter the durable parent state: %+v", active)
+	}
+}
+
+func TestAgentRuntimePausesInsteadOfOrphaningMacroAtBudgetLimit(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	fixture.environment.catalog.Specs = append(
+		fixture.environment.catalog.Specs,
+		agentMacroCapabilitySpec(t),
+	)
+	fixture.model.decisions = []cognition.ModelDecision{
+		agentMacroDecision(), agentActionDecision(),
+	}
+	macroRunning := queuedAgentOperation()
+	macroRunning.OperationID = "operation.agent.budget-macro"
+	macroRunning.Status = controlplane.OperationRunning
+	macroRunning.Cursor = "cursor.budget-macro.running"
+	macroRunning.DeliveryAttempts = 1
+	fixture.control.submissionResults = []controlplane.OperationView{{
+		OperationID: macroRunning.OperationID,
+	}}
+	fixture.control.operationSequences = map[string][]controlplane.OperationView{
+		macroRunning.OperationID: {macroRunning},
+	}
+	runtime := fixture.runtime(t, 8)
+	started, err := runtime.StartTask(context.Background(), cognition.StartTaskInput{
+		TaskID: "task.budget-macro", HostID: "host.test", WorldID: "world.test",
+		ActorID: "actor.mira", ControllerID: "controller.internal",
+		Goal: "Run one bounded macro.", Tags: []string{"task.follow"},
+		Budget: cognition.TaskBudget{MaxActions: 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused, err := runtime.RunTask(context.Background(), started.TaskID)
+	if !errors.Is(err, cognition.ErrTaskBudgetExceeded) ||
+		paused.Status != cognition.TaskPaused || paused.PauseCode != "budget.actions" ||
+		paused.MacroOperationID != macroRunning.OperationID ||
+		len(fixture.control.submissions) != 1 || fixture.control.releaseCalls != 0 {
+		t.Fatalf("budget limit orphaned macro: task=%+v err=%v", paused, err)
+	}
+	fixture.control.cancelSequences = map[string][]controlplane.OperationView{
+		macroRunning.OperationID: {cancelledAgentOperationWithID(
+			fixture.environment.observation, macroRunning.OperationID,
+		)},
+	}
+	cancelled, err := runtime.CancelTask(context.Background(), started.TaskID)
+	if err != nil || cancelled.Status != cognition.TaskCancelled ||
+		cancelled.MacroOperationID != "" || fixture.control.releaseCalls != 1 {
+		t.Fatalf("paused budget macro could not be cancelled: task=%+v err=%v", cancelled, err)
+	}
+}
+
 func TestAgentRuntimeRejectsUnboundActorBeforeControllerSideEffects(t *testing.T) {
 	fixture := newAgentRuntimeFixture(t)
 	runtime := fixture.runtime(t, 1)
@@ -635,14 +983,18 @@ func (environment *fakeAgentEnvironment) Capabilities(
 }
 
 type fakeAgentControlPlane struct {
-	actor                controlplane.ActorView
-	lease                controlplane.ControllerLease
-	operationAfterSubmit controlplane.OperationView
-	submissions          []controlplane.SubmitActionInput
-	cancelResult         controlplane.OperationView
-	cancelCalls          int
-	releaseCalls         int
-	acquireCalls         int
+	actor                 controlplane.ActorView
+	lease                 controlplane.ControllerLease
+	operationAfterSubmit  controlplane.OperationView
+	submissionResults     []controlplane.OperationView
+	operationSequences    map[string][]controlplane.OperationView
+	submissions           []controlplane.SubmitActionInput
+	cancelResult          controlplane.OperationView
+	cancelSequences       map[string][]controlplane.OperationView
+	cancelledOperationIDs []string
+	cancelCalls           int
+	releaseCalls          int
+	acquireCalls          int
 }
 
 func (control *fakeAgentControlPlane) GetActor(
@@ -686,7 +1038,14 @@ func (control *fakeAgentControlPlane) SubmitAction(
 	if err := ctx.Err(); err != nil {
 		return controlplane.OperationView{}, err
 	}
+	index := len(control.submissions)
 	control.submissions = append(control.submissions, input)
+	if index < len(control.submissionResults) {
+		view := control.submissionResults[index]
+		queued := queuedAgentOperation()
+		queued.OperationID = view.OperationID
+		return queued, nil
+	}
 	view := control.operationAfterSubmit
 	if view.OperationID == "" {
 		view = queuedAgentOperation()
@@ -700,6 +1059,14 @@ func (control *fakeAgentControlPlane) GetOperation(
 	principal host.Principal,
 	operationID string,
 ) (controlplane.OperationView, error) {
+	if sequence := control.operationSequences[operationID]; len(sequence) != 0 {
+		view := sequence[0]
+		if len(sequence) > 1 {
+			control.operationSequences[operationID] = sequence[1:]
+		}
+		view.OperationID = operationID
+		return view, nil
+	}
 	view := control.operationAfterSubmit
 	if view.OperationID == "" {
 		view = queuedAgentOperation()
@@ -725,6 +1092,15 @@ func (control *fakeAgentControlPlane) CancelOperation(
 	operationID string,
 ) (controlplane.OperationView, error) {
 	control.cancelCalls++
+	control.cancelledOperationIDs = append(control.cancelledOperationIDs, operationID)
+	if sequence := control.cancelSequences[operationID]; len(sequence) != 0 {
+		view := sequence[0]
+		if len(sequence) > 1 {
+			control.cancelSequences[operationID] = sequence[1:]
+		}
+		view.OperationID = operationID
+		return view, nil
+	}
 	view := control.cancelResult
 	if view.OperationID == "" {
 		view = control.operationAfterSubmit
@@ -790,12 +1166,24 @@ func queuedAgentOperation() controlplane.OperationView {
 }
 
 func succeededAgentOperation(observation host.ObservationEnvelope) controlplane.OperationView {
+	return succeededAgentOperationWithID(
+		observation,
+		"operation.agent.1",
+		"The Host moved the companion near the player.",
+	)
+}
+
+func succeededAgentOperationWithID(
+	observation host.ObservationEnvelope,
+	operationID string,
+	summary string,
+) controlplane.OperationView {
 	return controlplane.OperationView{
-		OperationID: "operation.agent.1", Status: controlplane.OperationSucceeded,
+		OperationID: operationID, Status: controlplane.OperationSucceeded,
 		Cursor: "cursor.2", Terminal: true, ExecutionConfirmed: true, DeliveryAttempts: 1,
 		Outcome: &host.ActionOutcome{
-			OperationID: "operation.agent.1", Status: host.ActionSucceeded,
-			Summary:  "The Host moved the companion near the player.",
+			OperationID: operationID, Status: host.ActionSucceeded,
+			Summary:  summary,
 			Evidence: []host.HostRef{observation.Resources[0].Ref}, Epoch: observation.Epoch,
 			WorldSeq: 2, OccurredAt: host.Timepoint{Clock: host.ClockStep, Value: 12},
 		},
@@ -803,11 +1191,18 @@ func succeededAgentOperation(observation host.ObservationEnvelope) controlplane.
 }
 
 func cancelledAgentOperation(observation host.ObservationEnvelope) controlplane.OperationView {
+	return cancelledAgentOperationWithID(observation, "operation.agent.1")
+}
+
+func cancelledAgentOperationWithID(
+	observation host.ObservationEnvelope,
+	operationID string,
+) controlplane.OperationView {
 	return controlplane.OperationView{
-		OperationID: "operation.agent.1", Status: controlplane.OperationCancelled,
+		OperationID: operationID, Status: controlplane.OperationCancelled,
 		Cursor: "cursor.cancelled", Terminal: true, DeliveryAttempts: 1,
 		Outcome: &host.ActionOutcome{
-			OperationID: "operation.agent.1", Status: host.ActionCancelled,
+			OperationID: operationID, Status: host.ActionCancelled,
 			Summary: "The Host stopped the companion action.", Epoch: observation.Epoch,
 			WorldSeq: 2, OccurredAt: host.Timepoint{Clock: host.ClockStep, Value: 12},
 		},
@@ -859,6 +1254,35 @@ func agentCapabilitySpec(t *testing.T) host.CapabilitySpec {
 		t.Fatal(err)
 	}
 	return spec
+}
+
+func agentMacroCapabilitySpec(t *testing.T) host.CapabilitySpec {
+	t.Helper()
+	spec := agentCapabilitySpec(t)
+	spec.Capability = host.CapabilityRef{
+		ID: "rin.task.collect-resource", Version: "2.0.0",
+	}
+	spec.Description = "Collect a bounded resource goal through child actions."
+	spec.Kind = host.CapabilityMacro
+	spec.ProducesChildOperations = true
+	spec.Digest = ""
+	sealed, err := host.SealCapabilitySpec(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sealed
+}
+
+func agentMacroDecision() cognition.ModelDecision {
+	return cognition.ModelDecision{
+		Kind: cognition.ModelDecisionAction,
+		Capability: host.CapabilityRef{
+			ID: "rin.task.collect-resource", Version: "2.0.0",
+		},
+		Arguments:     json.RawMessage(`{"distance":2}`),
+		TargetHandles: []string{"target.0"},
+		Summary:       "Start a bounded collection macro.",
+	}
 }
 
 func historyHasKind(history []cognition.TaskEvent, kind string) bool {

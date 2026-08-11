@@ -138,6 +138,9 @@ through cross-repository tests.
 - [x] Autonomous and external paths share Capability, exact Offers, and final
   Host authorization while semantic decisions remain separate from per-tick
   execution.
+- [x] The internal Agent durably drives one Macro parent Operation and its
+  atomic children; restart, confirmation, `outcome-unknown`, and
+  child-before-parent cancellation stay on the same audited ActionGateway path.
 - [ ] Quiet hours, daily limits, and richer autonomous goals wait for human
   evidence that the current initiative adds value.
 

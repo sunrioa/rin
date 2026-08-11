@@ -54,12 +54,13 @@ type SkillRef struct {
 }
 
 type ModelTaskContext struct {
-	TaskID       string   `json:"task_id"`
-	SessionID    string   `json:"session_id"`
-	ActorID      string   `json:"actor_id"`
-	ControllerID string   `json:"controller_id"`
-	Goal         string   `json:"goal"`
-	Tags         []string `json:"tags,omitempty"`
+	TaskID            string   `json:"task_id"`
+	SessionID         string   `json:"session_id"`
+	ActorID           string   `json:"actor_id"`
+	ControllerID      string   `json:"controller_id"`
+	ParentOperationID string   `json:"parent_operation_id,omitempty"`
+	Goal              string   `json:"goal"`
+	Tags              []string `json:"tags,omitempty"`
 }
 
 type CapabilitySummary struct {
@@ -181,6 +182,7 @@ type modelV2Contract struct {
 	TaskID               string                   `json:"task_id"`
 	ActorID              string                   `json:"actor_id"`
 	ControllerID         string                   `json:"controller_id"`
+	ParentOperationID    string                   `json:"parent_operation_id,omitempty"`
 	ObservationID        string                   `json:"observation_id"`
 	ObservationSequence  uint64                   `json:"observation_sequence"`
 	ExpectedEpoch        host.Epoch               `json:"expected_epoch"`
@@ -424,6 +426,14 @@ func sealModelInput(input ModelInput) (ModelInput, ModelObservation, error) {
 			return ModelInput{}, ModelObservation{}, err
 		}
 	}
+	if input.Task.ParentOperationID != "" {
+		if err := validateMemoryOpaqueID(
+			"task.parent_operation_id",
+			input.Task.ParentOperationID,
+		); err != nil {
+			return ModelInput{}, ModelObservation{}, err
+		}
+	}
 	if err := validateProviderText("task.goal", input.Task.Goal, 2_000, true); err != nil {
 		return ModelInput{}, ModelObservation{}, err
 	}
@@ -495,7 +505,8 @@ func sealModelInput(input ModelInput) (ModelInput, ModelObservation, error) {
 func buildModelV2Packet(input ModelInput, observation ModelObservation) modelV2Packet {
 	contract := modelV2Contract{
 		TaskID: input.Task.TaskID, ActorID: input.Task.ActorID, ControllerID: input.Task.ControllerID,
-		ObservationID: input.Observation.ObservationID, ObservationSequence: input.Observation.Sequence,
+		ParentOperationID: input.Task.ParentOperationID,
+		ObservationID:     input.Observation.ObservationID, ObservationSequence: input.Observation.Sequence,
 		ExpectedEpoch: input.Observation.Epoch, InspectionRound: input.InspectionRound,
 		MaxInspectionRounds: 1,
 	}

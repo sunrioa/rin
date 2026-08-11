@@ -78,12 +78,38 @@ configuration without sending a model probe request.
 
 - [`api/agent-openapi.json`](../api/agent-openapi.json) is the Task HTTP contract.
 - State is fixed at `<RIN_CONTROL_DATA_DIR>/agent/tasks.json` and `memory.json`.
+- Task snapshots use `rin.cognition.tasks/v2`. This Preview version does not
+  read v1; finish or cancel old internal tasks before upgrading rather than
+  copying live Operation state.
 - State files use private permissions, atomic replacement, and single-writer
   process locks. Configuration cannot redirect these paths.
 - `scheduled=true` only means background coordination was queued. It is not
   proof of model deliberation, game execution, or task completion.
 - Shutdown cancels and joins Agent workers before releasing Task and Memory
   locks, then closes the Control Plane.
+
+## Macro parent-child loop
+
+The internal Runtime and external MCP use the same parent-child Operation
+contract. After the model selects a capability declared as `kind=macro` with
+`produces_child_operations=true`, the Task records its `macro_operation_id`
+only when the Host advances the parent to `accepted` or `running`. The next
+observation carries a trusted `parent_operation_id`; every selected atomic
+child still passes through Host binding, Policy, execution, and authoritative
+Outcome reporting.
+
+- `queued`, `delivered`, `awaiting-confirmation`, `accepted`, and `running` are not
+  completion evidence. The parent remains in the Task until an authoritative
+  terminal state.
+- While a parent macro runs, the model sees only atomic capabilities. The
+  Control Plane supports nested macros, but this Runtime does not create a
+  second automatic parent level yet.
+- Cancelling a Task with a running child cancels the child before the parent;
+  the Task remains `cancelling` until the parent settles.
+- An `outcome-unknown` child or parent retains the exact Operation ID and stops
+  further decisions.
+- Provider failure or budget exhaustion pauses instead of releasing control
+  and orphaning a parent macro; the Task can still be resumed or cancelled.
 
 The model can only propose an ActionRequest grounded in the current Observation
 and Capability catalog. The Host still binds targets, previews Effects, applies
