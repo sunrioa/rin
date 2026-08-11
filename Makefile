@@ -8,23 +8,20 @@ JAVA ?= java
 LUA ?= lua
 VERSION ?= 0.7.0
 
-.PHONY: fmt test verify contract-check test-go test-long-session test-adapters test-unreal test-luanti test-sdks test-sdk-sidecar test-sdk-python test-sdk-javascript test-sdk-csharp test-sdk-java test-sdk-lua test-terminal-story race vet build
+.PHONY: fmt test verify contract-check test-go test-adapters test-unreal test-luanti test-sdks test-sdk-sidecar test-sdk-python test-sdk-javascript test-sdk-csharp test-sdk-java test-sdk-lua test-terminal-story race vet build
 
 fmt:
 	$(GO) fmt ./...
 
 test: test-go test-adapters test-unreal
 
-verify: contract-check vet race test-long-session test-adapters test-unreal test-luanti test-sdks test-terminal-story
+verify: contract-check vet race test-adapters test-unreal test-luanti test-sdks test-terminal-story
 
 contract-check:
 	$(GO) test ./controlplane ./agentapi -run 'Contract|OpenAPI'
 
 test-go:
 	$(GO) test ./...
-
-test-long-session:
-	$(GO) test ./runtime -run '^TestAcceleratedYearSession$$' -count=1
 
 test-adapters:
 	$(PYTHON) -m unittest discover -s adapters/renpy -p 'test_*.py'
