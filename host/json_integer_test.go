@@ -1,10 +1,6 @@
 package host
 
-import (
-	"encoding/json"
-	"strings"
-	"testing"
-)
+import "testing"
 
 func TestHostSequenceFieldsRequirePositiveJSONSafeIntegers(t *testing.T) {
 	const unsafe = uint64(maxInteroperableInteger) + 1
@@ -15,19 +11,9 @@ func TestHostSequenceFieldsRequirePositiveJSONSafeIntegers(t *testing.T) {
 		t.Fatal("unsafe epoch generation was accepted")
 	}
 
-	offer := ActionOffer{
-		OfferID:          "offer.test",
-		DecisionWindowID: "window.test",
-		ActorID:          "npc.test",
-		Capability:       CapabilityRef{ID: "rin.test.wait", Version: "1.0.0"},
-		DescriptorDigest: strings.Repeat("a", 64),
-		Description:      "Wait.",
-		Arguments:        json.RawMessage(`{}`),
-		ExpectedEpoch:    testEpoch(),
-		ObservationSeq:   unsafe,
-		Deadline:         Timepoint{Clock: ClockStep, Value: 2},
-	}
-	if err := ValidateActionOffer(offer); err == nil {
+	request := testActionRequest(testCapabilitySpec(t), testEpoch())
+	request.ObservationSeq = unsafe
+	if err := ValidateActionRequest(request); err == nil {
 		t.Fatal("unsafe observation sequence was accepted")
 	}
 

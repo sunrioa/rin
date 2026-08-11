@@ -148,15 +148,6 @@ type Schema struct {
 	SHA256   string          `json:"sha256"`
 }
 
-// EffectClass describes whether a capability reads, advises, or mutates.
-type EffectClass string
-
-const (
-	EffectRead          EffectClass = "read"
-	EffectAdvisory      EffectClass = "advisory"
-	EffectWorldMutation EffectClass = "world-mutation"
-)
-
 // ExecutionMode describes how a capability reports completion.
 type ExecutionMode string
 
@@ -189,73 +180,6 @@ const (
 type CapabilityRef struct {
 	ID      string `json:"id"`
 	Version string `json:"version"`
-}
-
-// ActionPlanMetadata describes where a Host-authored offer sits in a bounded
-// multi-step plan. It is descriptive only: authorization still comes from the
-// exact ActionOffer, current Host state, and capability policy.
-type ActionPlanMetadata struct {
-	Intent         string    `json:"intent"`
-	PlanID         string    `json:"plan_id"`
-	StepIndex      uint32    `json:"step_index"`
-	PlanRevision   uint32    `json:"plan_revision"`
-	Preconditions  []string  `json:"preconditions,omitempty"`
-	Postconditions []string  `json:"postconditions,omitempty"`
-	BlockedReason  string    `json:"blocked_reason,omitempty"`
-	Risk           RiskLevel `json:"risk"`
-}
-
-// CapabilityDescriptor describes a host-local implementation. Discovery never
-// authorizes use: each turn still needs an ActionOffer created by the game.
-type CapabilityDescriptor struct {
-	Capability         CapabilityRef     `json:"capability"`
-	Description        string            `json:"description"`
-	Input              Schema            `json:"input"`
-	Output             Schema            `json:"output"`
-	Effect             EffectClass       `json:"effect"`
-	Execution          ExecutionMode     `json:"execution"`
-	Risk               RiskLevel         `json:"risk"`
-	RequiredDurability DurabilityProfile `json:"required_durability"`
-	RequiredScopes     []string          `json:"required_scopes,omitempty"`
-	ExecutionBudget    Duration          `json:"execution_budget"`
-	MaxInputBytes      uint32            `json:"max_input_bytes"`
-	MaxOutputBytes     uint32            `json:"max_output_bytes"`
-	Cancellation       CancellationMode  `json:"cancellation"`
-	Reversible         bool              `json:"reversible"`
-	Digest             string            `json:"digest"`
-}
-
-// ActionOffer is a fully bound, game-authored candidate. Arguments are already
-// selected and constrained by the host; a model chooses OfferID, not a method
-// name or arbitrary arguments.
-type ActionOffer struct {
-	OfferID          string              `json:"offer_id"`
-	DecisionWindowID string              `json:"decision_window_id"`
-	ActorID          string              `json:"actor_id"`
-	Capability       CapabilityRef       `json:"capability"`
-	DescriptorDigest string              `json:"descriptor_digest"`
-	Description      string              `json:"description"`
-	Arguments        json.RawMessage     `json:"arguments"`
-	Targets          []HostRef           `json:"targets,omitempty"`
-	Planning         *ActionPlanMetadata `json:"planning,omitempty"`
-	ExpectedEpoch    Epoch               `json:"expected_epoch"`
-	ObservationSeq   uint64              `json:"observation_seq"`
-	Deadline         Timepoint           `json:"deadline"`
-}
-
-// ActionInvocation is a validated offer bound to a stable operation ID.
-type ActionInvocation struct {
-	OperationID      string          `json:"operation_id"`
-	OfferID          string          `json:"offer_id"`
-	DecisionWindowID string          `json:"decision_window_id"`
-	ActorID          string          `json:"actor_id"`
-	Capability       CapabilityRef   `json:"capability"`
-	DescriptorDigest string          `json:"descriptor_digest"`
-	Arguments        json.RawMessage `json:"arguments"`
-	Targets          []HostRef       `json:"targets,omitempty"`
-	ExpectedEpoch    Epoch           `json:"expected_epoch"`
-	ObservationSeq   uint64          `json:"observation_seq"`
-	Deadline         Timepoint       `json:"deadline"`
 }
 
 // ActionRunStatus is the lifecycle state of a host-owned operation.

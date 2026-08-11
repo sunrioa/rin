@@ -6,12 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 
-	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/sunrioa/rin/internal/jsonwire"
 )
 
@@ -190,120 +188,6 @@ func (ref HostRef) Validate(field string) error {
 	return ref.Epoch.Validate(field + ".epoch")
 }
 
-// SealDescriptor validates and normalizes a capability descriptor and computes
-// its deterministic digest.
-func SealDescriptor(descriptor CapabilityDescriptor) (CapabilityDescriptor, error) {
-	sealed, _, _, err := prepareDescriptor(descriptor)
-	return sealed, err
-}
-
-func prepareDescriptor(
-	descriptor CapabilityDescriptor,
-) (CapabilityDescriptor, *jsonschema.Schema, *jsonschema.Schema, error) {
-	normalized := cloneDescriptor(descriptor)
-	normalized.RequiredScopes = append([]string(nil), descriptor.RequiredScopes...)
-	slices.Sort(normalized.RequiredScopes)
-	compacted := slices.Compact(normalized.RequiredScopes)
-	if len(compacted) != len(descriptor.RequiredScopes) {
-		return CapabilityDescriptor{}, nil, nil,
-			invalid("required_scopes", "must not contain duplicates")
-	}
-	normalized.RequiredScopes = compacted
-	normalized.Input.Document = append(json.RawMessage(nil), descriptor.Input.Document...)
-	normalized.Output.Document = append(json.RawMessage(nil), descriptor.Output.Document...)
-
-	input, err := normalized.Input.compiled()
-	if err != nil {
-		return CapabilityDescriptor{}, nil, nil, prefixValidation("input", err)
-	}
-	output, err := normalized.Output.compiled()
-	if err != nil {
-		return CapabilityDescriptor{}, nil, nil, prefixValidation("output", err)
-	}
-	if err := validateDescriptorFields(normalized); err != nil {
-		return CapabilityDescriptor{}, nil, nil, err
-	}
-	digest, err := descriptorDigest(normalized)
-	if err != nil {
-		return CapabilityDescriptor{}, nil, nil, err
-	}
-	if descriptor.Digest != "" && descriptor.Digest != digest {
-		return CapabilityDescriptor{}, nil, nil,
-			invalid("digest", "does not match descriptor")
-	}
-	normalized.Digest = digest
-	return normalized, input, output, nil
-}
-
-// Validate verifies a sealed descriptor without changing it.
-func (descriptor CapabilityDescriptor) Validate() error {
-	sealed, err := SealDescriptor(descriptor)
-	if err != nil {
-		return err
-	}
-	if descriptor.Digest != sealed.Digest {
-		return invalid("digest", "is required and must match descriptor")
-	}
-	if !slices.Equal(descriptor.RequiredScopes, sealed.RequiredScopes) {
-		return invalid("required_scopes", "must be sorted")
-	}
-	return nil
-}
-
-func validateDescriptorFields(descriptor CapabilityDescriptor) error {
-	if err := descriptor.Capability.Validate("capability"); err != nil {
-		return err
-	}
-	if err := validateText("description", descriptor.Description, 300, true); err != nil {
-		return err
-	}
-	if !validEffectClass(descriptor.Effect) {
-		return invalid("effect", "is not supported")
-	}
-	if !validExecutionMode(descriptor.Execution) {
-		return invalid("execution", "is not supported")
-	}
-	if !validRiskLevel(descriptor.Risk) {
-		return invalid("risk", "is not supported")
-	}
-	if !validDurabilityProfile(descriptor.RequiredDurability) {
-		return invalid("required_durability", "is not supported")
-	}
-	if !validCancellationMode(descriptor.Cancellation) {
-		return invalid("cancellation", "is not supported")
-	}
-	if descriptor.Execution == ExecutionImmediate &&
-		descriptor.Cancellation != CancellationUnsupported {
-		return invalid("cancellation", "immediate capabilities cannot be cancelled")
-	}
-	if descriptor.Effect == EffectRead {
-		if descriptor.RequiredDurability != DurabilityAdvisory {
-			return invalid("required_durability", "read capabilities must use advisory durability")
-		}
-		if descriptor.Reversible {
-			return invalid("reversible", "read capabilities do not have effects to reverse")
-		}
-	}
-	if err := descriptor.ExecutionBudget.Validate("execution_budget"); err != nil {
-		return err
-	}
-	if descriptor.MaxInputBytes == 0 || descriptor.MaxInputBytes > 1<<20 {
-		return invalid("max_input_bytes", "must be between 1 and 1048576")
-	}
-	if descriptor.MaxOutputBytes == 0 || descriptor.MaxOutputBytes > 1<<20 {
-		return invalid("max_output_bytes", "must be between 1 and 1048576")
-	}
-	if len(descriptor.RequiredScopes) > 32 {
-		return invalid("required_scopes", "must contain at most 32 values")
-	}
-	for index, scope := range descriptor.RequiredScopes {
-		if err := validateHostID(fmt.Sprintf("required_scopes[%d]", index), scope, true); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // Validate verifies a namespaced capability ID and exact semantic version.
 func (ref CapabilityRef) Validate(field string) error {
 	if err := validateHostID(field+".id", ref.ID, true); err != nil {
@@ -313,115 +197,6 @@ func (ref CapabilityRef) Validate(field string) error {
 		return invalid(field+".id", "must be namespaced")
 	}
 	return validateExactVersion(field+".version", ref.Version)
-}
-
-// ValidateActionOffer verifies the host-independent shape of an offer.
-func ValidateActionOffer(offer ActionOffer) error {
-	if err := validateHostID("offer_id", offer.OfferID, false); err != nil {
-		return err
-	}
-	if err := validateHostID("decision_window_id", offer.DecisionWindowID, false); err != nil {
-		return err
-	}
-	if err := validateHostID("actor_id", offer.ActorID, false); err != nil {
-		return err
-	}
-	if err := offer.Capability.Validate("capability"); err != nil {
-		return err
-	}
-	if !lowerHexSHA256.MatchString(offer.DescriptorDigest) {
-		return invalid("descriptor_digest", "must be a lowercase SHA-256 digest")
-	}
-	if err := validateText("description", offer.Description, 300, true); err != nil {
-		return err
-	}
-	if err := validateJSONObject("arguments", offer.Arguments, 1<<20); err != nil {
-		return err
-	}
-	if err := validateRefs("targets", offer.Targets, offer.ExpectedEpoch); err != nil {
-		return err
-	}
-	if offer.Planning != nil {
-		if err := validateActionPlanMetadata(*offer.Planning); err != nil {
-			return err
-		}
-	}
-	if err := offer.ExpectedEpoch.Validate("expected_epoch"); err != nil {
-		return err
-	}
-	if offer.ObservationSeq == 0 || offer.ObservationSeq > maxInteroperableInteger {
-		return invalid("observation_seq", "must be a positive JSON-safe integer")
-	}
-	if err := offer.Deadline.Validate("deadline"); err != nil {
-		return err
-	}
-	return nil
-}
-
-func validateActionPlanMetadata(value ActionPlanMetadata) error {
-	if err := validateText("planning.intent", value.Intent, 160, true); err != nil {
-		return err
-	}
-	if err := validateHostID("planning.plan_id", value.PlanID, false); err != nil {
-		return err
-	}
-	if value.PlanRevision == 0 {
-		return invalid("planning.plan_revision", "must be positive")
-	}
-	if !validRiskLevel(value.Risk) {
-		return invalid("planning.risk", "is not supported")
-	}
-	if value.BlockedReason != "" {
-		if err := validateHostID("planning.blocked_reason", value.BlockedReason, false); err != nil {
-			return err
-		}
-	}
-	if err := validatePlanConditions("planning.preconditions", value.Preconditions); err != nil {
-		return err
-	}
-	return validatePlanConditions("planning.postconditions", value.Postconditions)
-}
-
-func validatePlanConditions(field string, values []string) error {
-	if len(values) > 16 {
-		return invalid(field, "must contain at most 16 values")
-	}
-	seen := make(map[string]struct{}, len(values))
-	for index, value := range values {
-		itemField := fmt.Sprintf("%s[%d]", field, index)
-		if err := validateText(itemField, value, 160, true); err != nil {
-			return err
-		}
-		if _, exists := seen[value]; exists {
-			return invalid(field, "must not contain duplicates")
-		}
-		seen[value] = struct{}{}
-	}
-	return nil
-}
-
-// ValidateActionInvocation verifies the host-independent shape of an invocation.
-func ValidateActionInvocation(invocation ActionInvocation) error {
-	if err := validateHostID("operation_id", invocation.OperationID, false); err != nil {
-		return err
-	}
-	offer := ActionOffer{
-		OfferID:          invocation.OfferID,
-		DecisionWindowID: invocation.DecisionWindowID,
-		ActorID:          invocation.ActorID,
-		Capability:       invocation.Capability,
-		DescriptorDigest: invocation.DescriptorDigest,
-		Description:      "invocation",
-		Arguments:        invocation.Arguments,
-		Targets:          invocation.Targets,
-		ExpectedEpoch:    invocation.ExpectedEpoch,
-		ObservationSeq:   invocation.ObservationSeq,
-		Deadline:         invocation.Deadline,
-	}
-	if err := ValidateActionOffer(offer); err != nil {
-		return err
-	}
-	return nil
 }
 
 // ValidateActionRun verifies one action progress record.
@@ -498,45 +273,6 @@ func ValidateActionOutcome(outcome ActionOutcome) error {
 		return err
 	}
 	return nil
-}
-
-func descriptorDigest(descriptor CapabilityDescriptor) (string, error) {
-	payload := struct {
-		Capability         CapabilityRef     `json:"capability"`
-		Description        string            `json:"description"`
-		InputSHA256        string            `json:"input_sha256"`
-		OutputSHA256       string            `json:"output_sha256"`
-		Effect             EffectClass       `json:"effect"`
-		Execution          ExecutionMode     `json:"execution"`
-		Risk               RiskLevel         `json:"risk"`
-		RequiredDurability DurabilityProfile `json:"required_durability"`
-		RequiredScopes     []string          `json:"required_scopes,omitempty"`
-		ExecutionBudget    Duration          `json:"execution_budget"`
-		MaxInputBytes      uint32            `json:"max_input_bytes"`
-		MaxOutputBytes     uint32            `json:"max_output_bytes"`
-		Cancellation       CancellationMode  `json:"cancellation"`
-		Reversible         bool              `json:"reversible"`
-	}{
-		Capability:         descriptor.Capability,
-		Description:        descriptor.Description,
-		InputSHA256:        descriptor.Input.SHA256,
-		OutputSHA256:       descriptor.Output.SHA256,
-		Effect:             descriptor.Effect,
-		Execution:          descriptor.Execution,
-		Risk:               descriptor.Risk,
-		RequiredDurability: descriptor.RequiredDurability,
-		RequiredScopes:     descriptor.RequiredScopes,
-		ExecutionBudget:    descriptor.ExecutionBudget,
-		MaxInputBytes:      descriptor.MaxInputBytes,
-		MaxOutputBytes:     descriptor.MaxOutputBytes,
-		Cancellation:       descriptor.Cancellation,
-		Reversible:         descriptor.Reversible,
-	}
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("encode descriptor digest: %w", err)
-	}
-	return sha256Hex(encoded), nil
 }
 
 func validateUniqueClockModes(values []ClockMode) error {
@@ -685,14 +421,6 @@ func prefixValidation(prefix string, err error) error {
 	return invalid(prefix+"."+validation.Field, validation.Message)
 }
 
-func cloneDescriptor(descriptor CapabilityDescriptor) CapabilityDescriptor {
-	copyDescriptor := descriptor
-	copyDescriptor.Input.Document = append(json.RawMessage(nil), descriptor.Input.Document...)
-	copyDescriptor.Output.Document = append(json.RawMessage(nil), descriptor.Output.Document...)
-	copyDescriptor.RequiredScopes = append([]string(nil), descriptor.RequiredScopes...)
-	return copyDescriptor
-}
-
 func validAuthorityMode(value AuthorityMode) bool {
 	return value == AuthorityStandalone || value == AuthorityServer ||
 		value == AuthorityClientAdvisory
@@ -716,10 +444,6 @@ func validClockMode(value ClockMode) bool {
 func validDurabilityProfile(value DurabilityProfile) bool {
 	return value == DurabilityAdvisory || value == DurabilityIdempotent ||
 		value == DurabilityTransactional
-}
-
-func validEffectClass(value EffectClass) bool {
-	return value == EffectRead || value == EffectAdvisory || value == EffectWorldMutation
 }
 
 func validExecutionMode(value ExecutionMode) bool {
