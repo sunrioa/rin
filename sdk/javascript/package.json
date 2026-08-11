@@ -1,7 +1,7 @@
 {
   "name": "@sunrioa/rin-sdk",
   "version": "0.7.0",
-  "description": "Zero-dependency JavaScript client for the Rin agent runtime",
+  "description": "Zero-dependency JavaScript client for the Rin Control API",
   "type": "module",
   "exports": {
     ".": {
