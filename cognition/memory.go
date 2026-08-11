@@ -276,7 +276,9 @@ func (provider *LocalMemoryProvider) Retrieve(
 		}
 		state := provider.namespaces[memoryNamespaceKey(match.Record.Namespace)]
 		record := state.records[match.Record.MemoryID]
-		record.RecallCount++
+		if record.RecallCount < maxProviderWireInteger {
+			record.RecallCount++
+		}
 		now := sealed.Now
 		record.LastRecalledAt = &now
 		state.records[record.MemoryID] = record
@@ -500,6 +502,9 @@ func sealMemoryRecord(record MemoryRecord) (MemoryRecord, error) {
 	if record.Confidence < 0 || record.Confidence > 1 || record.Importance < 0 || record.Importance > 1 {
 		return MemoryRecord{}, errors.New("memory confidence and importance must be between zero and one")
 	}
+	if record.RecallCount > maxProviderWireInteger {
+		return MemoryRecord{}, errors.New("memory recall count exceeds the exact JSON integer range")
+	}
 	if err := validateMemoryTimepoint("created_at", record.CreatedAt); err != nil {
 		return MemoryRecord{}, err
 	}
@@ -617,15 +622,7 @@ func validateMemoryProvenance(provenance MemoryProvenance, namespace MemoryNames
 }
 
 func validateMemoryTimepoint(field string, point host.Timepoint) error {
-	switch point.Clock {
-	case host.ClockEvent, host.ClockStep, host.ClockRealtime:
-	default:
-		return fmt.Errorf("%s has an invalid clock", field)
-	}
-	if point.Value < 0 {
-		return fmt.Errorf("%s must not be negative", field)
-	}
-	return nil
+	return point.Validate(field)
 }
 
 func sealMemoryTombstone(tombstone MemoryTombstone) (MemoryTombstone, error) {

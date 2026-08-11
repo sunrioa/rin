@@ -18,6 +18,8 @@ var (
 var providerIDPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$`)
 var providerDigestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
+const maxProviderWireInteger = 9_007_199_254_740_991
+
 type ProviderHealth struct {
 	Available bool   `json:"available"`
 	Degraded  bool   `json:"degraded"`

@@ -93,9 +93,12 @@ func (service *Service) StartTask(
 	if err := service.authorize(ctx, principal, ScopeTaskExecute); err != nil {
 		return TaskDispatch{}, err
 	}
+	if err := cognition.ValidateStartTaskInput(input); err != nil {
+		return TaskDispatch{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
 	task, err := service.runtime.StartTask(ctx, input)
 	if err != nil {
-		return TaskDispatch{}, err
+		return TaskDispatch{}, normalizeServiceError(err)
 	}
 	return TaskDispatch{Task: task, Scheduled: service.enqueue(task.TaskID)}, nil
 }
@@ -108,7 +111,11 @@ func (service *Service) GetTask(
 	if err := service.authorize(ctx, principal, ScopeTaskRead); err != nil {
 		return cognition.TaskSession{}, err
 	}
-	return service.runtime.GetTask(ctx, taskID)
+	if err := cognition.ValidateTaskID(taskID); err != nil {
+		return cognition.TaskSession{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
+	task, err := service.runtime.GetTask(ctx, taskID)
+	return task, normalizeServiceError(err)
 }
 
 func (service *Service) RunTask(
@@ -119,9 +126,12 @@ func (service *Service) RunTask(
 	if err := service.authorize(ctx, principal, ScopeTaskExecute); err != nil {
 		return TaskDispatch{}, err
 	}
+	if err := cognition.ValidateTaskID(taskID); err != nil {
+		return TaskDispatch{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
 	task, err := service.runtime.GetTask(ctx, taskID)
 	if err != nil {
-		return TaskDispatch{}, err
+		return TaskDispatch{}, normalizeServiceError(err)
 	}
 	scheduled := false
 	if taskCanRun(task.Status) {
@@ -138,9 +148,12 @@ func (service *Service) ResumeTask(
 	if err := service.authorize(ctx, principal, ScopeTaskExecute); err != nil {
 		return TaskDispatch{}, err
 	}
+	if err := cognition.ValidateTaskID(taskID); err != nil {
+		return TaskDispatch{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
 	task, err := service.runtime.ResumeTask(ctx, taskID)
 	if err != nil {
-		return TaskDispatch{}, err
+		return TaskDispatch{}, normalizeServiceError(err)
 	}
 	scheduled := false
 	if taskCanRun(task.Status) {
@@ -157,15 +170,27 @@ func (service *Service) CancelTask(
 	if err := service.authorize(ctx, principal, ScopeTaskCancel); err != nil {
 		return TaskDispatch{}, err
 	}
+	if err := cognition.ValidateTaskID(taskID); err != nil {
+		return TaskDispatch{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
 	task, err := service.runtime.CancelTask(ctx, taskID)
 	if err != nil && task.TaskID == "" {
-		return TaskDispatch{}, err
+		return TaskDispatch{}, normalizeServiceError(err)
+	}
+	if err != nil {
+		stored, loadErr := service.runtime.GetTask(ctx, taskID)
+		if loadErr == nil {
+			task = stored
+		}
 	}
 	scheduled := false
 	if task.Status == cognition.TaskCancelling {
 		scheduled = service.enqueue(task.TaskID)
 	}
-	return TaskDispatch{Task: task, Scheduled: scheduled}, err
+	if task.Status == cognition.TaskCancelling {
+		err = nil
+	}
+	return TaskDispatch{Task: task, Scheduled: scheduled}, normalizeServiceError(err)
 }
 
 func (service *Service) Close() {
@@ -190,7 +215,7 @@ func (service *Service) authorize(
 		return err
 	}
 	if err := host.ValidatePrincipal(principal); err != nil {
-		return fmt.Errorf("invalid principal: %w", err)
+		return fmt.Errorf("%w: principal: %v", ErrInvalid, err)
 	}
 	service.mu.Lock()
 	closed := service.closed
@@ -302,6 +327,43 @@ func hasScope(principal host.Principal, wanted string) bool {
 		}
 	}
 	return false
+}
+
+func normalizeServiceError(err error) error {
+	if err == nil {
+		return nil
+	}
+	for _, target := range []error{
+		ErrInvalid, ErrNotFound, ErrForbidden, ErrConflict, ErrCapacity, ErrUnavailable,
+	} {
+		if errors.Is(err, target) {
+			return err
+		}
+	}
+	switch {
+	case host.IsValidationError(err), errors.Is(err, controlplane.ErrInvalid):
+		return fmt.Errorf("%w: %v", ErrInvalid, err)
+	case errors.Is(err, cognition.ErrProviderNotFound), errors.Is(err, controlplane.ErrNotFound):
+		return fmt.Errorf("%w: %v", ErrNotFound, err)
+	case errors.Is(err, cognition.ErrProviderConflict),
+		errors.Is(err, cognition.ErrTaskRevisionConflict),
+		errors.Is(err, controlplane.ErrConflict),
+		errors.Is(err, controlplane.ErrLeaseConflict),
+		errors.Is(err, controlplane.ErrStale):
+		return fmt.Errorf("%w: %v", ErrConflict, err)
+	case errors.Is(err, cognition.ErrProviderCapacity), errors.Is(err, controlplane.ErrCapacity):
+		return fmt.Errorf("%w: %v", ErrCapacity, err)
+	case errors.Is(err, controlplane.ErrForbidden):
+		return fmt.Errorf("%w: %v", ErrForbidden, err)
+	case errors.Is(err, controlplane.ErrUnavailable),
+		errors.Is(err, controlplane.ErrPersistence),
+		errors.Is(err, controlplane.ErrClosed),
+		errors.Is(err, controlplane.ErrDataLocked),
+		errors.Is(err, controlplane.ErrLeaseExpired):
+		return fmt.Errorf("%w: %v", ErrUnavailable, err)
+	default:
+		return err
+	}
 }
 
 var _ TaskRuntime = (*cognition.AgentRuntime)(nil)

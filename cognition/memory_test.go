@@ -89,6 +89,20 @@ func TestMemoryProviderOwnsRecallMetadata(t *testing.T) {
 	}
 }
 
+func TestMemoryProviderRejectsLossyJSONIntegers(t *testing.T) {
+	record := memoryRecord(
+		"memory.lossy", actorMemoryNamespace(), "A memory.",
+		cognition.MemorySourceHostOutcome, true, 1,
+	)
+	record.CreatedAt.Value = 9_007_199_254_740_992
+	if _, err := cognition.RestoreLocalMemoryProvider(
+		cognition.LocalMemoryConfig{},
+		cognition.MemorySnapshot{Revision: 1, Records: []cognition.MemoryRecord{record}},
+	); err == nil {
+		t.Fatal("lossy memory timepoint was accepted")
+	}
+}
+
 func TestMemoryProviderRanksMatchesAndHonorsExpiryAndBudget(t *testing.T) {
 	provider := newMemoryProvider(t)
 	namespace := actorMemoryNamespace()

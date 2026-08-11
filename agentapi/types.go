@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sunrioa/rin/cognition"
+	"github.com/sunrioa/rin/host"
 )
 
 const (
@@ -20,7 +21,11 @@ const (
 )
 
 var (
+	ErrInvalid     = errors.New("agent API invalid value")
+	ErrNotFound    = errors.New("agent API task not found")
 	ErrForbidden   = errors.New("agent API forbidden")
+	ErrConflict    = errors.New("agent API conflict")
+	ErrCapacity    = errors.New("agent API capacity exceeded")
 	ErrUnavailable = errors.New("agent API unavailable")
 )
 
@@ -51,4 +56,9 @@ type TaskDispatch struct {
 
 type TaskTarget struct {
 	TaskID string `json:"task_id"`
+}
+
+type ClientInfo struct {
+	ContractVersion string         `json:"contract_version"`
+	Principal       host.Principal `json:"principal"`
 }

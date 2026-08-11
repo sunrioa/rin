@@ -121,6 +121,29 @@ func TestLocalTaskStoreCapacityAndCancellation(t *testing.T) {
 	}
 }
 
+func TestLocalTaskStoreRejectsLossyJSONIntegers(t *testing.T) {
+	store, err := cognition.NewLocalTaskStore(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*cognition.TaskSession){
+		"timestamp": func(task *cognition.TaskSession) {
+			task.UpdatedAtUnixMillis = 9_007_199_254_740_992
+		},
+		"lease revision": func(task *cognition.TaskSession) {
+			task.ControllerLease.AuthorityRevision = 9_007_199_254_740_992
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			task := validTaskSession("task.lossy")
+			mutate(&task)
+			if _, err := store.Create(context.Background(), task); err == nil {
+				t.Fatal("lossy JSON integer was accepted")
+			}
+		})
+	}
+}
+
 func validTaskSession(taskID string) cognition.TaskSession {
 	epoch := host.Epoch{
 		SessionID: "session.test", WorldID: "world.test", Host: 1, World: 1, Timeline: 1,

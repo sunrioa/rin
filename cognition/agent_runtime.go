@@ -926,6 +926,17 @@ func sealStartTaskInput(input StartTaskInput) (StartTaskInput, error) {
 	return input, nil
 }
 
+// ValidateStartTaskInput validates one public task request without starting it.
+func ValidateStartTaskInput(input StartTaskInput) error {
+	_, err := sealStartTaskInput(input)
+	return err
+}
+
+// ValidateTaskID validates one task identifier used by application transports.
+func ValidateTaskID(taskID string) error {
+	return validateTaskID(taskID)
+}
+
 func validateTaskObservation(
 	task TaskSession,
 	actor controlplane.ActorView,

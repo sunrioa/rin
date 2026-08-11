@@ -253,7 +253,7 @@ func sealTaskSession(task TaskSession) (TaskSession, error) {
 	if task.Tags, err = normalizeProviderIDs("tags", task.Tags, 32); err != nil {
 		return TaskSession{}, err
 	}
-	if !validTaskStatus(task.Status) || task.Revision == 0 {
+	if !validTaskStatus(task.Status) || task.Revision == 0 || task.Revision > maxProviderWireInteger {
 		return TaskSession{}, errors.New("task status or revision is invalid")
 	}
 	if err := validateProviderText("pause_code", task.PauseCode, 96, false); err != nil {
@@ -332,8 +332,8 @@ func sealTaskSession(task TaskSession) (TaskSession, error) {
 		if err := validateProviderID("last_observation_id", task.LastObservationID); err != nil {
 			return TaskSession{}, err
 		}
-		if task.LastObservationSeq == 0 {
-			return TaskSession{}, errors.New("last observation sequence is missing")
+		if task.LastObservationSeq == 0 || task.LastObservationSeq > maxProviderWireInteger {
+			return TaskSession{}, errors.New("last observation sequence is invalid")
 		}
 	} else if task.LastObservationSeq != 0 {
 		return TaskSession{}, errors.New("last observation id is missing")
@@ -359,11 +359,14 @@ func sealTaskSession(task TaskSession) (TaskSession, error) {
 				return TaskSession{}, err
 			}
 		}
-		if event.Step > task.Budget.MaxSteps || event.AtUnixMillis < 0 {
+		if event.Step > task.Budget.MaxSteps || event.AtUnixMillis < 0 ||
+			event.AtUnixMillis > maxProviderWireInteger {
 			return TaskSession{}, errors.New("task history event is out of bounds")
 		}
 	}
-	if task.CreatedAtUnixMillis < 0 || task.UpdatedAtUnixMillis < task.CreatedAtUnixMillis {
+	if task.CreatedAtUnixMillis < 0 || task.UpdatedAtUnixMillis < task.CreatedAtUnixMillis ||
+		task.CreatedAtUnixMillis > maxProviderWireInteger ||
+		task.UpdatedAtUnixMillis > maxProviderWireInteger {
 		return TaskSession{}, errors.New("task timestamps are invalid")
 	}
 	return cloneTaskSession(task), nil
@@ -391,7 +394,9 @@ func validateTaskLease(task TaskSession) error {
 	if err := lease.Epoch.Validate("controller_lease.epoch"); err != nil {
 		return err
 	}
-	if lease.AuthorityRevision == 0 || lease.AcquiredAtUnixMillis < 0 {
+	if lease.AuthorityRevision == 0 || lease.AuthorityRevision > maxProviderWireInteger ||
+		lease.AcquiredAtUnixMillis < 0 || lease.AcquiredAtUnixMillis > maxProviderWireInteger ||
+		lease.ExpiresAtUnixMillis > maxProviderWireInteger {
 		return errors.New("controller lease revision or timestamps are invalid")
 	}
 	if lease.Source != controlplane.DecisionInternal && lease.Source != controlplane.DecisionExternal {

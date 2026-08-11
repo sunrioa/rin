@@ -1,0 +1,937 @@
+{
+  "openapi": "3.1.0",
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "info": {
+    "title": "Rin Agent API",
+    "version": "0.1.0",
+    "description": "Engine-neutral asynchronous task contract for Rin's internal Agent Runtime. Dispatch acceptance is never proof of game execution or task completion."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:7375"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "x-rin-contract-version": "rin.agent/v1",
+  "paths": {
+    "/agent/v1/info": {
+      "get": {
+        "operationId": "agent_v1_info",
+        "responses": {
+          "200": {
+            "description": "Agent contract and daemon-bound authority",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientInfo"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/agent/v1/tasks/start": {
+      "post": {
+        "operationId": "agent_v1_start_task",
+        "description": "Create a durable internal-agent task and request background scheduling.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartTaskInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Task state was accepted; scheduled only reports queue coordination.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskDispatch"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/agent/v1/tasks/get": {
+      "post": {
+        "operationId": "agent_v1_get_task",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskTarget"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current durable task state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskSession"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/agent/v1/tasks/run": {
+      "post": {
+        "operationId": "agent_v1_run_task",
+        "description": "Wake an eligible task without bypassing controller, policy, or operation checks.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskTarget"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "$ref": "#/components/responses/TaskDispatch"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/agent/v1/tasks/resume": {
+      "post": {
+        "operationId": "agent_v1_resume_task",
+        "description": "Resume a paused task and request background scheduling.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskTarget"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "$ref": "#/components/responses/TaskDispatch"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/agent/v1/tasks/cancel": {
+      "post": {
+        "operationId": "agent_v1_cancel_task",
+        "description": "Persist cancellation intent. A cancelling task is not yet proof that a Host action stopped.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskTarget"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "$ref": "#/components/responses/TaskDispatch"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "responses": {
+      "TaskDispatch": {
+        "description": "Durable task state and queue coordination result",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/TaskDispatch"
+            }
+          }
+        }
+      },
+      "Error": {
+        "description": "Stable Agent API error",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Identifier": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 96,
+        "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+      },
+      "TaskIdentifier": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
+        "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+      },
+      "NamespacedIdentifier": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 96,
+        "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*\\.[a-z0-9]+(?:[._-][a-z0-9]+)*$"
+      },
+      "OpaqueIdentifier": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "ExactVersion": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "SHA256": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "JSONSafeUnsignedInteger": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "JSONSafePositiveInteger": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 9007199254740991
+      },
+      "UnixMillis": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "ClientInfo": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "rin.agent/v1"
+          },
+          "principal": {
+            "$ref": "#/components/schemas/Principal"
+          }
+        },
+        "required": [
+          "contract_version",
+          "principal"
+        ]
+      },
+      "Principal": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "granted_scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NamespacedIdentifier"
+            },
+            "maxItems": 64,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "StartTaskInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "$ref": "#/components/schemas/TaskIdentifier"
+          },
+          "host_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "world_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "controller_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "goal": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            },
+            "maxItems": 32,
+            "uniqueItems": true
+          },
+          "budget": {
+            "$ref": "#/components/schemas/TaskBudget"
+          }
+        },
+        "required": [
+          "task_id",
+          "host_id",
+          "world_id",
+          "actor_id",
+          "controller_id",
+          "goal"
+        ]
+      },
+      "TaskTarget": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "$ref": "#/components/schemas/TaskIdentifier"
+          }
+        },
+        "required": [
+          "task_id"
+        ]
+      },
+      "TaskBudget": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "max_steps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "max_model_calls": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 20000
+          },
+          "max_model_tokens": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000000
+          },
+          "max_actions": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          }
+        }
+      },
+      "TaskDispatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "task": {
+            "$ref": "#/components/schemas/TaskSession"
+          },
+          "scheduled": {
+            "type": "boolean",
+            "description": "True only when this call newly entered the local worker queue."
+          }
+        },
+        "required": [
+          "task",
+          "scheduled"
+        ]
+      },
+      "TaskSession": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "$ref": "#/components/schemas/TaskIdentifier"
+          },
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "host_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "world_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "controller_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "goal": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            },
+            "maxItems": 32,
+            "uniqueItems": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "waiting-confirmation",
+              "cancelling",
+              "paused",
+              "completed",
+              "failed",
+              "outcome-unknown",
+              "cancelled"
+            ]
+          },
+          "pause_code": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "revision": {
+            "$ref": "#/components/schemas/JSONSafePositiveInteger"
+          },
+          "step": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "budget": {
+            "$ref": "#/components/schemas/TaskBudget"
+          },
+          "model_calls": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 20000
+          },
+          "model_tokens": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000000
+          },
+          "action_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "controller_lease": {
+            "$ref": "#/components/schemas/ControllerLease"
+          },
+          "pending_action": {
+            "$ref": "#/components/schemas/ActionRequest"
+          },
+          "pending_operation_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "pending_memories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemoryRecord"
+            },
+            "maxItems": 8
+          },
+          "last_observation_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "last_observation_sequence": {
+            "$ref": "#/components/schemas/JSONSafePositiveInteger"
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskEvent"
+            },
+            "maxItems": 512
+          },
+          "created_at_unix_millis": {
+            "$ref": "#/components/schemas/UnixMillis"
+          },
+          "updated_at_unix_millis": {
+            "$ref": "#/components/schemas/UnixMillis"
+          }
+        },
+        "required": [
+          "task_id",
+          "session_id",
+          "host_id",
+          "world_id",
+          "actor_id",
+          "controller_id",
+          "goal",
+          "status",
+          "revision",
+          "step",
+          "budget",
+          "model_calls",
+          "model_tokens",
+          "action_count",
+          "controller_lease",
+          "created_at_unix_millis",
+          "updated_at_unix_millis"
+        ]
+      },
+      "TaskEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "step": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "code": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "operation_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "at_unix_millis": {
+            "$ref": "#/components/schemas/UnixMillis"
+          }
+        },
+        "required": [
+          "kind",
+          "step",
+          "at_unix_millis"
+        ]
+      },
+      "ControllerLease": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "lease_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "controller_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "principal_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "host_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "world_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "internal",
+              "external"
+            ]
+          },
+          "persona_mode": {
+            "type": "string",
+            "enum": [
+              "character-bound",
+              "agent-avatar"
+            ]
+          },
+          "authority_revision": {
+            "$ref": "#/components/schemas/JSONSafePositiveInteger"
+          },
+          "epoch": {
+            "$ref": "#/components/schemas/Epoch"
+          },
+          "acquired_at_unix_millis": {
+            "$ref": "#/components/schemas/UnixMillis"
+          },
+          "expires_at_unix_millis": {
+            "$ref": "#/components/schemas/UnixMillis"
+          }
+        },
+        "required": [
+          "lease_id",
+          "controller_id",
+          "principal_id",
+          "host_id",
+          "world_id",
+          "actor_id",
+          "source",
+          "persona_mode",
+          "authority_revision",
+          "epoch",
+          "acquired_at_unix_millis",
+          "expires_at_unix_millis"
+        ]
+      },
+      "Epoch": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "world_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "host": {
+            "$ref": "#/components/schemas/JSONSafePositiveInteger"
+          },
+          "world": {
+            "$ref": "#/components/schemas/JSONSafePositiveInteger"
+          },
+          "timeline": {
+            "$ref": "#/components/schemas/JSONSafePositiveInteger"
+          }
+        },
+        "required": [
+          "session_id",
+          "world_id",
+          "host",
+          "world",
+          "timeline"
+        ]
+      },
+      "CapabilityRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/NamespacedIdentifier"
+          },
+          "version": {
+            "$ref": "#/components/schemas/ExactVersion"
+          }
+        },
+        "required": [
+          "id",
+          "version"
+        ]
+      },
+      "HostRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "namespace": {
+            "$ref": "#/components/schemas/NamespacedIdentifier"
+          },
+          "type": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "ephemeral": {
+            "type": "boolean"
+          },
+          "epoch": {
+            "$ref": "#/components/schemas/Epoch"
+          }
+        },
+        "required": [
+          "namespace",
+          "type",
+          "key",
+          "ephemeral",
+          "epoch"
+        ]
+      },
+      "ActionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "request_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "controller_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "capability": {
+            "$ref": "#/components/schemas/CapabilityRef"
+          },
+          "spec_digest": {
+            "$ref": "#/components/schemas/SHA256"
+          },
+          "arguments": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "target_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HostRef"
+            },
+            "maxItems": 32
+          },
+          "expected_epoch": {
+            "$ref": "#/components/schemas/Epoch"
+          },
+          "observation_sequence": {
+            "$ref": "#/components/schemas/JSONSafePositiveInteger"
+          },
+          "task_id": {
+            "$ref": "#/components/schemas/TaskIdentifier"
+          },
+          "idempotency_key": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        },
+        "required": [
+          "request_id",
+          "controller_id",
+          "actor_id",
+          "capability",
+          "spec_digest",
+          "arguments",
+          "expected_epoch",
+          "observation_sequence",
+          "idempotency_key"
+        ]
+      },
+      "MemoryRecord": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "memory_id": {
+            "$ref": "#/components/schemas/OpaqueIdentifier"
+          },
+          "namespace": {
+            "$ref": "#/components/schemas/MemoryNamespace"
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8000
+          },
+          "subject_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 256
+            },
+            "maxItems": 32,
+            "uniqueItems": true
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            },
+            "maxItems": 64,
+            "uniqueItems": true
+          },
+          "source_event_ids": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OpaqueIdentifier"
+            },
+            "maxItems": 64,
+            "uniqueItems": true
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/MemoryProvenance"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "importance": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timepoint"
+          },
+          "last_recalled_at": {
+            "$ref": "#/components/schemas/Timepoint"
+          },
+          "expires_at": {
+            "$ref": "#/components/schemas/Timepoint"
+          },
+          "supersedes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OpaqueIdentifier"
+            },
+            "maxItems": 64,
+            "uniqueItems": true
+          },
+          "recall_count": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          }
+        },
+        "required": [
+          "memory_id",
+          "namespace",
+          "content",
+          "provenance",
+          "confidence",
+          "importance",
+          "created_at",
+          "recall_count"
+        ]
+      },
+      "MemoryNamespace": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "$ref": "#/components/schemas/OpaqueIdentifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/OpaqueIdentifier"
+          },
+          "controller_id": {
+            "$ref": "#/components/schemas/OpaqueIdentifier"
+          },
+          "domain": {
+            "type": "string",
+            "enum": [
+              "actor-episodic",
+              "actor-semantic",
+              "controller-working",
+              "controller-private",
+              "controller-belief"
+            ]
+          }
+        },
+        "required": [
+          "session_id",
+          "actor_id",
+          "domain"
+        ]
+      },
+      "MemoryProvenance": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "host-outcome",
+              "player",
+              "model",
+              "system"
+            ]
+          },
+          "source_id": {
+            "$ref": "#/components/schemas/OpaqueIdentifier"
+          },
+          "authoritative": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "source",
+          "source_id",
+          "authoritative"
+        ]
+      },
+      "Timepoint": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "clock": {
+            "type": "string",
+            "enum": [
+              "event",
+              "step",
+              "realtime"
+            ]
+          },
+          "value": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          }
+        },
+        "required": [
+          "clock",
+          "value"
+        ]
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "invalid",
+              "not_found",
+              "forbidden",
+              "conflict",
+              "capacity",
+              "unavailable",
+              "internal"
+            ]
+          }
+        },
+        "required": [
+          "error",
+          "code"
+        ]
+      }
+    }
+  }
+}
