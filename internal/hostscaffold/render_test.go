@@ -280,8 +280,8 @@ func TestBepInExRenderSelectsExactlyOneBackend(t *testing.T) {
 				t.Fatal("renamed Core project is missing from the lock file")
 			}
 			assertVendoredAsset(
-				t, plan, "Rin.Client/RinClient.cs",
-				sdkassets.FS, "csharp/Rin.Client/RinClient.cs",
+				t, plan, "Rin.Client/RinControlClient.cs",
+				sdkassets.FS, "csharp/Rin.Client/RinControlClient.cs",
 			)
 			assertVendoredAsset(
 				t, plan, "Rin.Client/packages.lock.json",

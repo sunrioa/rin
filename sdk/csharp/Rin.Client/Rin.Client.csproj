@@ -8,11 +8,10 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <PackageId>Rin.Game.Client</PackageId>
     <Version>0.7.0</Version>
-    <Description>Asynchronous .NET client for the Rin agent runtime.</Description>
+    <Description>Strict loopback .NET client for the Rin Control V2 contract.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
     <PackageReference Include="System.Text.Json" Version="8.0.6" />
-    <Compile Remove="SessionTransfer.cs" />
   </ItemGroup>
 </Project>

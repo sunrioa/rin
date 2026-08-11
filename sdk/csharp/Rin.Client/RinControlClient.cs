@@ -8,6 +8,7 @@ namespace Rin.Client;
 /// <summary>Thin loopback client for the engine-neutral Control V2 contract.</summary>
 public sealed class RinControlClient : IDisposable
 {
+    public const string ClientVersion = "0.7.0";
     public const string ContractVersion = "rin.control/v2";
     public const string DefaultBaseUrl = "http://127.0.0.1:7375";
     public const int MaximumResponseBytes = 8 * 1024 * 1024;
@@ -62,7 +63,7 @@ public sealed class RinControlClient : IDisposable
         httpClient.DefaultRequestHeaders.Accept.Add(
             new MediaTypeWithQualityHeaderValue("application/json"));
         httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(
-            $"rin-control-csharp/{RinClient.ClientVersion}");
+            $"rin-control-csharp/{ClientVersion}");
     }
 
     public async Task<JsonElement> InfoAsync(

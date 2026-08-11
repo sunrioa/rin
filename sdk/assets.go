@@ -28,25 +28,11 @@ const Version = release.Version
 //go:embed java/src/main/java/io/github/sunrioa/rin/RinProtocolException.java
 //go:embed java/src/main/java/io/github/sunrioa/rin/RinTransportException.java
 //go:embed csharp/Rin.Client/AssemblyInfo.cs
-//go:embed csharp/Rin.Client/AuthoritativeWorkflow.cs
-//go:embed csharp/Rin.Client/HostActions.cs
-//go:embed csharp/Rin.Client/HostDurability.cs
-//go:embed csharp/Rin.Client/JsonValues.cs
 //go:embed csharp/Rin.Client/NetStandardPolyfills.cs
-//go:embed csharp/Rin.Client/OpaqueSnapshots.cs
-//go:embed csharp/Rin.Client/ProposalFreshness.cs
-//go:embed csharp/Rin.Client/ProtocolModels.cs
 //go:embed csharp/Rin.Client/Rin.Client.csproj
 //go:embed csharp/Rin.Client/packages.lock.json
-//go:embed csharp/Rin.Client/RinBinding.cs
-//go:embed csharp/Rin.Client/RinCapabilities.cs
-//go:embed csharp/Rin.Client/RinClient.cs
-//go:embed csharp/Rin.Client/RinClientOptions.cs
 //go:embed csharp/Rin.Client/RinControlClient.cs
 //go:embed csharp/Rin.Client/RinControlClientOptions.cs
 //go:embed csharp/Rin.Client/RinException.cs
-//go:embed csharp/Rin.Client/RinIds.cs
-//go:embed csharp/Rin.Client/SessionTransfer.cs
-//go:embed csharp/Rin.Client/WorkflowCoordinator.cs
 //go:embed lua/rin.lua
 var FS embed.FS

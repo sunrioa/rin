@@ -76,7 +76,7 @@ func TestEmbeddedSDKVersionMatchesClientProjections(t *testing.T) {
 	expectedFragments := map[string]string{
 		"java/src/main/java/io/github/sunrioa/rin/RinControlClient.java": `VERSION = "` +
 			sdkassets.Version + `"`,
-		"csharp/Rin.Client/RinClient.cs": `ClientVersion = "` +
+		"csharp/Rin.Client/RinControlClient.cs": `ClientVersion = "` +
 			sdkassets.Version + `"`,
 		"lua/rin.lua": `VERSION = "` + sdkassets.Version + `"`,
 	}
