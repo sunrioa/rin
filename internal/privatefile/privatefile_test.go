@@ -32,6 +32,28 @@ func TestWriteJSONBoundedRejectsOversizeWithoutReplacingFile(t *testing.T) {
 	}
 }
 
+func TestReadJSONRejectsDuplicateObjectNames(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	if err := os.WriteFile(path, []byte(`{"state":"first","state":"last"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var value map[string]string
+	if err := privatefile.ReadJSON(path, 1<<20, &value); err == nil {
+		t.Fatal("private JSON with duplicate object names was accepted")
+	}
+}
+
+func TestReadJSONRejectsOversizeFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	if err := os.WriteFile(path, []byte(`{"state":"too-large"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var value map[string]string
+	if err := privatefile.ReadJSON(path, 8, &value); err == nil {
+		t.Fatal("oversized private JSON was accepted")
+	}
+}
+
 func TestWriteRejectsSymlinkParent(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink creation is not reliably available on Windows CI")

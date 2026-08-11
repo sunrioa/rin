@@ -152,6 +152,11 @@ func (runtime *AgentRuntime) StartTask(
 	if err != nil {
 		return TaskSession{}, err
 	}
+	if _, err := runtime.persona.Load(ctx, PersonaRequest{
+		ActorID: sealed.ActorID, ControllerID: sealed.ControllerID,
+	}); err != nil {
+		return TaskSession{}, fmt.Errorf("load task persona: %w", err)
+	}
 	actor, err := runtime.control.GetActor(
 		runtime.principal, sealed.HostID, sealed.WorldID, sealed.ActorID,
 	)

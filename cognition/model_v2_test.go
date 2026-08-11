@@ -76,6 +76,27 @@ func TestStructuredDecisionProviderReturnsGroundedAction(t *testing.T) {
 	}
 }
 
+func TestStructuredDecisionProviderValidatesBeforeFirstRequest(t *testing.T) {
+	generation := &recordingGenerationProvider{}
+	for _, configured := range []cognition.StructuredDecisionProvider{
+		{},
+		{GenerationProvider: generation, MaxContextCharacters: 7_999},
+		{GenerationProvider: generation, MaxOutputTokens: 8_193},
+		{GenerationProvider: generation, Temperature: 2.1},
+	} {
+		if err := configured.Validate(); err == nil {
+			t.Fatalf("invalid provider was accepted: %#v", configured)
+		}
+		if configured.Health(context.Background()).Available {
+			t.Fatal("invalid provider reported healthy")
+		}
+	}
+	valid := cognition.StructuredDecisionProvider{GenerationProvider: generation}
+	if err := valid.Validate(); err != nil || !valid.Health(context.Background()).Available {
+		t.Fatalf("valid provider failed startup validation: %v", err)
+	}
+}
+
 func TestStructuredDecisionProviderRejectsInventedTargetsAndCapabilities(t *testing.T) {
 	for _, test := range []struct {
 		name     string

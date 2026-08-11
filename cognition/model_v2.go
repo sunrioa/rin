@@ -225,8 +225,8 @@ func (decisionProvider StructuredDecisionProvider) Decide(
 	if err := requireMemoryContext(ctx); err != nil {
 		return ModelDecision{}, err
 	}
-	if decisionProvider.GenerationProvider == nil {
-		return ModelDecision{}, errors.New("structured generation provider is required")
+	if err := decisionProvider.Validate(); err != nil {
+		return ModelDecision{}, err
 	}
 	sealed, observation, err := sealModelInput(input)
 	if err != nil {
@@ -237,26 +237,11 @@ func (decisionProvider StructuredDecisionProvider) Decide(
 	if err != nil {
 		return ModelDecision{}, fmt.Errorf("encode model context: %w", err)
 	}
-	contextLimit := decisionProvider.MaxContextCharacters
-	if contextLimit == 0 {
-		contextLimit = 64_000
-	}
-	if contextLimit < 8_000 || contextLimit > 1_000_000 {
-		return ModelDecision{}, errors.New("model context character limit is out of bounds")
-	}
+	contextLimit := decisionProvider.contextLimit()
 	if utf8.RuneCountInString(modelV2SystemPrompt)+utf8.RuneCount(payload) > int(contextLimit) {
 		return ModelDecision{}, ErrProviderCapacity
 	}
-	maxTokens := decisionProvider.MaxOutputTokens
-	if maxTokens == 0 {
-		maxTokens = 1_500
-	}
-	if maxTokens < 256 || maxTokens > 8_192 {
-		return ModelDecision{}, errors.New("model output token limit is out of bounds")
-	}
-	if decisionProvider.Temperature < 0 || decisionProvider.Temperature > 2 {
-		return ModelDecision{}, errors.New("model temperature must be between zero and two")
-	}
+	maxTokens := decisionProvider.outputTokenLimit()
 	response, err := decisionProvider.GenerationProvider.Complete(ctx, provider.CompletionRequest{
 		Messages: []provider.Message{
 			{Role: "system", Content: modelV2SystemPrompt},
@@ -288,12 +273,48 @@ func (decisionProvider StructuredDecisionProvider) Decide(
 	return decision, nil
 }
 
+// Validate checks startup-safe model limits without issuing a provider call.
+func (decisionProvider StructuredDecisionProvider) Validate() error {
+	if decisionProvider.GenerationProvider == nil {
+		return errors.New("structured generation provider is required")
+	}
+	contextLimit := decisionProvider.contextLimit()
+	if contextLimit < 8_000 || contextLimit > 1_000_000 {
+		return errors.New("model context character limit is out of bounds")
+	}
+	maxTokens := decisionProvider.outputTokenLimit()
+	if maxTokens < 256 || maxTokens > 8_192 {
+		return errors.New("model output token limit is out of bounds")
+	}
+	if decisionProvider.Temperature < 0 || decisionProvider.Temperature > 2 {
+		return errors.New("model temperature must be between zero and two")
+	}
+	return nil
+}
+
+func (decisionProvider StructuredDecisionProvider) contextLimit() uint32 {
+	if decisionProvider.MaxContextCharacters == 0 {
+		return 64_000
+	}
+	return decisionProvider.MaxContextCharacters
+}
+
+func (decisionProvider StructuredDecisionProvider) outputTokenLimit() int {
+	if decisionProvider.MaxOutputTokens == 0 {
+		return 1_500
+	}
+	return decisionProvider.MaxOutputTokens
+}
+
 func (decisionProvider StructuredDecisionProvider) Health(ctx context.Context) ProviderHealth {
 	if ctx == nil || ctx.Err() != nil {
 		return ProviderHealth{Code: "context_unavailable"}
 	}
 	if decisionProvider.GenerationProvider == nil {
 		return ProviderHealth{Code: "generation_provider_missing"}
+	}
+	if err := decisionProvider.Validate(); err != nil {
+		return ProviderHealth{Code: "configuration_invalid"}
 	}
 	return ProviderHealth{Available: true}
 }

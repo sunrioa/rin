@@ -10,6 +10,7 @@ releases do not carry a post-1.0 stability guarantee.
 | --- | --- | --- |
 | Runtime HTTP wire schema | [`api/openapi.json`](../api/openapi.json) | [`api/openapi.json`](../api/openapi.json) |
 | Host Control wire schema | [`api/control-openapi.json`](../api/control-openapi.json) | [`api/control-openapi.json`](../api/control-openapi.json) |
+| Internal Agent task wire schema | [`api/agent-openapi.json`](../api/agent-openapi.json) | [`api/agent-openapi.json`](../api/agent-openapi.json) |
 | Architecture, storage, and authority boundary | [Architecture](architecture.md) | [架构](architecture.zh-CN.md) |
 | Engine-neutral host and capability contract | [Host contract](host-contract.md) | [宿主契约](host-contract.zh-CN.md) |
 | Sequential, simultaneous, chance, and hidden information | [OpenSpiel validation](open-spiel-validation.md) | [OpenSpiel 验证](open-spiel-validation.zh-CN.md) |
@@ -18,6 +19,7 @@ releases do not carry a post-1.0 stability guarantee.
 | Bounded task plans and budgets | [Task plans](planner.md) | [任务计划](planner.zh-CN.md) |
 | HTTP and state contract | [Protocol v2](protocol-v2.md) | [协议 v2](protocol-v2.zh-CN.md) |
 | Online-model configuration | [Model policy](model-policy.md) | [模型策略](model-policy.zh-CN.md) |
+| Persistent internal Agent Runtime | [Internal Agent Runtime](internal-agent-runtime.md) | [内部 Agent Runtime](internal-agent-runtime.zh-CN.md) |
 | Optional decision, memory, speech, and telemetry ports | [Optional extensions](optional-extensions.md) | [可选扩展端口](optional-extensions.zh-CN.md) |
 | MCP external control and version negotiation | [Quick start](mcp-control-plane.md) | [快速接入](mcp-control-plane.zh-CN.md) |
 | Ren'Py, Godot, Unity, and Unreal | [Game adapters](game-adapters.md) | [游戏适配器](game-adapters.zh-CN.md) |

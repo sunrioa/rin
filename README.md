@@ -105,7 +105,7 @@ go run ./cmd/rin init host --engine fabric --id guide_npc --name "Guide NPC" --n
 - [安全说明](SECURITY.md)、[变更日志](CHANGELOG.zh-CN.md)和[第三方许可](THIRD-PARTY-NOTICES.md)
 
 `api/openapi.json` 是 Runtime HTTP 契约，`api/control-openapi.json` 是 Host
-Control 契约；协议文档解释运行时语义，专题文档解释适配器、长期 Session、
+Control 契约，`api/agent-openapi.json` 是内部 Agent Task 契约；协议文档解释运行时语义，专题文档解释适配器、长期 Session、
 Transfer 和可选扩展。根 README 不重复这些完整内容。
 
 ## 目录

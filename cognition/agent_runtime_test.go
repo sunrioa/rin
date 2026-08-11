@@ -64,6 +64,22 @@ func TestAgentRuntimeCompletesMultiStepTaskThroughControlPlane(t *testing.T) {
 	}
 }
 
+func TestAgentRuntimeRejectsUnboundActorBeforeControllerSideEffects(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	runtime := fixture.runtime(t, 1)
+	_, err := runtime.StartTask(context.Background(), cognition.StartTaskInput{
+		TaskID: "task.unbound", HostID: "host.test", WorldID: "world.test",
+		ActorID: "actor.unbound", ControllerID: "controller.internal",
+		Goal: "Attempt an unconfigured role.",
+	})
+	if !errors.Is(err, cognition.ErrProviderNotFound) {
+		t.Fatalf("unbound task error = %v", err)
+	}
+	if fixture.control.acquireCalls != 0 {
+		t.Fatalf("unbound task acquired %d controller leases", fixture.control.acquireCalls)
+	}
+}
+
 func TestAgentRuntimeReplaysExactPendingActionAfterRestore(t *testing.T) {
 	fixture := newAgentRuntimeFixture(t)
 	fixture.model.decisions = []cognition.ModelDecision{agentActionDecision()}
@@ -626,6 +642,7 @@ type fakeAgentControlPlane struct {
 	cancelResult         controlplane.OperationView
 	cancelCalls          int
 	releaseCalls         int
+	acquireCalls         int
 }
 
 func (control *fakeAgentControlPlane) GetActor(
@@ -639,6 +656,7 @@ func (control *fakeAgentControlPlane) AcquireController(
 	principal host.Principal,
 	input controlplane.AcquireControllerInput,
 ) (controlplane.ControllerLease, error) {
+	control.acquireCalls++
 	return control.lease, nil
 }
 

@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+
+	"github.com/sunrioa/rin/internal/jsonwire"
 )
 
 // ReadJSON decodes one bounded, private, regular JSON file.
@@ -26,9 +28,33 @@ func ReadJSON(path string, maxBytes int64, target any) error {
 	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
 		return errors.New("private JSON file permissions must not allow group or other access")
 	}
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
 		return err
+	}
+	openedInfo, statErr := file.Stat()
+	if statErr != nil || !openedInfo.Mode().IsRegular() ||
+		!os.SameFile(info, openedInfo) || openedInfo.Size() > maxBytes {
+		_ = file.Close()
+		return errors.New("private JSON path changed or exceeded its bound while opening")
+	}
+	if runtime.GOOS != "windows" && openedInfo.Mode().Perm()&0o077 != 0 {
+		_ = file.Close()
+		return errors.New("private JSON file permissions changed while opening")
+	}
+	data, readErr := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	closeErr := file.Close()
+	if readErr != nil {
+		return readErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	if int64(len(data)) > maxBytes {
+		return errors.New("private JSON path exceeded its bound while reading")
+	}
+	if err := jsonwire.Validate(data); err != nil {
+		return fmt.Errorf("validate private JSON: %w", err)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()

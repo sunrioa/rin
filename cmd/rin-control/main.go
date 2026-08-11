@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sunrioa/rin/agentdaemon"
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/internal/jsonwire"
@@ -26,11 +27,14 @@ const shutdownTimeout = 5 * time.Second
 const maxPolicyBytes int64 = 1 << 20
 
 type configuration struct {
-	address   string
-	dataDir   string
-	token     string
-	principal host.Principal
-	policy    string
+	address     string
+	dataDir     string
+	token       string
+	principal   host.Principal
+	policy      string
+	agentConfig string
+	agentToken  string
+	agentAPIKey string
 }
 
 func main() {
@@ -79,12 +83,31 @@ func run(
 	if err != nil {
 		return err
 	}
+	rootHandler := handler
+	var internalAgent *agentdaemon.Daemon
+	if config.agentConfig != "" {
+		agentConfig, err := agentdaemon.LoadConfig(config.agentConfig)
+		if err != nil {
+			return err
+		}
+		internalAgent, err = agentdaemon.Open(agentdaemon.Options{
+			Config: agentConfig, DataDir: config.dataDir, Control: service,
+			HTTPToken: config.agentToken, APIKey: config.agentAPIKey,
+		})
+		if err != nil {
+			return fmt.Errorf("start internal Agent Runtime: %w", err)
+		}
+		defer func() {
+			result = errors.Join(result, internalAgent.Close())
+		}()
+		rootHandler = composeHandlers(handler, internalAgent.Handler())
+	}
 	listener, err := net.Listen("tcp", config.address)
 	if err != nil {
 		return fmt.Errorf("listen for Host Control: %w", err)
 	}
 	server := &http.Server{
-		Handler:           handler,
+		Handler:           rootHandler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      35 * time.Second,
@@ -100,6 +123,9 @@ func run(
 		listener.Addr(),
 		config.principal.ID,
 	)
+	if internalAgent != nil {
+		fmt.Fprintln(stderr, "rin-control: internal Agent Runtime enabled")
+	}
 
 	httpDone := false
 	select {
@@ -158,6 +184,11 @@ func parseConfiguration(
 		envOr(lookupEnv, "RIN_CONTROL_POLICY", ""),
 		"optional gameplay policy JSON file; the built-in default denies unknown effects",
 	)
+	agentConfigPath := flags.String(
+		"agent-config",
+		envOr(lookupEnv, "RIN_AGENT_CONFIG", ""),
+		"optional private internal Agent Runtime JSON configuration",
+	)
 	if err := flags.Parse(arguments); err != nil {
 		return configuration{}, err
 	}
@@ -192,13 +223,40 @@ func parseConfiguration(
 			"RIN_CONTROL_SCOPES requires at least one Control Plane scope",
 		)
 	}
+	agentConfig := strings.TrimSpace(*agentConfigPath)
+	agentToken, agentTokenSet := lookupEnv("RIN_AGENT_TOKEN")
+	agentAPIKey, agentAPIKeySet := lookupEnv("RIN_AGENT_API_KEY")
+	if agentConfig == "" {
+		if agentTokenSet || agentAPIKeySet {
+			return configuration{}, errors.New(
+				"RIN_AGENT_TOKEN and RIN_AGENT_API_KEY require --agent-config",
+			)
+		}
+	} else if len(agentToken) < 32 {
+		return configuration{}, errors.New(
+			"RIN_AGENT_TOKEN must contain at least 32 bytes when Agent Runtime is enabled",
+		)
+	} else if agentToken == token {
+		return configuration{}, errors.New(
+			"RIN_AGENT_TOKEN must differ from RIN_CONTROL_TOKEN",
+		)
+	} else if agentAPIKey != "" && (agentAPIKey == agentToken || agentAPIKey == token) {
+		return configuration{}, errors.New(
+			"RIN_AGENT_API_KEY must differ from daemon tokens",
+		)
+	}
 	return configuration{
-		address:   *address,
-		dataDir:   *dataDirectory,
-		token:     token,
-		principal: principal,
-		policy:    strings.TrimSpace(*policyPath),
+		address: *address, dataDir: *dataDirectory, token: token,
+		principal: principal, policy: strings.TrimSpace(*policyPath),
+		agentConfig: agentConfig, agentToken: agentToken, agentAPIKey: agentAPIKey,
 	}, nil
+}
+
+func composeHandlers(controlHandler, agentHandler http.Handler) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/control/", controlHandler)
+	mux.Handle("/agent/", agentHandler)
+	return mux
 }
 
 func loadPolicyEngine(path string) (*policy.Engine, error) {

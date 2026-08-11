@@ -12,6 +12,7 @@ import (
 
 func TestCoreProductionCodeDoesNotImportGameAdapters(t *testing.T) {
 	coreRoots := []string{
+		"../agentdaemon",
 		"../agentapi",
 		"../host",
 		"../policy",

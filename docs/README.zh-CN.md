@@ -11,6 +11,7 @@ Rin `0.7.0` 是 Preview、pre-1.0 软件。文档按公共接口组织，不以�
 | --- | --- | --- |
 | Runtime HTTP Wire Schema | [`api/openapi.json`](../api/openapi.json) | [`api/openapi.json`](../api/openapi.json) |
 | Host Control Wire Schema | [`api/control-openapi.json`](../api/control-openapi.json) | [`api/control-openapi.json`](../api/control-openapi.json) |
+| 内部 Agent Task Wire Schema | [`api/agent-openapi.json`](../api/agent-openapi.json) | [`api/agent-openapi.json`](../api/agent-openapi.json) |
 | 架构、存储与权威边界 | [架构](architecture.zh-CN.md) | [Architecture](architecture.md) |
 | 引擎无关宿主与能力契约 | [宿主契约](host-contract.zh-CN.md) | [Host contract](host-contract.md) |
 | 顺序、同时、Chance 与隐藏信息 | [OpenSpiel 验证](open-spiel-validation.zh-CN.md) | [OpenSpiel validation](open-spiel-validation.md) |
@@ -19,6 +20,7 @@ Rin `0.7.0` 是 Preview、pre-1.0 软件。文档按公共接口组织，不以�
 | 有界任务计划 DSL 与预算 | [任务计划](planner.zh-CN.md) | [Task plans](planner.md) |
 | HTTP 与状态契约 | [协议 v2](protocol-v2.zh-CN.md) | [Protocol v2](protocol-v2.md) |
 | 在线模型配置 | [模型策略](model-policy.zh-CN.md) | [Model policy](model-policy.md) |
+| 持久内部 Agent Runtime | [内部 Agent Runtime](internal-agent-runtime.zh-CN.md) | [Internal Agent Runtime](internal-agent-runtime.md) |
 | 可选决策、记忆、语音与遥测端口 | [可选扩展端口](optional-extensions.zh-CN.md) | [Optional extensions](optional-extensions.md) |
 | MCP 外部控制与版本协商 | [快速接入](mcp-control-plane.zh-CN.md) | [Quick start](mcp-control-plane.md) |
 | Ren'Py、Godot、Unity 与 Unreal | [游戏适配器](game-adapters.zh-CN.md) | [Game adapters](game-adapters.md) |

@@ -108,8 +108,9 @@ See [game adapters](docs/game-adapters.md) for installation, thread boundaries, 
 - [Release guide](docs/release-guide.md) and [roadmap](ROADMAP.en.md)
 - [Security](SECURITY.en.md), [changelog](CHANGELOG.md), and [third-party notices](THIRD-PARTY-NOTICES.md)
 
-`api/openapi.json` is the Runtime HTTP contract and
-`api/control-openapi.json` is the Host Control contract. The protocol reference
+`api/openapi.json` is the Runtime HTTP contract, `api/control-openapi.json` is
+the Host Control contract, and `api/agent-openapi.json` is the internal Agent
+Task contract. The protocol reference
 describes runtime semantics; focused documents cover adapters, long sessions,
 Transfer, and optional extensions. The root README does not duplicate those
 details.
