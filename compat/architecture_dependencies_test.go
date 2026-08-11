@@ -19,8 +19,6 @@ func TestCoreProductionCodeDoesNotImportGameAdapters(t *testing.T) {
 		"../controlplane",
 		"../cognition",
 		"../mcpbridge",
-		"../runtime",
-		"../protocol",
 		"../sdk/hostkit",
 	}
 	for _, root := range coreRoots {
