@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sunrioa/rin/protocol"
 	"github.com/sunrioa/rin/provider"
+	"github.com/sunrioa/rin/release"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -32,7 +32,7 @@ func TestCompleteSendsSchemaAndDecodesFixture(t *testing.T) {
 		if request.Header.Get("Authorization") != "Bearer fixture-secret" {
 			t.Fatalf("missing authorization header")
 		}
-		if request.Header.Get("User-Agent") != "rin/"+protocol.ContractReleaseVersion {
+		if request.Header.Get("User-Agent") != "rin/"+release.Version {
 			t.Fatalf("unexpected user agent: %s", request.Header.Get("User-Agent"))
 		}
 		var body map[string]any

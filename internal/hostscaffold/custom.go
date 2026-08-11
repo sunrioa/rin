@@ -10,7 +10,7 @@ import (
 func renderCustom(options normalizedOptions) ([]renderedFile, error) {
 	hostConfig := map[string]any{
 		"schema_version":   1,
-		"protocol_version": "rin.protocol/v2",
+		"protocol_version": host.ActionContractVersion,
 		"project_id":       options.ID,
 		"engine":           "custom",
 		"runtime":          options.Runtime,

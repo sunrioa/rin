@@ -23,7 +23,7 @@ func TestHostProjectCommands(t *testing.T) {
 	if err := runConformance([]string{"host", "-path", root}, &output); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "conforms to rin.protocol/v2") {
+	if !strings.Contains(output.String(), "conforms to rin.host/v2") {
 		t.Fatalf("unexpected conformance output: %s", output.String())
 	}
 

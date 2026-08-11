@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/internal/hostproject"
-	"github.com/sunrioa/rin/protocol"
 )
 
 func runConformance(arguments []string, output io.Writer) error {
@@ -43,7 +43,7 @@ digests, Windows-portable paths, and sealed capability descriptors.
 	fmt.Fprintf(
 		output,
 		"Host %s conforms to %s: %d generated files, %d modified, %d capabilities.\n",
-		report.Manifest.Project.ID, protocol.Version, report.CheckedFiles,
+		report.Manifest.Project.ID, host.ActionContractVersion, report.CheckedFiles,
 		len(report.ModifiedFiles), len(report.Capabilities),
 	)
 	return nil

@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/sunrioa/rin/internal/jsonwire"
-	"github.com/sunrioa/rin/protocol"
 	"github.com/sunrioa/rin/provider"
+	"github.com/sunrioa/rin/release"
 )
 
 const defaultMaxResponseBytes int64 = 2 << 20
@@ -136,7 +136,7 @@ func (c *Client) Complete(ctx context.Context, request provider.CompletionReques
 	}
 	httpRequest.Header.Set("Content-Type", "application/json")
 	httpRequest.Header.Set("Accept", "application/json")
-	httpRequest.Header.Set("User-Agent", "rin/"+protocol.ContractReleaseVersion)
+	httpRequest.Header.Set("User-Agent", "rin/"+release.Version)
 	if c.apiKey != "" {
 		httpRequest.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}

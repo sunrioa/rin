@@ -5,12 +5,12 @@ package sdkassets
 import (
 	"embed"
 
-	"github.com/sunrioa/rin/protocol"
+	"github.com/sunrioa/rin/release"
 )
 
 // Version identifies the SDK source snapshot embedded in FS. The projection
 // tests keep the Java, C#, and Lua client constants aligned with this release.
-const Version = protocol.ContractReleaseVersion
+const Version = release.Version
 
 // FS contains only the explicitly reviewed Java, C#, and Lua SDK sources and
 // project metadata.

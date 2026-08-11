@@ -16,7 +16,6 @@ import (
 
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/internal/portablepath"
-	"github.com/sunrioa/rin/protocol"
 )
 
 const maxProjectFileBytes = 1 << 20
@@ -91,10 +90,10 @@ func Inspect(root string) (Report, error) {
 		!manifest.Generator.Deterministic {
 		return Report{}, errors.New("unsupported or non-deterministic scaffold manifest")
 	}
-	if manifest.Generator.ProtocolVersion != protocol.Version {
+	if manifest.Generator.ProtocolVersion != host.ActionContractVersion {
 		return Report{}, fmt.Errorf(
 			"host protocol %q does not match %q",
-			manifest.Generator.ProtocolVersion, protocol.Version)
+			manifest.Generator.ProtocolVersion, host.ActionContractVersion)
 	}
 	if manifest.Project.ID == "" || manifest.Host.ID == "" {
 		return Report{}, errors.New("scaffold manifest has no project or host identity")
@@ -149,7 +148,7 @@ func Inspect(root string) (Report, error) {
 		if err := decodeFile(filepath.Join(absolute, "rin-host.json"), &config); err != nil {
 			return Report{}, fmt.Errorf("read rin-host.json: %w", err)
 		}
-		if config.SchemaVersion != 1 || config.ProtocolVersion != protocol.Version ||
+		if config.SchemaVersion != 1 || config.ProtocolVersion != host.ActionContractVersion ||
 			config.ProjectID != manifest.Project.ID || config.Engine != "custom" ||
 			config.Runtime != manifest.Project.Runtime ||
 			config.Durability != string(host.DurabilityAdvisory) ||

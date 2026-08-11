@@ -10,8 +10,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/internal/portablepath"
-	"github.com/sunrioa/rin/protocol"
 )
 
 const manifestPath = "rin-scaffold.json"
@@ -241,7 +241,7 @@ func renderManifest(options normalizedOptions, files []renderedFile) ([]byte, er
 		SchemaVersion: 1,
 		Generator: generatorManifest{
 			Name: "rin", RinVersion: options.RinVersion,
-			ProtocolVersion: protocol.Version, Deterministic: true,
+			ProtocolVersion: host.ActionContractVersion, Deterministic: true,
 		},
 		Project: project,
 		Host: hostManifest{

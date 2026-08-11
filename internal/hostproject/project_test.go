@@ -11,7 +11,6 @@ import (
 
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/internal/hostscaffold"
-	"github.com/sunrioa/rin/protocol"
 )
 
 func TestInspectCustomHostAndAddSkill(t *testing.T) {
@@ -20,7 +19,7 @@ func TestInspectCustomHostAndAddSkill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Manifest.Generator.ProtocolVersion != protocol.Version ||
+	if report.Manifest.Generator.ProtocolVersion != host.ActionContractVersion ||
 		report.Manifest.Project.ID != "test_host" ||
 		len(report.Capabilities) != 1 {
 		t.Fatalf("unexpected report: %+v", report)
