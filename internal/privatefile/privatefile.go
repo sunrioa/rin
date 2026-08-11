@@ -47,11 +47,28 @@ func ReadJSON(path string, maxBytes int64, target any) error {
 
 // WriteJSON atomically writes one private JSON file with mode 0600.
 func WriteJSON(path string, value any) error {
+	return writeJSON(path, value, 0)
+}
+
+// WriteJSONBounded atomically writes JSON only when the complete on-disk
+// representation fits within maxBytes. It prevents a store from creating a
+// snapshot that its own bounded reader cannot reopen.
+func WriteJSONBounded(path string, value any, maxBytes int64) error {
+	if maxBytes < 1 {
+		return errors.New("invalid private JSON write limit")
+	}
+	return writeJSON(path, value, maxBytes)
+}
+
+func writeJSON(path string, value any, maxBytes int64) error {
 	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode private JSON: %w", err)
 	}
 	data = append(data, '\n')
+	if maxBytes > 0 && int64(len(data)) > maxBytes {
+		return fmt.Errorf("private JSON exceeds %d bytes", maxBytes)
+	}
 	return Write(path, data, 0o600)
 }
 
@@ -64,10 +81,18 @@ func Write(path string, data []byte, mode os.FileMode) error {
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return fmt.Errorf("create private directory: %w", err)
 	}
+	info, err := os.Lstat(directory)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("private file parent must be a real directory")
+	}
 	if runtime.GOOS != "windows" {
 		if err := os.Chmod(directory, 0o700); err != nil {
 			return fmt.Errorf("secure private directory: %w", err)
 		}
+	}
+	info, err = os.Lstat(directory)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("private file parent must be a real directory")
 	}
 	temporary, err := os.CreateTemp(directory, "."+filepath.Base(path)+".tmp-")
 	if err != nil {

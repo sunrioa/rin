@@ -8,13 +8,18 @@ import (
 	"runtime"
 )
 
-func acquireTaskStoreLock(string) (*os.File, error) {
+func acquireProviderStoreLock(
+	string,
+	error,
+	persistenceErr error,
+	label string,
+) (*os.File, error) {
 	return nil, fmt.Errorf(
-		"%w: task-store locking is unsupported on %s", ErrTaskStorePersistence, runtime.GOOS,
+		"%w: %s locking is unsupported on %s", persistenceErr, label, runtime.GOOS,
 	)
 }
 
-func releaseTaskStoreLock(file *os.File) error {
+func releaseProviderStoreLock(file *os.File) error {
 	if file == nil {
 		return nil
 	}

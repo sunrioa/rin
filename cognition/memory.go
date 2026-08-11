@@ -442,6 +442,12 @@ func (provider *LocalMemoryProvider) Health(ctx context.Context) ProviderHealth 
 	return ProviderHealth{Available: true}
 }
 
+func (provider *LocalMemoryProvider) revisionValue() uint64 {
+	provider.mu.RLock()
+	defer provider.mu.RUnlock()
+	return provider.revision
+}
+
 func (provider *LocalMemoryProvider) ensureNamespace(namespace MemoryNamespace) *localMemoryNamespace {
 	key := memoryNamespaceKey(namespace)
 	state := provider.namespaces[key]
