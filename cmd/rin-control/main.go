@@ -265,13 +265,15 @@ func loadPolicyEngine(path string) (*policy.Engine, error) {
 		Profile:          policy.ProfileGuarded,
 		KnownEffectKinds: []string{},
 		KnownScopes:      []string{},
-		ConfirmationTTL: host.Duration{
-			Clock: host.ClockRealtime,
-			Value: 30_000,
+		ConfirmationTTL: policy.ConfirmationDurations{
+			Event:    16,
+			Step:     600,
+			Realtime: 30_000,
 		},
 		ConfirmationScopes: []string{"rin.policy.confirm"},
 	}
 	if path != "" {
+		config = policy.Config{}
 		file, err := os.Open(path)
 		if err != nil {
 			return nil, fmt.Errorf("open gameplay policy: %w", err)

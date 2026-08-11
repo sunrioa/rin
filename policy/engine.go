@@ -35,8 +35,10 @@ type Engine struct {
 }
 
 type challengeState struct {
-	challenge ConfirmationChallenge
-	approved  bool
+	challenge  ConfirmationChallenge
+	approved   bool
+	key        string
+	clockScope string
 }
 
 type budgetUsage struct {
@@ -129,7 +131,7 @@ func (engine *Engine) Evaluate(action host.BoundAction, context Context) (Decisi
 
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
-	engine.pruneChallenges(context.Now)
+	engine.pruneChallenges(action, context)
 	config := engine.config
 	base := Decision{
 		DecisionID:     decisionID,
@@ -195,7 +197,16 @@ func (engine *Engine) Evaluate(action host.BoundAction, context Context) (Decisi
 			return *rejection, nil
 		}
 		if !confirmed {
-			challenge, err := engine.issueConfirmation(action, context, config)
+			ttl, supported := confirmationTTL(config.ConfirmationTTL, context.Now.Clock)
+			if !supported {
+				return denyDecision(
+					base,
+					"kernel.confirmation-clock-disabled",
+					"policy.confirmation_clock_disabled",
+					"Gameplay confirmation is disabled for this Host clock.",
+				), nil
+			}
+			challenge, err := engine.issueConfirmation(action, context, config, ttl)
 			if err != nil {
 				return Decision{}, err
 			}
@@ -264,10 +275,21 @@ func (engine *Engine) Approve(
 	}
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
-	engine.pruneChallenges(now)
 	state, exists := engine.challenges[challengeID]
 	if !exists {
 		return ConfirmationChallenge{}, errors.New("confirmation challenge is missing or expired")
+	}
+	if state.challenge.ExpiresAt.Clock != now.Clock {
+		return ConfirmationChallenge{}, errors.New(
+			"confirmation approval clock does not match the challenge",
+		)
+	}
+	if now.Value >= state.challenge.ExpiresAt.Value {
+		delete(engine.challenges, challengeID)
+		delete(engine.challengeKeys, state.key)
+		return ConfirmationChallenge{}, errors.New(
+			"confirmation challenge is missing or expired",
+		)
 	}
 	if state.challenge.PolicyRevision != engine.config.Revision {
 		return ConfirmationChallenge{}, errors.New("confirmation challenge belongs to an old policy revision")
@@ -322,7 +344,7 @@ func (engine *Engine) DiscardConfirmation(challenge ConfirmationChallenge) bool 
 		return false
 	}
 	delete(engine.challenges, challenge.ChallengeID)
-	delete(engine.challengeKeys, challengeKeyFromChallenge(challenge))
+	delete(engine.challengeKeys, state.key)
 	return true
 }
 
@@ -373,13 +395,8 @@ func (engine *Engine) issueConfirmation(
 	action host.BoundAction,
 	context Context,
 	config Config,
+	ttl uint64,
 ) (ConfirmationChallenge, error) {
-	if config.ConfirmationTTL.Clock != context.Now.Clock {
-		return ConfirmationChallenge{}, errors.New("confirmation TTL clock does not match the Host clock")
-	}
-	if context.Now.Value > maxJSONSafeInteger-int64(config.ConfirmationTTL.Value) {
-		return ConfirmationChallenge{}, errors.New("confirmation expiry exceeds the JSON-safe clock range")
-	}
 	key := makeChallengeKey(action, context, config.Revision)
 	if existingID, exists := engine.challengeKeys[key]; exists {
 		if existing, found := engine.challenges[existingID]; found {
@@ -394,6 +411,13 @@ func (engine *Engine) issueConfirmation(
 	if err != nil {
 		return ConfirmationChallenge{}, err
 	}
+	expiresAt := action.ValidUntil.Value
+	if context.Now.Value <= maxJSONSafeInteger-int64(ttl) {
+		configuredExpiry := context.Now.Value + int64(ttl)
+		if configuredExpiry < expiresAt {
+			expiresAt = configuredExpiry
+		}
+	}
 	challenge := ConfirmationChallenge{
 		ChallengeID:    id,
 		ControllerID:   action.ControllerID,
@@ -401,13 +425,32 @@ func (engine *Engine) issueConfirmation(
 		PrincipalID:    context.Principal.ID,
 		EffectDigest:   action.EffectDigest,
 		Epoch:          action.ExpectedEpoch,
-		ExpiresAt:      host.Timepoint{Clock: context.Now.Clock, Value: context.Now.Value + int64(config.ConfirmationTTL.Value)},
+		ExpiresAt:      host.Timepoint{Clock: context.Now.Clock, Value: expiresAt},
 		PolicyRevision: config.Revision,
 		SingleUse:      true,
 	}
-	engine.challenges[id] = &challengeState{challenge: challenge}
+	engine.challenges[id] = &challengeState{
+		challenge:  challenge,
+		key:        key,
+		clockScope: challengeClockScope(action, context),
+	}
 	engine.challengeKeys[key] = id
 	return challenge, nil
+}
+
+func confirmationTTL(value ConfirmationDurations, clock host.ClockMode) (uint64, bool) {
+	var ttl uint64
+	switch clock {
+	case host.ClockEvent:
+		ttl = value.Event
+	case host.ClockStep:
+		ttl = value.Step
+	case host.ClockRealtime:
+		ttl = value.Realtime
+	default:
+		return 0, false
+	}
+	return ttl, ttl != 0
 }
 
 func (engine *Engine) consumeConfirmation(
@@ -434,23 +477,26 @@ func (engine *Engine) consumeConfirmation(
 		return false, &base
 	}
 	challenge := state.challenge
-	if challenge.ControllerID != action.ControllerID || challenge.ActorID != action.ActorID ||
+	key := makeChallengeKey(action, context, config.Revision)
+	if state.key != key || challenge.ControllerID != action.ControllerID ||
+		challenge.ActorID != action.ActorID ||
 		challenge.PrincipalID != context.Principal.ID || challenge.EffectDigest != action.EffectDigest ||
 		challenge.Epoch != action.ExpectedEpoch || challenge.PolicyRevision != config.Revision ||
 		challenge.ExpiresAt.Clock != context.Now.Clock || context.Now.Value >= challenge.ExpiresAt.Value {
 		return false, &base
 	}
 	delete(engine.challenges, challenge.ChallengeID)
-	delete(engine.challengeKeys, makeChallengeKey(action, context, config.Revision))
+	delete(engine.challengeKeys, state.key)
 	return true, nil
 }
 
-func (engine *Engine) pruneChallenges(now host.Timepoint) {
+func (engine *Engine) pruneChallenges(action host.BoundAction, context Context) {
+	scope := challengeClockScope(action, context)
 	for id, state := range engine.challenges {
-		if state.challenge.ExpiresAt.Clock == now.Clock && now.Value >= state.challenge.ExpiresAt.Value {
+		if state.clockScope == scope &&
+			context.Now.Value >= state.challenge.ExpiresAt.Value {
 			delete(engine.challenges, id)
-			key := challengeKeyFromChallenge(state.challenge)
-			delete(engine.challengeKeys, key)
+			delete(engine.challengeKeys, state.key)
 		}
 	}
 }
@@ -652,34 +698,15 @@ func makeAuthorizationKey(action host.BoundAction, context Context, revision uin
 }
 
 func makeChallengeKey(action host.BoundAction, context Context, revision uint64) string {
-	return fmt.Sprintf(
-		"%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%d\x00%d\x00%d\x00%d",
-		action.ControllerID,
-		action.ActorID,
-		context.Principal.ID,
-		action.EffectDigest,
-		action.ExpectedEpoch.SessionID,
-		action.ExpectedEpoch.WorldID,
-		action.ExpectedEpoch.Host,
-		action.ExpectedEpoch.World,
-		action.ExpectedEpoch.Timeline,
-		revision,
-	)
+	return makeAuthorizationKey(action, context, revision)
 }
 
-func challengeKeyFromChallenge(challenge ConfirmationChallenge) string {
+func challengeClockScope(action host.BoundAction, context Context) string {
 	return fmt.Sprintf(
-		"%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%d\x00%d\x00%d\x00%d",
-		challenge.ControllerID,
-		challenge.ActorID,
-		challenge.PrincipalID,
-		challenge.EffectDigest,
-		challenge.Epoch.SessionID,
-		challenge.Epoch.WorldID,
-		challenge.Epoch.Host,
-		challenge.Epoch.World,
-		challenge.Epoch.Timeline,
-		challenge.PolicyRevision,
+		"%s\x00%s\x00%s",
+		context.ServerID,
+		action.ExpectedEpoch.WorldID,
+		context.Now.Clock,
 	)
 }
 

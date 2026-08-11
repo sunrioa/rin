@@ -213,7 +213,7 @@ func gridPolicy() (*policy.Engine, error) {
 			ReasonCode:   "grid.protected_resource",
 			HumanSummary: "Protected grid resources cannot be collected.",
 		}},
-		ConfirmationTTL:    host.Duration{Clock: host.ClockStep, Value: 10},
+		ConfirmationTTL:    policy.ConfirmationDurations{Step: 10},
 		ConfirmationScopes: []string{"rin.policy.confirm"},
 	})
 }

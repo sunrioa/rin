@@ -312,7 +312,7 @@ func prepareDelivery(
 		Profile:            policy.ProfileOpen,
 		KnownEffectKinds:   append([]string(nil), facts.KnownEffectKinds...),
 		KnownScopes:        append([]string(nil), facts.KnownScopes...),
-		ConfirmationTTL:    host.Duration{Clock: binding.Snapshot.Now.Clock, Value: 10},
+		ConfirmationTTL:    confirmationDurations(binding.Snapshot.Now.Clock, 10),
 		ConfirmationScopes: []string{"rin.policy.confirm"},
 	})
 	if err != nil {
@@ -354,6 +354,22 @@ func prepareDelivery(
 		},
 	}
 	return binding, delivery, nil
+}
+
+func confirmationDurations(
+	clock host.ClockMode,
+	value uint64,
+) policy.ConfirmationDurations {
+	result := policy.ConfirmationDurations{}
+	switch clock {
+	case host.ClockEvent:
+		result.Event = value
+	case host.ClockStep:
+		result.Step = value
+	case host.ClockRealtime:
+		result.Realtime = value
+	}
+	return result
 }
 
 func actionRequestPointer(value host.ActionRequest) *host.ActionRequest {

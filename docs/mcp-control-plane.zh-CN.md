@@ -202,7 +202,25 @@ Principal 和 Scope 只由 `rin-control` 启动配置决定，不能由 MCP Tool
 export RIN_CONTROL_SCOPES="actor.read,actor.control,actor.execute,operation.cancel"
 ```
 
-修改 Scope 后重启 `rin-control`。标准循环为：
+修改 Scope 后重启 `rin-control`。需要确认高风险效果时，Policy 文件按 Host Clock
+分别配置 Challenge 有效期：
+
+```json
+{
+  "confirmation_ttl": {
+    "event": 16,
+    "step": 600,
+    "realtime": 30000
+  }
+}
+```
+
+值为 `0` 或省略表示该 Clock 禁止确认；策略会返回
+`policy.confirmation_clock_disabled`，不会产生内部错误。Challenge 有效期始终不超过
+对应 BoundAction 的 `valid_until`。Preview 版本不再接受旧的单一
+`{"clock":"step","value":600}` 形状。
+
+标准循环为：
 
 1. 用 `get_actor_state`、`observe_actor` 读取当前 Epoch 与观察序号。
 2. 用 `list_actor_capabilities`、`describe_actor_capability` 发现强类型能力。

@@ -246,7 +246,7 @@ func validateConfig(config Config) error {
 	if len(config.Budgets) > 128 {
 		return errors.New("budgets must contain at most 128 values")
 	}
-	if err := config.ConfirmationTTL.Validate("confirmation_ttl"); err != nil {
+	if err := validateConfirmationDurations(config.ConfirmationTTL); err != nil {
 		return err
 	}
 	if len(config.ConfirmationScopes) == 0 || len(config.ConfirmationScopes) > 16 {
@@ -265,6 +265,33 @@ func validateConfig(config Config) error {
 			return fmt.Errorf("duplicate budget_id %q", budget.BudgetID)
 		}
 		budgetIDs[budget.BudgetID] = struct{}{}
+	}
+	return nil
+}
+
+func validateConfirmationDurations(value ConfirmationDurations) error {
+	configured := 0
+	for _, item := range []struct {
+		name  string
+		value uint64
+	}{
+		{name: "event", value: value.Event},
+		{name: "step", value: value.Step},
+		{name: "realtime", value: value.Realtime},
+	} {
+		if item.value == 0 {
+			continue
+		}
+		configured++
+		if item.value > maxJSONSafeInteger {
+			return fmt.Errorf(
+				"confirmation_ttl.%s must be a positive JSON-safe integer",
+				item.name,
+			)
+		}
+	}
+	if configured == 0 {
+		return errors.New("confirmation_ttl must enable at least one Host clock")
 	}
 	return nil
 }

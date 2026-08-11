@@ -39,7 +39,7 @@ func TestAgentRuntimeUsesRealActionGatewayAndHostOutcome(t *testing.T) {
 	engine, err := policy.New(policy.Config{
 		Revision: 1, Profile: policy.ProfileOpen,
 		KnownEffectKinds: []string{"world.position"}, KnownScopes: []string{"world.public"},
-		ConfirmationTTL:    host.Duration{Clock: host.ClockStep, Value: 20},
+		ConfirmationTTL:    policy.ConfirmationDurations{Step: 20},
 		ConfirmationScopes: []string{"rin.policy.confirm"},
 	})
 	if err != nil {

@@ -71,16 +71,25 @@ type Budget struct {
 	Window      host.Duration          `json:"window,omitempty"`
 }
 
+// ConfirmationDurations configures challenge lifetimes in each Host clock.
+// A zero value disables confirmation for that clock without affecting Hosts
+// that use another clock mode.
+type ConfirmationDurations struct {
+	Event    uint64 `json:"event,omitempty"`
+	Step     uint64 `json:"step,omitempty"`
+	Realtime uint64 `json:"realtime,omitempty"`
+}
+
 // Config is one immutable gameplay policy revision.
 type Config struct {
-	Revision           uint64        `json:"revision"`
-	Profile            Profile       `json:"profile"`
-	KnownEffectKinds   []string      `json:"known_effect_kinds,omitempty"`
-	KnownScopes        []string      `json:"known_scopes,omitempty"`
-	Rules              []Rule        `json:"rules,omitempty"`
-	Budgets            []Budget      `json:"budgets,omitempty"`
-	ConfirmationTTL    host.Duration `json:"confirmation_ttl"`
-	ConfirmationScopes []string      `json:"confirmation_scopes"`
+	Revision           uint64                `json:"revision"`
+	Profile            Profile               `json:"profile"`
+	KnownEffectKinds   []string              `json:"known_effect_kinds,omitempty"`
+	KnownScopes        []string              `json:"known_scopes,omitempty"`
+	Rules              []Rule                `json:"rules,omitempty"`
+	Budgets            []Budget              `json:"budgets,omitempty"`
+	ConfirmationTTL    ConfirmationDurations `json:"confirmation_ttl"`
+	ConfirmationScopes []string              `json:"confirmation_scopes"`
 }
 
 // Context supplies trusted request metadata that is not part of an Effect.

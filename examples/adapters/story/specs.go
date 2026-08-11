@@ -23,7 +23,7 @@ func NewPolicy() (*policy.Engine, error) {
 			ReasonCode:   "story.character_boundary",
 			HumanSummary: "Mira has not consented to discuss the sealed letter.",
 		}},
-		ConfirmationTTL:    host.Duration{Clock: host.ClockStep, Value: 10},
+		ConfirmationTTL:    policy.ConfirmationDurations{Step: 10},
 		ConfirmationScopes: []string{"rin.policy.confirm"},
 	})
 }

@@ -264,7 +264,10 @@ func TestLoadPolicyEngineDefaultsToFailClosedCatalog(t *testing.T) {
 	}
 	config := engine.Config()
 	if config.Profile != policy.ProfileGuarded ||
-		len(config.KnownEffectKinds) != 0 || len(config.KnownScopes) != 0 {
+		len(config.KnownEffectKinds) != 0 || len(config.KnownScopes) != 0 ||
+		config.ConfirmationTTL != (policy.ConfirmationDurations{
+			Event: 16, Step: 600, Realtime: 30_000,
+		}) {
 		t.Fatalf("default policy = %#v", config)
 	}
 }
@@ -276,7 +279,7 @@ func TestLoadPolicyEngineUsesStrictConfiguredPolicy(t *testing.T) {
   "profile": "open",
   "known_effect_kinds": ["world.position"],
   "known_scopes": ["world.public"],
-  "confirmation_ttl": {"clock": "step", "value": 20},
+  "confirmation_ttl": {"step": 20},
   "confirmation_scopes": ["rin.policy.confirm"]
 }`), 0o600); err != nil {
 		t.Fatal(err)
@@ -286,14 +289,26 @@ func TestLoadPolicyEngineUsesStrictConfiguredPolicy(t *testing.T) {
 		t.Fatalf("loadPolicyEngine: %v", err)
 	}
 	if config := engine.Config(); config.Revision != 7 ||
-		config.Profile != policy.ProfileOpen {
+		config.Profile != policy.ProfileOpen ||
+		config.ConfirmationTTL != (policy.ConfirmationDurations{Step: 20}) {
 		t.Fatalf("configured policy = %#v", config)
 	}
 	if err := os.WriteFile(path, []byte(`{
   "revision": 7,
   "profile": "open",
-  "unknown": true,
   "confirmation_ttl": {"clock": "step", "value": 20},
+  "confirmation_scopes": ["rin.policy.confirm"]
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadPolicyEngine(path); err == nil {
+		t.Fatal("legacy single-clock policy shape was accepted")
+	}
+	if err := os.WriteFile(path, []byte(`{
+  "revision": 7,
+  "profile": "open",
+  "unknown": true,
+  "confirmation_ttl": {"step": 20},
   "confirmation_scopes": ["rin.policy.confirm"]
 }`), 0o600); err != nil {
 		t.Fatal(err)

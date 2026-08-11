@@ -442,7 +442,7 @@ func adapterDelivery(
 		Profile:            policy.ProfileOpen,
 		KnownEffectKinds:   []string{"world.position"},
 		KnownScopes:        []string{"world.public"},
-		ConfirmationTTL:    host.Duration{Clock: host.ClockStep, Value: 10},
+		ConfirmationTTL:    policy.ConfirmationDurations{Step: 10},
 		ConfirmationScopes: []string{"rin.policy.confirm"},
 	})
 	if err != nil {

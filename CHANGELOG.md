@@ -56,6 +56,9 @@ across every future minor release.
 
 ### Changed
 
+- Policy `confirmation_ttl` is now an object keyed by `event`, `step`, and
+  `realtime`. This Preview release does not retain the old single-clock shape;
+  an unconfigured Host clock receives a deterministic policy denial.
 - `rin-mcp` is now a stateless multi-instance STDIO thin proxy and no longer owns
   the Host listener or Control state directory. Frequent delivery counters and
   ActionRun progress are checkpoints folded into graceful shutdown or the next
@@ -100,6 +103,9 @@ across every future minor release.
 
 ### Fixed
 
+- Confirmation challenges are now bound to the exact BoundAction, Host, Owner,
+  Principal, and Epoch instead of being reused across bindings with the same
+  effect digest. A challenge also never outlives its action binding.
 - Host Control requests now bind the submission Epoch, Observation Sequence, and
   complete Host Offer. MCP no longer fabricates Invocations or bypasses execution
   budgets. Control state has a cross-platform exclusive lock and orphan work

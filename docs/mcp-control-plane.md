@@ -221,7 +221,26 @@ capabilities:
 export RIN_CONTROL_SCOPES="actor.read,actor.control,actor.execute,operation.cancel"
 ```
 
-Restart `rin-control` after changing scopes. The standard loop is:
+Restart `rin-control` after changing scopes. Policies that confirm high-risk
+effects configure a separate challenge TTL for each Host clock:
+
+```json
+{
+  "confirmation_ttl": {
+    "event": 16,
+    "step": 600,
+    "realtime": 30000
+  }
+}
+```
+
+A zero or omitted value disables confirmation for that clock and returns the
+auditable `policy.confirmation_clock_disabled` denial instead of an internal
+error. A challenge never outlives its BoundAction `valid_until`. This Preview
+version no longer accepts the old single `{"clock":"step","value":600}`
+shape.
+
+The standard loop is:
 
 1. Read the current Epoch and observation sequence through `get_actor_state` and
    `observe_actor`.

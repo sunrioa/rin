@@ -421,7 +421,7 @@ func TestActionGatewayCancellationRollsBackPolicyBudget(t *testing.T) {
 		Profile:            policy.ProfileOpen,
 		KnownEffectKinds:   []string{"world.position"},
 		KnownScopes:        []string{"world.public"},
-		ConfirmationTTL:    host.Duration{Clock: host.ClockStep, Value: 20},
+		ConfirmationTTL:    policy.ConfirmationDurations{Step: 20},
 		ConfirmationScopes: []string{"rin.policy.confirm"},
 		Budgets: []policy.Budget{{
 			BudgetID:    "actor.action-limit",
@@ -949,7 +949,7 @@ func actionGatewayTestComponents(
 		Profile:            profile,
 		KnownEffectKinds:   []string{"world.position"},
 		KnownScopes:        []string{"world.public"},
-		ConfirmationTTL:    host.Duration{Clock: host.ClockStep, Value: 20},
+		ConfirmationTTL:    policy.ConfirmationDurations{Step: 20},
 		ConfirmationScopes: []string{"rin.policy.confirm"},
 	})
 	if err != nil {
@@ -979,7 +979,7 @@ func configureActionGatewayBudget(
 		Profile:            policy.ProfileOpen,
 		KnownEffectKinds:   []string{"world.position"},
 		KnownScopes:        []string{"world.public"},
-		ConfirmationTTL:    host.Duration{Clock: host.ClockStep, Value: 20},
+		ConfirmationTTL:    policy.ConfirmationDurations{Step: 20},
 		ConfirmationScopes: []string{"rin.policy.confirm"},
 		Budgets: []policy.Budget{{
 			BudgetID:    "actor.action-limit",

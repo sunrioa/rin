@@ -48,6 +48,8 @@
 
 ### 变化
 
+- Policy 的 `confirmation_ttl` 改为按 `event`、`step`、`realtime` 配置的对象；
+  Preview 版本不保留旧单时钟形状兼容。未配置的 Host Clock 会得到确定性策略拒绝。
 - `rin-mcp` 改为可多实例运行的无状态 STDIO 薄代理，不再占用 Host 监听端口或
   Control 状态目录；高频投递计数与 ActionRun 进度只做检查点，正常关闭或下一次
   耐久变更时合并落盘。
@@ -86,6 +88,8 @@
 
 ### 修复
 
+- 确认挑战现在绑定具体 BoundAction、Host、Owner、Principal 与 Epoch，不会在不同
+  Host/绑定间因 Effect 摘要相同而复用；Challenge 过期时间也不会超过动作绑定期限。
 - Host Control 请求现在绑定提交时的 Epoch、Observation Sequence 与完整
   Host Offer；MCP 不再自行构造 Invocation 或绕过执行预算。Control 状态目录使用
   跨平台独占锁，无 Host 的孤儿操作会有界过期。

@@ -306,6 +306,202 @@ func TestConfirmationExpiresAndPolicyUpdateInvalidatesIt(t *testing.T) {
 	}
 }
 
+func TestConfirmationUsesEachConfiguredHostClock(t *testing.T) {
+	config := testConfig(ProfileOpen)
+	config.ConfirmationTTL = ConfirmationDurations{
+		Event: 4, Step: 20, Realtime: 100,
+	}
+	engine := newTestEngine(t, config)
+	for _, test := range []struct {
+		name    string
+		clock   host.ClockMode
+		expires int64
+	}{
+		{name: "event", clock: host.ClockEvent, expires: 24},
+		{name: "step", clock: host.ClockStep, expires: 40},
+		{name: "realtime", clock: host.ClockRealtime, expires: 120},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			effect := testEffect()
+			effect.Risk = host.RiskCritical
+			action := testBoundAction(t, effect)
+			action.BindingID = "binding.clock." + test.name
+			action.BoundAt = host.Timepoint{Clock: test.clock, Value: 10}
+			action.ValidUntil = host.Timepoint{Clock: test.clock, Value: 1_000}
+			if err := host.ValidateBoundAction(action); err != nil {
+				t.Fatal(err)
+			}
+			context := testContext(action)
+			context.Now = host.Timepoint{Clock: test.clock, Value: 20}
+			decision, err := engine.Evaluate(action, context)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if decision.Result != RequireConfirmation || decision.Confirmation == nil ||
+				decision.Confirmation.ExpiresAt != (host.Timepoint{
+					Clock: test.clock, Value: test.expires,
+				}) {
+				t.Fatalf("%s confirmation = %+v", test.clock, decision)
+			}
+		})
+	}
+}
+
+func TestConfirmationDisabledClockDeniesWithoutEngineError(t *testing.T) {
+	config := testConfig(ProfileOpen)
+	config.ConfirmationTTL = ConfirmationDurations{Realtime: 100}
+	engine := newTestEngine(t, config)
+	effect := testEffect()
+	effect.Risk = host.RiskCritical
+	action := testBoundAction(t, effect)
+	action.BoundAt = host.Timepoint{Clock: host.ClockStep, Value: 10}
+	action.ValidUntil = host.Timepoint{Clock: host.ClockStep, Value: 1_000}
+	if err := host.ValidateBoundAction(action); err != nil {
+		t.Fatal(err)
+	}
+	context := testContext(action)
+	context.Now = host.Timepoint{Clock: host.ClockStep, Value: 20}
+	decision, err := engine.Evaluate(action, context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Result != Deny ||
+		decision.ReasonCode != "policy.confirmation_clock_disabled" ||
+		decision.Confirmation != nil {
+		t.Fatalf("disabled clock confirmation = %+v", decision)
+	}
+}
+
+func TestConfirmationApprovalRejectsWrongClock(t *testing.T) {
+	engine := newTestEngine(t, testConfig(ProfileOpen))
+	effect := testEffect()
+	effect.Risk = host.RiskCritical
+	action := testBoundAction(t, effect)
+	context := testContext(action)
+	decision, err := engine.Evaluate(action, context)
+	if err != nil || decision.Confirmation == nil {
+		t.Fatalf("Evaluate = %+v, %v", decision, err)
+	}
+	if _, err := engine.Approve(
+		decision.Confirmation.ChallengeID,
+		host.Principal{
+			ID: "principal.owner", GrantedScopes: []string{"rin.policy.confirm"},
+		},
+		host.Timepoint{Clock: host.ClockStep, Value: context.Now.Value},
+	); err == nil {
+		t.Fatal("confirmation was approved with another Host clock")
+	}
+	context.ConfirmationID = decision.Confirmation.ChallengeID
+	unapproved, err := engine.Evaluate(action, context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unapproved.Result != Deny ||
+		unapproved.ReasonCode != "policy.invalid_confirmation" {
+		t.Fatalf("wrong-clock approval changed challenge state: %+v", unapproved)
+	}
+}
+
+func TestConfirmationChallengeIsBoundToExactHostAndBinding(t *testing.T) {
+	engine := newTestEngine(t, testConfig(ProfileOpen))
+	effect := testEffect()
+	effect.Risk = host.RiskCritical
+	baseAction := testBoundAction(t, effect)
+	baseContext := testContext(baseAction)
+	seen := make(map[string]struct{})
+	for _, test := range []struct {
+		name    string
+		action  host.BoundAction
+		context Context
+	}{
+		{name: "base", action: baseAction, context: baseContext},
+		{name: "other-host", action: baseAction, context: func() Context {
+			value := baseContext
+			value.ServerID = "server.other"
+			return value
+		}()},
+		{name: "other-owner", action: baseAction, context: func() Context {
+			value := baseContext
+			value.OwnerID = "owner.other"
+			return value
+		}()},
+		{name: "other-binding", action: func() host.BoundAction {
+			value := baseAction
+			value.BindingID = "binding.other.exact"
+			return value
+		}(), context: baseContext},
+	} {
+		decision, err := engine.Evaluate(test.action, test.context)
+		if err != nil || decision.Confirmation == nil {
+			t.Fatalf("%s Evaluate = %+v, %v", test.name, decision, err)
+		}
+		challengeID := decision.Confirmation.ChallengeID
+		if _, duplicate := seen[challengeID]; duplicate {
+			t.Fatalf("%s reused challenge %q", test.name, challengeID)
+		}
+		seen[challengeID] = struct{}{}
+	}
+}
+
+func TestStepClockCleanupIsScopedToHostWorld(t *testing.T) {
+	config := testConfig(ProfileOpen)
+	config.ConfirmationTTL = ConfirmationDurations{Step: 20}
+	engine := newTestEngine(t, config)
+	effect := testEffect()
+	effect.Risk = host.RiskCritical
+
+	firstAction := testBoundAction(t, effect)
+	firstAction.BindingID = "binding.scope.first"
+	firstAction.BoundAt = host.Timepoint{Clock: host.ClockStep, Value: 10}
+	firstAction.ValidUntil = host.Timepoint{Clock: host.ClockStep, Value: 100}
+	firstContext := testContext(firstAction)
+	firstContext.Now = host.Timepoint{Clock: host.ClockStep, Value: 20}
+	firstContext.ServerID = "server.first"
+	first, err := engine.Evaluate(firstAction, firstContext)
+	if err != nil || first.Confirmation == nil {
+		t.Fatalf("first Evaluate = %+v, %v", first, err)
+	}
+
+	secondAction := testBoundAction(t, effect)
+	secondAction.BindingID = "binding.scope.second"
+	secondAction.BoundAt = host.Timepoint{Clock: host.ClockStep, Value: 900}
+	secondAction.ValidUntil = host.Timepoint{Clock: host.ClockStep, Value: 2_000}
+	secondContext := testContext(secondAction)
+	secondContext.Now = host.Timepoint{Clock: host.ClockStep, Value: 1_000}
+	secondContext.ServerID = "server.second"
+	if decision, err := engine.Evaluate(secondAction, secondContext); err != nil ||
+		decision.Confirmation == nil {
+		t.Fatalf("second Evaluate = %+v, %v", decision, err)
+	}
+	if _, err := engine.Approve(
+		first.Confirmation.ChallengeID,
+		host.Principal{
+			ID: "principal.owner", GrantedScopes: []string{"rin.policy.confirm"},
+		},
+		host.Timepoint{Clock: host.ClockStep, Value: 21},
+	); err != nil {
+		t.Fatalf("another Host pruned a live step challenge: %v", err)
+	}
+}
+
+func TestConfirmationExpiryDoesNotOutliveActionBinding(t *testing.T) {
+	config := testConfig(ProfileOpen)
+	config.ConfirmationTTL = ConfirmationDurations{Realtime: 100}
+	engine := newTestEngine(t, config)
+	effect := testEffect()
+	effect.Risk = host.RiskCritical
+	action := testBoundAction(t, effect)
+	action.ValidUntil.Value = 25
+	decision, err := engine.Evaluate(action, testContext(action))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Confirmation == nil ||
+		decision.Confirmation.ExpiresAt != action.ValidUntil {
+		t.Fatalf("confirmation outlived binding: %+v", decision)
+	}
+}
+
 func TestBudgetReservationIsAtomicIdempotentAndReleasable(t *testing.T) {
 	config := testConfig(ProfileSurvival)
 	config.Budgets = []Budget{{
@@ -452,6 +648,18 @@ func TestConfigValidationRejectsAmbiguousRules(t *testing.T) {
 	if _, err := New(config); err == nil {
 		t.Fatal("duplicate known effect kinds were accepted")
 	}
+	config = testConfig(ProfileGuarded)
+	config.ConfirmationTTL = ConfirmationDurations{}
+	if _, err := New(config); err == nil {
+		t.Fatal("policy without a confirmation clock was accepted")
+	}
+	config = testConfig(ProfileGuarded)
+	config.ConfirmationTTL = ConfirmationDurations{
+		Step: maxJSONSafeInteger + 1,
+	}
+	if _, err := New(config); err == nil {
+		t.Fatal("non-JSON-safe confirmation TTL was accepted")
+	}
 }
 
 func newTestEngine(t *testing.T, config Config) *Engine {
@@ -469,7 +677,7 @@ func testConfig(profile Profile) Config {
 		Profile:            profile,
 		KnownEffectKinds:   []string{"world.position"},
 		KnownScopes:        []string{"world.public"},
-		ConfirmationTTL:    host.Duration{Clock: host.ClockRealtime, Value: 100},
+		ConfirmationTTL:    ConfirmationDurations{Realtime: 100},
 		ConfirmationScopes: []string{"rin.policy.confirm"},
 	}
 }
