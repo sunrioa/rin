@@ -95,6 +95,9 @@ Policy、执行与权威 Outcome。
 - 有运行中 Child 时取消 Task，会先取消 Child，再取消 Parent；父操作稳定终止前 Task 保持
   `cancelling`。
 - Child 或 Parent 的 `outcome-unknown` 会保留准确 Operation ID，并停止继续决策。
+- ActionGateway 在入队前拒绝时，只在任务历史记录 `gateway.stale`、
+  `gateway.lease-expired`、`gateway.forbidden` 或 `gateway.invalid` 等稳定类别；
+  Provider 文本和内部错误详情不会进入任务历史。
 - Provider 故障或预算耗尽会暂停而不是释放控制后遗留父 Macro；用户仍可恢复或取消 Task。
 
 模型只能提出基于当前 Observation 和 Capability 的 ActionRequest。Host 仍负责绑定

@@ -666,7 +666,8 @@ func (runtime *AgentRuntime) advancePendingAction(
 				clearPendingTaskAction(&task)
 				task.Step++
 				appendTaskEvent(&task, TaskEvent{
-					Kind: "action.rejected", Step: task.Step, Code: "gateway-rejected",
+					Kind: "action.rejected", Step: task.Step,
+					Code:         actionSubmissionRejectionCode(err),
 					AtUnixMillis: runtime.now().UnixMilli(),
 				})
 				saved, saveErr := runtime.saveTask(ctx, task)
@@ -797,6 +798,21 @@ func (runtime *AgentRuntime) advancePendingAction(
 		runtime.releaseController(saved)
 	}
 	return saved, saveErr == nil, saveErr
+}
+
+func actionSubmissionRejectionCode(err error) string {
+	switch {
+	case errors.Is(err, controlplane.ErrStale):
+		return "gateway.stale"
+	case errors.Is(err, controlplane.ErrLeaseExpired):
+		return "gateway.lease-expired"
+	case errors.Is(err, controlplane.ErrForbidden):
+		return "gateway.forbidden"
+	case errors.Is(err, controlplane.ErrInvalid):
+		return "gateway.invalid"
+	default:
+		return "gateway.rejected"
+	}
 }
 
 func (runtime *AgentRuntime) activatePendingMacro(

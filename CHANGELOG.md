@@ -61,6 +61,9 @@ across every future minor release.
 
 ### Changed
 
+- Internal Agent task history now classifies pre-queue ActionGateway rejections
+  as stable `gateway.*` codes. Provider text and internal error details are not
+  persisted, and a rejected child is never reported as executed.
 - Internal Task snapshots now use `rin.cognition.tasks/v2`, persisting the Macro
   parent Operation and pending-action kind. This Preview release does not read
   v1 snapshots.

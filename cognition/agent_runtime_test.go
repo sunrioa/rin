@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -489,6 +490,34 @@ func TestAgentRuntimeDoesNotTreatQueuedOperationAsSuccess(t *testing.T) {
 	}
 	if len(matches) != 0 {
 		t.Fatalf("queued operation created shared outcome memory: %+v", matches)
+	}
+}
+
+func TestAgentRuntimeRecordsStableActionGatewayRejectionCodes(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+		code string
+	}{
+		{name: "stale", err: controlplane.ErrStale, code: "gateway.stale"},
+		{name: "lease expired", err: controlplane.ErrLeaseExpired, code: "gateway.lease-expired"},
+		{name: "forbidden", err: controlplane.ErrForbidden, code: "gateway.forbidden"},
+		{name: "invalid", err: controlplane.ErrInvalid, code: "gateway.invalid"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newAgentRuntimeFixture(t)
+			fixture.model.decisions = []cognition.ModelDecision{agentActionDecision()}
+			fixture.control.submitError = test.err
+			runtime := fixture.runtime(t, 4)
+			started := fixture.start(
+				t, runtime, "task.rejected."+strings.ReplaceAll(test.name, " ", "-"),
+			)
+			current, err := runtime.RunTask(context.Background(), started.TaskID)
+			if !errors.Is(err, test.err) || !historyHasCode(current.History, test.code) ||
+				current.PendingAction != nil || current.PendingOperationID != "" {
+				t.Fatalf("gateway rejection was not classified: task=%+v err=%v", current, err)
+			}
+		})
 	}
 }
 
@@ -995,6 +1024,7 @@ type fakeAgentControlPlane struct {
 	cancelCalls           int
 	releaseCalls          int
 	acquireCalls          int
+	submitError           error
 }
 
 func (control *fakeAgentControlPlane) GetActor(
@@ -1040,6 +1070,9 @@ func (control *fakeAgentControlPlane) SubmitAction(
 	}
 	index := len(control.submissions)
 	control.submissions = append(control.submissions, input)
+	if control.submitError != nil {
+		return controlplane.OperationView{}, control.submitError
+	}
 	if index < len(control.submissionResults) {
 		view := control.submissionResults[index]
 		queued := queuedAgentOperation()

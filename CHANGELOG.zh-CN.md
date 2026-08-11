@@ -51,6 +51,8 @@
 
 ### 变化
 
+- 内部 Agent 任务历史现在使用稳定的 `gateway.*` 类别记录 ActionGateway 入队前
+  拒绝；不会持久化 Provider 文本或内部错误详情，也不会把被拒绝的 Child 误报为已执行。
 - 内部 Task Snapshot 升级为 `rin.cognition.tasks/v2`，持久化 Macro 父 Operation 与
   待提交动作类型；Preview 版本不读取 v1 快照。
 - Policy 的 `confirmation_ttl` 改为按 `event`、`step`、`realtime` 配置的对象；

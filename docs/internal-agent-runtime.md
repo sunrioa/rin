@@ -108,6 +108,9 @@ Outcome reporting.
   the Task remains `cancelling` until the parent settles.
 - An `outcome-unknown` child or parent retains the exact Operation ID and stops
   further decisions.
+- A pre-queue ActionGateway rejection records only a stable class such as
+  `gateway.stale`, `gateway.lease-expired`, `gateway.forbidden`, or
+  `gateway.invalid`; provider text and internal error details do not enter task history.
 - Provider failure or budget exhaustion pauses instead of releasing control
   and orphaning a parent macro; the Task can still be resumed or cancelled.
 
