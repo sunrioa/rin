@@ -19,7 +19,7 @@ func TestInspectCustomHostAndAddSkill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Manifest.Generator.ProtocolVersion != host.ActionContractVersion ||
+	if report.Manifest.Generator.ProtocolVersion != host.ContractVersion ||
 		report.Manifest.Project.ID != "test_host" ||
 		len(report.Capabilities) != 1 {
 		t.Fatalf("unexpected report: %+v", report)
@@ -27,8 +27,7 @@ func TestInspectCustomHostAndAddSkill(t *testing.T) {
 
 	target, err := AddSkill(SkillOptions{
 		Root: root, ID: "movement.follow", Version: "1.2.0",
-		Effect: host.EffectWorldMutation, Execution: host.ExecutionLongRunning,
-		Risk: host.RiskModerate,
+		Execution: host.ExecutionLongRunning, RiskFloor: host.RiskModerate,
 	})
 	if err != nil {
 		t.Fatal(err)

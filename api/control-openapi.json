@@ -1083,7 +1083,7 @@
         "additionalProperties": false,
         "properties": {
           "contract_version": {
-            "const": "rin.host/v1"
+            "const": "rin.host/v2"
           },
           "adapter_id": {
             "$ref": "#/components/schemas/Identifier"

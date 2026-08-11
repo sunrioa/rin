@@ -405,7 +405,7 @@ func TestV2CanonicalJSONFixture(t *testing.T) {
 	if err := json.Unmarshal(raw, &fixture); err != nil {
 		t.Fatal(err)
 	}
-	if fixture.ContractVersion != ActionContractVersion {
+	if fixture.ContractVersion != ContractVersion {
 		t.Fatalf("fixture contract version = %q", fixture.ContractVersion)
 	}
 	sealed, err := SealCapabilitySpec(testCapabilitySpec(t))

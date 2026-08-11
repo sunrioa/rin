@@ -43,7 +43,7 @@ digests, Windows-portable paths, and sealed capability descriptors.
 	fmt.Fprintf(
 		output,
 		"Host %s conforms to %s: %d generated files, %d modified, %d capabilities.\n",
-		report.Manifest.Project.ID, host.ActionContractVersion, report.CheckedFiles,
+		report.Manifest.Project.ID, host.ContractVersion, report.CheckedFiles,
 		len(report.ModifiedFiles), len(report.Capabilities),
 	)
 	return nil

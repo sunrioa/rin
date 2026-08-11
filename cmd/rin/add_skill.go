@@ -27,9 +27,13 @@ func runAdd(arguments []string, output io.Writer) error {
 	description := flags.String("description", "", "game-authored capability description")
 	inputSchema := flags.String("input-schema", "", "JSON Schema file for input")
 	outputSchema := flags.String("output-schema", "", "JSON Schema file for output")
-	effect := flags.String("effect", string(host.EffectAdvisory), "read, advisory, or world-mutation")
+	effectSchema := flags.String("effect-schema", "", "JSON Schema file for effect attributes")
+	kind := flags.String("kind", string(host.CapabilityAtomic), "atomic or macro")
 	execution := flags.String("execution", string(host.ExecutionImmediate), "immediate, queued, or long-running")
-	risk := flags.String("risk", string(host.RiskLow), "low, moderate, high, or critical")
+	cancellation := flags.String("cancellation", string(host.CancellationUnsupported), "unsupported, cooperative, or preemptive")
+	riskFloor := flags.String("risk-floor", string(host.RiskLow), "low, moderate, high, or critical")
+	maxEffects := flags.Uint("max-effects", 1, "maximum effects per bound action")
+	producesChildren := flags.Bool("produces-child-operations", false, "macro creates auditable child operations")
 	if err := flags.Parse(arguments[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return writeAddSkillHelp(output)
@@ -50,11 +54,21 @@ func runAdd(arguments []string, output io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("read output schema: %w", err)
 	}
+	effectSchemaDocument, err := readSkillSchema(*effectSchema)
+	if err != nil {
+		return fmt.Errorf("read effect schema: %w", err)
+	}
+	if *maxEffects == 0 || *maxEffects > 64 {
+		return errors.New("-max-effects must be between 1 and 64")
+	}
 	target, err := hostproject.AddSkill(hostproject.SkillOptions{
 		Root: *root, ID: *id, Version: *version, Description: *description,
 		InputSchema: input, OutputSchema: outputSchemaDocument,
-		Effect: host.EffectClass(*effect), Execution: host.ExecutionMode(*execution),
-		Risk: host.RiskLevel(*risk),
+		EffectSchema: effectSchemaDocument,
+		Kind:         host.CapabilityKind(*kind), Execution: host.ExecutionMode(*execution),
+		Cancellation: host.CancellationMode(*cancellation),
+		RiskFloor:    host.RiskLevel(*riskFloor), MaxEffects: uint32(*maxEffects),
+		ProducesChildOperations: *producesChildren,
 	})
 	if err != nil {
 		return err
@@ -79,9 +93,14 @@ Options:
   -description string   game-authored capability description
   -input-schema string  JSON Schema file for input; defaults to an empty object
   -output-schema string JSON Schema file for output; defaults to an empty object
-  -effect string        read, advisory, or world-mutation (default "advisory")
+  -effect-schema string JSON Schema file for effect attributes; defaults to an empty object
+  -kind string          atomic or macro (default "atomic")
   -execution string     immediate, queued, or long-running (default "immediate")
-  -risk string          low, moderate, high, or critical (default "low")
+  -cancellation string  unsupported, cooperative, or preemptive (default "unsupported")
+  -risk-floor string    low, moderate, high, or critical (default "low")
+  -max-effects uint     maximum effects per action, from 1 to 64 (default 1)
+  -produces-child-operations
+                        macro creates auditable child operations
 `)
 	return err
 }

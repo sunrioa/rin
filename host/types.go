@@ -6,8 +6,8 @@ package host
 import "encoding/json"
 
 const (
-	// ContractVersion identifies this local Host Contract shape.
-	ContractVersion = "rin.host/v1"
+	// ContractVersion identifies the observe-bind-effect Host Contract.
+	ContractVersion = "rin.host/v2"
 	// SchemaDialect is the only JSON Schema dialect accepted by this contract.
 	SchemaDialect = "https://json-schema.org/draft/2020-12/schema"
 )

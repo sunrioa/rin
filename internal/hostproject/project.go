@@ -67,7 +67,7 @@ type Report struct {
 	Manifest      Manifest
 	CheckedFiles  int
 	ModifiedFiles []string
-	Capabilities  []host.CapabilityDescriptor
+	Capabilities  []host.CapabilitySpec
 }
 
 func Inspect(root string) (Report, error) {
@@ -90,10 +90,10 @@ func Inspect(root string) (Report, error) {
 		!manifest.Generator.Deterministic {
 		return Report{}, errors.New("unsupported or non-deterministic scaffold manifest")
 	}
-	if manifest.Generator.ProtocolVersion != host.ActionContractVersion {
+	if manifest.Generator.ProtocolVersion != host.ContractVersion {
 		return Report{}, fmt.Errorf(
 			"host protocol %q does not match %q",
-			manifest.Generator.ProtocolVersion, host.ActionContractVersion)
+			manifest.Generator.ProtocolVersion, host.ContractVersion)
 	}
 	if manifest.Project.ID == "" || manifest.Host.ID == "" {
 		return Report{}, errors.New("scaffold manifest has no project or host identity")
@@ -148,7 +148,7 @@ func Inspect(root string) (Report, error) {
 		if err := decodeFile(filepath.Join(absolute, "rin-host.json"), &config); err != nil {
 			return Report{}, fmt.Errorf("read rin-host.json: %w", err)
 		}
-		if config.SchemaVersion != 1 || config.ProtocolVersion != host.ActionContractVersion ||
+		if config.SchemaVersion != 1 || config.ProtocolVersion != host.ContractVersion ||
 			config.ProjectID != manifest.Project.ID || config.Engine != "custom" ||
 			config.Runtime != manifest.Project.Runtime ||
 			config.Durability != string(host.DurabilityAdvisory) ||
@@ -165,7 +165,7 @@ func Inspect(root string) (Report, error) {
 	}, nil
 }
 
-func loadCapabilities(directory string) ([]host.CapabilityDescriptor, error) {
+func loadCapabilities(directory string) ([]host.CapabilitySpec, error) {
 	entries, err := os.ReadDir(directory)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -173,7 +173,7 @@ func loadCapabilities(directory string) ([]host.CapabilityDescriptor, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read capabilities: %w", err)
 	}
-	var result []host.CapabilityDescriptor
+	var result []host.CapabilitySpec
 	seen := make(map[host.CapabilityRef]string)
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
@@ -182,21 +182,21 @@ func loadCapabilities(directory string) ([]host.CapabilityDescriptor, error) {
 		if entry.Type()&os.ModeSymlink != 0 {
 			return nil, fmt.Errorf("capability %q must not be a symlink", entry.Name())
 		}
-		var descriptor host.CapabilityDescriptor
-		if err := decodeFile(filepath.Join(directory, entry.Name()), &descriptor); err != nil {
+		var spec host.CapabilitySpec
+		if err := decodeFile(filepath.Join(directory, entry.Name()), &spec); err != nil {
 			return nil, fmt.Errorf("decode capability %q: %w", entry.Name(), err)
 		}
-		if err := descriptor.Validate(); err != nil {
+		if err := spec.Validate(); err != nil {
 			return nil, fmt.Errorf("validate capability %q: %w", entry.Name(), err)
 		}
-		if previous, exists := seen[descriptor.Capability]; exists {
+		if previous, exists := seen[spec.Capability]; exists {
 			return nil, fmt.Errorf(
 				"capability %s@%s is duplicated in %q and %q",
-				descriptor.Capability.ID, descriptor.Capability.Version,
+				spec.Capability.ID, spec.Capability.Version,
 				previous, entry.Name())
 		}
-		seen[descriptor.Capability] = entry.Name()
-		result = append(result, descriptor)
+		seen[spec.Capability] = entry.Name()
+		result = append(result, spec)
 	}
 	sort.Slice(result, func(left, right int) bool {
 		if result[left].Capability.ID != result[right].Capability.ID {

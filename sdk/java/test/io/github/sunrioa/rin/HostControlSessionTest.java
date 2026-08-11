@@ -36,7 +36,7 @@ final class HostControlSessionTest {
                 () -> now[0],
                 "instance.fixture",
                 Map.of(
-                        "contract_version", "rin.host/v1",
+                        "contract_version", "rin.host/v2",
                         "adapter_id", "fixture.adapter"),
                 15_000);
 

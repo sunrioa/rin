@@ -31,7 +31,7 @@ func TestHostProjectCommands(t *testing.T) {
 	if err := runAdd([]string{
 		"skill", "-path", root, "-id", "movement.follow",
 		"-input-schema", inputSchema,
-		"-execution", "long-running", "-effect", "world-mutation",
+		"-execution", "long-running", "-risk-floor", "moderate",
 	}, &output); err != nil {
 		t.Fatal(err)
 	}

@@ -5,13 +5,6 @@ import (
 	"encoding/json"
 )
 
-const (
-	// ActionContractVersion identifies the V2 observe-bind-effect contract.
-	// It remains separate from ContractVersion while V1 transport consumers are
-	// migrated, then becomes the sole Host Contract version.
-	ActionContractVersion = "rin.host/v2"
-)
-
 // SchemaRef identifies one immutable, host-published schema.
 type SchemaRef struct {
 	ID      string `json:"id"`

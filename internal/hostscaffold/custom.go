@@ -10,7 +10,7 @@ import (
 func renderCustom(options normalizedOptions) ([]renderedFile, error) {
 	hostConfig := map[string]any{
 		"schema_version":   1,
-		"protocol_version": host.ActionContractVersion,
+		"protocol_version": host.ContractVersion,
 		"project_id":       options.ID,
 		"engine":           "custom",
 		"runtime":          options.Runtime,
@@ -50,27 +50,37 @@ func renderCustom(options normalizedOptions) ([]renderedFile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("build custom output schema: %w", err)
 	}
-	descriptor, err := host.SealDescriptor(host.CapabilityDescriptor{
+	effectSchema, err := host.NewSchema([]byte(`{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  }`))
+	if err != nil {
+		return nil, fmt.Errorf("build custom effect schema: %w", err)
+	}
+	spec, err := host.SealCapabilitySpec(host.CapabilitySpec{
 		Capability:         host.CapabilityRef{ID: "dialogue.say", Version: "1.0.0"},
 		Description:        "Show one game-authored dialogue line.",
 		Input:              input,
 		Output:             output,
-		Effect:             host.EffectAdvisory,
+		EffectSchema:       effectSchema,
+		Kind:               host.CapabilityAtomic,
 		Execution:          host.ExecutionImmediate,
-		Risk:               host.RiskLow,
+		Cancellation:       host.CancellationUnsupported,
+		RiskFloor:          host.RiskLow,
 		RequiredDurability: host.DurabilityAdvisory,
 		ExecutionBudget:    host.Duration{Clock: host.ClockEvent, Value: 1},
 		MaxInputBytes:      1024,
 		MaxOutputBytes:     1024,
-		Cancellation:       host.CancellationUnsupported,
-		Reversible:         true,
+		MaxEffects:         1,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("seal custom capability: %w", err)
 	}
 	// Keep embedded schema documents canonical. json.MarshalIndent rewrites
 	// RawMessage whitespace and would invalidate the sealed descriptor digest.
-	capability, err := json.Marshal(descriptor)
+	capability, err := json.Marshal(spec)
 	if err != nil {
 		return nil, fmt.Errorf("encode custom capability: %w", err)
 	}

@@ -241,7 +241,7 @@ func renderManifest(options normalizedOptions, files []renderedFile) ([]byte, er
 		SchemaVersion: 1,
 		Generator: generatorManifest{
 			Name: "rin", RinVersion: options.RinVersion,
-			ProtocolVersion: host.ActionContractVersion, Deterministic: true,
+			ProtocolVersion: host.ContractVersion, Deterministic: true,
 		},
 		Project: project,
 		Host: hostManifest{
