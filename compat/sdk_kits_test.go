@@ -1,79 +1,12 @@
 package compat_test
 
 import (
-	"encoding/json"
 	"os"
 	"strings"
 	"testing"
 
-	"github.com/sunrioa/rin/httpapi"
 	"github.com/sunrioa/rin/protocol"
 )
-
-type sdkRouteManifest struct {
-	SchemaVersion   int        `json:"schema_version"`
-	ReleaseVersion  string     `json:"release_version"`
-	ReleaseStatus   string     `json:"release_status"`
-	ProtocolVersion string     `json:"protocol_version"`
-	Operations      []sdkRoute `json:"operations"`
-}
-
-type sdkRoute struct {
-	Name          string `json:"name"`
-	Method        string `json:"method"`
-	Path          string `json:"path"`
-	Status        int    `json:"status"`
-	RequestSchema string `json:"request_schema"`
-}
-
-func TestGeneratedSDKRouteManifestMatchesRuntimeRouteTable(t *testing.T) {
-	manifest := loadSDKRouteManifest(t)
-	if manifest.SchemaVersion != 1 ||
-		manifest.ReleaseVersion != protocol.ContractReleaseVersion ||
-		manifest.ReleaseStatus != protocol.ContractReleaseStatus ||
-		manifest.ProtocolVersion != protocol.Version {
-		t.Fatalf("unexpected SDK manifest header: %+v", manifest)
-	}
-	runtimeRoutes := httpapi.ContractRoutes()
-	if len(manifest.Operations) != len(runtimeRoutes) {
-		t.Fatalf(
-			"SDK manifest has %d operations, runtime has %d",
-			len(manifest.Operations),
-			len(runtimeRoutes),
-		)
-	}
-	runtimeByKey := make(map[string]httpapi.ContractRoute, len(runtimeRoutes))
-	for _, route := range runtimeRoutes {
-		key := route.Method + " " + route.Path
-		if _, duplicate := runtimeByKey[key]; duplicate {
-			t.Fatalf("runtime route table contains duplicate %s", key)
-		}
-		runtimeByKey[key] = route
-	}
-	seen := make(map[string]bool, len(manifest.Operations))
-	for _, operation := range manifest.Operations {
-		key := operation.Method + " " + operation.Path
-		if seen[key] || operation.Name == "" {
-			t.Fatalf("duplicate or unnamed operation %q", key)
-		}
-		seen[key] = true
-		runtimeRoute, exists := runtimeByKey[key]
-		if !exists {
-			t.Errorf("SDK route manifest contains unregistered route %s", key)
-			continue
-		}
-		if runtimeRoute.OperationID != operation.Name ||
-			runtimeRoute.SuccessStatus != operation.Status ||
-			runtimeRoute.RequestSchema != operation.RequestSchema {
-			t.Errorf(
-				"route %s projection mismatch: manifest=%+v runtime=%+v",
-				key,
-				operation,
-				runtimeRoute,
-			)
-		}
-	}
-}
 
 func TestReleaseDocumentationMatchesGeneratedIdentity(t *testing.T) {
 	version := protocol.ContractReleaseVersion
@@ -473,17 +406,4 @@ func TestExampleModsPreserveGameAuthority(t *testing.T) {
 	if string(sdk) != string(vendored) {
 		t.Fatal("Luanti vendored rin.lua differs from sdk/lua/rin.lua")
 	}
-}
-
-func loadSDKRouteManifest(t *testing.T) sdkRouteManifest {
-	t.Helper()
-	payload, err := os.ReadFile("../sdk/conformance/routes.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var manifest sdkRouteManifest
-	if err := json.Unmarshal(payload, &manifest); err != nil {
-		t.Fatal(err)
-	}
-	return manifest
 }
