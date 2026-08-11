@@ -23,9 +23,7 @@ func TestHTTPClientUsesDaemonBoundPrincipal(t *testing.T) {
 	})
 	principal := operationPrincipal(
 		ScopeActorRead,
-		ScopeActorConverse,
-		ScopeActorDirect,
-		ScopeActorSpeak,
+		ScopeActorControl,
 		ScopeActorExecute,
 		ScopeOperationCancel,
 	)

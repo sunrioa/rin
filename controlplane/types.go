@@ -14,11 +14,8 @@ const (
 	ContractVersion = "rin.control/v2"
 
 	ScopeActorRead       = "actor.read"
-	ScopeActorConverse   = "actor.converse"
-	ScopeActorDirect     = "actor.direct"
-	ScopeActorSpeak      = "actor.speak"
-	ScopeActorExecute    = "actor.execute"
 	ScopeActorControl    = "actor.control"
+	ScopeActorExecute    = "actor.execute"
 	ScopeOperationCancel = "operation.cancel"
 	ScopeHostAdmin       = "host.admin"
 )

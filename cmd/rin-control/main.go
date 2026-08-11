@@ -358,9 +358,7 @@ func containsScope(scopes []string, expected string) bool {
 func containsAnyControlScope(scopes []string) bool {
 	for _, scope := range []string{
 		controlplane.ScopeActorRead,
-		controlplane.ScopeActorConverse,
-		controlplane.ScopeActorDirect,
-		controlplane.ScopeActorSpeak,
+		controlplane.ScopeActorControl,
 		controlplane.ScopeActorExecute,
 		controlplane.ScopeOperationCancel,
 		controlplane.ScopeHostAdmin,

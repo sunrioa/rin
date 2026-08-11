@@ -777,9 +777,7 @@ func (server *hostHTTPHandler) decode(
 func principalHasControlScope(principal host.Principal) bool {
 	for _, scope := range []string{
 		ScopeActorRead,
-		ScopeActorConverse,
-		ScopeActorDirect,
-		ScopeActorSpeak,
+		ScopeActorControl,
 		ScopeActorExecute,
 		ScopeOperationCancel,
 		ScopeHostAdmin,

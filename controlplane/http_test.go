@@ -110,9 +110,7 @@ func TestHTTPHandlerDoesNotExposeLegacyRoutes(t *testing.T) {
 	service := New(Options{})
 	principal := operationPrincipal(
 		ScopeActorRead,
-		ScopeActorConverse,
-		ScopeActorDirect,
-		ScopeActorSpeak,
+		ScopeActorControl,
 		ScopeActorExecute,
 		ScopeOperationCancel,
 	)
@@ -156,6 +154,17 @@ func TestHTTPHandlerDoesNotExposeLegacyRoutes(t *testing.T) {
 		if response.Code != http.StatusNotFound {
 			t.Errorf("legacy route %s status = %d", path, response.Code)
 		}
+	}
+}
+
+func TestHTTPHandlerAcceptsActorControlOnlyPrincipal(t *testing.T) {
+	service := New(Options{})
+	principal := operationPrincipal(ScopeActorControl)
+	if _, err := NewHTTPHandler(service, HTTPOptions{
+		Token:           testControlToken,
+		ClientPrincipal: &principal,
+	}); err != nil {
+		t.Fatalf("actor.control-only principal was rejected: %v", err)
 	}
 }
 

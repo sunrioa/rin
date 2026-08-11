@@ -38,6 +38,25 @@ func TestParseConfigurationUsesBoundedReadPrincipal(t *testing.T) {
 	}
 }
 
+func TestParseConfigurationAcceptsActorControlOnlyPrincipal(t *testing.T) {
+	config, err := parseConfiguration(
+		nil,
+		testEnvironment(map[string]string{
+			"RIN_CONTROL_TOKEN":     "0123456789abcdef0123456789abcdef",
+			"RIN_CONTROL_PRINCIPAL": "player.one",
+			"RIN_CONTROL_SCOPES":    controlplane.ScopeActorControl,
+		}),
+		io.Discard,
+	)
+	if err != nil {
+		t.Fatalf("parseConfiguration: %v", err)
+	}
+	if len(config.principal.GrantedScopes) != 1 ||
+		config.principal.GrantedScopes[0] != controlplane.ScopeActorControl {
+		t.Fatalf("configuration = %#v", config)
+	}
+}
+
 func TestParseConfigurationRejectsMissingCredentials(t *testing.T) {
 	_, err := parseConfiguration(
 		nil,
