@@ -494,7 +494,7 @@ jobs:
           java-version: "17"
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: "6.0.x"
+          dotnet-version: "8.0.x"
       - name: Install the Lua corpus runtime
         if: runner.os == 'Linux'
         run: |
