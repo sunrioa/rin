@@ -7,6 +7,7 @@ import (
 	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/timeline"
 )
 
 // TaskClient is the application contract shared by direct calls, HTTP, and
@@ -18,6 +19,8 @@ type TaskClient interface {
 	RunTask(context.Context, string) (TaskDispatch, error)
 	ResumeTask(context.Context, string) (TaskDispatch, error)
 	CancelTask(context.Context, string) (TaskDispatch, error)
+	GetTaskTimeline(context.Context, timeline.Query) (timeline.Page, error)
+	WaitTaskTimeline(context.Context, timeline.WaitInput) (timeline.Update, error)
 }
 
 // ClientService binds one trusted Principal to the task application service.
@@ -79,6 +82,20 @@ func (client *ClientService) CancelTask(
 	taskID string,
 ) (TaskDispatch, error) {
 	return client.service.CancelTask(ctx, client.principal, taskID)
+}
+
+func (client *ClientService) GetTaskTimeline(
+	ctx context.Context,
+	query timeline.Query,
+) (timeline.Page, error) {
+	return client.service.GetTaskTimeline(ctx, client.principal, query)
+}
+
+func (client *ClientService) WaitTaskTimeline(
+	ctx context.Context,
+	input timeline.WaitInput,
+) (timeline.Update, error) {
+	return client.service.WaitTaskTimeline(ctx, client.principal, input)
 }
 
 func principalHasTaskScope(principal host.Principal) bool {

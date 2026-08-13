@@ -15,6 +15,7 @@ import (
 
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/internal/jsonwire"
+	"github.com/sunrioa/rin/timeline"
 )
 
 const defaultHTTPMaxBodyBytes int64 = 1 << 20
@@ -171,6 +172,8 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 		mux.HandleFunc("POST /control/v2/actions/confirm", server.clientConfirmAction)
 		mux.HandleFunc("POST /control/v2/operations/get", server.clientOperation)
 		mux.HandleFunc("POST /control/v2/operations/wait", server.clientWaitOperation)
+		mux.HandleFunc("POST /control/v2/tasks/timeline/get", server.clientTaskTimeline)
+		mux.HandleFunc("POST /control/v2/tasks/timeline/wait", server.clientWaitTaskTimeline)
 		mux.HandleFunc("POST /control/v2/operations/cancel", server.clientCancel)
 		mux.HandleFunc("POST /control/v2/emergency-stop", server.clientEmergencyStop)
 	}
@@ -718,6 +721,40 @@ func (server *hostHTTPHandler) clientWaitOperation(
 		request.Context(),
 		input,
 	)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, update)
+}
+
+func (server *hostHTTPHandler) clientTaskTimeline(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input timeline.Query
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	page, err := server.client.GetTaskTimeline(request.Context(), input)
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, page)
+}
+
+func (server *hostHTTPHandler) clientWaitTaskTimeline(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input timeline.WaitInput
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	update, err := server.client.WaitTaskTimeline(request.Context(), input)
 	if err != nil {
 		writeServiceError(response, err)
 		return

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/sunrioa/rin/agentapi"
+	"github.com/sunrioa/rin/timeline"
 )
 
 const testAgentToken = "0123456789abcdef0123456789abcdef"
@@ -62,6 +63,17 @@ func TestHTTPClientUsesDaemonBoundPrincipalAndTaskContract(t *testing.T) {
 	if err != nil || stored.TaskID != "task.http" ||
 		!reflect.DeepEqual(stored.AllowedCapabilities, []string{"dialogue.speak"}) {
 		t.Fatalf("GetTask = %+v, %v", stored, err)
+	}
+	taskTimeline, err := client.GetTaskTimeline(ctx, timeline.Query{TaskID: "task.http"})
+	if err != nil || taskTimeline.ContractVersion != timeline.ContractVersion ||
+		len(taskTimeline.Events) != 2 {
+		t.Fatalf("GetTaskTimeline = %+v, %v", taskTimeline, err)
+	}
+	timelineUpdate, err := client.WaitTaskTimeline(ctx, timeline.WaitInput{
+		TaskID: "task.http", AfterCursor: taskTimeline.NextCursor, WaitMillis: 0,
+	})
+	if err != nil || timelineUpdate.Changed || len(timelineUpdate.Timeline.Events) != 0 {
+		t.Fatalf("WaitTaskTimeline = %+v, %v", timelineUpdate, err)
 	}
 	if _, err := client.RunTask(ctx, "task.http"); err != nil {
 		t.Fatalf("RunTask: %v", err)

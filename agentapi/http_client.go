@@ -18,6 +18,7 @@ import (
 	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/internal/jsonwire"
+	"github.com/sunrioa/rin/timeline"
 )
 
 const (
@@ -104,6 +105,24 @@ func (client *HTTPClient) CancelTask(
 	taskID string,
 ) (TaskDispatch, error) {
 	return client.dispatchTarget(ctx, "tasks/cancel", taskID)
+}
+
+func (client *HTTPClient) GetTaskTimeline(
+	ctx context.Context,
+	query timeline.Query,
+) (timeline.Page, error) {
+	var page timeline.Page
+	err := client.request(ctx, http.MethodPost, "tasks/timeline/get", query, &page)
+	return page, err
+}
+
+func (client *HTTPClient) WaitTaskTimeline(
+	ctx context.Context,
+	input timeline.WaitInput,
+) (timeline.Update, error) {
+	var update timeline.Update
+	err := client.request(ctx, http.MethodPost, "tasks/timeline/wait", input, &update)
+	return update, err
 }
 
 func (client *HTTPClient) dispatchTarget(

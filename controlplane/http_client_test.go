@@ -14,6 +14,7 @@ import (
 
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/timeline"
 )
 
 func TestHTTPClientUsesDaemonBoundPrincipal(t *testing.T) {
@@ -267,10 +268,12 @@ func TestHTTPClientV2DiscoveryControllerAndActionLifecycle(t *testing.T) {
 		err       error
 	}
 	submitted := make(chan submitResult, 1)
+	actionInput := binder.input("request.http.v2", "action.http.v2")
+	actionInput.Request.TaskID = "task.http.v2"
 	go func() {
 		operation, submitErr := client.SubmitAction(
 			ctx,
-			binder.input("request.http.v2", "action.http.v2"),
+			actionInput,
 		)
 		submitted <- submitResult{operation: operation, err: submitErr}
 	}()
@@ -307,12 +310,25 @@ func TestHTTPClientV2DiscoveryControllerAndActionLifecycle(t *testing.T) {
 	if err != nil || view.OperationID != operation.OperationID {
 		t.Fatalf("GetOperation = %#v, %v", view, err)
 	}
+	initialTimeline, err := client.GetTaskTimeline(ctx, timeline.Query{TaskID: actionInput.Request.TaskID})
+	if err != nil || len(initialTimeline.Events) == 0 {
+		t.Fatalf("GetTaskTimeline = %#v, %v", initialTimeline, err)
+	}
 	stop, err := client.SetEmergencyStop(ctx, SetEmergencyStopInput{
 		ActorControlTarget: target,
 		Active:             true,
 	})
 	if err != nil || !stop.Active {
 		t.Fatalf("SetEmergencyStop = %#v, %v", stop, err)
+	}
+	timelineUpdate, err := client.WaitTaskTimeline(ctx, timeline.WaitInput{
+		TaskID: actionInput.Request.TaskID, AfterCursor: initialTimeline.NextCursor,
+		Limit: 64, WaitMillis: 0,
+	})
+	if err != nil || !timelineUpdate.Changed || len(timelineUpdate.Timeline.Events) != 1 ||
+		timelineUpdate.Timeline.Events[0].Operation == nil ||
+		!timelineUpdate.Timeline.Events[0].Operation.Terminal {
+		t.Fatalf("WaitTaskTimeline = %#v, %v", timelineUpdate, err)
 	}
 	if _, err := client.SetEmergencyStop(ctx, SetEmergencyStopInput{
 		ActorControlTarget: target,

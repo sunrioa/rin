@@ -117,6 +117,40 @@ func (server *HTTPHandler) getTask(response http.ResponseWriter, request *http.R
 	writeJSON(response, http.StatusOK, task)
 }
 
+func (server *HTTPHandler) getTaskTimeline(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input TaskTimelineQuery
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, "invalid", err.Error())
+		return
+	}
+	page, err := server.client.GetTaskTimeline(request.Context(), input)
+	if err != nil {
+		writeTaskError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, page)
+}
+
+func (server *HTTPHandler) waitTaskTimeline(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	var input WaitTaskTimelineInput
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, "invalid", err.Error())
+		return
+	}
+	update, err := server.client.WaitTaskTimeline(request.Context(), input)
+	if err != nil {
+		writeTaskError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, update)
+}
+
 func (server *HTTPHandler) runTask(response http.ResponseWriter, request *http.Request) {
 	server.dispatchTarget(response, request, server.client.RunTask)
 }

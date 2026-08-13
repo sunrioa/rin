@@ -23,6 +23,7 @@
 - 获取、续租和释放独占 Controller Lease；
 - 提交或确认 `ActionRequest`；
 - 获取、长轮询和取消 Operation；
+- 获取或长轮询共用的 `rin.task-timeline/v1` 公开证据流；
 - 设置 Actor Emergency Stop。
 
 精确字段以 [`api/control-openapi.json`](../api/control-openapi.json) 为准。SDK

@@ -17,6 +17,7 @@
     }
   ],
   "x-rin-example-fixtures": "control-v2-fixtures.json",
+  "x-rin-task-timeline-fixtures": "task-timeline-v1-fixtures.json",
   "paths": {
     "/control/v2/health": {
       "get": {
@@ -796,6 +797,68 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/OperationUpdate"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/control/v2/tasks/timeline/get": {
+      "post": {
+        "operationId": "control_v2_get_task_timeline",
+        "description": "Read bounded public evidence for actions submitted under one task identifier.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskTimelineQuery"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Task timeline page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskTimelinePage"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/control/v2/tasks/timeline/wait": {
+      "post": {
+        "operationId": "control_v2_wait_task_timeline",
+        "description": "Wait up to 25 seconds for newer task evidence. changed=false is not execution evidence.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WaitTaskTimelineInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Task timeline update",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskTimelineUpdate"
                 }
               }
             }
@@ -3386,6 +3449,364 @@
           "delivery_attempts",
           "created_at_unix_millis",
           "updated_at_unix_millis"
+        ]
+      },
+      "TimelineCursor": {
+        "type": "string",
+        "maxLength": 64,
+        "pattern": "^tl1:(?:0|[1-9a-z][0-9a-z]*)$"
+      },
+      "TimelineDigest": {
+        "type": "string",
+        "maxLength": 71,
+        "pattern": "^(?:sha256:)?[0-9a-f]{64}$"
+      },
+      "TaskTimelineQuery": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "after_cursor": {
+            "$ref": "#/components/schemas/TimelineCursor"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 256
+          }
+        },
+        "required": ["task_id"]
+      },
+      "WaitTaskTimelineInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "after_cursor": {
+            "$ref": "#/components/schemas/TimelineCursor"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 256
+          },
+          "wait_millis": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 25000
+          }
+        },
+        "required": ["task_id", "wait_millis"]
+      },
+      "TaskTimelinePage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "rin.task-timeline/v1"
+          },
+          "task_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "goal": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "goal_digest": {
+            "$ref": "#/components/schemas/TimelineDigest"
+          },
+          "status": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskTimelineEvent"
+            },
+            "maxItems": 256
+          },
+          "next_cursor": {
+            "$ref": "#/components/schemas/TimelineCursor"
+          },
+          "more": {
+            "type": "boolean"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "contract_version", "task_id", "events", "next_cursor", "more", "truncated"
+        ]
+      },
+      "TaskTimelineUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "timeline": {
+            "$ref": "#/components/schemas/TaskTimelinePage"
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        },
+        "required": ["timeline", "changed"]
+      },
+      "TaskTimelineEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 192
+          },
+          "cursor": {
+            "$ref": "#/components/schemas/TimelineCursor"
+          },
+          "occurred_at_unix_millis": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "task_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "session_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "host_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "world_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "actor_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "controller_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "step": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "event_kind": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 192
+          },
+          "public_summary": {
+            "type": "string",
+            "description": "Short public explanation, never hidden chain-of-thought.",
+            "maxLength": 500
+          },
+          "reason_code": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "goal_digest": {
+            "$ref": "#/components/schemas/TimelineDigest"
+          },
+          "observation_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "observation_sequence": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "epoch": {
+            "$ref": "#/components/schemas/Epoch"
+          },
+          "capability": {
+            "$ref": "#/components/schemas/CapabilityRef"
+          },
+          "skill_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkillContextRef"
+            },
+            "maxItems": 64
+          },
+          "memory_context_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemoryContextRef"
+            },
+            "maxItems": 64
+          },
+          "model_usage": {
+            "$ref": "#/components/schemas/ModelUsage"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/PolicySummary"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/OperationSummary"
+          }
+        },
+        "required": [
+          "event_id", "cursor", "occurred_at_unix_millis", "task_id", "event_kind"
+        ]
+      },
+      "MemoryContextRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "memory_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "domain": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "rank": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "digest": {
+            "$ref": "#/components/schemas/TimelineDigest"
+          }
+        },
+        "required": ["memory_id", "domain", "source", "rank", "digest"]
+      },
+      "SkillContextRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "skill_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "version": {
+            "$ref": "#/components/schemas/ExactVersion"
+          },
+          "digest": {
+            "$ref": "#/components/schemas/TimelineDigest"
+          }
+        },
+        "required": ["skill_id", "version", "digest"]
+      },
+      "ModelUsage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "model": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "latency_ms": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "prompt_tokens": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "completion_tokens": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "total_tokens": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "cache_hit_tokens": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "cache_miss_tokens": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          }
+        }
+      },
+      "PolicySummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "disposition": {
+            "type": "string",
+            "enum": ["allow", "deny", "require_confirmation"]
+          },
+          "reason_code": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "human_summary": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "matched_rule_ids": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            },
+            "maxItems": 1024,
+            "uniqueItems": true
+          },
+          "confirmation_pending": {
+            "type": "boolean"
+          },
+          "effect_count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "disposition", "reason_code", "human_summary", "confirmation_pending", "effect_count"
+        ]
+      },
+      "OperationSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operation_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OperationStatus"
+          },
+          "terminal": {
+            "type": "boolean"
+          },
+          "execution_confirmed": {
+            "type": "boolean"
+          },
+          "reconciliation_pending": {
+            "type": "boolean"
+          },
+          "outcome_code": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "delivery_attempts": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "progress_sequence": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "progress": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "cancel_requested": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "operation_id", "status", "terminal", "execution_confirmed", "reconciliation_pending"
         ]
       },
       "OperationUpdate": {

@@ -11,6 +11,7 @@ import (
 	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/timeline"
 )
 
 func TestServiceRunsTasksAsynchronouslyDeduplicatesAndSleepsOnWait(t *testing.T) {
@@ -99,12 +100,22 @@ func TestServiceEnforcesTaskScopes(t *testing.T) {
 	if _, err := service.GetTask(context.Background(), none, "task.existing"); !errors.Is(err, agentapi.ErrForbidden) {
 		t.Fatalf("GetTask without task.read error = %v", err)
 	}
+	if _, err := service.GetTaskTimeline(context.Background(), none, timeline.Query{
+		TaskID: "task.existing",
+	}); !errors.Is(err, agentapi.ErrForbidden) {
+		t.Fatalf("GetTaskTimeline without task.read error = %v", err)
+	}
 	if _, err := service.CancelTask(context.Background(), none, "task.existing"); !errors.Is(err, agentapi.ErrForbidden) {
 		t.Fatalf("CancelTask without task.cancel error = %v", err)
 	}
 	admin := taskPrincipal(controlplane.ScopeHostAdmin)
 	if _, err := service.GetTask(context.Background(), admin, "task.existing"); err != nil {
 		t.Fatalf("host.admin could not read task: %v", err)
+	}
+	if _, err := service.GetTaskTimeline(context.Background(), admin, timeline.Query{
+		TaskID: "task.existing",
+	}); err != nil {
+		t.Fatalf("host.admin could not read task timeline: %v", err)
 	}
 }
 
@@ -193,6 +204,42 @@ func (runtime *fakeTaskRuntime) GetTask(
 		return cognition.TaskSession{}, cognition.ErrProviderNotFound
 	}
 	return task, nil
+}
+
+func (runtime *fakeTaskRuntime) GetTaskTimeline(
+	ctx context.Context,
+	query timeline.Query,
+) (timeline.Page, error) {
+	task, err := runtime.GetTask(ctx, query.TaskID)
+	if err != nil {
+		return timeline.Page{}, err
+	}
+	records := make([]timeline.Record, len(task.History))
+	for index, event := range task.History {
+		sequence := event.Sequence
+		if sequence == 0 {
+			sequence = uint64(index + 1)
+		}
+		records[index] = timeline.Record{Sequence: sequence, Event: timeline.Event{
+			TaskID: task.TaskID, EventKind: event.Kind,
+			OccurredAtUnixMillis: event.AtUnixMillis,
+		}}
+	}
+	return timeline.BuildPage(timeline.Snapshot{
+		TaskID: task.TaskID, Status: string(task.Status),
+		LatestSequence: uint64(len(records)), Records: records,
+	}, query)
+}
+
+func (runtime *fakeTaskRuntime) WaitTaskTimeline(
+	ctx context.Context,
+	input timeline.WaitInput,
+) (timeline.Update, error) {
+	page, err := runtime.GetTaskTimeline(ctx, input.Query())
+	if err != nil {
+		return timeline.Update{}, err
+	}
+	return timeline.Update{Timeline: page, Changed: len(page.Events) != 0}, nil
 }
 
 func (runtime *fakeTaskRuntime) SnapshotTasks(ctx context.Context) (cognition.TaskSnapshot, error) {

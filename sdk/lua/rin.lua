@@ -368,6 +368,8 @@ function Client:submit_action(input, callback) self:_post("/control/v2/actions/s
 function Client:confirm_action(input, callback) self:_post("/control/v2/actions/confirm", input, callback) end
 function Client:get_operation(input, callback) self:_post("/control/v2/operations/get", input, callback) end
 function Client:wait_operation(input, callback) self:_post("/control/v2/operations/wait", input, callback) end
+function Client:get_task_timeline(input, callback) self:_post("/control/v2/tasks/timeline/get", input, callback) end
+function Client:wait_task_timeline(input, callback) self:_post("/control/v2/tasks/timeline/wait", input, callback) end
 function Client:cancel_operation(input, callback) self:_post("/control/v2/operations/cancel", input, callback) end
 function Client:set_emergency_stop(input, callback) self:_post("/control/v2/emergency-stop", input, callback) end
 

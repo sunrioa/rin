@@ -306,6 +306,7 @@ func (service *Service) ConfirmAction(
 		operation.status = OperationStale
 		operation.updatedAt = service.now().UnixMilli()
 		service.finalizeOperationPolicyLocked(operation, false)
+		service.recordOperationTimelineLocked(operation)
 		service.markOperationsDirtyLocked()
 		service.notifyLocked()
 		persistErr := service.persistOperationsLocked()
@@ -387,6 +388,7 @@ func (service *Service) ConfirmAction(
 		service.policyEngine.Finalize(decision.DecisionID, false)
 		operation.status = OperationStale
 		operation.updatedAt = service.now().UnixMilli()
+		service.recordOperationTimelineLocked(operation)
 		service.markOperationsDirtyLocked()
 		service.notifyLocked()
 		persistErr := service.persistOperationsLocked()
@@ -402,12 +404,14 @@ func (service *Service) ConfirmAction(
 	operation.request.PolicyDecision = decisionPointer(decision)
 	operation.status = OperationQueued
 	operation.updatedAt = service.now().UnixMilli()
+	service.recordOperationTimelineLocked(operation)
 	service.markOperationsDirtyLocked()
 	service.notifyLocked()
 	if err := service.persistOperationsLocked(); err != nil {
 		service.policyEngine.Finalize(decision.DecisionID, false)
 		operation.status = OperationStale
 		operation.updatedAt = service.now().UnixMilli()
+		service.recordOperationTimelineLocked(operation)
 		service.markOperationsDirtyLocked()
 		service.notifyLocked()
 		return OperationView{}, errors.Join(err, service.persistOperationsLocked())
@@ -444,6 +448,7 @@ func (service *Service) recordConfirmationDecision(
 	default:
 		return OperationView{}, ErrConflict
 	}
+	service.recordOperationTimelineLocked(operation)
 	service.markOperationsDirtyLocked()
 	service.notifyLocked()
 	if err := service.persistOperationsLocked(); err != nil {
@@ -600,6 +605,7 @@ func (service *Service) storeActionOperationLocked(
 	}
 	service.operations[request.OperationID] = operation
 	service.requests[key] = request.OperationID
+	service.recordOperationTimelineLocked(operation)
 	service.markOperationsDirtyLocked()
 	if err := service.persistOperationsWithLimitLocked(maxQueuedStateBytes); err != nil {
 		delete(service.operations, request.OperationID)
@@ -650,6 +656,7 @@ func (service *Service) stalePendingConfirmation(
 	if operation.status == OperationAwaitingConfirmation {
 		operation.status = OperationStale
 		operation.updatedAt = service.now().UnixMilli()
+		service.recordOperationTimelineLocked(operation)
 		service.markOperationsDirtyLocked()
 		service.notifyLocked()
 		if err := service.persistOperationsLocked(); err != nil {

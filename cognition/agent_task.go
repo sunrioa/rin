@@ -9,6 +9,7 @@ import (
 
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/timeline"
 )
 
 const TaskSnapshotVersion = "rin.cognition.tasks/v2"
@@ -36,12 +37,22 @@ type TaskBudget struct {
 }
 
 type TaskEvent struct {
-	Kind         string `json:"kind"`
-	Step         uint32 `json:"step"`
-	Code         string `json:"code,omitempty"`
-	Summary      string `json:"summary,omitempty"`
-	OperationID  string `json:"operation_id,omitempty"`
-	AtUnixMillis int64  `json:"at_unix_millis"`
+	Sequence            uint64                      `json:"sequence"`
+	Kind                string                      `json:"kind"`
+	Step                uint32                      `json:"step"`
+	Code                string                      `json:"code,omitempty"`
+	Summary             string                      `json:"summary,omitempty"`
+	OperationID         string                      `json:"operation_id,omitempty"`
+	AtUnixMillis        int64                       `json:"at_unix_millis"`
+	ObservationID       string                      `json:"observation_id,omitempty"`
+	ObservationSequence uint64                      `json:"observation_sequence,omitempty"`
+	Epoch               *host.Epoch                 `json:"epoch,omitempty"`
+	Capability          *host.CapabilityRef         `json:"capability,omitempty"`
+	SkillRefs           []timeline.SkillContextRef  `json:"skill_refs,omitempty"`
+	MemoryContextRefs   []timeline.MemoryContextRef `json:"memory_context_refs,omitempty"`
+	Model               *timeline.ModelUsage        `json:"model_usage,omitempty"`
+	Policy              *timeline.PolicySummary     `json:"policy,omitempty"`
+	Operation           *timeline.OperationSummary  `json:"operation,omitempty"`
 }
 
 // TaskSession contains every decision-side value needed to resume without
@@ -76,6 +87,7 @@ type TaskSession struct {
 
 	LastObservationID   string      `json:"last_observation_id,omitempty"`
 	LastObservationSeq  uint64      `json:"last_observation_sequence,omitempty"`
+	EventSequence       uint64      `json:"event_sequence"`
 	History             []TaskEvent `json:"history,omitempty"`
 	CreatedAtUnixMillis int64       `json:"created_at_unix_millis"`
 	UpdatedAtUnixMillis int64       `json:"updated_at_unix_millis"`
@@ -365,33 +377,37 @@ func sealTaskSession(task TaskSession) (TaskSession, error) {
 	if len(task.History) > 512 {
 		return TaskSession{}, errors.New("task history exceeds 512 events")
 	}
+	legacySequence := task.EventSequence == 0 && len(task.History) != 0
 	task.History = append([]TaskEvent(nil), task.History...)
 	for index, event := range task.History {
-		if err := validateProviderID(fmt.Sprintf("history[%d].kind", index), event.Kind); err != nil {
+		if legacySequence {
+			event.Sequence = uint64(index + 1)
+		}
+		sealed, err := sealTaskEvent(task, event, index)
+		if err != nil {
 			return TaskSession{}, err
 		}
-		if event.Code != "" {
-			if err := validateProviderID(fmt.Sprintf("history[%d].code", index), event.Code); err != nil {
-				return TaskSession{}, err
-			}
+		if index > 0 && sealed.Sequence <= task.History[index-1].Sequence {
+			return TaskSession{}, errors.New("task history sequence must increase")
 		}
-		if err := validateProviderText(fmt.Sprintf("history[%d].summary", index), event.Summary, 500, false); err != nil {
-			return TaskSession{}, err
-		}
-		if event.OperationID != "" {
-			if err := validateProviderID(fmt.Sprintf("history[%d].operation_id", index), event.OperationID); err != nil {
-				return TaskSession{}, err
-			}
-		}
-		if event.Step > task.Budget.MaxSteps || event.AtUnixMillis < 0 ||
-			event.AtUnixMillis > maxProviderWireInteger {
-			return TaskSession{}, errors.New("task history event is out of bounds")
-		}
+		task.History[index] = sealed
+	}
+	if legacySequence {
+		task.EventSequence = uint64(len(task.History))
+	}
+	if len(task.History) != 0 && task.EventSequence < task.History[len(task.History)-1].Sequence {
+		return TaskSession{}, errors.New("task event sequence predates history")
+	}
+	if task.EventSequence > maxProviderWireInteger {
+		return TaskSession{}, errors.New("task event sequence is out of bounds")
 	}
 	if task.CreatedAtUnixMillis < 0 || task.UpdatedAtUnixMillis < task.CreatedAtUnixMillis ||
 		task.CreatedAtUnixMillis > maxProviderWireInteger ||
 		task.UpdatedAtUnixMillis > maxProviderWireInteger {
 		return TaskSession{}, errors.New("task timestamps are invalid")
+	}
+	if err := validateTaskTimelineHistory(task); err != nil {
+		return TaskSession{}, fmt.Errorf("task timeline: %w", err)
 	}
 	return cloneTaskSession(task), nil
 }
@@ -491,7 +507,11 @@ func cloneTaskSession(task TaskSession) TaskSession {
 	for index, record := range pendingMemories {
 		task.PendingMemories[index] = cloneMemoryRecord(record)
 	}
-	task.History = append([]TaskEvent(nil), task.History...)
+	history := task.History
+	task.History = make([]TaskEvent, len(history))
+	for index, event := range history {
+		task.History[index] = cloneTaskEvent(event)
+	}
 	return task
 }
 
@@ -507,9 +527,109 @@ func cloneTaskActionRequest(request host.ActionRequest) host.ActionRequest {
 }
 
 func appendTaskEvent(task *TaskSession, event TaskEvent) {
+	task.EventSequence++
+	event.Sequence = task.EventSequence
 	if len(task.History) == 512 {
 		copy(task.History, task.History[1:])
 		task.History = task.History[:511]
 	}
-	task.History = append(task.History, event)
+	task.History = append(task.History, cloneTaskEvent(event))
+}
+
+func sealTaskEvent(task TaskSession, event TaskEvent, index int) (TaskEvent, error) {
+	field := fmt.Sprintf("history[%d]", index)
+	if event.Sequence == 0 || event.Sequence > maxProviderWireInteger {
+		return TaskEvent{}, fmt.Errorf("%s sequence is invalid", field)
+	}
+	if err := validateProviderID(field+".kind", event.Kind); err != nil {
+		return TaskEvent{}, err
+	}
+	if event.Code != "" {
+		if err := validateProviderID(field+".code", event.Code); err != nil {
+			return TaskEvent{}, err
+		}
+	}
+	if err := validateProviderText(field+".summary", event.Summary, 500, false); err != nil {
+		return TaskEvent{}, err
+	}
+	if event.OperationID != "" {
+		if err := validateProviderID(field+".operation_id", event.OperationID); err != nil {
+			return TaskEvent{}, err
+		}
+	}
+	if event.ObservationID != "" {
+		if err := validateProviderID(field+".observation_id", event.ObservationID); err != nil {
+			return TaskEvent{}, err
+		}
+	}
+	if event.ObservationSequence > maxProviderWireInteger {
+		return TaskEvent{}, fmt.Errorf("%s observation sequence is invalid", field)
+	}
+	if (event.ObservationSequence == 0) != (event.Epoch == nil) {
+		return TaskEvent{}, fmt.Errorf("%s observation sequence and epoch must appear together", field)
+	}
+	if event.Epoch != nil {
+		if err := event.Epoch.Validate(field + ".epoch"); err != nil {
+			return TaskEvent{}, err
+		}
+	}
+	if event.Capability != nil {
+		if err := event.Capability.Validate(field + ".capability"); err != nil {
+			return TaskEvent{}, fmt.Errorf("%s.capability: %w", field, err)
+		}
+	}
+	if len(event.SkillRefs) > 64 || len(event.MemoryContextRefs) > 64 {
+		return TaskEvent{}, fmt.Errorf("%s context references exceed the limit", field)
+	}
+	if event.Model != nil {
+		if err := validateProviderText(field+".model", event.Model.Model, 200, false); err != nil {
+			return TaskEvent{}, err
+		}
+	}
+	if event.Step > task.Budget.MaxSteps || event.AtUnixMillis < 0 ||
+		event.AtUnixMillis > maxProviderWireInteger {
+		return TaskEvent{}, errors.New("task history event is out of bounds")
+	}
+	return cloneTaskEvent(event), nil
+}
+
+func cloneTaskEvent(event TaskEvent) TaskEvent {
+	if event.Epoch != nil {
+		epoch := *event.Epoch
+		event.Epoch = &epoch
+	}
+	if event.Capability != nil {
+		capability := *event.Capability
+		event.Capability = &capability
+	}
+	event.SkillRefs = append([]timeline.SkillContextRef(nil), event.SkillRefs...)
+	event.MemoryContextRefs = append([]timeline.MemoryContextRef(nil), event.MemoryContextRefs...)
+	if event.Model != nil {
+		model := *event.Model
+		model.LatencyMillis = cloneOptionalUint64(model.LatencyMillis)
+		model.PromptTokens = cloneOptionalUint64(model.PromptTokens)
+		model.CompletionTokens = cloneOptionalUint64(model.CompletionTokens)
+		model.TotalTokens = cloneOptionalUint64(model.TotalTokens)
+		model.CacheHitTokens = cloneOptionalUint64(model.CacheHitTokens)
+		model.CacheMissTokens = cloneOptionalUint64(model.CacheMissTokens)
+		event.Model = &model
+	}
+	if event.Policy != nil {
+		policy := *event.Policy
+		policy.MatchedRuleIDs = append([]string(nil), policy.MatchedRuleIDs...)
+		event.Policy = &policy
+	}
+	if event.Operation != nil {
+		operation := *event.Operation
+		event.Operation = &operation
+	}
+	return event
+}
+
+func cloneOptionalUint64(value *uint64) *uint64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }

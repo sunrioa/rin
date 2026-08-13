@@ -8,6 +8,7 @@ import (
 
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/timeline"
 )
 
 const (
@@ -19,6 +20,11 @@ const (
 	ScopeOperationCancel = "operation.cancel"
 	ScopeHostAdmin       = "host.admin"
 )
+
+type TaskTimelineQuery = timeline.Query
+type WaitTaskTimelineInput = timeline.WaitInput
+type TaskTimelinePage = timeline.Page
+type TaskTimelineUpdate = timeline.Update
 
 // ControlKind identifies the sole mutation request sent to a game Host.
 type ControlKind string

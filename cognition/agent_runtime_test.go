@@ -2,9 +2,12 @@ package cognition_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +15,7 @@ import (
 	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/timeline"
 )
 
 func TestAgentRuntimeCompletesMultiStepTaskThroughControlPlane(t *testing.T) {
@@ -62,6 +66,117 @@ func TestAgentRuntimeCompletesMultiStepTaskThroughControlPlane(t *testing.T) {
 		if match.Record.MemoryID == "task.follow.outcome.1" && !match.Record.Provenance.Authoritative {
 			t.Fatal("Host outcome lost its authoritative provenance")
 		}
+	}
+}
+
+func TestAgentRuntimeTimelineUsesReferencesAndMeasuredEvidence(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	secretMemory := "private memory text must not enter the timeline"
+	if _, err := fixture.memory.Append(context.Background(), cognition.MemoryRecord{
+		MemoryID: "memory.timeline.private",
+		Namespace: cognition.MemoryNamespace{
+			SessionID: "session.test", ActorID: "actor.mira",
+			Domain: cognition.MemoryActorSemantic,
+		},
+		Content: secretMemory, Tags: []string{"task.follow"},
+		Provenance: cognition.MemoryProvenance{
+			Source: cognition.MemorySourcePlayer, SourceID: "source.timeline.private",
+		},
+		Confidence: 0.9, Importance: 0.8,
+		CreatedAt: host.Timepoint{Clock: host.ClockStep, Value: 1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	decision := agentActionDecision()
+	decision.ProviderModel = "model.timeline"
+	decision.Usage.PromptTokens = 7
+	decision.Usage.CompletionTokens = 3
+	fixture.model.decisions = []cognition.ModelDecision{
+		decision,
+		{Kind: cognition.ModelDecisionComplete, Summary: "The task is complete.", ProviderModel: "model.timeline"},
+	}
+	fixture.control.operationAfterSubmit = succeededAgentOperation(fixture.environment.observation)
+	runtime := fixture.runtime(t, 16)
+	task := fixture.start(t, runtime, "task.timeline.internal")
+	before, err := runtime.GetTaskTimeline(context.Background(), timeline.Query{TaskID: task.TaskID})
+	if err != nil || len(before.Events) == 0 {
+		t.Fatalf("initial timeline = %#v, %v", before, err)
+	}
+
+	waited := make(chan timeline.Update, 1)
+	failure := make(chan error, 1)
+	go func() {
+		update, waitErr := runtime.WaitTaskTimeline(context.Background(), timeline.WaitInput{
+			TaskID: task.TaskID, AfterCursor: before.NextCursor,
+			Limit: 64, WaitMillis: 1_000,
+		})
+		if waitErr != nil {
+			failure <- waitErr
+			return
+		}
+		waited <- update
+	}()
+	time.Sleep(10 * time.Millisecond)
+	if _, err := runtime.RunTask(context.Background(), task.TaskID); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-failure:
+		t.Fatalf("WaitTaskTimeline: %v", err)
+	case update := <-waited:
+		if !update.Changed || len(update.Timeline.Events) == 0 {
+			t.Fatalf("timeline update = %#v", update)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("WaitTaskTimeline did not wake")
+	}
+
+	page, err := runtime.GetTaskTimeline(context.Background(), timeline.Query{
+		TaskID: task.TaskID, Limit: timeline.MaximumLimit,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := make([]string, len(page.Events))
+	for index, event := range page.Events {
+		kinds[index] = event.EventKind
+	}
+	wantKinds := []string{
+		"task.created", "model.decision", "action.selected", "operation.submitted",
+		"operation.terminal", "model.decision", "task.completed",
+	}
+	if !slices.Equal(kinds, wantKinds) {
+		t.Fatalf("internal timeline kinds = %v, want %v", kinds, wantKinds)
+	}
+	var modelEvent *timeline.Event
+	for index := range page.Events {
+		if page.Events[index].EventKind == "model.decision" &&
+			len(page.Events[index].MemoryContextRefs) != 0 {
+			modelEvent = &page.Events[index]
+			break
+		}
+	}
+	if modelEvent == nil || len(modelEvent.SkillRefs) != 1 || modelEvent.Model == nil ||
+		modelEvent.Model.TotalTokens == nil || *modelEvent.Model.TotalTokens != 10 ||
+		modelEvent.Model.PromptTokens == nil || *modelEvent.Model.PromptTokens != 7 ||
+		modelEvent.Model.CompletionTokens == nil || *modelEvent.Model.CompletionTokens != 3 {
+		t.Fatalf("model evidence = %#v", modelEvent)
+	}
+	if modelEvent.MemoryContextRefs[0].MemoryID != "memory.timeline.private" ||
+		modelEvent.MemoryContextRefs[0].Digest == "" {
+		t.Fatalf("memory reference = %#v", modelEvent.MemoryContextRefs)
+	}
+	directDigest := sha256.Sum256([]byte(secretMemory))
+	if modelEvent.MemoryContextRefs[0].Digest == fmt.Sprintf("sha256:%x", directDigest) {
+		t.Fatal("memory reference exposed a dictionary-testable content-only digest")
+	}
+	payload, err := json.Marshal(page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(payload), secretMemory) || strings.Contains(string(payload), "Follow safely.") ||
+		strings.Contains(string(payload), "Inspect the observed target") {
+		t.Fatalf("timeline leaked memory or skill text: %s", payload)
 	}
 }
 
@@ -350,7 +465,7 @@ func TestAgentRuntimeKeepsUnknownMacroForReconciliation(t *testing.T) {
 	macroUnknown := macroAccepted
 	macroUnknown.Status = controlplane.OperationOutcomeUnknown
 	macroUnknown.Cursor = "cursor.unknown-macro.unknown"
-	macroUnknown.Terminal = true
+	macroUnknown.Terminal = false
 	macroUnknown.ReconciliationPending = true
 	fixture.control.submissionResults = []controlplane.OperationView{{
 		OperationID: macroAccepted.OperationID,
@@ -572,7 +687,7 @@ func TestAgentRuntimeStopsOnOutcomeUnknownWithoutDuplicateSubmission(t *testing.
 	fixture.model.decisions = []cognition.ModelDecision{agentActionDecision()}
 	unknown := queuedAgentOperation()
 	unknown.Status = controlplane.OperationOutcomeUnknown
-	unknown.Terminal = true
+	unknown.Terminal = false
 	unknown.ReconciliationPending = true
 	unknown.DeliveryAttempts = 1
 	fixture.control.operationAfterSubmit = unknown

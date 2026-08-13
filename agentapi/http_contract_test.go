@@ -15,6 +15,7 @@ import (
 	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/timeline"
 )
 
 func TestAgentOpenAPIMatchesRegisteredRoutes(t *testing.T) {
@@ -24,7 +25,8 @@ func TestAgentOpenAPIMatchesRegisteredRoutes(t *testing.T) {
 	}
 	if document["openapi"] != "3.1.0" ||
 		document["jsonSchemaDialect"] != "https://json-schema.org/draft/2020-12/schema" ||
-		document["x-rin-contract-version"] != agentapi.ContractVersion {
+		document["x-rin-contract-version"] != agentapi.ContractVersion ||
+		document["x-rin-task-timeline-fixtures"] != "task-timeline-v1-fixtures.json" {
 		t.Fatal("Agent OpenAPI identity does not match the runtime contract")
 	}
 	assertAgentReferencesResolve(t, document, document)
@@ -34,8 +36,8 @@ func TestAgentOpenAPIMatchesRegisteredRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtimeRoutes := agentapi.ContractRoutes()
-	if len(openAPIRoutes) != 6 || len(runtimeRoutes) != len(openAPIRoutes) {
-		t.Fatalf("route count: OpenAPI=%d runtime=%d, want 6", len(openAPIRoutes), len(runtimeRoutes))
+	if len(openAPIRoutes) != 8 || len(runtimeRoutes) != len(openAPIRoutes) {
+		t.Fatalf("route count: OpenAPI=%d runtime=%d, want 8", len(openAPIRoutes), len(runtimeRoutes))
 	}
 	runtimeByKey := make(map[string]agentapi.ContractRoute, len(runtimeRoutes))
 	for _, route := range runtimeRoutes {
@@ -104,23 +106,33 @@ func TestAgentOpenAPISchemaFieldsMatchGoDTOs(t *testing.T) {
 		t.Fatal(err)
 	}
 	types := map[string]any{
-		"ClientInfo":       agentapi.ClientInfo{},
-		"Principal":        host.Principal{},
-		"StartTaskInput":   cognition.StartTaskInput{},
-		"TaskTarget":       agentapi.TaskTarget{},
-		"TaskBudget":       cognition.TaskBudget{},
-		"TaskDispatch":     agentapi.TaskDispatch{},
-		"TaskSession":      cognition.TaskSession{},
-		"TaskEvent":        cognition.TaskEvent{},
-		"ControllerLease":  controlplane.ControllerLease{},
-		"Epoch":            host.Epoch{},
-		"CapabilityRef":    host.CapabilityRef{},
-		"HostRef":          host.HostRef{},
-		"ActionRequest":    host.ActionRequest{},
-		"MemoryRecord":     cognition.MemoryRecord{},
-		"MemoryNamespace":  cognition.MemoryNamespace{},
-		"MemoryProvenance": cognition.MemoryProvenance{},
-		"Timepoint":        host.Timepoint{},
+		"ClientInfo":            agentapi.ClientInfo{},
+		"Principal":             host.Principal{},
+		"StartTaskInput":        cognition.StartTaskInput{},
+		"TaskTarget":            agentapi.TaskTarget{},
+		"TaskBudget":            cognition.TaskBudget{},
+		"TaskDispatch":          agentapi.TaskDispatch{},
+		"TaskSession":           cognition.TaskSession{},
+		"TaskEvent":             cognition.TaskEvent{},
+		"ControllerLease":       controlplane.ControllerLease{},
+		"Epoch":                 host.Epoch{},
+		"CapabilityRef":         host.CapabilityRef{},
+		"HostRef":               host.HostRef{},
+		"ActionRequest":         host.ActionRequest{},
+		"MemoryRecord":          cognition.MemoryRecord{},
+		"MemoryNamespace":       cognition.MemoryNamespace{},
+		"MemoryProvenance":      cognition.MemoryProvenance{},
+		"Timepoint":             host.Timepoint{},
+		"TaskTimelineQuery":     timeline.Query{},
+		"WaitTaskTimelineInput": timeline.WaitInput{},
+		"TaskTimelinePage":      timeline.Page{},
+		"TaskTimelineUpdate":    timeline.Update{},
+		"TaskTimelineEvent":     timeline.Event{},
+		"MemoryContextRef":      timeline.MemoryContextRef{},
+		"SkillContextRef":       timeline.SkillContextRef{},
+		"ModelUsage":            timeline.ModelUsage{},
+		"PolicySummary":         timeline.PolicySummary{},
+		"OperationSummary":      timeline.OperationSummary{},
 	}
 	for name, value := range types {
 		schema, exists := document.Components.Schemas[name]
@@ -144,7 +156,10 @@ func TestAgentOpenAPISchemaFieldsMatchGoDTOs(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{"StartTaskInput", "TaskTarget", "TaskBudget"} {
+	for _, name := range []string{
+		"StartTaskInput", "TaskTarget", "TaskBudget",
+		"TaskTimelineQuery", "WaitTaskTimelineInput",
+	} {
 		if document.Components.Schemas[name]["additionalProperties"] != false {
 			t.Errorf("request schema %s must reject unknown fields", name)
 		}

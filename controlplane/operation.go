@@ -23,19 +23,44 @@ const (
 )
 
 type operationState struct {
-	request     HostControlRequest
-	status      OperationStatus
-	attempts    uint32
-	cancel      bool
-	ack         *HostAcknowledgement
-	run         *host.ActionRun
-	outcome     *host.ActionOutcome
-	output      json.RawMessage
-	rejection   HostAcknowledgement
-	idempotency string
-	createdAt   int64
-	updatedAt   int64
-	children    []string
+	request                 HostControlRequest
+	status                  OperationStatus
+	attempts                uint32
+	cancel                  bool
+	ack                     *HostAcknowledgement
+	run                     *host.ActionRun
+	outcome                 *host.ActionOutcome
+	output                  json.RawMessage
+	rejection               HostAcknowledgement
+	idempotency             string
+	createdAt               int64
+	updatedAt               int64
+	children                []string
+	timeline                []operationTimelineEvent
+	timelineTruncatedBefore uint64
+}
+
+type operationTimelineEvent struct {
+	Sequence              uint64          `json:"sequence"`
+	Kind                  string          `json:"kind"`
+	Status                OperationStatus `json:"status"`
+	ReasonCode            string          `json:"reason_code,omitempty"`
+	Summary               string          `json:"summary,omitempty"`
+	AtUnixMillis          int64           `json:"at_unix_millis"`
+	Terminal              bool            `json:"terminal"`
+	ExecutionConfirmed    bool            `json:"execution_confirmed"`
+	ReconciliationPending bool            `json:"reconciliation_pending"`
+	DeliveryAttempts      uint32          `json:"delivery_attempts,omitempty"`
+	ProgressSequence      uint64          `json:"progress_sequence,omitempty"`
+	Progress              uint32          `json:"progress,omitempty"`
+	CancelRequested       bool            `json:"cancel_requested,omitempty"`
+	OutcomeCode           string          `json:"outcome_code,omitempty"`
+	PolicyDisposition     string          `json:"policy_disposition,omitempty"`
+	PolicyReasonCode      string          `json:"policy_reason_code,omitempty"`
+	PolicySummary         string          `json:"policy_summary,omitempty"`
+	MatchedRuleIDs        []string        `json:"matched_rule_ids,omitempty"`
+	ConfirmationPending   bool            `json:"confirmation_pending,omitempty"`
+	EffectCount           uint32          `json:"effect_count,omitempty"`
 }
 
 // PollHost waits for bounded new work or cancellation requests. Redelivery is
@@ -131,6 +156,7 @@ func (service *Service) AcknowledgeHost(
 		operation.rejection = acknowledgement
 		service.finalizeOperationPolicyLocked(operation, false)
 	}
+	service.recordOperationTimelineLocked(operation)
 	service.markOperationsDirtyLocked()
 	return service.persistOperationsLocked()
 }
@@ -194,6 +220,7 @@ func (service *Service) ReportHostRun(
 	operation.run = &cloned
 	operation.status = operationStatusFromRun(run.Status)
 	operation.updatedAt = service.now().UnixMilli()
+	service.recordOperationTimelineLocked(operation)
 	service.markOperationCheckpointDirtyLocked()
 	return service.persistOperationsLocked()
 }
@@ -262,6 +289,7 @@ func (service *Service) ReportHostResult(
 		operation,
 		outcome.Status == host.ActionSucceeded,
 	)
+	service.recordOperationTimelineLocked(operation)
 	service.markOperationsDirtyLocked()
 	return service.persistOperationsLocked()
 }
@@ -403,6 +431,7 @@ func (service *Service) CancelOperation(
 		operation.status = OperationCancelled
 		operation.updatedAt = service.now().UnixMilli()
 		service.finalizeOperationPolicyLocked(operation, false)
+		service.recordOperationTimelineLocked(operation)
 		service.markOperationsDirtyLocked()
 		if err := service.persistOperationsLocked(); err != nil {
 			return OperationView{}, err
@@ -413,6 +442,7 @@ func (service *Service) CancelOperation(
 		operation.status = OperationCancelled
 		operation.updatedAt = service.now().UnixMilli()
 		service.finalizeOperationPolicyLocked(operation, false)
+		service.recordOperationTimelineLocked(operation)
 		service.markOperationsDirtyLocked()
 		if err := service.persistOperationsLocked(); err != nil {
 			return OperationView{}, err
@@ -422,6 +452,7 @@ func (service *Service) CancelOperation(
 	if !operation.cancel {
 		operation.cancel = true
 		operation.updatedAt = service.now().UnixMilli()
+		service.recordOperationTimelineLocked(operation)
 		service.markOperationsDirtyLocked()
 	}
 	if err := service.persistOperationsLocked(); err != nil {
@@ -533,6 +564,7 @@ func (service *Service) collectHostWorkLocked(
 			operation.status = OperationDelivered
 		}
 		operation.updatedAt = now
+		service.recordOperationTimelineLocked(operation)
 		deliveryChanged = true
 		batch.Requests = append(batch.Requests, HostControlDelivery{
 			Request:         cloneControlRequest(operation.request),
@@ -598,6 +630,7 @@ func (service *Service) expireHostOperationsLocked(hostID string, now int64) {
 				operation.status = OperationOutcomeUnknown
 				operation.updatedAt = now
 				service.finalizeOperationPolicyLocked(operation, true)
+				service.recordOperationTimelineLocked(operation)
 				changed = true
 			}
 		} else {
@@ -605,6 +638,7 @@ func (service *Service) expireHostOperationsLocked(hostID string, now int64) {
 				operation.status = OperationStale
 				operation.updatedAt = now
 				service.finalizeOperationPolicyLocked(operation, false)
+				service.recordOperationTimelineLocked(operation)
 				changed = true
 			}
 		}
@@ -659,6 +693,7 @@ func (service *Service) expireOperationByTTLLocked(
 		service.finalizeOperationPolicyLocked(operation, false)
 	}
 	operation.updatedAt = now
+	service.recordOperationTimelineLocked(operation)
 	return true
 }
 

@@ -88,6 +88,8 @@ export class RinControlClient {
   confirmAction(input) { return this.post("/control/v2/actions/confirm", input); }
   getOperation(input) { return this.post("/control/v2/operations/get", input); }
   waitOperation(input) { return this.post("/control/v2/operations/wait", input); }
+  getTaskTimeline(input) { return this.post("/control/v2/tasks/timeline/get", input); }
+  waitTaskTimeline(input) { return this.post("/control/v2/tasks/timeline/wait", input); }
   cancelOperation(input) { return this.post("/control/v2/operations/cancel", input); }
   setEmergencyStop(input) { return this.post("/control/v2/emergency-stop", input); }
 

@@ -31,24 +31,27 @@ type operationFile struct {
 }
 
 type persistedOperations struct {
-	Version        string               `json:"version"`
-	Operations     []persistedOperation `json:"operations"`
-	Controllers    []ControllerLease    `json:"controller_leases,omitempty"`
-	EmergencyStops []ActorEmergencyStop `json:"emergency_stops,omitempty"`
-	PolicyState    *policy.State        `json:"policy_state,omitempty"`
+	Version          string               `json:"version"`
+	TimelineSequence uint64               `json:"timeline_sequence,omitempty"`
+	Operations       []persistedOperation `json:"operations"`
+	Controllers      []ControllerLease    `json:"controller_leases,omitempty"`
+	EmergencyStops   []ActorEmergencyStop `json:"emergency_stops,omitempty"`
+	PolicyState      *policy.State        `json:"policy_state,omitempty"`
 }
 
 type persistedOperation struct {
-	Request   HostControlRequest   `json:"request"`
-	Status    OperationStatus      `json:"status"`
-	Attempts  uint32               `json:"delivery_attempts"`
-	Cancel    bool                 `json:"cancel_requested"`
-	Ack       *HostAcknowledgement `json:"ack,omitempty"`
-	Run       *host.ActionRun      `json:"run,omitempty"`
-	Outcome   *host.ActionOutcome  `json:"outcome,omitempty"`
-	Output    json.RawMessage      `json:"output,omitempty"`
-	CreatedAt int64                `json:"created_at_unix_millis"`
-	UpdatedAt int64                `json:"updated_at_unix_millis"`
+	Request                 HostControlRequest       `json:"request"`
+	Status                  OperationStatus          `json:"status"`
+	Attempts                uint32                   `json:"delivery_attempts"`
+	Cancel                  bool                     `json:"cancel_requested"`
+	Ack                     *HostAcknowledgement     `json:"ack,omitempty"`
+	Run                     *host.ActionRun          `json:"run,omitempty"`
+	Outcome                 *host.ActionOutcome      `json:"outcome,omitempty"`
+	Output                  json.RawMessage          `json:"output,omitempty"`
+	CreatedAt               int64                    `json:"created_at_unix_millis"`
+	UpdatedAt               int64                    `json:"updated_at_unix_millis"`
+	Timeline                []operationTimelineEvent `json:"timeline,omitempty"`
+	TimelineTruncatedBefore uint64                   `json:"timeline_truncated_before,omitempty"`
 }
 
 // OpenFile creates a Control Plane whose bounded operations survive process
@@ -238,6 +241,9 @@ func (file *operationFile) write(
 }
 
 func (service *Service) restoreOperations(state persistedOperations) error {
+	if state.TimelineSequence >= maxJSONSafeInteger {
+		return fmt.Errorf("%w: operation timeline sequence is invalid", ErrPersistence)
+	}
 	if len(state.Operations) > service.maxOperations {
 		return fmt.Errorf(
 			"%w: state contains %d operations above configured limit %d",
@@ -254,8 +260,10 @@ func (service *Service) restoreOperations(state persistedOperations) error {
 			return fmt.Errorf("%w: validate policy state: %v", ErrPersistence, err)
 		}
 	}
+	service.operationTimelineSequence = state.TimelineSequence
 	actionDecisionIDs := make(map[string]struct{})
 	requiredReservationIDs := make(map[string]struct{})
+	persistedStatuses := make(map[string]OperationStatus, len(state.Operations))
 	for index, persisted := range state.Operations {
 		operation, err := restoreOperation(persisted)
 		if err != nil {
@@ -282,6 +290,7 @@ func (service *Service) restoreOperations(state persistedOperations) error {
 		}
 		service.operations[operationID] = operation
 		service.requests[operation.idempotency] = operationID
+		persistedStatuses[operationID] = persisted.Status
 		if operation.request.PolicyDecision != nil &&
 			operation.request.PolicyDecision.Result == policy.Allow {
 			decision := operation.request.PolicyDecision
@@ -291,6 +300,12 @@ func (service *Service) restoreOperations(state persistedOperations) error {
 				requiredReservationIDs[decision.DecisionID] = struct{}{}
 			}
 		}
+	}
+	if err := validateOperationTimelineSequences(
+		service.operations,
+		service.operationTimelineSequence,
+	); err != nil {
+		return fmt.Errorf("%w: %v", ErrPersistence, err)
 	}
 	if len(state.Operations) != 0 &&
 		(service.policyEngine == nil || state.PolicyState == nil) {
@@ -413,6 +428,17 @@ func (service *Service) restoreOperations(state persistedOperations) error {
 			case OperationFailed, OperationCancelled, OperationInterrupted,
 				OperationStale, OperationRejected:
 				service.finalizeOperationPolicyLocked(operation, false)
+			}
+		}
+		for operationID, operation := range service.operations {
+			persistedStatus := persistedStatuses[operationID]
+			if operation.status != persistedStatus {
+				operation.updatedAt = now
+			}
+			before := len(operation.timeline)
+			service.recordOperationTimelineLocked(operation)
+			if len(operation.timeline) != before {
+				service.operationDirty = true
 			}
 		}
 		service.operationDirty = true
@@ -554,17 +580,22 @@ func restoreOperation(value persistedOperation) (*operationState, error) {
 
 	request := cloneControlRequest(value.Request)
 	operation := &operationState{
-		request:     request,
-		status:      value.Status,
-		attempts:    value.Attempts,
-		cancel:      value.Cancel,
-		ack:         cloneAcknowledgement(value.Ack),
-		run:         cloneRunPointer(value.Run),
-		outcome:     cloneOutcomePointer(value.Outcome),
-		output:      append(json.RawMessage(nil), value.Output...),
-		idempotency: operationIdempotencyKey(request),
-		createdAt:   value.CreatedAt,
-		updatedAt:   value.UpdatedAt,
+		request:                 request,
+		status:                  value.Status,
+		attempts:                value.Attempts,
+		cancel:                  value.Cancel,
+		ack:                     cloneAcknowledgement(value.Ack),
+		run:                     cloneRunPointer(value.Run),
+		outcome:                 cloneOutcomePointer(value.Outcome),
+		output:                  append(json.RawMessage(nil), value.Output...),
+		idempotency:             operationIdempotencyKey(request),
+		createdAt:               value.CreatedAt,
+		updatedAt:               value.UpdatedAt,
+		timeline:                cloneOperationTimeline(value.Timeline),
+		timelineTruncatedBefore: value.TimelineTruncatedBefore,
+	}
+	if err := validateOperationTimeline(operation.timeline, operation.timelineTruncatedBefore); err != nil {
+		return nil, err
 	}
 	if operation.ack != nil && !operation.ack.Accepted {
 		operation.rejection = *operation.ack
@@ -822,10 +853,11 @@ func (service *Service) persistedOperationsLocked() persistedOperations {
 		return compare(left.request.OperationID, right.request.OperationID)
 	})
 	state := persistedOperations{
-		Version:        operationFileVersion,
-		Operations:     make([]persistedOperation, len(operations)),
-		Controllers:    make([]ControllerLease, 0, len(service.controllers)),
-		EmergencyStops: make([]ActorEmergencyStop, 0, len(service.emergencyStops)),
+		Version:          operationFileVersion,
+		TimelineSequence: service.operationTimelineSequence,
+		Operations:       make([]persistedOperation, len(operations)),
+		Controllers:      make([]ControllerLease, 0, len(service.controllers)),
+		EmergencyStops:   make([]ActorEmergencyStop, 0, len(service.emergencyStops)),
 	}
 	if service.policyEngine != nil {
 		decisionIDs := make([]string, 0, len(service.operations))
@@ -843,16 +875,18 @@ func (service *Service) persistedOperationsLocked() persistedOperations {
 	}
 	for index, operation := range operations {
 		state.Operations[index] = persistedOperation{
-			Request:   cloneControlRequest(operation.request),
-			Status:    operation.status,
-			Attempts:  operation.attempts,
-			Cancel:    operation.cancel,
-			Ack:       cloneAcknowledgement(operation.ack),
-			Run:       cloneRunPointer(operation.run),
-			Outcome:   cloneOutcomePointer(operation.outcome),
-			Output:    append(json.RawMessage(nil), operation.output...),
-			CreatedAt: operation.createdAt,
-			UpdatedAt: operation.updatedAt,
+			Request:                 cloneControlRequest(operation.request),
+			Status:                  operation.status,
+			Attempts:                operation.attempts,
+			Cancel:                  operation.cancel,
+			Ack:                     cloneAcknowledgement(operation.ack),
+			Run:                     cloneRunPointer(operation.run),
+			Outcome:                 cloneOutcomePointer(operation.outcome),
+			Output:                  append(json.RawMessage(nil), operation.output...),
+			CreatedAt:               operation.createdAt,
+			UpdatedAt:               operation.updatedAt,
+			Timeline:                cloneOperationTimeline(operation.timeline),
+			TimelineTruncatedBefore: operation.timelineTruncatedBefore,
 		}
 	}
 	for _, controller := range service.controllers {
@@ -976,6 +1010,124 @@ func cloneOutcomePointer(value *host.ActionOutcome) *host.ActionOutcome {
 	}
 	cloned := cloneOutcome(*value)
 	return &cloned
+}
+
+func cloneOperationTimeline(values []operationTimelineEvent) []operationTimelineEvent {
+	cloned := make([]operationTimelineEvent, len(values))
+	for index, value := range values {
+		value.MatchedRuleIDs = append([]string(nil), value.MatchedRuleIDs...)
+		cloned[index] = value
+	}
+	return cloned
+}
+
+func validateOperationTimeline(
+	values []operationTimelineEvent,
+	truncatedBefore uint64,
+) error {
+	if len(values) > maxOperationTimelineEvents {
+		return errors.New("operation timeline exceeds its event limit")
+	}
+	if len(values) == 0 && truncatedBefore != 0 {
+		return errors.New("empty operation timeline has a truncation cursor")
+	}
+	previousSequence := uint64(0)
+	for index, value := range values {
+		field := fmt.Sprintf("timeline[%d]", index)
+		if value.Sequence == 0 || value.Sequence > maxJSONSafeInteger ||
+			value.Sequence <= previousSequence {
+			return fmt.Errorf("%s sequence must increase", field)
+		}
+		if !validOperationStatus(value.Status) {
+			return fmt.Errorf("%s has an unsupported status", field)
+		}
+		if err := validateText(field+".kind", value.Kind, 128, true); err != nil {
+			return err
+		}
+		if err := validateText(field+".reason_code", value.ReasonCode, 128, false); err != nil {
+			return err
+		}
+		if err := validateText(field+".summary", value.Summary, 500, false); err != nil {
+			return err
+		}
+		if err := validateText(field+".outcome_code", value.OutcomeCode, 128, false); err != nil {
+			return err
+		}
+		if err := validateText(field+".policy_reason_code", value.PolicyReasonCode, 128, false); err != nil {
+			return err
+		}
+		if err := validateText(field+".policy_summary", value.PolicySummary, 500, false); err != nil {
+			return err
+		}
+		if value.AtUnixMillis < 0 || value.AtUnixMillis > maxJSONSafeInteger {
+			return fmt.Errorf("%s has invalid event time", field)
+		}
+		if value.Progress > 100 || value.ProgressSequence > maxJSONSafeInteger {
+			return fmt.Errorf("%s progress must not exceed 100", field)
+		}
+		if value.ExecutionConfirmed &&
+			(!value.Terminal || value.Status != OperationSucceeded) {
+			return fmt.Errorf("%s has contradictory execution confirmation", field)
+		}
+		if value.ReconciliationPending &&
+			(value.Terminal || value.Status != OperationOutcomeUnknown) {
+			return fmt.Errorf("%s has contradictory reconciliation state", field)
+		}
+		if value.OutcomeCode != "" && value.OutcomeCode != string(value.Status) {
+			return fmt.Errorf("%s outcome code does not match status", field)
+		}
+		if len(value.MatchedRuleIDs) > 1_024 {
+			return fmt.Errorf("%s has too many matched rules", field)
+		}
+		seenRules := make(map[string]struct{}, len(value.MatchedRuleIDs))
+		for ruleIndex, ruleID := range value.MatchedRuleIDs {
+			if err := validateID(
+				fmt.Sprintf("%s.matched_rule_ids[%d]", field, ruleIndex),
+				ruleID,
+			); err != nil {
+				return err
+			}
+			if _, exists := seenRules[ruleID]; exists {
+				return fmt.Errorf("%s has duplicate matched rules", field)
+			}
+			seenRules[ruleID] = struct{}{}
+		}
+		if value.PolicyDisposition != "" &&
+			value.PolicyDisposition != string(policy.Allow) &&
+			value.PolicyDisposition != string(policy.Deny) &&
+			value.PolicyDisposition != string(policy.RequireConfirmation) {
+			return fmt.Errorf("%s has unsupported policy disposition", field)
+		}
+		if value.ConfirmationPending &&
+			(value.PolicyDisposition != string(policy.RequireConfirmation) ||
+				value.Status != OperationAwaitingConfirmation) {
+			return fmt.Errorf("%s has contradictory confirmation state", field)
+		}
+		previousSequence = value.Sequence
+	}
+	if len(values) != 0 && truncatedBefore >= values[0].Sequence {
+		return errors.New("operation timeline truncation cursor is invalid")
+	}
+	return nil
+}
+
+func validateOperationTimelineSequences(
+	operations map[string]*operationState,
+	checkpoint uint64,
+) error {
+	seen := make(map[uint64]struct{})
+	for _, operation := range operations {
+		for _, event := range operation.timeline {
+			if event.Sequence > checkpoint {
+				return errors.New("operation timeline sequence exceeds checkpoint")
+			}
+			if _, duplicate := seen[event.Sequence]; duplicate {
+				return errors.New("operation timeline sequence is duplicated")
+			}
+			seen[event.Sequence] = struct{}{}
+		}
+	}
+	return nil
 }
 
 func validOperationStatus(value OperationStatus) bool {

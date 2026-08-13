@@ -23,6 +23,7 @@ All five clients expose the same route set:
 - acquire, renew, and release the exclusive controller lease;
 - submit or confirm an `ActionRequest`;
 - get, long-poll, and cancel an operation;
+- get or long-poll the shared `rin.task-timeline/v1` public evidence stream;
 - set the Actor emergency stop.
 
 [`api/control-openapi.json`](../api/control-openapi.json) is the exact field

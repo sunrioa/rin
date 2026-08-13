@@ -16,6 +16,7 @@ import (
 
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/internal/jsonwire"
+	"github.com/sunrioa/rin/timeline"
 )
 
 const (
@@ -176,6 +177,24 @@ func (client *HTTPClient) WaitOperation(
 		input,
 		&update,
 	)
+	return update, err
+}
+
+func (client *HTTPClient) GetTaskTimeline(
+	ctx context.Context,
+	query timeline.Query,
+) (timeline.Page, error) {
+	var page timeline.Page
+	err := client.requestV2(ctx, http.MethodPost, "tasks/timeline/get", query, &page)
+	return page, err
+}
+
+func (client *HTTPClient) WaitTaskTimeline(
+	ctx context.Context,
+	input timeline.WaitInput,
+) (timeline.Update, error) {
+	var update timeline.Update
+	err := client.requestV2(ctx, http.MethodPost, "tasks/timeline/wait", input, &update)
 	return update, err
 }
 

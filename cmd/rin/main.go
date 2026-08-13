@@ -45,6 +45,10 @@ func run(arguments []string) error {
 			os.Stdout,
 			os.Stderr,
 		)
+	case "tasks":
+		return runTasks(
+			context.Background(), arguments[1:], os.Stdout, os.Stderr, os.LookupEnv,
+		)
 	default:
 		return fmt.Errorf("unknown command %q; run rin --help", arguments[0])
 	}
@@ -57,6 +61,7 @@ func writeRootHelp(output *os.File) error {
   rin conformance host [options]
   rin doctor host [options]
   rin mcp [install|status|update|uninstall]
+  rin tasks timeline <task-id> [--follow]
   rin version
 
 Rin game Hosts connect to the separately managed rin-control daemon. Controllers

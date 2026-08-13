@@ -35,12 +35,14 @@ func TestGatewayNegotiatesCurrentProtocolAndReadsV2State(t *testing.T) {
 		"describe_actor_capability",
 		"get_actor_state",
 		"get_operation",
+		"get_task_timeline",
 		"list_actor_capabilities",
 		"list_actors",
 		"list_worlds",
 		"observe_actor",
 		"wait_actor_update",
 		"wait_operation",
+		"wait_task_timeline",
 	}
 	if !slices.Equal(names, expected) {
 		t.Fatalf("tool names = %#v", names)
@@ -169,10 +171,10 @@ func TestGatewayV2ActionUsesControllerHostBindingPolicyAndOutcome(t *testing.T) 
 	expected := []string{
 		"acquire_actor_control", "cancel_operation", "confirm_action",
 		"describe_actor_capability", "get_actor_control", "get_actor_state",
-		"get_operation", "list_actor_capabilities", "list_actors", "list_worlds",
+		"get_operation", "get_task_timeline", "list_actor_capabilities", "list_actors", "list_worlds",
 		"observe_actor", "release_actor_control", "renew_actor_control",
 		"set_actor_emergency_stop", "submit_actor_action", "wait_actor_update",
-		"wait_operation",
+		"wait_operation", "wait_task_timeline",
 	}
 	if names := toolNames(tools.Tools); !slices.Equal(names, expected) {
 		t.Fatalf("scoped tool names = %#v", names)
@@ -180,6 +182,7 @@ func TestGatewayV2ActionUsesControllerHostBindingPolicyAndOutcome(t *testing.T) 
 
 	controller := acquireControllerThroughMCP(t, session)
 	actionInput := environment.actionArguments("request.mcp.action.1", "action.mcp.1")
+	actionInput["task_id"] = "task.mcp.timeline"
 	result := callToolAsync(session, "submit_actor_action", actionInput)
 	gatewayDelivery := pollGateway(t, environment)
 	binding := environment.bind(t, *gatewayDelivery.ActionRequest)
@@ -198,6 +201,13 @@ func TestGatewayV2ActionUsesControllerHostBindingPolicyAndOutcome(t *testing.T) 
 		submitted.Operation.ExecutionConfirmed || submitted.Operation.Terminal ||
 		submitted.Operation.ControllerLeaseID != controller.Controller.LeaseID {
 		t.Fatalf("submit_actor_action = %#v", submitted.Operation)
+	}
+	var initialTimeline TaskTimelineOutput
+	callTool(t, session, "get_task_timeline", map[string]any{
+		"task_id": "task.mcp.timeline", "limit": 64,
+	}, &initialTimeline)
+	if len(initialTimeline.Timeline.Events) == 0 {
+		t.Fatal("submitted action produced no task timeline evidence")
 	}
 
 	work := pollHost(t, environment, 1)
@@ -252,6 +262,30 @@ func TestGatewayV2ActionUsesControllerHostBindingPolicyAndOutcome(t *testing.T) 
 	}, &waited)
 	if !waited.Changed || !waited.Operation.ExecutionConfirmed {
 		t.Fatalf("wait_operation = %#v", waited)
+	}
+	var timelineUpdate TaskTimelineUpdateOutput
+	callTool(t, session, "wait_task_timeline", map[string]any{
+		"task_id":      "task.mcp.timeline",
+		"after_cursor": initialTimeline.Timeline.NextCursor,
+		"limit":        64, "wait_millis": 0,
+	}, &timelineUpdate)
+	if !timelineUpdate.Changed || len(timelineUpdate.Timeline.Events) == 0 {
+		t.Fatalf("wait_task_timeline = %#v", timelineUpdate)
+	}
+	lastEvent := timelineUpdate.Timeline.Events[len(timelineUpdate.Timeline.Events)-1]
+	if lastEvent.Operation == nil || !lastEvent.Operation.ExecutionConfirmed ||
+		!lastEvent.Operation.Terminal {
+		t.Fatalf("terminal timeline event = %#v", lastEvent)
+	}
+	timelineKinds := make([]string, 0, len(initialTimeline.Timeline.Events)+len(timelineUpdate.Timeline.Events))
+	for _, event := range append(initialTimeline.Timeline.Events, timelineUpdate.Timeline.Events...) {
+		timelineKinds = append(timelineKinds, event.EventKind)
+	}
+	wantTimelineKinds := []string{
+		"operation.queued", "operation.delivered", "operation.accepted", "operation.succeeded",
+	}
+	if !slices.Equal(timelineKinds, wantTimelineKinds) {
+		t.Fatalf("external timeline kinds = %v, want %v", timelineKinds, wantTimelineKinds)
 	}
 
 	var retry OperationOutput

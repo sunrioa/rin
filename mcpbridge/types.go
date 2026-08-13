@@ -4,6 +4,7 @@ import (
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/timeline"
 )
 
 type ListWorldsInput struct{}
@@ -255,6 +256,28 @@ type OperationOutput struct {
 type OperationUpdateOutput struct {
 	Operation Operation `json:"operation"`
 	Changed   bool      `json:"changed"`
+}
+
+type GetTaskTimelineInput struct {
+	TaskID      string `json:"task_id" jsonschema:"stable task identifier copied from submitted actions"`
+	AfterCursor string `json:"after_cursor,omitempty" jsonschema:"opaque cursor copied unchanged from the last timeline response"`
+	Limit       uint32 `json:"limit,omitempty" jsonschema:"maximum events from 1 through 256; zero uses the default"`
+}
+
+type WaitTaskTimelineInput struct {
+	TaskID      string `json:"task_id" jsonschema:"stable task identifier copied from submitted actions"`
+	AfterCursor string `json:"after_cursor,omitempty" jsonschema:"opaque cursor copied unchanged from the last timeline response"`
+	Limit       uint32 `json:"limit,omitempty" jsonschema:"maximum events from 1 through 256; zero uses the default"`
+	WaitMillis  uint32 `json:"wait_millis" jsonschema:"bounded wait in milliseconds from 0 through 25000"`
+}
+
+type TaskTimelineOutput struct {
+	Timeline timeline.Page `json:"timeline"`
+}
+
+type TaskTimelineUpdateOutput struct {
+	Timeline timeline.Page `json:"timeline"`
+	Changed  bool          `json:"changed"`
 }
 
 type ActionRequest struct {

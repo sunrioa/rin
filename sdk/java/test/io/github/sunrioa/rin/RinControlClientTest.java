@@ -109,6 +109,8 @@ final class RinControlClientTest {
                     new RequestCase(() -> client.confirmAction(operation), "POST", "/control/v2/actions/confirm"),
                     new RequestCase(() -> client.getOperation(operation), "POST", "/control/v2/operations/get"),
                     new RequestCase(() -> client.waitOperation(waitOperation()), "POST", "/control/v2/operations/wait"),
+                    new RequestCase(() -> client.getTaskTimeline(taskTimeline()), "POST", "/control/v2/tasks/timeline/get"),
+                    new RequestCase(() -> client.waitTaskTimeline(waitTaskTimeline()), "POST", "/control/v2/tasks/timeline/wait"),
                     new RequestCase(() -> client.cancelOperation(operation), "POST", "/control/v2/operations/cancel"),
                     new RequestCase(() -> client.setEmergencyStop(emergencyStop()), "POST", "/control/v2/emergency-stop"));
 
@@ -123,7 +125,7 @@ final class RinControlClientTest {
                 require(request.method().equals("GET") || !lastRequest[3].isEmpty(),
                         "Control POST body was omitted for " + request.path());
             }
-            require(codec.encodedInputs.size() == 17, "Control client did not encode every POST body");
+            require(codec.encodedInputs.size() == 19, "Control client did not encode every POST body");
 
             mode[0] = "api-error";
             expectCode(() -> client.getActor(actor).join(), RinApiException.class, "stale");
@@ -251,6 +253,21 @@ final class RinControlClientTest {
         return Map.of(
                 "operation_id", "operation.fixture",
                 "after_cursor", "op2:queued:0:false:1000::0:false:0",
+                "wait_millis", 25000L);
+    }
+
+    private static Map<String, Object> taskTimeline() {
+        return Map.of(
+                "task_id", "task.fixture",
+                "after_cursor", "tl1:0",
+                "limit", 64L);
+    }
+
+    private static Map<String, Object> waitTaskTimeline() {
+        return Map.of(
+                "task_id", "task.fixture",
+                "after_cursor", "tl1:0",
+                "limit", 64L,
                 "wait_millis", 25000L);
     }
 

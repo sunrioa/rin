@@ -41,15 +41,16 @@ type Service struct {
 	confirming     map[string]struct{}
 	hostGateway    map[string]*hostGatewayState
 
-	maxOperations            int
-	operationTTL             time.Duration
-	operations               map[string]*operationState
-	requests                 map[string]string
-	changed                  chan struct{}
-	operationFile            *operationFile
-	operationDirty           bool
-	operationCheckpointDirty bool
-	closed                   bool
+	maxOperations             int
+	operationTTL              time.Duration
+	operations                map[string]*operationState
+	requests                  map[string]string
+	changed                   chan struct{}
+	operationFile             *operationFile
+	operationDirty            bool
+	operationCheckpointDirty  bool
+	operationTimelineSequence uint64
+	closed                    bool
 }
 
 type hostState struct {
@@ -635,6 +636,7 @@ func (service *Service) fenceSupersededAuthorityLocked(
 			operation.cancel = true
 		}
 		operation.updatedAt = now
+		service.recordOperationTimelineLocked(operation)
 		changed = true
 	}
 	if changed {

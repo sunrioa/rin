@@ -141,6 +141,14 @@ public final class RinControlClient {
         return postObject("/control/v2/operations/wait", input);
     }
 
+    public CompletableFuture<Map<String, Object>> getTaskTimeline(Map<String, ?> input) {
+        return postObject("/control/v2/tasks/timeline/get", input);
+    }
+
+    public CompletableFuture<Map<String, Object>> waitTaskTimeline(Map<String, ?> input) {
+        return postObject("/control/v2/tasks/timeline/wait", input);
+    }
+
     public CompletableFuture<Map<String, Object>> cancelOperation(Map<String, ?> input) {
         return postObject("/control/v2/operations/cancel", input);
     }

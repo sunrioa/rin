@@ -14,8 +14,9 @@ contracts. Documentation examples never replace authoritative game-adapter check
 4. [Game adapters](game-adapters.md): what an engine integration must and must not implement.
 5. [MCP and Control Plane](mcp-control-plane.md): external Agents, the daemon, tools, installation, and updates.
 6. [Internal Agent Runtime](internal-agent-runtime.md): persona, memory, skills, models, and task execution.
-7. [Host scaffolding](host-scaffolding.md): generate a contract skeleton for a language and engine.
-8. [Integration acceptance](host-integration-validation.md): automated gates and human game testing.
+7. [Task timeline](task-timeline.md): inspect public task decisions, policy, delivery, and authoritative outcomes.
+8. [Host scaffolding](host-scaffolding.md): generate a contract skeleton for a language and engine.
+9. [Integration acceptance](host-integration-validation.md): automated gates and human game testing.
 
 Additional material:
 
@@ -30,6 +31,7 @@ Additional material:
 | Host `rin.host/v2` | `host/*.go` |
 | Control `rin.control/v2` | `api/control-openapi.json`, `controlplane/*.go` |
 | Agent Task API `v1` | `api/agent-openapi.json`, `agentapi/*.go` |
+| Task timeline `v1` | `timeline/*.go`, `api/task-timeline-v1-fixtures.json` |
 | MCP tools | `mcpbridge/server.go` |
 | Gameplay policy | `policy/*.go` |
 

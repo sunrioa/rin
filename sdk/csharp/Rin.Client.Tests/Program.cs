@@ -52,6 +52,8 @@ static class ControlClientTests
             new RequestCase(() => client.ConfirmActionAsync(operation), HttpMethod.Post, "/control/v2/actions/confirm", operation),
             new RequestCase(() => client.GetOperationAsync(operation), HttpMethod.Post, "/control/v2/operations/get", operation),
             new RequestCase(() => client.WaitOperationAsync(root.GetProperty("wait_operation")), HttpMethod.Post, "/control/v2/operations/wait", root.GetProperty("wait_operation")),
+            new RequestCase(() => client.GetTaskTimelineAsync(root.GetProperty("task_timeline")), HttpMethod.Post, "/control/v2/tasks/timeline/get", root.GetProperty("task_timeline")),
+            new RequestCase(() => client.WaitTaskTimelineAsync(root.GetProperty("wait_task_timeline")), HttpMethod.Post, "/control/v2/tasks/timeline/wait", root.GetProperty("wait_task_timeline")),
             new RequestCase(() => client.CancelOperationAsync(operation), HttpMethod.Post, "/control/v2/operations/cancel", operation),
             new RequestCase(() => client.SetEmergencyStopAsync(root.GetProperty("emergency_stop")), HttpMethod.Post, "/control/v2/emergency-stop", root.GetProperty("emergency_stop")),
         };

@@ -11,6 +11,7 @@ import (
 	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/timeline"
 )
 
 func TestLocalTaskStoreUsesRevisionCASAndDefensiveCopies(t *testing.T) {
@@ -52,6 +53,53 @@ func TestLocalTaskStoreUsesRevisionCASAndDefensiveCopies(t *testing.T) {
 	if loaded.Tags[0] != "task.follow" ||
 		loaded.AllowedCapabilities[0] != "rin.navigation.move-to" {
 		t.Fatalf("task store was mutated through caller slices: %+v", loaded)
+	}
+}
+
+func TestLocalTaskStoreDefensivelyCopiesTimelineMetrics(t *testing.T) {
+	store, err := cognition.NewLocalTaskStore(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	latency := uint64(25)
+	task := validTaskSession("task.timeline-copy")
+	task.EventSequence = 1
+	task.History = []cognition.TaskEvent{{
+		Sequence: 1, Kind: "model.decision", AtUnixMillis: 10,
+		Model: &timeline.ModelUsage{LatencyMillis: &latency},
+	}}
+	created, err := store.Create(context.Background(), task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	latency = 99
+	*created.History[0].Model.LatencyMillis = 88
+	loaded, err := store.Load(context.Background(), task.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.History[0].Model == nil || loaded.History[0].Model.LatencyMillis == nil ||
+		*loaded.History[0].Model.LatencyMillis != 25 {
+		t.Fatalf("stored timeline metrics were mutated: %#v", loaded.History[0].Model)
+	}
+}
+
+func TestLocalTaskStoreRejectsInvalidTimelineMetadata(t *testing.T) {
+	task := validTaskSession("task.timeline-invalid")
+	task.EventSequence = 1
+	task.History = []cognition.TaskEvent{{
+		Sequence: 1, Kind: "model.decision", AtUnixMillis: 10,
+		MemoryContextRefs: []timeline.MemoryContextRef{{
+			MemoryID: "memory.invalid", Domain: "actor", Source: "outcome",
+			Rank: 1, Digest: "not-a-digest",
+		}},
+	}}
+	store, err := cognition.NewLocalTaskStore(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create(context.Background(), task); !errors.Is(err, timeline.ErrInvalid) {
+		t.Fatalf("invalid timeline metadata was accepted: %v", err)
 	}
 }
 

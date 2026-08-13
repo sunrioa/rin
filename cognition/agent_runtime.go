@@ -13,6 +13,7 @@ import (
 
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/timeline"
 )
 
 var ErrTaskBudgetExceeded = errors.New("cognition task budget exceeded")
@@ -86,6 +87,8 @@ type AgentRuntime struct {
 
 	taskLocksMu sync.Mutex
 	taskLocks   map[string]*sync.Mutex
+	timelineMu  sync.Mutex
+	taskChanged chan struct{}
 }
 
 func NewAgentRuntime(options AgentRuntimeOptions) (*AgentRuntime, error) {
@@ -139,6 +142,7 @@ func NewAgentRuntime(options AgentRuntimeOptions) (*AgentRuntime, error) {
 		maxAdvancesPerRun:     options.MaxAdvancesPerRun,
 		memoryBudget:          options.MemoryBudget,
 		taskLocks:             make(map[string]*sync.Mutex),
+		taskChanged:           make(chan struct{}),
 	}, nil
 }
 
@@ -199,6 +203,7 @@ func (runtime *AgentRuntime) StartTask(
 		_ = runtime.control.ReleaseController(runtime.principal, target, lease.LeaseID)
 		return TaskSession{}, err
 	}
+	runtime.notifyTaskChanged()
 	return created, nil
 }
 
@@ -509,7 +514,13 @@ func (runtime *AgentRuntime) callModel(
 		return ModelDecision{}, failed, err
 	}
 	beforeCall := task
+	startedAt := runtime.now()
 	decision, modelErr := runtime.model.Decide(ctx, input)
+	finishedAt := runtime.now()
+	latency := uint64(0)
+	if !finishedAt.Before(startedAt) {
+		latency = uint64(finishedAt.Sub(startedAt).Milliseconds())
+	}
 	if modelErr != nil && ctx.Err() != nil {
 		return ModelDecision{}, beforeCall, ctx.Err()
 	}
@@ -518,6 +529,15 @@ func (runtime *AgentRuntime) callModel(
 		appendTaskEvent(&task, warning)
 	}
 	if modelErr != nil {
+		memories, skills := modelContextTimelineFields(input)
+		appendTaskEvent(&task, TaskEvent{
+			Kind: "model.failed", Step: task.Step, Code: "model.unavailable",
+			AtUnixMillis:        finishedAt.UnixMilli(),
+			ObservationID:       input.Observation.ObservationID,
+			ObservationSequence: input.Observation.Sequence,
+			Epoch:               &input.Observation.Epoch, MemoryContextRefs: memories, SkillRefs: skills,
+			Model: &timeline.ModelUsage{LatencyMillis: uint64Pointer(latency)},
+		})
 		paused, pauseErr := runtime.pauseTask(ctx, task, "model.unavailable", modelErr)
 		return ModelDecision{}, paused, pauseErr
 	}
@@ -534,9 +554,14 @@ func (runtime *AgentRuntime) callModel(
 		failed, failErr := runtime.failTask(ctx, task, "budget.model-tokens", ErrTaskBudgetExceeded)
 		return ModelDecision{}, failed, failErr
 	}
+	memories, skills := modelContextTimelineFields(input)
 	appendTaskEvent(&task, TaskEvent{
 		Kind: "model.decision", Step: task.Step, Code: string(decision.Kind),
-		Summary: decision.Summary, AtUnixMillis: runtime.now().UnixMilli(),
+		Summary: decision.Summary, AtUnixMillis: finishedAt.UnixMilli(),
+		ObservationID:       input.Observation.ObservationID,
+		ObservationSequence: input.Observation.Sequence,
+		Epoch:               &input.Observation.Epoch, MemoryContextRefs: memories, SkillRefs: skills,
+		Model: measuredModelUsage(decision, latency),
 	})
 	saved, err := runtime.saveTask(ctx, task)
 	return decision, saved, err
@@ -634,6 +659,9 @@ func (runtime *AgentRuntime) applyModelDecision(
 		appendTaskEvent(&task, TaskEvent{
 			Kind: "action.selected", Step: task.Step, Code: decision.Capability.ID,
 			Summary: decision.Summary, AtUnixMillis: runtime.now().UnixMilli(),
+			ObservationID:       observation.ObservationID,
+			ObservationSequence: observation.Sequence, Epoch: &observation.Epoch,
+			Capability: actionCapabilityPointer(decision.Capability),
 		})
 		saved, err := runtime.saveTask(ctx, task)
 		return saved, err == nil, err
@@ -699,10 +727,9 @@ func (runtime *AgentRuntime) advancePendingAction(
 		if view.Status == controlplane.OperationAwaitingConfirmation {
 			task.Status = TaskWaitingConfirmation
 		}
-		appendTaskEvent(&task, TaskEvent{
-			Kind: "operation.submitted", Step: task.Step, Code: string(view.Status),
-			OperationID: view.OperationID, AtUnixMillis: runtime.now().UnixMilli(),
-		})
+		appendTaskEvent(&task, operationTimelineEvent(
+			task, "operation.submitted", view, runtime.now().UnixMilli(),
+		))
 		saved, saveErr := runtime.saveTask(ctx, task)
 		return saved, saveErr == nil, saveErr
 	}
@@ -720,6 +747,9 @@ func (runtime *AgentRuntime) advancePendingAction(
 		}
 		paused, pauseErr := runtime.pauseTask(ctx, task, "operation.unavailable", err)
 		return paused, false, pauseErr
+	}
+	if operationRequiresReconciliation(view) {
+		return runtime.recordUnknownOperation(ctx, task, "operation.unknown", view)
 	}
 	if task.Status == TaskWaitingConfirmation &&
 		view.Status != controlplane.OperationAwaitingConfirmation {
@@ -747,6 +777,9 @@ func (runtime *AgentRuntime) advancePendingAction(
 			return task, false, nil
 		}
 	}
+	if operationRequiresReconciliation(view) {
+		return runtime.recordUnknownOperation(ctx, task, "operation.unknown", view)
+	}
 	if view.Status == controlplane.OperationAwaitingConfirmation {
 		if task.Status != TaskWaitingConfirmation {
 			task.Status = TaskWaitingConfirmation
@@ -767,17 +800,7 @@ func (runtime *AgentRuntime) advancePendingAction(
 		return task, false, nil
 	}
 	if operationOutcomeIsUnknown(view) {
-		task.Status = TaskOutcomeUnknown
-		task.PauseCode = "operation.outcome-unknown"
-		appendTaskEvent(&task, TaskEvent{
-			Kind: "operation.unknown", Step: task.Step, Code: string(view.Status),
-			OperationID: view.OperationID, AtUnixMillis: runtime.now().UnixMilli(),
-		})
-		saved, saveErr := runtime.saveTask(ctx, task)
-		if saveErr == nil {
-			runtime.releaseController(saved)
-		}
-		return saved, false, saveErr
+		return runtime.recordUnknownOperation(ctx, task, "operation.unknown", view)
 	}
 	warning := false
 	if view.Outcome != nil {
@@ -794,15 +817,12 @@ func (runtime *AgentRuntime) advancePendingAction(
 	clearPendingTaskAction(&task)
 	task.Step++
 	code := string(view.Status)
-	summary := view.RejectionMessage
 	if view.Outcome != nil {
 		code = string(view.Outcome.Status)
-		summary = view.Outcome.Summary
 	}
-	appendTaskEvent(&task, TaskEvent{
-		Kind: "operation.terminal", Step: task.Step, Code: code, Summary: summary,
-		OperationID: view.OperationID, AtUnixMillis: runtime.now().UnixMilli(),
-	})
+	appendTaskEvent(&task, operationTimelineEvent(
+		task, "operation.terminal", view, runtime.now().UnixMilli(),
+	))
 	if cancelling && task.Status == TaskCancelled {
 		appendTaskEvent(&task, TaskEvent{
 			Kind: "task.cancelled", Step: task.Step, Code: code,
@@ -846,10 +866,9 @@ func (runtime *AgentRuntime) activatePendingMacro(
 	}
 	task.PauseCode = ""
 	task.Step++
-	appendTaskEvent(&task, TaskEvent{
-		Kind: "macro.started", Step: task.Step,
-		OperationID: view.OperationID, AtUnixMillis: runtime.now().UnixMilli(),
-	})
+	appendTaskEvent(&task, operationTimelineEvent(
+		task, "macro.started", view, runtime.now().UnixMilli(),
+	))
 	saved, err := runtime.saveTask(ctx, task)
 	return saved, err == nil, err
 }
@@ -879,6 +898,9 @@ func (runtime *AgentRuntime) advanceMacroOperation(
 		paused, pauseErr := runtime.pauseTask(ctx, task, "operation.unavailable", err)
 		return paused, false, pauseErr
 	}
+	if operationRequiresReconciliation(view) {
+		return runtime.recordUnknownOperation(ctx, task, "macro.unknown", view)
+	}
 	if !view.Terminal && !cancelling &&
 		view.Status != controlplane.OperationAwaitingConfirmation &&
 		view.Status != controlplane.OperationAccepted &&
@@ -899,6 +921,9 @@ func (runtime *AgentRuntime) advanceMacroOperation(
 		if !update.Changed && !view.Terminal {
 			return task, false, nil
 		}
+	}
+	if operationRequiresReconciliation(view) {
+		return runtime.recordUnknownOperation(ctx, task, "macro.unknown", view)
 	}
 	if view.Status == controlplane.OperationAwaitingConfirmation {
 		if task.Status != TaskWaitingConfirmation {
@@ -929,17 +954,7 @@ func (runtime *AgentRuntime) advanceMacroOperation(
 		return task, true, nil
 	}
 	if operationOutcomeIsUnknown(view) {
-		task.Status = TaskOutcomeUnknown
-		task.PauseCode = "operation.outcome-unknown"
-		appendTaskEvent(&task, TaskEvent{
-			Kind: "macro.unknown", Step: task.Step, Code: string(view.Status),
-			OperationID: view.OperationID, AtUnixMillis: runtime.now().UnixMilli(),
-		})
-		saved, saveErr := runtime.saveTask(ctx, task)
-		if saveErr == nil {
-			runtime.releaseController(saved)
-		}
-		return saved, false, saveErr
+		return runtime.recordUnknownOperation(ctx, task, "macro.unknown", view)
 	}
 	warning := false
 	if view.Outcome != nil {
@@ -953,11 +968,9 @@ func (runtime *AgentRuntime) advanceMacroOperation(
 		task.Status = TaskActive
 	}
 	task.PauseCode = ""
-	appendTaskEvent(&task, TaskEvent{
-		Kind: "macro.terminal", Step: task.Step, Code: string(view.Status),
-		Summary: view.RejectionMessage, OperationID: operationID,
-		AtUnixMillis: runtime.now().UnixMilli(),
-	})
+	appendTaskEvent(&task, operationTimelineEvent(
+		task, "macro.terminal", view, runtime.now().UnixMilli(),
+	))
 	if view.Outcome != nil {
 		task.History[len(task.History)-1].Code = string(view.Outcome.Status)
 		task.History[len(task.History)-1].Summary = view.Outcome.Summary
@@ -1099,6 +1112,7 @@ func (runtime *AgentRuntime) saveTask(
 	if err != nil {
 		return task, err
 	}
+	runtime.notifyTaskChanged()
 	return saved, nil
 }
 
@@ -1129,6 +1143,19 @@ func (runtime *AgentRuntime) taskLock(taskID string) *sync.Mutex {
 		runtime.taskLocks[taskID] = lock
 	}
 	return lock
+}
+
+func (runtime *AgentRuntime) taskChangedChannel() <-chan struct{} {
+	runtime.timelineMu.Lock()
+	defer runtime.timelineMu.Unlock()
+	return runtime.taskChanged
+}
+
+func (runtime *AgentRuntime) notifyTaskChanged() {
+	runtime.timelineMu.Lock()
+	close(runtime.taskChanged)
+	runtime.taskChanged = make(chan struct{})
+	runtime.timelineMu.Unlock()
 }
 
 func sealStartTaskInput(input StartTaskInput) (StartTaskInput, error) {
@@ -1483,6 +1510,28 @@ func operationOutcomeIsUnknown(view controlplane.OperationView) bool {
 	default:
 		return view.DeliveryAttempts != 0
 	}
+}
+
+func operationRequiresReconciliation(view controlplane.OperationView) bool {
+	return view.ReconciliationPending || view.Status == controlplane.OperationOutcomeUnknown
+}
+
+func (runtime *AgentRuntime) recordUnknownOperation(
+	ctx context.Context,
+	task TaskSession,
+	eventKind string,
+	view controlplane.OperationView,
+) (TaskSession, bool, error) {
+	task.Status = TaskOutcomeUnknown
+	task.PauseCode = "operation.outcome-unknown"
+	appendTaskEvent(&task, operationTimelineEvent(
+		task, eventKind, view, runtime.now().UnixMilli(),
+	))
+	saved, err := runtime.saveTask(ctx, task)
+	if err == nil {
+		runtime.releaseController(saved)
+	}
+	return saved, false, err
 }
 
 func stableMemorySubject(ref host.HostRef) string {

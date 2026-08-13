@@ -103,6 +103,17 @@
     "after_cursor": "op2:queued:0:false:1000::0:false:0",
     "wait_millis": 25000
   },
+  "task_timeline": {
+    "task_id": "task.fixture",
+    "after_cursor": "tl1:0",
+    "limit": 64
+  },
+  "wait_task_timeline": {
+    "task_id": "task.fixture",
+    "after_cursor": "tl1:0",
+    "limit": 64,
+    "wait_millis": 25000
+  },
   "emergency_stop": {
     "host_id": "host.fixture",
     "world_id": "world.fixture",

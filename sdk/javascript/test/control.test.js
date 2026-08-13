@@ -47,6 +47,8 @@ test("Control client encodes every V2 client route from the shared fixture", asy
     ["confirm", () => client.confirmAction(fixtures.operation_target), "POST", "/control/v2/actions/confirm", fixtures.operation_target],
     ["get_operation", () => client.getOperation(fixtures.operation_target), "POST", "/control/v2/operations/get", fixtures.operation_target],
     ["wait_operation", () => client.waitOperation(fixtures.wait_operation), "POST", "/control/v2/operations/wait", fixtures.wait_operation],
+    ["task_timeline", () => client.getTaskTimeline(fixtures.task_timeline), "POST", "/control/v2/tasks/timeline/get", fixtures.task_timeline],
+    ["wait_task_timeline", () => client.waitTaskTimeline(fixtures.wait_task_timeline), "POST", "/control/v2/tasks/timeline/wait", fixtures.wait_task_timeline],
     ["cancel", () => client.cancelOperation(fixtures.operation_target), "POST", "/control/v2/operations/cancel", fixtures.operation_target],
     ["emergency_stop", () => client.setEmergencyStop(fixtures.emergency_stop), "POST", "/control/v2/emergency-stop", fixtures.emergency_stop],
   ];

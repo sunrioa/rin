@@ -10,6 +10,7 @@ import (
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/release"
+	"github.com/sunrioa/rin/timeline"
 )
 
 // Gateway binds one configured external principal to Control V2 tools.
@@ -122,6 +123,14 @@ func (gateway *Gateway) addOperationTools() {
 		Name: "wait_operation", Description: "Wait up to 25 seconds for an operation change. changed=false is no new evidence; continue while reconciliation_pending=true.",
 		Annotations: readAnnotations(),
 	}, gateway.waitOperation)
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name: "get_task_timeline", Description: "Read bounded public evidence for one task submitted by this principal. It exposes caller-visible goals, public summaries, and references; it never projects hidden reasoning, provider prompts, configured credentials, or memory text.",
+		Annotations: readAnnotations(),
+	}, gateway.getTaskTimeline)
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name: "wait_task_timeline", Description: "Wait up to 25 seconds for newer task evidence. changed=false means no new evidence and is never proof of execution.",
+		Annotations: readAnnotations(),
+	}, gateway.waitTaskTimeline)
 }
 
 func (gateway *Gateway) addControllerTools() {
@@ -425,6 +434,31 @@ func (gateway *Gateway) waitOperation(
 	operation, err := convertOperation(update.Operation)
 	return nil, OperationUpdateOutput{
 		Operation: operation, Changed: update.Changed,
+	}, err
+}
+
+func (gateway *Gateway) getTaskTimeline(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input GetTaskTimelineInput,
+) (*mcp.CallToolResult, TaskTimelineOutput, error) {
+	page, err := gateway.client.GetTaskTimeline(ctx, timeline.Query{
+		TaskID: input.TaskID, AfterCursor: input.AfterCursor, Limit: input.Limit,
+	})
+	return nil, TaskTimelineOutput{Timeline: page}, err
+}
+
+func (gateway *Gateway) waitTaskTimeline(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input WaitTaskTimelineInput,
+) (*mcp.CallToolResult, TaskTimelineUpdateOutput, error) {
+	update, err := gateway.client.WaitTaskTimeline(ctx, timeline.WaitInput{
+		TaskID: input.TaskID, AfterCursor: input.AfterCursor,
+		Limit: input.Limit, WaitMillis: input.WaitMillis,
+	})
+	return nil, TaskTimelineUpdateOutput{
+		Timeline: update.Timeline, Changed: update.Changed,
 	}, err
 }
 

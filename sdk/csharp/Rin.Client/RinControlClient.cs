@@ -134,6 +134,12 @@ public sealed class RinControlClient : IDisposable
     public Task<JsonElement> WaitOperationAsync(object input, CancellationToken cancellationToken = default) =>
         PostAsync("/control/v2/operations/wait", input, cancellationToken);
 
+    public Task<JsonElement> GetTaskTimelineAsync(object input, CancellationToken cancellationToken = default) =>
+        PostAsync("/control/v2/tasks/timeline/get", input, cancellationToken);
+
+    public Task<JsonElement> WaitTaskTimelineAsync(object input, CancellationToken cancellationToken = default) =>
+        PostAsync("/control/v2/tasks/timeline/wait", input, cancellationToken);
+
     public Task<JsonElement> CancelOperationAsync(object input, CancellationToken cancellationToken = default) =>
         PostAsync("/control/v2/operations/cancel", input, cancellationToken);
 

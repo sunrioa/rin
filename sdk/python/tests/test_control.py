@@ -101,6 +101,8 @@ class ControlClientTests(unittest.TestCase):
             (client.confirm_action, (FIXTURES["operation_target"],), "POST", "/control/v2/actions/confirm", FIXTURES["operation_target"]),
             (client.get_operation, (FIXTURES["operation_target"],), "POST", "/control/v2/operations/get", FIXTURES["operation_target"]),
             (client.wait_operation, (FIXTURES["wait_operation"],), "POST", "/control/v2/operations/wait", FIXTURES["wait_operation"]),
+            (client.get_task_timeline, (FIXTURES["task_timeline"],), "POST", "/control/v2/tasks/timeline/get", FIXTURES["task_timeline"]),
+            (client.wait_task_timeline, (FIXTURES["wait_task_timeline"],), "POST", "/control/v2/tasks/timeline/wait", FIXTURES["wait_task_timeline"]),
             (client.cancel_operation, (FIXTURES["operation_target"],), "POST", "/control/v2/operations/cancel", FIXTURES["operation_target"]),
             (client.set_emergency_stop, (FIXTURES["emergency_stop"],), "POST", "/control/v2/emergency-stop", FIXTURES["emergency_stop"]),
         )

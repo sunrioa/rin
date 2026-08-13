@@ -43,6 +43,8 @@ export class RinControlClient {
   confirmAction(input: RinObject): Promise<ControlResponse>;
   getOperation(input: RinObject): Promise<ControlResponse>;
   waitOperation(input: RinObject): Promise<ControlResponse>;
+  getTaskTimeline(input: RinObject): Promise<ControlResponse>;
+  waitTaskTimeline(input: RinObject): Promise<ControlResponse>;
   cancelOperation(input: RinObject): Promise<ControlResponse>;
   setEmergencyStop(input: RinObject): Promise<ControlResponse>;
 }

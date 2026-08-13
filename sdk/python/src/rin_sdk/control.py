@@ -116,6 +116,12 @@ class RinControlClient:
     def wait_operation(self, payload: Dict[str, Any]) -> Any:
         return self._post("/control/v2/operations/wait", payload)
 
+    def get_task_timeline(self, payload: Dict[str, Any]) -> Any:
+        return self._post("/control/v2/tasks/timeline/get", payload)
+
+    def wait_task_timeline(self, payload: Dict[str, Any]) -> Any:
+        return self._post("/control/v2/tasks/timeline/wait", payload)
+
     def cancel_operation(self, payload: Dict[str, Any]) -> Any:
         return self._post("/control/v2/operations/cancel", payload)
 

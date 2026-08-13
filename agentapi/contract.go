@@ -20,6 +20,8 @@ var contractRoutes = [...]ContractRoute{
 	{OperationID: "agent_v1_run_task", Method: http.MethodPost, Path: "/agent/v1/tasks/run", SuccessStatus: http.StatusAccepted},
 	{OperationID: "agent_v1_resume_task", Method: http.MethodPost, Path: "/agent/v1/tasks/resume", SuccessStatus: http.StatusAccepted},
 	{OperationID: "agent_v1_cancel_task", Method: http.MethodPost, Path: "/agent/v1/tasks/cancel", SuccessStatus: http.StatusAccepted},
+	{OperationID: "agent_v1_get_task_timeline", Method: http.MethodPost, Path: "/agent/v1/tasks/timeline/get", SuccessStatus: http.StatusOK},
+	{OperationID: "agent_v1_wait_task_timeline", Method: http.MethodPost, Path: "/agent/v1/tasks/timeline/wait", SuccessStatus: http.StatusOK},
 }
 
 // ContractRoutes returns a defensive copy of the Agent HTTP route inventory.
@@ -29,12 +31,14 @@ func ContractRoutes() []ContractRoute {
 
 func (server *HTTPHandler) registerContractRoutes(mux *http.ServeMux) {
 	handlers := map[string]http.HandlerFunc{
-		"agent_v1_info":        server.info,
-		"agent_v1_start_task":  server.startTask,
-		"agent_v1_get_task":    server.getTask,
-		"agent_v1_run_task":    server.runTask,
-		"agent_v1_resume_task": server.resumeTask,
-		"agent_v1_cancel_task": server.cancelTask,
+		"agent_v1_info":               server.info,
+		"agent_v1_start_task":         server.startTask,
+		"agent_v1_get_task":           server.getTask,
+		"agent_v1_run_task":           server.runTask,
+		"agent_v1_resume_task":        server.resumeTask,
+		"agent_v1_cancel_task":        server.cancelTask,
+		"agent_v1_get_task_timeline":  server.getTaskTimeline,
+		"agent_v1_wait_task_timeline": server.waitTaskTimeline,
 	}
 	if len(handlers) != len(contractRoutes) {
 		panic(fmt.Sprintf(

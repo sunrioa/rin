@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/timeline"
 )
 
 // ClientInfo describes the fixed identity exposed by one Control Daemon.
@@ -33,6 +34,8 @@ type ControlClient interface {
 	ConfirmAction(context.Context, string) (OperationView, error)
 	GetOperation(context.Context, string) (OperationView, error)
 	WaitOperation(context.Context, WaitOperationInput) (OperationUpdate, error)
+	GetTaskTimeline(context.Context, timeline.Query) (timeline.Page, error)
+	WaitTaskTimeline(context.Context, timeline.WaitInput) (timeline.Update, error)
 	CancelOperation(context.Context, string) (OperationView, error)
 	SetEmergencyStop(context.Context, SetEmergencyStopInput) (ActorEmergencyStop, error)
 }
@@ -185,6 +188,20 @@ func (client *ClientService) WaitOperation(
 	input WaitOperationInput,
 ) (OperationUpdate, error) {
 	return client.service.WaitOperation(ctx, client.principal, input)
+}
+
+func (client *ClientService) GetTaskTimeline(
+	_ context.Context,
+	query timeline.Query,
+) (timeline.Page, error) {
+	return client.service.GetTaskTimeline(client.principal, query)
+}
+
+func (client *ClientService) WaitTaskTimeline(
+	ctx context.Context,
+	input timeline.WaitInput,
+) (timeline.Update, error) {
+	return client.service.WaitTaskTimeline(ctx, client.principal, input)
 }
 
 func (client *ClientService) CancelOperation(

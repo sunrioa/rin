@@ -31,8 +31,8 @@ func TestControlOpenAPIReferencesEveryDaemonRoute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseControlRoutes: %v", err)
 	}
-	if len(routes) != 28 {
-		t.Fatalf("Control route count = %d, want 28", len(routes))
+	if len(routes) != 30 {
+		t.Fatalf("Control route count = %d, want 30", len(routes))
 	}
 	wantRoutes := map[string]struct{}{
 		"GET /control/v2/health":               {},
@@ -61,6 +61,8 @@ func TestControlOpenAPIReferencesEveryDaemonRoute(t *testing.T) {
 		"POST /control/v2/actions/confirm":     {},
 		"POST /control/v2/operations/get":      {},
 		"POST /control/v2/operations/wait":     {},
+		"POST /control/v2/tasks/timeline/get":  {},
+		"POST /control/v2/tasks/timeline/wait": {},
 		"POST /control/v2/operations/cancel":   {},
 		"POST /control/v2/emergency-stop":      {},
 	}
@@ -133,6 +135,9 @@ func TestControlV2FixturesMatchRuntimeInputs(t *testing.T) {
 	if document["x-rin-example-fixtures"] != "control-v2-fixtures.json" {
 		t.Fatal("Control OpenAPI does not publish its V2 fixture location")
 	}
+	if document["x-rin-task-timeline-fixtures"] != "task-timeline-v1-fixtures.json" {
+		t.Fatal("Control OpenAPI does not publish its task timeline fixture location")
+	}
 	var fixtures struct {
 		ContractVersion    string                  `json:"contract_version"`
 		ActorTarget        ActorControlTarget      `json:"actor_target"`
@@ -145,6 +150,8 @@ func TestControlV2FixturesMatchRuntimeInputs(t *testing.T) {
 		SubmitAction       SubmitActionInput       `json:"submit_action"`
 		OperationTarget    operationTargetRequest  `json:"operation_target"`
 		WaitOperation      WaitOperationInput      `json:"wait_operation"`
+		TaskTimeline       TaskTimelineQuery       `json:"task_timeline"`
+		WaitTaskTimeline   WaitTaskTimelineInput   `json:"wait_task_timeline"`
 		EmergencyStop      SetEmergencyStopInput   `json:"emergency_stop"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(rinapi.ControlFixtures()))
@@ -175,6 +182,8 @@ func TestControlV2FixturesMatchRuntimeInputs(t *testing.T) {
 	}
 	if fixtures.WaitActor.WaitMillis > 25_000 ||
 		fixtures.WaitOperation.WaitMillis > 25_000 ||
+		fixtures.WaitTaskTimeline.WaitMillis > 25_000 ||
+		fixtures.TaskTimeline.TaskID == "" ||
 		fixtures.OperationTarget.OperationID == "" {
 		t.Fatal("bounded wait or operation fixture is invalid")
 	}

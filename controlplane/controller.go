@@ -336,6 +336,7 @@ func (service *Service) fenceControllerOperationsLocked(leaseID string, now int6
 			operation.cancel = true
 		}
 		operation.updatedAt = now
+		service.recordOperationTimelineLocked(operation)
 	}
 }
 
@@ -354,6 +355,7 @@ func (service *Service) cancelActorOperationsLocked(key actorControlKey, now int
 			operation.cancel = true
 		}
 		operation.updatedAt = now
+		service.recordOperationTimelineLocked(operation)
 	}
 }
 

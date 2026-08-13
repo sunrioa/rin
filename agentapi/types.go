@@ -10,6 +10,7 @@ import (
 
 	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/timeline"
 )
 
 const (
@@ -38,6 +39,8 @@ type TaskRuntime interface {
 	ResumeTask(context.Context, string) (cognition.TaskSession, error)
 	CancelTask(context.Context, string) (cognition.TaskSession, error)
 	RunTask(context.Context, string) (cognition.TaskSession, error)
+	GetTaskTimeline(context.Context, timeline.Query) (timeline.Page, error)
+	WaitTaskTimeline(context.Context, timeline.WaitInput) (timeline.Update, error)
 }
 
 type Options struct {
@@ -57,6 +60,11 @@ type TaskDispatch struct {
 type TaskTarget struct {
 	TaskID string `json:"task_id"`
 }
+
+type TaskTimelineQuery = timeline.Query
+type WaitTaskTimelineInput = timeline.WaitInput
+type TaskTimelinePage = timeline.Page
+type TaskTimelineUpdate = timeline.Update
 
 type ClientInfo struct {
 	ContractVersion string         `json:"contract_version"`

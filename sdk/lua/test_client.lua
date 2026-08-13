@@ -75,6 +75,8 @@ end
 local actor = { host_id = "host.fixture", world_id = "world.fixture", actor_id = "actor.fixture" }
 local world = { host_id = "host.fixture", world_id = "world.fixture" }
 local operation = { operation_id = "operation.fixture" }
+local task_timeline = { task_id = "task.fixture", after_cursor = "tl1:0", limit = 64 }
+local wait_task_timeline = { task_id = "task.fixture", after_cursor = "tl1:0", limit = 64, wait_millis = 25000 }
 local cases = {
     { function(done) client:info(done) end, "GET", "/control/v2/info", nil },
     { function(done) client:list_worlds(done) end, "POST", "/control/v2/worlds", true },
@@ -92,6 +94,8 @@ local cases = {
     { function(done) client:confirm_action(operation, done) end, "POST", "/control/v2/actions/confirm", operation },
     { function(done) client:get_operation(operation, done) end, "POST", "/control/v2/operations/get", operation },
     { function(done) client:wait_operation(operation, done) end, "POST", "/control/v2/operations/wait", operation },
+    { function(done) client:get_task_timeline(task_timeline, done) end, "POST", "/control/v2/tasks/timeline/get", task_timeline },
+    { function(done) client:wait_task_timeline(wait_task_timeline, done) end, "POST", "/control/v2/tasks/timeline/wait", wait_task_timeline },
     { function(done) client:cancel_operation(operation, done) end, "POST", "/control/v2/operations/cancel", operation },
     { function(done) client:set_emergency_stop(actor, done) end, "POST", "/control/v2/emergency-stop", actor },
 }

@@ -1,0 +1,257 @@
+{
+  "contract_version": "rin.task-timeline/v1",
+  "internal_agent": {
+    "contract_version": "rin.task-timeline/v1",
+    "task_id": "task.fixture.internal",
+    "goal": "Collect nearby wood and return home.",
+    "goal_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "status": "completed",
+    "events": [
+      {
+        "event_id": "task.fixture.internal.event.1",
+        "cursor": "tl1:1",
+        "occurred_at_unix_millis": 1000,
+        "task_id": "task.fixture.internal",
+        "session_id": "session.fixture",
+        "host_id": "host.fixture",
+        "world_id": "world.fixture",
+        "actor_id": "actor.fixture",
+        "controller_id": "controller.fixture",
+        "event_kind": "task.created",
+        "public_summary": "Task accepted by the internal Agent Runtime.",
+        "goal_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "event_id": "task.fixture.internal.event.2",
+        "cursor": "tl1:2",
+        "occurred_at_unix_millis": 1100,
+        "task_id": "task.fixture.internal",
+        "session_id": "session.fixture",
+        "host_id": "host.fixture",
+        "world_id": "world.fixture",
+        "actor_id": "actor.fixture",
+        "controller_id": "controller.fixture",
+        "event_kind": "model.decision",
+        "public_summary": "Selected a bounded collection capability.",
+        "reason_code": "action",
+        "goal_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "skill_refs": [
+          {
+            "skill_id": "collect-resource",
+            "version": "1.0.0",
+            "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ],
+        "memory_context_refs": [
+          {
+            "memory_id": "memory.fixture.preference",
+            "domain": "actor",
+            "source": "outcome",
+            "rank": 1,
+            "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          }
+        ],
+        "model_usage": {
+          "model": "fixture-model",
+          "latency_ms": 240,
+          "prompt_tokens": 320,
+          "completion_tokens": 48,
+          "total_tokens": 368,
+          "cache_hit_tokens": 200,
+          "cache_miss_tokens": 120
+        }
+      },
+      {
+        "event_id": "task.fixture.internal.event.3",
+        "cursor": "tl1:3",
+        "occurred_at_unix_millis": 1500,
+        "task_id": "task.fixture.internal",
+        "session_id": "session.fixture",
+        "host_id": "host.fixture",
+        "world_id": "world.fixture",
+        "actor_id": "actor.fixture",
+        "controller_id": "controller.fixture",
+        "step": 1,
+        "event_kind": "operation.terminal",
+        "public_summary": "The Host collected the requested resource.",
+        "reason_code": "succeeded",
+        "goal_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "observation_sequence": 7,
+        "epoch": {
+          "session_id": "session.fixture",
+          "world_id": "world.fixture",
+          "host": 2,
+          "world": 4,
+          "timeline": 1
+        },
+        "capability": {
+          "id": "companion.task.collect_resource",
+          "version": "1.0.0"
+        },
+        "policy": {
+          "disposition": "allow",
+          "reason_code": "policy.allowed",
+          "human_summary": "The bounded action is allowed.",
+          "matched_rule_ids": [
+            "fixture.safe-action"
+          ],
+          "confirmation_pending": false,
+          "effect_count": 1
+        },
+        "operation": {
+          "operation_id": "operation.fixture.internal",
+          "status": "succeeded",
+          "terminal": true,
+          "execution_confirmed": true,
+          "reconciliation_pending": false,
+          "outcome_code": "succeeded",
+          "delivery_attempts": 1,
+          "progress_sequence": 2,
+          "progress": 100
+        }
+      }
+    ],
+    "next_cursor": "tl1:3",
+    "more": false,
+    "truncated": false
+  },
+  "external_mcp": {
+    "contract_version": "rin.task-timeline/v1",
+    "task_id": "task.fixture.external",
+    "status": "succeeded",
+    "events": [
+      {
+        "event_id": "operation.fixture.external.event.4",
+        "cursor": "tl1:4",
+        "occurred_at_unix_millis": 2000,
+        "task_id": "task.fixture.external",
+        "host_id": "host.fixture",
+        "world_id": "world.fixture",
+        "actor_id": "actor.fixture",
+        "controller_id": "controller.fixture",
+        "event_kind": "operation.queued",
+        "public_summary": "The bounded action is allowed.",
+        "reason_code": "queued",
+        "observation_sequence": 8,
+        "epoch": {
+          "session_id": "session.fixture",
+          "world_id": "world.fixture",
+          "host": 2,
+          "world": 4,
+          "timeline": 1
+        },
+        "capability": {
+          "id": "companion.navigation.move",
+          "version": "2.0.0"
+        },
+        "policy": {
+          "disposition": "allow",
+          "reason_code": "policy.allowed",
+          "human_summary": "The bounded action is allowed.",
+          "matched_rule_ids": [
+            "fixture.safe-action"
+          ],
+          "confirmation_pending": false,
+          "effect_count": 1
+        },
+        "operation": {
+          "operation_id": "operation.fixture.external",
+          "status": "queued",
+          "terminal": false,
+          "execution_confirmed": false,
+          "reconciliation_pending": false
+        }
+      },
+      {
+        "event_id": "operation.fixture.external.event.5",
+        "cursor": "tl1:5",
+        "occurred_at_unix_millis": 2100,
+        "task_id": "task.fixture.external",
+        "host_id": "host.fixture",
+        "world_id": "world.fixture",
+        "actor_id": "actor.fixture",
+        "controller_id": "controller.fixture",
+        "event_kind": "operation.delivered",
+        "public_summary": "The bounded action is allowed.",
+        "reason_code": "delivered",
+        "observation_sequence": 8,
+        "epoch": {
+          "session_id": "session.fixture",
+          "world_id": "world.fixture",
+          "host": 2,
+          "world": 4,
+          "timeline": 1
+        },
+        "capability": {
+          "id": "companion.navigation.move",
+          "version": "2.0.0"
+        },
+        "policy": {
+          "disposition": "allow",
+          "reason_code": "policy.allowed",
+          "human_summary": "The bounded action is allowed.",
+          "matched_rule_ids": [
+            "fixture.safe-action"
+          ],
+          "confirmation_pending": false,
+          "effect_count": 1
+        },
+        "operation": {
+          "operation_id": "operation.fixture.external",
+          "status": "delivered",
+          "terminal": false,
+          "execution_confirmed": false,
+          "reconciliation_pending": false,
+          "delivery_attempts": 1
+        }
+      },
+      {
+        "event_id": "operation.fixture.external.event.6",
+        "cursor": "tl1:6",
+        "occurred_at_unix_millis": 2400,
+        "task_id": "task.fixture.external",
+        "host_id": "host.fixture",
+        "world_id": "world.fixture",
+        "actor_id": "actor.fixture",
+        "controller_id": "controller.fixture",
+        "event_kind": "operation.succeeded",
+        "public_summary": "The Host moved the actor.",
+        "reason_code": "succeeded",
+        "observation_sequence": 8,
+        "epoch": {
+          "session_id": "session.fixture",
+          "world_id": "world.fixture",
+          "host": 2,
+          "world": 4,
+          "timeline": 1
+        },
+        "capability": {
+          "id": "companion.navigation.move",
+          "version": "2.0.0"
+        },
+        "policy": {
+          "disposition": "allow",
+          "reason_code": "policy.allowed",
+          "human_summary": "The bounded action is allowed.",
+          "matched_rule_ids": [
+            "fixture.safe-action"
+          ],
+          "confirmation_pending": false,
+          "effect_count": 1
+        },
+        "operation": {
+          "operation_id": "operation.fixture.external",
+          "status": "succeeded",
+          "terminal": true,
+          "execution_confirmed": true,
+          "reconciliation_pending": false,
+          "outcome_code": "succeeded",
+          "delivery_attempts": 1
+        }
+      }
+    ],
+    "next_cursor": "tl1:6",
+    "more": false,
+    "truncated": false
+  }
+}

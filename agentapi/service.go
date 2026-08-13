@@ -10,6 +10,7 @@ import (
 	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/timeline"
 )
 
 const (
@@ -116,6 +117,36 @@ func (service *Service) GetTask(
 	}
 	task, err := service.runtime.GetTask(ctx, taskID)
 	return task, normalizeServiceError(err)
+}
+
+func (service *Service) GetTaskTimeline(
+	ctx context.Context,
+	principal host.Principal,
+	query timeline.Query,
+) (timeline.Page, error) {
+	if err := service.authorize(ctx, principal, ScopeTaskRead); err != nil {
+		return timeline.Page{}, err
+	}
+	page, err := service.runtime.GetTaskTimeline(ctx, query)
+	if err != nil {
+		return timeline.Page{}, normalizeServiceError(err)
+	}
+	return page, nil
+}
+
+func (service *Service) WaitTaskTimeline(
+	ctx context.Context,
+	principal host.Principal,
+	input timeline.WaitInput,
+) (timeline.Update, error) {
+	if err := service.authorize(ctx, principal, ScopeTaskRead); err != nil {
+		return timeline.Update{}, err
+	}
+	update, err := service.runtime.WaitTaskTimeline(ctx, input)
+	if err != nil {
+		return timeline.Update{}, normalizeServiceError(err)
+	}
+	return update, nil
 }
 
 func (service *Service) RunTask(
@@ -341,6 +372,8 @@ func normalizeServiceError(err error) error {
 		}
 	}
 	switch {
+	case errors.Is(err, timeline.ErrInvalid):
+		return fmt.Errorf("%w: %v", ErrInvalid, err)
 	case host.IsValidationError(err), errors.Is(err, controlplane.ErrInvalid):
 		return fmt.Errorf("%w: %v", ErrInvalid, err)
 	case errors.Is(err, cognition.ErrProviderNotFound), errors.Is(err, controlplane.ErrNotFound):
