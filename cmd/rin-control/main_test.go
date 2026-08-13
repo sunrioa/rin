@@ -95,7 +95,8 @@ func TestParseConfigurationKeepsAgentDisabledByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.agentConfig != "" || config.agentToken != "" || config.agentAPIKey != "" {
+	if config.agentConfig != "" || config.agentToken != "" || config.agentAPIKey != "" ||
+		config.agentEmbeddingAPIKey != "" {
 		t.Fatalf("Agent Runtime unexpectedly enabled: %#v", config)
 	}
 }
@@ -106,8 +107,9 @@ func TestParseConfigurationRequiresExplicitAgentConfigAndToken(t *testing.T) {
 		"RIN_CONTROL_PRINCIPAL": "player.one",
 	}
 	for name, value := range map[string]string{
-		"RIN_AGENT_TOKEN":   "0123456789abcdef0123456789abcdef",
-		"RIN_AGENT_API_KEY": "provider-key",
+		"RIN_AGENT_TOKEN":             "0123456789abcdef0123456789abcdef",
+		"RIN_AGENT_API_KEY":           "provider-key",
+		"RIN_AGENT_EMBEDDING_API_KEY": "embedding-key",
 	} {
 		environment := map[string]string{}
 		for key, existing := range base {
@@ -136,13 +138,15 @@ func TestParseConfigurationRequiresExplicitAgentConfigAndToken(t *testing.T) {
 		t.Fatal("Agent API key reused as a daemon token was accepted")
 	}
 	environment["RIN_AGENT_API_KEY"] = "provider-key"
+	environment["RIN_AGENT_EMBEDDING_API_KEY"] = "embedding-key"
 	config, err := parseConfiguration(nil, testEnvironment(environment), io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if config.agentConfig != "/private/agent.json" ||
 		config.agentToken != environment["RIN_AGENT_TOKEN"] ||
-		config.agentAPIKey != "provider-key" {
+		config.agentAPIKey != "provider-key" ||
+		config.agentEmbeddingAPIKey != "embedding-key" {
 		t.Fatalf("Agent configuration was not retained: %#v", config)
 	}
 }

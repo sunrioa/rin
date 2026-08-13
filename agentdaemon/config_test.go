@@ -128,6 +128,35 @@ func TestNormalizeConfigKeepsExperienceLearningExplicit(t *testing.T) {
 	}
 }
 
+func TestNormalizeConfigKeepsSemanticEmbeddingExplicitAndRemoteEncrypted(t *testing.T) {
+	config := testConfig(AuthenticationNone)
+	config.Memory.SemanticEmbedding.Model = "embed-test"
+	if _, err := normalizeConfig(config); err == nil {
+		t.Fatal("semantic embedding settings without enabled=true were accepted")
+	}
+	config.Memory.SemanticEmbedding = SemanticEmbeddingConfig{
+		Enabled: true, BaseURL: "https://embeddings.example.test/v1", Model: "embed-test",
+		Authentication: AuthenticationNone,
+		AllowedDomains: []cognition.MemoryDomain{cognition.MemoryActorSemantic},
+	}
+	sealed, err := normalizeConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	semantic := sealed.Memory.SemanticEmbedding
+	if semantic.Provider != ProviderOpenAICompatible || semantic.MinLocalMatches != 0 {
+		t.Fatalf("semantic embedding defaults = %#v", semantic)
+	}
+	config.Memory.SemanticEmbedding.BaseURL = "http://embeddings.example.test/v1"
+	if _, err := normalizeConfig(config); err == nil {
+		t.Fatal("remote plaintext semantic embedding transport was accepted")
+	}
+	config.Memory.SemanticEmbedding.BaseURL = "http://127.0.0.1:11434/v1"
+	if _, err := normalizeConfig(config); err != nil {
+		t.Fatalf("loopback semantic embedding transport was rejected: %v", err)
+	}
+}
+
 func testConfig(authentication string) Config {
 	return Config{
 		ContractVersion: ConfigVersion,

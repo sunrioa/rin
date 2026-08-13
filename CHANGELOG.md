@@ -21,6 +21,8 @@ pin an exact commit or tag for every distribution.
 - Python, JavaScript, C#, Java, and Lua Control V2 clients plus Go HostKit.
 - Grid, Story, and Terminal V2 validation adapters.
 - Generic Host contract scaffolding for Go, JavaScript, Python, C#, Java, and Lua.
+- Optional OpenAI-compatible semantic memory recall with explicit domain
+  egress, rebuildable SQLite vector projections, and offline fallback.
 
 ### Changed
 

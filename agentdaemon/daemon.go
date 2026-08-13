@@ -29,7 +29,9 @@ type Options struct {
 	Control                   *controlplane.Service
 	HTTPToken                 string
 	APIKey                    string
+	EmbeddingAPIKey           string
 	GenerationProvider        provider.StructuredGenerationProvider
+	EmbeddingProvider         provider.EmbeddingProvider
 	Skills                    cognition.SkillProvider
 	LearnedSkills             cognition.SkillWriter
 	Memory                    cognition.MemoryProvider
@@ -77,6 +79,23 @@ func Open(options Options) (*Daemon, error) {
 	if err := model.Validate(); err != nil {
 		return nil, fmt.Errorf("validate decision provider: %w", err)
 	}
+	_, preparedSemanticMemory := options.Memory.(*cognition.SemanticMemoryProvider)
+	var embedder provider.EmbeddingProvider
+	if preparedSemanticMemory {
+		if !config.Memory.SemanticEmbedding.Enabled {
+			return nil, errors.New("injected semantic memory requires memory.semantic_embedding.enabled=true")
+		}
+		if options.EmbeddingAPIKey != "" || options.EmbeddingProvider != nil {
+			return nil, errors.New("prepared semantic memory cannot also configure an embedding provider")
+		}
+	} else {
+		embedder, err = buildEmbeddingProvider(
+			config.Memory.SemanticEmbedding, options.EmbeddingAPIKey, options.EmbeddingProvider,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
 	personas, err := cognition.NewLocalPersonaProvider(config.Personas, config.PersonaBindings)
 	if err != nil {
 		return nil, err
@@ -112,14 +131,43 @@ func Open(options Options) (*Daemon, error) {
 	stateDirectory := filepath.Join(options.DataDir, "agent")
 	memory := options.Memory
 	var memoryCloser interface{ Close() error }
+	var sqliteMemory *cognition.SQLiteMemoryProvider
+	ownedSQLite := false
 	if memory == nil {
-		sqliteMemory, openErr := cognition.OpenSQLiteMemoryProvider(
+		var openErr error
+		sqliteMemory, openErr = cognition.OpenSQLiteMemoryProvider(
 			filepath.Join(stateDirectory, "memory.db"), config.MemoryProviderConfig(),
 		)
 		if openErr != nil {
 			return nil, fmt.Errorf("open Agent memory: %w", openErr)
 		}
 		memory = sqliteMemory
+		ownedSQLite = true
+	} else if config.Memory.SemanticEmbedding.Enabled && !preparedSemanticMemory {
+		var ok bool
+		sqliteMemory, ok = memory.(*cognition.SQLiteMemoryProvider)
+		if !ok {
+			return nil, errors.New("semantic memory requires an injected SQLite memory provider")
+		}
+	}
+	if config.Memory.SemanticEmbedding.Enabled && !preparedSemanticMemory {
+		semantic, semanticErr := cognition.NewSemanticMemoryProvider(
+			sqliteMemory, embedder, config.Memory.SemanticEmbedding.semanticMemoryConfig(),
+		)
+		if semanticErr != nil {
+			if ownedSQLite {
+				_ = sqliteMemory.Close()
+			}
+			return nil, fmt.Errorf("open semantic memory: %w", semanticErr)
+		}
+		memory = semantic
+		memoryCloser = semantic
+		if ownedSQLite {
+			memoryCloser = closeFunc(func() error {
+				return errors.Join(semantic.Close(), sqliteMemory.Close())
+			})
+		}
+	} else if ownedSQLite {
 		memoryCloser = sqliteMemory
 	}
 	tasks, err := cognition.OpenFileTaskStore(
@@ -250,6 +298,79 @@ func buildGenerationProvider(
 	}
 	return resilient, nil
 }
+
+func buildEmbeddingProvider(
+	config SemanticEmbeddingConfig,
+	apiKey string,
+	injected provider.EmbeddingProvider,
+) (provider.EmbeddingProvider, error) {
+	if !config.Enabled {
+		if apiKey != "" || injected != nil {
+			return nil, errors.New("embedding provider settings require memory.semantic_embedding.enabled=true")
+		}
+		return nil, nil
+	}
+	if injected != nil {
+		if apiKey != "" {
+			return nil, errors.New("RIN_AGENT_EMBEDDING_API_KEY must be unset with an injected embedding provider")
+		}
+		return injected, nil
+	}
+	switch config.Authentication {
+	case AuthenticationBearerEnv:
+		if apiKey == "" {
+			return nil, errors.New("RIN_AGENT_EMBEDDING_API_KEY is required by semantic embedding authentication=bearer-env")
+		}
+	case AuthenticationNone:
+		if apiKey != "" {
+			return nil, errors.New("RIN_AGENT_EMBEDDING_API_KEY must be unset when semantic embedding authentication=none")
+		}
+	default:
+		return nil, errors.New("unsupported semantic embedding authentication")
+	}
+	client, err := openai.NewEmbeddingClient(openai.EmbeddingConfig{
+		BaseURL: config.BaseURL, APIKey: apiKey, Model: config.Model,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create embedding provider: %w", err)
+	}
+	return client, nil
+}
+
+// ConfigureSemanticMemory wraps the shared SQLite provider only when the
+// optional semantic path is explicitly enabled. The returned closer owns the
+// wrapper workers, never the caller-owned SQLite provider.
+func ConfigureSemanticMemory(
+	config SemanticEmbeddingConfig,
+	local *cognition.SQLiteMemoryProvider,
+	apiKey string,
+	injected provider.EmbeddingProvider,
+) (cognition.MemoryProvider, interface{ Close() error }, error) {
+	if local == nil {
+		return nil, nil, errors.New("SQLite memory provider is required")
+	}
+	if err := normalizeSemanticEmbeddingConfig(&config); err != nil {
+		return nil, nil, err
+	}
+	embedder, err := buildEmbeddingProvider(config, apiKey, injected)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !config.Enabled {
+		return local, nil, nil
+	}
+	semantic, err := cognition.NewSemanticMemoryProvider(
+		local, embedder, config.semanticMemoryConfig(),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open semantic memory: %w", err)
+	}
+	return semantic, semantic, nil
+}
+
+type closeFunc func() error
+
+func (function closeFunc) Close() error { return function() }
 
 func (daemon *Daemon) Handler() http.Handler {
 	return daemon.handler

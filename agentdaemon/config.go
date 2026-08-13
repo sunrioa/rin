@@ -63,8 +63,22 @@ type ResilienceConfig struct {
 }
 
 type MemoryConfig struct {
-	MaxActiveRecordsPerNamespace uint32 `json:"max_active_records_per_namespace,omitempty"`
-	MaxHistoryPerNamespace       uint32 `json:"max_history_per_namespace,omitempty"`
+	MaxActiveRecordsPerNamespace uint32                  `json:"max_active_records_per_namespace,omitempty"`
+	MaxHistoryPerNamespace       uint32                  `json:"max_history_per_namespace,omitempty"`
+	SemanticEmbedding            SemanticEmbeddingConfig `json:"semantic_embedding,omitempty"`
+}
+
+type SemanticEmbeddingConfig struct {
+	Enabled            bool                     `json:"enabled,omitempty"`
+	Provider           string                   `json:"provider,omitempty"`
+	BaseURL            string                   `json:"base_url,omitempty"`
+	Model              string                   `json:"model,omitempty"`
+	Authentication     string                   `json:"authentication,omitempty"`
+	AllowedDomains     []cognition.MemoryDomain `json:"allowed_domains,omitempty"`
+	MaxInputCharacters uint32                   `json:"max_input_characters,omitempty"`
+	MinLocalMatches    uint32                   `json:"min_local_matches,omitempty"`
+	MaxSemanticResults uint32                   `json:"max_semantic_results,omitempty"`
+	TimeoutMillis      uint32                   `json:"timeout_millis,omitempty"`
 }
 
 type TaskConfig struct {
@@ -159,6 +173,9 @@ func normalizeConfig(config Config) (Config, error) {
 	if _, err := cognition.NewLocalMemoryProvider(config.memoryProviderConfig()); err != nil {
 		return Config{}, fmt.Errorf("memory configuration: %w", err)
 	}
+	if err := normalizeSemanticEmbeddingConfig(&config.Memory.SemanticEmbedding); err != nil {
+		return Config{}, err
+	}
 	if _, err := cognition.NewLocalTaskStore(config.Tasks.MaxTasks); err != nil {
 		return Config{}, fmt.Errorf("task configuration: %w", err)
 	}
@@ -175,6 +192,48 @@ func normalizeConfig(config Config) (Config, error) {
 		return Config{}, err
 	}
 	return config, nil
+}
+
+func normalizeSemanticEmbeddingConfig(config *SemanticEmbeddingConfig) error {
+	config.Provider = strings.TrimSpace(config.Provider)
+	config.BaseURL = strings.TrimSpace(config.BaseURL)
+	config.Model = strings.TrimSpace(config.Model)
+	config.Authentication = strings.TrimSpace(config.Authentication)
+	if !config.Enabled {
+		if config.Provider != "" || config.BaseURL != "" || config.Model != "" ||
+			config.Authentication != "" || len(config.AllowedDomains) != 0 ||
+			config.MaxInputCharacters != 0 || config.MinLocalMatches != 0 ||
+			config.MaxSemanticResults != 0 || config.TimeoutMillis != 0 {
+			return errors.New("semantic embedding settings require memory.semantic_embedding.enabled=true")
+		}
+		return nil
+	}
+	if config.Provider == "" {
+		config.Provider = ProviderOpenAICompatible
+	}
+	if config.Provider != ProviderOpenAICompatible {
+		return errors.New("semantic embedding provider must be openai-compatible")
+	}
+	if config.Authentication == "" {
+		config.Authentication = AuthenticationBearerEnv
+	}
+	if config.Authentication != AuthenticationBearerEnv && config.Authentication != AuthenticationNone {
+		return errors.New("semantic embedding authentication must be bearer-env or none")
+	}
+	if err := validateProviderURL(config.BaseURL, "semantic embedding"); err != nil {
+		return err
+	}
+	return cognition.ValidateSemanticMemoryConfig(config.semanticMemoryConfig())
+}
+
+func (config SemanticEmbeddingConfig) semanticMemoryConfig() cognition.SemanticMemoryConfig {
+	return cognition.SemanticMemoryConfig{
+		Model: config.Model, AllowedDomains: config.AllowedDomains,
+		MaxInputCharacters: config.MaxInputCharacters,
+		MinLocalMatches:    config.MinLocalMatches,
+		MaxSemanticResults: config.MaxSemanticResults,
+		TimeoutMillis:      config.TimeoutMillis,
+	}
 }
 
 func normalizeLearningConfig(config *LearningConfig) error {
@@ -280,9 +339,13 @@ func normalizeModelConfig(config *ModelConfig) error {
 }
 
 func validateModelTransport(config ModelConfig) error {
-	parsed, err := url.Parse(config.BaseURL)
+	return validateProviderURL(config.BaseURL, "model")
+}
+
+func validateProviderURL(baseURL, field string) error {
+	parsed, err := url.Parse(baseURL)
 	if err != nil {
-		return errors.New("model.base_url is invalid")
+		return fmt.Errorf("%s.base_url is invalid", field)
 	}
 	if parsed.Scheme == "https" {
 		return nil
@@ -295,7 +358,7 @@ func validateModelTransport(config ModelConfig) error {
 	if address != nil && address.IsLoopback() {
 		return nil
 	}
-	return errors.New("model.base_url must use HTTPS unless it targets loopback")
+	return fmt.Errorf("%s.base_url must use HTTPS unless it targets loopback", field)
 }
 
 func validateResilienceBounds(config ResilienceConfig) error {

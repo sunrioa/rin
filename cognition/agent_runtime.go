@@ -8,8 +8,10 @@ import (
 	"math"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
@@ -482,10 +484,22 @@ func (runtime *AgentRuntime) advanceTask(
 	warnings := make([]TaskEvent, 0, 2)
 	memories := []MemoryMatch(nil)
 	if runtime.memory != nil {
-		memories, err = runtime.memory.Retrieve(ctx, MemoryQuery{
+		memoryQuery := MemoryQuery{
 			SessionID: task.SessionID, ActorID: task.ActorID, ControllerID: task.ControllerID,
-			Tags: task.Tags, Now: observation.ObservedAt, Budget: runtime.memoryBudget,
-		})
+			Terms: memoryTermsFromGoal(task.Goal), Now: observation.ObservedAt,
+			Budget:       runtime.memoryBudget,
+			Semantic:     task.PlanningMode == taskstate.PlanningRequired || task.PlanID != "",
+			SemanticText: task.Goal,
+		}
+		if traced, ok := runtime.memory.(TracedMemoryProvider); ok {
+			var trace MemoryRetrievalTrace
+			memories, trace, err = traced.RetrieveWithTrace(ctx, memoryQuery)
+			if trace.SemanticUsed {
+				warnings = append(warnings, memoryRetrievalEvent(task, trace, runtime.now().UnixMilli()))
+			}
+		} else {
+			memories, err = runtime.memory.Retrieve(ctx, memoryQuery)
+		}
 		if err != nil {
 			if ctx.Err() != nil {
 				return task, false, ctx.Err()
@@ -570,6 +584,51 @@ func (runtime *AgentRuntime) advanceTask(
 		}
 	}
 	return runtime.applyModelDecision(ctx, task, observation, summaries, decision)
+}
+
+func memoryRetrievalEvent(task TaskSession, trace MemoryRetrievalTrace, at int64) TaskEvent {
+	code := "memory.semantic"
+	if trace.QueryCacheHit {
+		code = "memory.semantic-cache-hit"
+	}
+	if trace.DegradedCode != "" {
+		code = trace.DegradedCode
+	}
+	return TaskEvent{
+		Kind: "memory.retrieval", Step: task.Step, Code: code, AtUnixMillis: at,
+		Summary: fmt.Sprintf("Semantic memory lookup completed in %d ms.", trace.RemoteLatencyMillis),
+	}
+}
+
+func memoryTermsFromGoal(goal string) []string {
+	stop := map[string]struct{}{
+		"about": {}, "after": {}, "before": {}, "from": {}, "into": {},
+		"nearby": {}, "that": {}, "the": {}, "then": {}, "this": {},
+		"with": {}, "without": {},
+	}
+	result := make([]string, 0, 4)
+	seen := make(map[string]struct{}, 4)
+	for _, field := range strings.Fields(goal) {
+		field = strings.ToLower(strings.TrimFunc(field, func(value rune) bool {
+			return unicode.IsPunct(value) || unicode.IsSpace(value)
+		}))
+		if field == "" {
+			continue
+		}
+		field = cropRunes(field, 100)
+		if _, skipped := stop[field]; skipped {
+			continue
+		}
+		if _, duplicate := seen[field]; duplicate {
+			continue
+		}
+		seen[field] = struct{}{}
+		result = append(result, field)
+		if len(result) == 4 {
+			break
+		}
+	}
+	return result
 }
 
 func (runtime *AgentRuntime) callModel(

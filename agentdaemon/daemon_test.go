@@ -82,6 +82,53 @@ func TestOpenAuthenticationModesDoNotProbeNetwork(t *testing.T) {
 	}
 }
 
+func TestOpenSemanticEmbeddingIsExplicitAndKeepsInjectedSQLiteOwnedByCaller(t *testing.T) {
+	control := controlplane.New(controlplane.Options{})
+	defer control.Close()
+	config := testConfig(AuthenticationBearerEnv)
+	config.Memory.SemanticEmbedding = SemanticEmbeddingConfig{
+		Enabled: true, BaseURL: "https://embeddings.example.test/v1", Model: "embed-test",
+		Authentication: AuthenticationBearerEnv,
+		AllowedDomains: []cognition.MemoryDomain{cognition.MemoryActorSemantic},
+	}
+	if _, err := Open(Options{
+		Config: config, DataDir: t.TempDir(), Control: control, HTTPToken: testAgentToken,
+		GenerationProvider: inertGenerationProvider{},
+	}); err == nil {
+		t.Fatal("semantic bearer authentication without an embedding key was accepted")
+	}
+
+	local, err := cognition.OpenSQLiteMemoryProvider(
+		filepath.Join(t.TempDir(), "memory.db"), cognition.LocalMemoryConfig{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer local.Close()
+	daemon, err := Open(Options{
+		Config: config, DataDir: t.TempDir(), Control: control, HTTPToken: testAgentToken,
+		GenerationProvider: inertGenerationProvider{}, EmbeddingProvider: inertEmbeddingProvider{},
+		Memory: local,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := daemon.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := local.Snapshot(context.Background()); err != nil {
+		t.Fatalf("daemon closed caller-owned SQLite memory: %v", err)
+	}
+
+	config.Memory.SemanticEmbedding = SemanticEmbeddingConfig{}
+	if _, err := Open(Options{
+		Config: config, DataDir: t.TempDir(), Control: control, HTTPToken: testAgentToken,
+		GenerationProvider: inertGenerationProvider{}, EmbeddingProvider: inertEmbeddingProvider{},
+	}); err == nil {
+		t.Fatal("an embedding provider was accepted while semantic retrieval was disabled")
+	}
+}
+
 func TestCloseReleasesPersistentStoresForRestart(t *testing.T) {
 	control := controlplane.New(controlplane.Options{})
 	defer control.Close()
@@ -265,4 +312,13 @@ func (inertGenerationProvider) Complete(
 	provider.CompletionRequest,
 ) (provider.CompletionResponse, error) {
 	return provider.CompletionResponse{}, context.Canceled
+}
+
+type inertEmbeddingProvider struct{}
+
+func (inertEmbeddingProvider) Embed(
+	context.Context,
+	provider.EmbeddingRequest,
+) (provider.EmbeddingResponse, error) {
+	return provider.EmbeddingResponse{Embeddings: [][]float32{{1, 0}}}, nil
 }

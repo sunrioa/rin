@@ -20,6 +20,8 @@ Commit 或 Tag。
 - Python、JavaScript、C#、Java、Lua Control V2 客户端和 Go HostKit。
 - Grid、Story、Terminal 三个 V2 验证 Adapter。
 - Go、JavaScript、Python、C#、Java、Lua 通用 Host 契约脚手架。
+- 可选 OpenAI-compatible 语义记忆召回，具有显式 Domain 外发范围、可重建 SQLite
+  向量投影和离线降级。
 
 ### 变化
 

@@ -64,6 +64,19 @@ Create a JSON file readable only by the current user, such as
     "persona_id": "companion",
     "version": "v1"
   }],
+  "memory": {
+    "semantic_embedding": {
+      "enabled": true,
+      "provider": "openai-compatible",
+      "base_url": "https://api.example.com/v1",
+      "model": "example-embedding-model",
+      "authentication": "bearer-env",
+      "allowed_domains": ["actor-episodic", "actor-semantic"],
+      "min_local_matches": 4,
+      "max_semantic_results": 4,
+      "timeout_millis": 1500
+    }
+  },
   "learning": {
     "enabled": true,
     "publish_mode": "draft",
@@ -83,6 +96,7 @@ chmod 600 /absolute/path/agent.json
 export RIN_AGENT_CONFIG=/absolute/path/agent.json
 export RIN_AGENT_TOKEN="$(openssl rand -hex 32)"
 export RIN_AGENT_API_KEY="provider-key-from-secret-store"
+export RIN_AGENT_EMBEDDING_API_KEY="embedding-key-from-secret-store"
 ./bin/rin-control
 ```
 
@@ -122,6 +136,23 @@ Queries shorter than three characters never invoke the trigram path. Record and
 character budgets are applied after source ranks and existing memory scores are
 merged. Wiki projections, relation graphs, rerankers, and background vector
 services are not part of this path.
+
+Remote semantic recall is an optional supplement. It is disabled unless
+`memory.semantic_embedding.enabled=true`, an OpenAI-compatible endpoint and
+model are configured, and `allowed_domains` explicitly permits a non-private
+memory domain. Only complex planned tasks request semantic recall, and only
+when local recall is insufficient. Document embeddings are generated on a
+bounded background queue and stored in the rebuildable `memory_embeddings`
+table keyed by configured model and content digest. Query vectors use a small
+process-local cache; results are rechecked against current visibility, expiry,
+filters, and content digest before use.
+
+`RIN_AGENT_EMBEDDING_API_KEY` is separate from JSON configuration. Private
+controller domains and text resembling credentials are never sent to the
+embedding endpoint. Timeout, transport failure, rate limiting, invalid model,
+invalid dimensions, or malformed vectors fall back to normal FTS5 and recent
+memory results. Rin does not download or run an embedding model, and the remote
+provider never owns Memory IDs, facts, permissions, or deletion.
 
 `rin-control` exclusively owns `<RIN_CONTROL_DATA_DIR>/agent/memory.db`.
 SQLite is the online source of truth for the Rin Memory domain and uses WAL,

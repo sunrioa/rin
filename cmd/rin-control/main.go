@@ -32,14 +32,15 @@ const shutdownTimeout = 5 * time.Second
 const maxPolicyBytes int64 = 1 << 20
 
 type configuration struct {
-	address     string
-	dataDir     string
-	token       string
-	principal   host.Principal
-	policy      string
-	agentConfig string
-	agentToken  string
-	agentAPIKey string
+	address              string
+	dataDir              string
+	token                string
+	principal            host.Principal
+	policy               string
+	agentConfig          string
+	agentToken           string
+	agentAPIKey          string
+	agentEmbeddingAPIKey string
 }
 
 func main() {
@@ -85,7 +86,18 @@ func run(
 	defer func() {
 		result = errors.Join(result, memory.Close())
 	}()
-	outcomeSink, err := cognition.NewOutcomeMemorySink(memory)
+	sharedMemory, semanticCloser, err := agentdaemon.ConfigureSemanticMemory(
+		agentConfig.Memory.SemanticEmbedding, memory, config.agentEmbeddingAPIKey, nil,
+	)
+	if err != nil {
+		return fmt.Errorf("configure shared semantic memory: %w", err)
+	}
+	if semanticCloser != nil {
+		defer func() {
+			result = errors.Join(result, semanticCloser.Close())
+		}()
+	}
+	outcomeSink, err := cognition.NewOutcomeMemorySink(sharedMemory)
 	if err != nil {
 		return fmt.Errorf("create Outcome memory projection: %w", err)
 	}
@@ -177,7 +189,7 @@ func run(
 			Config: agentConfig, DataDir: config.dataDir, Control: service,
 			HTTPToken: config.agentToken, APIKey: config.agentAPIKey,
 			Skills: catalog, LearnedSkills: learnedSkills,
-			Memory: memory, OutcomesRecordedByControl: true,
+			Memory: sharedMemory, OutcomesRecordedByControl: true,
 			PlanStore: planStore, Signals: signals,
 		})
 		if err != nil {
@@ -317,10 +329,11 @@ func parseConfiguration(
 	agentConfig := strings.TrimSpace(*agentConfigPath)
 	agentToken, agentTokenSet := lookupEnv("RIN_AGENT_TOKEN")
 	agentAPIKey, agentAPIKeySet := lookupEnv("RIN_AGENT_API_KEY")
+	agentEmbeddingAPIKey, agentEmbeddingAPIKeySet := lookupEnv("RIN_AGENT_EMBEDDING_API_KEY")
 	if agentConfig == "" {
-		if agentTokenSet || agentAPIKeySet {
+		if agentTokenSet || agentAPIKeySet || agentEmbeddingAPIKeySet {
 			return configuration{}, errors.New(
-				"RIN_AGENT_TOKEN and RIN_AGENT_API_KEY require --agent-config",
+				"RIN_AGENT_TOKEN, RIN_AGENT_API_KEY, and RIN_AGENT_EMBEDDING_API_KEY require --agent-config",
 			)
 		}
 	} else if len(agentToken) < 32 {
@@ -335,11 +348,17 @@ func parseConfiguration(
 		return configuration{}, errors.New(
 			"RIN_AGENT_API_KEY must differ from daemon tokens",
 		)
+	} else if agentEmbeddingAPIKey != "" &&
+		(agentEmbeddingAPIKey == agentToken || agentEmbeddingAPIKey == token) {
+		return configuration{}, errors.New(
+			"RIN_AGENT_EMBEDDING_API_KEY must differ from daemon tokens",
+		)
 	}
 	return configuration{
 		address: *address, dataDir: *dataDirectory, token: token,
 		principal: principal, policy: strings.TrimSpace(*policyPath),
 		agentConfig: agentConfig, agentToken: agentToken, agentAPIKey: agentAPIKey,
+		agentEmbeddingAPIKey: agentEmbeddingAPIKey,
 	}, nil
 }
 

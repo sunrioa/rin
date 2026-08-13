@@ -58,6 +58,19 @@ Runtime 当前推进显式创建的 Task，不会仅凭 Persona 的 `initiative_
     "persona_id": "companion",
     "version": "v1"
   }],
+  "memory": {
+    "semantic_embedding": {
+      "enabled": true,
+      "provider": "openai-compatible",
+      "base_url": "https://api.example.com/v1",
+      "model": "example-embedding-model",
+      "authentication": "bearer-env",
+      "allowed_domains": ["actor-episodic", "actor-semantic"],
+      "min_local_matches": 4,
+      "max_semantic_results": 4,
+      "timeout_millis": 1500
+    }
+  },
   "learning": {
     "enabled": true,
     "publish_mode": "draft",
@@ -76,6 +89,7 @@ chmod 600 /absolute/path/agent.json
 export RIN_AGENT_CONFIG=/absolute/path/agent.json
 export RIN_AGENT_TOKEN="$(openssl rand -hex 32)"
 export RIN_AGENT_API_KEY="provider-key-from-secret-store"
+export RIN_AGENT_EMBEDDING_API_KEY="embedding-key-from-secret-store"
 ./bin/rin-control
 ```
 
@@ -108,6 +122,18 @@ Consolidate 可以把多条记录压缩为带来源的摘要。
 裁剪合法记录，再合并近期候选、`unicode61` FTS5/BM25 与中日文子串使用的 trigram FTS5。
 短于 3 个字符的查询不会触发 trigram 扫描，最终结果按来源排名和既有 Memory 分数稳定合并，
 然后应用记录数与字符预算。当前没有 Wiki、关系图、Reranker 或后台向量服务。
+
+远端语义检索只是可选补充。只有显式设置
+`memory.semantic_embedding.enabled=true`、配置 OpenAI-compatible Endpoint/模型，并在
+`allowed_domains` 中允许非私有 Memory Domain 后才会启用。只有复杂计划任务会在本地召回
+不足时请求语义检索。文档向量通过有界后台队列生成，按配置模型与内容摘要写入可重建的
+`memory_embeddings` 表；Query Vector 使用小型进程内缓存。向量候选进入结果前仍会重新校验
+当前可见域、过期、过滤条件和内容摘要。
+
+Embedding 凭据只从 `RIN_AGENT_EMBEDDING_API_KEY` 读取，不进入 JSON。Controller 私有域和
+疑似凭据文本不会外发。超时、断网、限流、模型身份不符、维度变化或非法向量都直接回退到
+FTS5 与近期记忆，不中断游戏任务。Rin 不下载或托管 Embedding 模型；远端 Provider 也不拥有
+Memory ID、事实、权限或删除权。
 
 `rin-control` 独占 `<RIN_CONTROL_DATA_DIR>/agent/memory.db`。SQLite 是 Rin Memory 域
 的在线事实源，使用 WAL、完整同步和 FTS5；`memory.json` 只在首次启动且数据库为空时

@@ -98,12 +98,26 @@ type MemoryQuery struct {
 	Domains      []MemoryDomain `json:"domains,omitempty"`
 	Now          host.Timepoint `json:"now"`
 	Budget       MemoryBudget   `json:"budget"`
+	Semantic     bool           `json:"semantic,omitempty"`
+	SemanticText string         `json:"semantic_text,omitempty"`
 }
 
 type MemoryMatch struct {
 	Record  MemoryRecord `json:"record"`
 	Score   int          `json:"score"`
 	Reasons []string     `json:"reasons"`
+}
+
+type MemoryRetrievalTrace struct {
+	SemanticUsed        bool
+	RemoteRequested     bool
+	QueryCacheHit       bool
+	RemoteLatencyMillis uint64
+	DegradedCode        string
+}
+
+type TracedMemoryProvider interface {
+	RetrieveWithTrace(context.Context, MemoryQuery) ([]MemoryMatch, MemoryRetrievalTrace, error)
 }
 
 type MemoryConsolidation struct {
@@ -580,6 +594,13 @@ func sealMemoryQuery(query MemoryQuery) (MemoryQuery, error) {
 	}
 	if query.SubjectRefs, err = normalizeMemoryTexts("subject_refs", query.SubjectRefs, 32, 256); err != nil {
 		return MemoryQuery{}, err
+	}
+	query.SemanticText = strings.TrimSpace(query.SemanticText)
+	if utf8.RuneCountInString(query.SemanticText) > 2_000 || strings.ContainsRune(query.SemanticText, 0) {
+		return MemoryQuery{}, errors.New("semantic_text exceeds its bounds")
+	}
+	if query.Semantic && query.SemanticText == "" {
+		return MemoryQuery{}, errors.New("semantic retrieval requires semantic_text")
 	}
 	if len(query.Domains) > 8 {
 		return MemoryQuery{}, errors.New("domains must contain at most 8 values")

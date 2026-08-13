@@ -51,6 +51,22 @@ type StructuredGenerationProvider interface {
 	Complete(ctx context.Context, request CompletionRequest) (CompletionResponse, error)
 }
 
+type EmbeddingRequest struct {
+	Inputs []string
+}
+
+type EmbeddingResponse struct {
+	Model      string
+	Embeddings [][]float32
+	Usage      Usage
+}
+
+// EmbeddingProvider is optional. Core gameplay and local memory retrieval must
+// remain usable when it is absent or unavailable.
+type EmbeddingProvider interface {
+	Embed(context.Context, EmbeddingRequest) (EmbeddingResponse, error)
+}
+
 type Error struct {
 	Kind       string
 	Code       string
