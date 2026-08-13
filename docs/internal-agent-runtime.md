@@ -114,6 +114,12 @@ model first sees summaries and may expand at most one skill. Instructions asking
 for privileged behavior still cannot change the allowed capabilities, binding,
 or policy.
 
+The catalog belongs to `rin-control`, not privately to the Internal Runtime.
+Configured built-ins, `skills/installed`, and `skills/learned` form one
+deterministic catalog used directly by the internal Agent and exposed to MCP
+through `skill.read` and `skill.write`. MCP skills remain available when the
+internal model runtime is disabled.
+
 An external MCP controller keeps its persona and private memory in the external
 Agent. Internal persona does not override it and Rin does not automatically copy
 that private state into Internal Agent memory.

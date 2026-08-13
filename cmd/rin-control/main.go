@@ -17,10 +17,12 @@ import (
 	"time"
 
 	"github.com/sunrioa/rin/agentdaemon"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/internal/jsonwire"
 	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/skillapi"
 )
 
 const shutdownTimeout = 5 * time.Second
@@ -83,16 +85,36 @@ func run(
 	if err != nil {
 		return err
 	}
-	rootHandler := handler
-	var internalAgent *agentdaemon.Daemon
+	var agentConfig agentdaemon.Config
 	if config.agentConfig != "" {
-		agentConfig, err := agentdaemon.LoadConfig(config.agentConfig)
+		agentConfig, err = agentdaemon.LoadConfig(config.agentConfig)
 		if err != nil {
 			return err
 		}
+	}
+	catalog, learnedSkills, err := cognition.OpenDefaultSkillCatalog(
+		config.dataDir, agentConfig.Skills,
+	)
+	if err != nil {
+		return fmt.Errorf("open shared skill catalog: %w", err)
+	}
+	skillService, err := skillapi.New(catalog, learnedSkills)
+	if err != nil {
+		return err
+	}
+	skillHandler, err := skillapi.NewHTTPHandler(skillService, skillapi.HTTPOptions{
+		Token: config.token, Principal: config.principal,
+	})
+	if err != nil {
+		return err
+	}
+	var agentHandler http.Handler
+	var internalAgent *agentdaemon.Daemon
+	if config.agentConfig != "" {
 		internalAgent, err = agentdaemon.Open(agentdaemon.Options{
 			Config: agentConfig, DataDir: config.dataDir, Control: service,
 			HTTPToken: config.agentToken, APIKey: config.agentAPIKey,
+			Skills: catalog,
 		})
 		if err != nil {
 			return fmt.Errorf("start internal Agent Runtime: %w", err)
@@ -100,8 +122,9 @@ func run(
 		defer func() {
 			result = errors.Join(result, internalAgent.Close())
 		}()
-		rootHandler = composeHandlers(handler, internalAgent.Handler())
+		agentHandler = internalAgent.Handler()
 	}
+	rootHandler := composeHandlers(handler, skillHandler, agentHandler)
 	listener, err := net.Listen("tcp", config.address)
 	if err != nil {
 		return fmt.Errorf("listen for Host Control: %w", err)
@@ -176,7 +199,11 @@ func parseConfiguration(
 	)
 	scopesText := flags.String(
 		"scopes",
-		envOr(lookupEnv, "RIN_CONTROL_SCOPES", controlplane.ScopeActorRead),
+		envOr(
+			lookupEnv,
+			"RIN_CONTROL_SCOPES",
+			controlplane.ScopeActorRead+","+skillapi.ScopeSkillRead,
+		),
 		"comma-separated Control Plane scopes",
 	)
 	policyPath := flags.String(
@@ -252,10 +279,15 @@ func parseConfiguration(
 	}, nil
 }
 
-func composeHandlers(controlHandler, agentHandler http.Handler) http.Handler {
+func composeHandlers(
+	controlHandler, skillHandler, agentHandler http.Handler,
+) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/control/", controlHandler)
-	mux.Handle("/agent/", agentHandler)
+	mux.Handle("/skills/", skillHandler)
+	if agentHandler != nil {
+		mux.Handle("/agent/", agentHandler)
+	}
 	return mux
 }
 

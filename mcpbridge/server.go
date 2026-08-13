@@ -10,12 +10,14 @@ import (
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/release"
+	"github.com/sunrioa/rin/skillapi"
 	"github.com/sunrioa/rin/timeline"
 )
 
 // Gateway binds one configured external principal to Control V2 tools.
 type Gateway struct {
 	client    ControlClient
+	skills    SkillClient
 	principal host.Principal
 	server    *mcp.Server
 }
@@ -38,6 +40,16 @@ func NewClient(
 	client ControlClient,
 	principal host.Principal,
 ) (*Gateway, error) {
+	return NewClientWithSkills(client, nil, principal)
+}
+
+// NewClientWithSkills adds catalog tools backed by the shared rin-control
+// process. Skills are inert guidance and never grant gameplay capabilities.
+func NewClientWithSkills(
+	client ControlClient,
+	skills SkillClient,
+	principal host.Principal,
+) (*Gateway, error) {
 	if client == nil {
 		return nil, errorsInvalid("client is required")
 	}
@@ -49,6 +61,7 @@ func NewClient(
 	}
 	gateway := &Gateway{
 		client:    client,
+		skills:    skills,
 		principal: clonePrincipal(principal),
 	}
 	gateway.server = mcp.NewServer(
@@ -70,6 +83,12 @@ func NewClient(
 	}
 	if gateway.granted(controlplane.ScopeOperationCancel) {
 		gateway.addCancelTool()
+	}
+	if skills != nil && gateway.granted(skillapi.ScopeSkillRead) {
+		gateway.addSkillReadTools()
+	}
+	if skills != nil && gateway.granted(skillapi.ScopeSkillWrite) {
+		gateway.addSkillWriteTools()
 	}
 	return gateway, nil
 }
@@ -172,6 +191,64 @@ func (gateway *Gateway) addCancelTool() {
 		Name: "cancel_operation", Description: "Request cancellation of one operation. Cancellation does not imply rollback.",
 		Annotations: writeAnnotations(false),
 	}, gateway.cancelOperation)
+}
+
+func (gateway *Gateway) addSkillReadTools() {
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name: "list_skills", Description: "List compact summaries of inert procedural skills compatible with an adapter and its available capabilities.",
+		Annotations: readAnnotations(),
+	}, gateway.listSkills)
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name: "get_skill", Description: "Load one exact SKILL.md guidance document. A skill grants no gameplay permission and every action still passes Host policy.",
+		Annotations: readAnnotations(),
+	}, gateway.getSkill)
+}
+
+func (gateway *Gateway) addSkillWriteTools() {
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name: "save_experience_as_skill", Description: "Save reviewed procedural guidance as a learned SKILL.md document. Do not claim success unless supported by authoritative operation outcomes.",
+		Annotations: writeAnnotations(false),
+	}, gateway.saveExperienceAsSkill)
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name: "reload_skills", Description: "Reload installed and learned SKILL.md documents from the shared rin-control catalog.",
+		Annotations: writeAnnotations(false),
+	}, gateway.reloadSkills)
+}
+
+func (gateway *Gateway) listSkills(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input ListSkillsInput,
+) (*mcp.CallToolResult, ListSkillsOutput, error) {
+	output, err := gateway.skills.List(ctx, skillapi.ListInput(input))
+	return nil, ListSkillsOutput(output), err
+}
+
+func (gateway *Gateway) getSkill(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input GetSkillInput,
+) (*mcp.CallToolResult, GetSkillOutput, error) {
+	output, err := gateway.skills.Get(ctx, skillapi.GetInput(input))
+	return nil, GetSkillOutput(output), err
+}
+
+func (gateway *Gateway) saveExperienceAsSkill(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input SaveExperienceAsSkillInput,
+) (*mcp.CallToolResult, GetSkillOutput, error) {
+	output, err := gateway.skills.Save(ctx, skillapi.SaveInput(input))
+	return nil, GetSkillOutput(output), err
+}
+
+func (gateway *Gateway) reloadSkills(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	_ ReloadSkillsInput,
+) (*mcp.CallToolResult, ReloadSkillsOutput, error) {
+	output, err := gateway.skills.Reload(ctx)
+	return nil, ReloadSkillsOutput(output), err
 }
 
 func (gateway *Gateway) listWorlds(

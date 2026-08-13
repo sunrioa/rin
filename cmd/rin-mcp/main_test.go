@@ -8,6 +8,7 @@ import (
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/internal/mcpconfig"
+	"github.com/sunrioa/rin/skillapi"
 )
 
 const testControlToken = "0123456789abcdef0123456789abcdef"
@@ -137,6 +138,15 @@ func TestConformanceHTTPRequiresReadOnlyPrincipal(t *testing.T) {
 		},
 	}) {
 		t.Fatal("mutating principal was accepted")
+	}
+	if !readOnlyConformancePrincipal(host.Principal{
+		ID: "player.one",
+		GrantedScopes: []string{
+			controlplane.ScopeActorRead,
+			skillapi.ScopeSkillRead,
+		},
+	}) {
+		t.Fatal("read-only skill scope was rejected")
 	}
 }
 

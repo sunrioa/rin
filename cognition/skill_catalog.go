@@ -3,8 +3,38 @@ package cognition
 import (
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
 	"slices"
 )
+
+func OpenDefaultSkillCatalog(
+	dataDir string,
+	builtin []Skill,
+) (*SkillCatalog, *DirectorySkillProvider, error) {
+	inline, err := NewLocalSkillProvider(builtin)
+	if err != nil {
+		return nil, nil, err
+	}
+	root := filepath.Join(dataDir, "skills")
+	installed, err := OpenDirectorySkillProvider(
+		filepath.Join(root, "installed"), "installed", true,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open installed skills: %w", err)
+	}
+	learned, err := OpenDirectorySkillProvider(
+		filepath.Join(root, "learned"), "learned", true,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open learned skills: %w", err)
+	}
+	catalog, err := NewSkillCatalog(inline, installed, learned)
+	if err != nil {
+		return nil, nil, err
+	}
+	return catalog, learned, nil
+}
 
 // SkillCatalog presents multiple storage providers as one deterministic,
 // read-only catalog. Providers keep ownership of loading and persistence.
@@ -101,4 +131,16 @@ func (catalog *SkillCatalog) Health(ctx context.Context) ProviderHealth {
 		}
 	}
 	return ProviderHealth{Available: true}
+}
+
+func (catalog *SkillCatalog) Reload(ctx context.Context) error {
+	for _, source := range catalog.providers {
+		reloadable, ok := source.(interface{ Reload(context.Context) error })
+		if ok {
+			if err := reloadable.Reload(ctx); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

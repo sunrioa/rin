@@ -39,7 +39,7 @@ go build -o bin/rin-mcp ./cmd/rin-mcp
 ```bash
 export RIN_CONTROL_TOKEN="$(openssl rand -hex 32)"
 export RIN_CONTROL_PRINCIPAL="player.one"
-export RIN_CONTROL_SCOPES="actor.read"
+export RIN_CONTROL_SCOPES="actor.read,skill.read"
 export RIN_CONTROL_DATA_DIR="/absolute/path/to/rin-control-data"
 
 ./bin/rin-control
@@ -168,6 +168,10 @@ rin mcp uninstall -purge
 Principal 和 Scope 只由 `rin-control` 启动配置决定，不能由 MCP Tool 参数或代理
 进程提升。代理的标准输出只承载 MCP Wire，诊断写入标准错误。
 
+`rin-control` 同时持有共享 Skill Catalog。它从数据目录下的
+`skills/installed` 和 `skills/learned` 读取标准 `SKILL.md`；内置 Agent 与所有 MCP
+代理看到同一份目录。Skill 只是攻略文字，不能授予 Capability 或绕过 Policy。
+
 ## Tool
 
 `actor.read` 注册以下只读 Tool：
@@ -195,12 +199,20 @@ Principal 和 Scope 只由 `rin-control` 启动配置决定，不能由 MCP Tool
 | `set_actor_emergency_stop` | `actor.control` | 由角色所有者或 Host 管理员设置、解除急停 |
 | `submit_actor_action` | `actor.execute` | 提交一个严格符合 Host Capability Schema 的动作请求 |
 | `cancel_operation` | `operation.cancel` | 请求取消，不表示回滚 |
+| `list_skills` | `skill.read` | 按 Adapter 与可用 Capability 列出 Skill 摘要 |
+| `get_skill` | `skill.read` | 读取指定版本的完整 Skill 指导 |
+| `save_experience_as_skill` | `skill.write` | 把已核实的过程经验保存为 learned `SKILL.md` |
+| `reload_skills` | `skill.write` | 从磁盘重新加载已安装和已学习 Skill |
 
 例如允许外部 Agent 观察、控制并执行 Host 已注册能力：
 
 ```bash
-export RIN_CONTROL_SCOPES="actor.read,actor.control,actor.execute,operation.cancel"
+export RIN_CONTROL_SCOPES="actor.read,actor.control,actor.execute,operation.cancel,skill.read"
 ```
+
+需要让外部 Agent 写入经验时再增加 `skill.write`。该 Scope 只允许修改 learned
+Skill，不会扩大游戏动作权限；`save_experience_as_skill` 的说明要求调用方只从权威
+Outcome 总结成功经验，真正的自动沉淀和复核流程在后续阶段实现。
 
 修改 Scope 后重启 `rin-control`。需要确认高风险效果时，Policy 文件按 Host Clock
 分别配置 Challenge 有效期：

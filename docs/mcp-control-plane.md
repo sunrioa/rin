@@ -42,7 +42,7 @@ and start the daemon:
 ```bash
 export RIN_CONTROL_TOKEN="$(openssl rand -hex 32)"
 export RIN_CONTROL_PRINCIPAL="player.one"
-export RIN_CONTROL_SCOPES="actor.read"
+export RIN_CONTROL_SCOPES="actor.read,skill.read"
 export RIN_CONTROL_DATA_DIR="/absolute/path/to/rin-control-data"
 
 ./bin/rin-control
@@ -186,6 +186,11 @@ Only the `rin-control` startup configuration selects the Principal and scopes.
 Tool arguments and proxy processes cannot elevate them. Proxy standard output is
 reserved for MCP wire traffic; diagnostics go to standard error.
 
+`rin-control` also owns the shared Skill Catalog. It loads standard `SKILL.md`
+documents from `skills/installed` and `skills/learned` below the data directory,
+so the internal Agent and every MCP proxy see the same catalog. Skills are inert
+guidance and cannot grant a capability or bypass policy.
+
 ## Tools
 
 `actor.read` registers these read-only tools:
@@ -213,13 +218,22 @@ Daemon scopes register the remaining tools:
 | `set_actor_emergency_stop` | `actor.control` | Let the Actor owner or Host administrator change the safety latch |
 | `submit_actor_action` | `actor.execute` | Submit arguments matching an exact Host capability schema |
 | `cancel_operation` | `operation.cancel` | Request cancellation; this is not rollback |
+| `list_skills` | `skill.read` | List summaries compatible with an adapter and available capabilities |
+| `get_skill` | `skill.read` | Read one exact version of a complete skill |
+| `save_experience_as_skill` | `skill.write` | Save verified procedural guidance as a learned `SKILL.md` |
+| `reload_skills` | `skill.write` | Reload installed and learned skills from disk |
 
 For an external Agent that may observe, control, and execute registered Host
 capabilities:
 
 ```bash
-export RIN_CONTROL_SCOPES="actor.read,actor.control,actor.execute,operation.cancel"
+export RIN_CONTROL_SCOPES="actor.read,actor.control,actor.execute,operation.cancel,skill.read"
 ```
+
+Add `skill.write` only when an external Agent may save experience. It can modify
+learned guidance but grants no game action. The tool description requires
+success claims to be supported by authoritative Outcomes; automatic extraction
+and review are implemented in a later stage.
 
 Restart `rin-control` after changing scopes. Policies that confirm high-risk
 effects configure a separate challenge TTL for each Host clock:

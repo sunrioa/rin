@@ -22,16 +22,15 @@ type Options struct {
 	HTTPToken          string
 	APIKey             string
 	GenerationProvider provider.StructuredGenerationProvider
+	Skills             cognition.SkillProvider
 }
 
 type Daemon struct {
-	handler       http.Handler
-	service       *agentapi.Service
-	tasks         *cognition.FileTaskStore
-	memory        *cognition.FileMemoryProvider
-	decisions     *cognition.FileDecisionRecorder
-	skills        *cognition.SkillCatalog
-	learnedSkills *cognition.DirectorySkillProvider
+	handler   http.Handler
+	service   *agentapi.Service
+	tasks     *cognition.FileTaskStore
+	memory    *cognition.FileMemoryProvider
+	decisions *cognition.FileDecisionRecorder
 
 	closeOnce sync.Once
 	closeErr  error
@@ -66,26 +65,14 @@ func Open(options Options) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	inlineSkills, err := cognition.NewLocalSkillProvider(config.Skills)
-	if err != nil {
-		return nil, err
-	}
-	skillDirectory := filepath.Join(options.DataDir, "skills")
-	installedSkills, err := cognition.OpenDirectorySkillProvider(
-		filepath.Join(skillDirectory, "installed"), "installed", true,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("open installed skills: %w", err)
-	}
-	learnedSkills, err := cognition.OpenDirectorySkillProvider(
-		filepath.Join(skillDirectory, "learned"), "learned", true,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("open learned skills: %w", err)
-	}
-	skills, err := cognition.NewSkillCatalog(inlineSkills, installedSkills, learnedSkills)
-	if err != nil {
-		return nil, fmt.Errorf("open skill catalog: %w", err)
+	skills := options.Skills
+	if skills == nil {
+		catalog, _, catalogErr := cognition.OpenDefaultSkillCatalog(options.DataDir, config.Skills)
+		err = catalogErr
+		if err != nil {
+			return nil, fmt.Errorf("open skill catalog: %w", err)
+		}
+		skills = catalog
 	}
 	stateDirectory := filepath.Join(options.DataDir, "agent")
 	memory, err := cognition.OpenFileMemoryProvider(
@@ -153,7 +140,6 @@ func Open(options Options) (*Daemon, error) {
 	}
 	return &Daemon{
 		handler: handler, service: service, tasks: tasks, memory: memory, decisions: decisions,
-		skills: skills, learnedSkills: learnedSkills,
 	}, nil
 }
 

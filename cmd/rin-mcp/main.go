@@ -19,6 +19,7 @@ import (
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/internal/mcpconfig"
 	"github.com/sunrioa/rin/mcpbridge"
+	"github.com/sunrioa/rin/skillapi"
 )
 
 const shutdownTimeout = 5 * time.Second
@@ -59,7 +60,11 @@ func run(
 	if err != nil {
 		return fmt.Errorf("connect to rin-control: %w", err)
 	}
-	gateway, err := mcpbridge.NewClient(client, info.Principal)
+	skillClient, err := skillapi.NewHTTPClient(config.controlURL, config.token)
+	if err != nil {
+		return err
+	}
+	gateway, err := mcpbridge.NewClientWithSkills(client, skillClient, info.Principal)
 	if err != nil {
 		return err
 	}
@@ -218,10 +223,12 @@ func runConformanceHTTP(
 }
 
 func readOnlyConformancePrincipal(principal host.Principal) bool {
-	if len(principal.GrantedScopes) != 1 {
-		return false
+	for _, scope := range principal.GrantedScopes {
+		if scope != controlplane.ScopeActorRead && scope != skillapi.ScopeSkillRead {
+			return false
+		}
 	}
-	return principal.GrantedScopes[0] == controlplane.ScopeActorRead
+	return len(principal.GrantedScopes) != 0
 }
 
 func validateLoopbackAddress(address string) error {

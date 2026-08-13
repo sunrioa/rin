@@ -4,8 +4,17 @@ import (
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/skillapi"
 	"github.com/sunrioa/rin/timeline"
 )
+
+type ListSkillsInput = skillapi.ListInput
+type ListSkillsOutput = skillapi.ListOutput
+type GetSkillInput = skillapi.GetInput
+type GetSkillOutput = skillapi.GetOutput
+type SaveExperienceAsSkillInput = skillapi.SaveInput
+type ReloadSkillsInput struct{}
+type ReloadSkillsOutput = skillapi.ReloadOutput
 
 type ListWorldsInput struct{}
 

@@ -15,6 +15,7 @@ import (
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/policy"
 	"github.com/sunrioa/rin/provider"
+	"github.com/sunrioa/rin/skillapi"
 )
 
 func TestParseConfigurationUsesBoundedReadPrincipal(t *testing.T) {
@@ -32,8 +33,9 @@ func TestParseConfigurationUsesBoundedReadPrincipal(t *testing.T) {
 	if config.address != "127.0.0.1:7375" ||
 		config.dataDir != "./rin-control-data" ||
 		config.principal.ID != "player.one" ||
-		len(config.principal.GrantedScopes) != 1 ||
-		config.principal.GrantedScopes[0] != controlplane.ScopeActorRead {
+		len(config.principal.GrantedScopes) != 2 ||
+		config.principal.GrantedScopes[0] != controlplane.ScopeActorRead ||
+		config.principal.GrantedScopes[1] != skillapi.ScopeSkillRead {
 		t.Fatalf("configuration = %#v", config)
 	}
 }
@@ -145,7 +147,7 @@ func TestParseConfigurationRequiresExplicitAgentConfigAndToken(t *testing.T) {
 	}
 }
 
-func TestComposeHandlersKeepsControlAndAgentRoutesSeparate(t *testing.T) {
+func TestComposeHandlersKeepsRoutesSeparate(t *testing.T) {
 	control := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		response.Header().Set("X-Handler", "control")
 		response.WriteHeader(http.StatusNoContent)
@@ -154,12 +156,17 @@ func TestComposeHandlersKeepsControlAndAgentRoutesSeparate(t *testing.T) {
 		response.Header().Set("X-Handler", "agent")
 		response.WriteHeader(http.StatusAccepted)
 	})
-	handler := composeHandlers(control, agent)
+	skills := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("X-Handler", "skills")
+		response.WriteHeader(http.StatusOK)
+	})
+	handler := composeHandlers(control, skills, agent)
 	for _, test := range []struct {
 		path, expected string
 		status         int
 	}{
 		{path: "/control/v2/info", expected: "control", status: http.StatusNoContent},
+		{path: "/skills/v1/list", expected: "skills", status: http.StatusOK},
 		{path: "/agent/v1/info", expected: "agent", status: http.StatusAccepted},
 	} {
 		response := httptest.NewRecorder()
@@ -205,7 +212,10 @@ func TestComposedHandlersKeepTokensAndPrincipalsIsolated(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer agent.Close()
-	handler := composeHandlers(controlHandler, agent.Handler())
+	skillHandler := http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusNoContent)
+	})
+	handler := composeHandlers(controlHandler, skillHandler, agent.Handler())
 	for _, test := range []struct {
 		path, token string
 		status      int

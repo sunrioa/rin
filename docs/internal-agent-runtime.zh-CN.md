@@ -101,6 +101,11 @@ Skill 是惰性的过程指导，只包含摘要、触发 Tag、说明和 Digest
 Scope 或 Capability Grant。模型先看到摘要，最多按需展开一个 Skill；即使 Skill
 文字要求越权，模型输出仍受允许 Capability、Binding 和 Policy 约束。
 
+Skill Catalog 由 `rin-control` 持有，而不是由 Internal Runtime 私有持有。配置内置
+Skill、`skills/installed` 与 `skills/learned` 被合并成同一确定性目录；内部 Agent
+直接使用该目录，外部 MCP 则通过 `skill.read` / `skill.write` 访问同一实例。未启用
+内部模型时，外部 MCP 仍可使用 Skill。
+
 外部 MCP Controller 的人格和私有记忆由外部 Agent 管理，不会被 Internal Persona
 覆盖，也不会自动复制进 Rin Memory。
 
