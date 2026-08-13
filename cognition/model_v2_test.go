@@ -214,6 +214,19 @@ func TestStructuredDecisionProviderRejectsMalformedStructuredOutput(t *testing.T
 	}
 }
 
+func TestStructuredDecisionProviderRejectsNegativeCacheUsage(t *testing.T) {
+	negative := -1
+	generation := &recordingGenerationProvider{responses: []provider.CompletionResponse{{
+		Content: modelActionResponse("rin.navigation.move-to", "2.0.0", `{}`, `[]`),
+		Usage:   provider.Usage{PromptCacheHitTokens: &negative},
+	}}}
+	if _, err := (cognition.StructuredDecisionProvider{
+		GenerationProvider: generation,
+	}).Decide(context.Background(), modelV2Input(t)); err == nil {
+		t.Fatal("negative cache usage was accepted")
+	}
+}
+
 func TestStructuredDecisionProviderBoundsContextBeforeNetworkCall(t *testing.T) {
 	generation := &recordingGenerationProvider{}
 	input := modelV2Input(t)

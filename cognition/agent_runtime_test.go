@@ -91,6 +91,12 @@ func TestAgentRuntimeTimelineUsesReferencesAndMeasuredEvidence(t *testing.T) {
 	decision.ProviderModel = "model.timeline"
 	decision.Usage.PromptTokens = 7
 	decision.Usage.CompletionTokens = 3
+	cacheHit := 5
+	cacheMiss := 2
+	cacheWrite := 1
+	decision.Usage.PromptCacheHitTokens = &cacheHit
+	decision.Usage.PromptCacheMissTokens = &cacheMiss
+	decision.Usage.CacheWriteTokens = &cacheWrite
 	fixture.model.decisions = []cognition.ModelDecision{
 		decision,
 		{Kind: cognition.ModelDecisionComplete, Summary: "The task is complete.", ProviderModel: "model.timeline"},
@@ -159,7 +165,10 @@ func TestAgentRuntimeTimelineUsesReferencesAndMeasuredEvidence(t *testing.T) {
 	if modelEvent == nil || len(modelEvent.SkillRefs) != 1 || modelEvent.Model == nil ||
 		modelEvent.Model.TotalTokens == nil || *modelEvent.Model.TotalTokens != 10 ||
 		modelEvent.Model.PromptTokens == nil || *modelEvent.Model.PromptTokens != 7 ||
-		modelEvent.Model.CompletionTokens == nil || *modelEvent.Model.CompletionTokens != 3 {
+		modelEvent.Model.CompletionTokens == nil || *modelEvent.Model.CompletionTokens != 3 ||
+		modelEvent.Model.CacheHitTokens == nil || *modelEvent.Model.CacheHitTokens != 5 ||
+		modelEvent.Model.CacheMissTokens == nil || *modelEvent.Model.CacheMissTokens != 2 ||
+		modelEvent.Model.CacheWriteTokens == nil || *modelEvent.Model.CacheWriteTokens != 1 {
 		t.Fatalf("model evidence = %#v", modelEvent)
 	}
 	if modelEvent.MemoryContextRefs[0].MemoryID != "memory.timeline.private" ||

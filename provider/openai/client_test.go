@@ -60,7 +60,11 @@ func TestCompleteSendsSchemaAndDecodesFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Model != "fixture-model" || result.FinishReason != "stop" || result.Usage.TotalTokens != 168 || !strings.Contains(result.Content, `"action_id":"talk"`) {
+	if result.Model != "fixture-model" || result.FinishReason != "stop" || result.Usage.TotalTokens != 168 ||
+		result.Usage.PromptCacheHitTokens == nil || *result.Usage.PromptCacheHitTokens != 80 ||
+		result.Usage.PromptCacheMissTokens == nil || *result.Usage.PromptCacheMissTokens != 40 ||
+		result.Usage.CacheWriteTokens == nil || *result.Usage.CacheWriteTokens != 20 ||
+		!strings.Contains(result.Content, `"action_id":"talk"`) {
 		t.Fatalf("unexpected completion: %+v", result)
 	}
 }

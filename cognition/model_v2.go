@@ -259,7 +259,9 @@ func (decisionProvider StructuredDecisionProvider) Decide(
 		return ModelDecision{}, err
 	}
 	if response.Usage.PromptTokens < 0 || response.Usage.CompletionTokens < 0 ||
-		response.Usage.TotalTokens < 0 {
+		response.Usage.TotalTokens < 0 || negativeOptionalInt(response.Usage.PromptCacheHitTokens) ||
+		negativeOptionalInt(response.Usage.PromptCacheMissTokens) ||
+		negativeOptionalInt(response.Usage.CacheWriteTokens) {
 		return ModelDecision{}, errors.New("generation provider returned invalid token usage")
 	}
 	output, err := decodeModelV2Output(response.Content)
@@ -273,6 +275,10 @@ func (decisionProvider StructuredDecisionProvider) Decide(
 	decision.ProviderModel = response.Model
 	decision.Usage = response.Usage
 	return decision, nil
+}
+
+func negativeOptionalInt(value *int) bool {
+	return value != nil && *value < 0
 }
 
 // Validate checks startup-safe model limits without issuing a provider call.

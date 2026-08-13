@@ -49,6 +49,7 @@ type ModelUsage struct {
 	TotalTokens      *uint64 `json:"total_tokens,omitempty"`
 	CacheHitTokens   *uint64 `json:"cache_hit_tokens,omitempty"`
 	CacheMissTokens  *uint64 `json:"cache_miss_tokens,omitempty"`
+	CacheWriteTokens *uint64 `json:"cache_write_tokens,omitempty"`
 }
 
 type PolicySummary struct {
@@ -208,6 +209,9 @@ func BuildPage(snapshot Snapshot, query Query) (Page, error) {
 	if snapshot.TruncatedBefore > snapshot.LatestSequence {
 		return Page{}, fmt.Errorf("%w: truncation cursor exceeds snapshot", ErrInvalid)
 	}
+	if after > snapshot.LatestSequence {
+		return Page{}, fmt.Errorf("%w: after_cursor exceeds task timeline", ErrInvalid)
+	}
 	records := append([]Record(nil), snapshot.Records...)
 	slices.SortFunc(records, func(left, right Record) int {
 		return compareSequence(left.Sequence, right.Sequence)
@@ -365,6 +369,7 @@ func sealEvent(snapshot Snapshot, record Record) (Event, error) {
 		model.TotalTokens = cloneUint64Pointer(model.TotalTokens)
 		model.CacheHitTokens = cloneUint64Pointer(model.CacheHitTokens)
 		model.CacheMissTokens = cloneUint64Pointer(model.CacheMissTokens)
+		model.CacheWriteTokens = cloneUint64Pointer(model.CacheWriteTokens)
 		event.Model = &model
 	}
 	if event.Operation != nil {
@@ -436,6 +441,7 @@ func validateModelUsage(usage *ModelUsage) error {
 		"latency_ms": usage.LatencyMillis, "prompt_tokens": usage.PromptTokens,
 		"completion_tokens": usage.CompletionTokens, "total_tokens": usage.TotalTokens,
 		"cache_hit_tokens": usage.CacheHitTokens, "cache_miss_tokens": usage.CacheMissTokens,
+		"cache_write_tokens": usage.CacheWriteTokens,
 	} {
 		if value != nil && *value > maxJSONSafeUint {
 			return fmt.Errorf("%w: model_usage.%s is not JSON-safe", ErrInvalid, field)

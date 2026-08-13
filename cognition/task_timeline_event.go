@@ -45,7 +45,18 @@ func measuredModelUsage(decision ModelDecision, latency uint64) *timeline.ModelU
 		usage.CompletionTokens = &completion
 		usage.TotalTokens = &total
 	}
+	usage.CacheHitTokens = optionalIntToUint64(decision.Usage.PromptCacheHitTokens)
+	usage.CacheMissTokens = optionalIntToUint64(decision.Usage.PromptCacheMissTokens)
+	usage.CacheWriteTokens = optionalIntToUint64(decision.Usage.CacheWriteTokens)
 	return usage
+}
+
+func optionalIntToUint64(value *int) *uint64 {
+	if value == nil {
+		return nil
+	}
+	converted := uint64(*value)
+	return &converted
 }
 
 func operationTimelineEvent(

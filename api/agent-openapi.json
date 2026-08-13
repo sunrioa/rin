@@ -708,6 +708,9 @@
           },
           "cache_miss_tokens": {
             "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
+          },
+          "cache_write_tokens": {
+            "$ref": "#/components/schemas/JSONSafeUnsignedInteger"
           }
         }
       },

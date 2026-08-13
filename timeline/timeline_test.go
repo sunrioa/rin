@@ -30,11 +30,10 @@ func TestBuildPageSortsPaginatesAndKeepsOpaqueCursorMonotonic(t *testing.T) {
 		t.Fatalf("second page = %#v, %v", second, err)
 	}
 	beyond := FormatCursor(20)
-	empty, err := BuildPage(snapshot, Query{
+	if _, err := BuildPage(snapshot, Query{
 		TaskID: snapshot.TaskID, AfterCursor: beyond,
-	})
-	if err != nil || len(empty.Events) != 0 || empty.NextCursor != beyond {
-		t.Fatalf("cursor moved backwards: %#v, %v", empty, err)
+	}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("future cursor error = %v", err)
 	}
 }
 
