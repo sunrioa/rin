@@ -1332,6 +1332,9 @@
           "provenance": {
             "$ref": "#/components/schemas/MemoryProvenance"
           },
+          "canon_ref": {
+            "$ref": "#/components/schemas/MemoryCanonRef"
+          },
           "confidence": {
             "type": "number",
             "minimum": 0,
@@ -1428,6 +1431,42 @@
           "source",
           "source_id",
           "authoritative"
+        ]
+      },
+      "MemoryCanonRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "host_id": {
+            "$ref": "#/components/schemas/OpaqueIdentifier"
+          },
+          "world_id": {
+            "$ref": "#/components/schemas/OpaqueIdentifier"
+          },
+          "epoch": {
+            "$ref": "#/components/schemas/Epoch"
+          },
+          "sequence": {
+            "$ref": "#/components/schemas/JSONSafePositiveInteger"
+          },
+          "digest": {
+            "$ref": "#/components/schemas/SHA256"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "current",
+              "conflicted"
+            ]
+          }
+        },
+        "required": [
+          "host_id",
+          "world_id",
+          "epoch",
+          "sequence",
+          "digest",
+          "status"
         ]
       },
       "Timepoint": {

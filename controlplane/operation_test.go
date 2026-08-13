@@ -68,6 +68,52 @@ func TestActionOperationReportsHostLifecycleAndOutput(t *testing.T) {
 	}
 }
 
+func TestActionOperationPublishesCommittedOutcomeEvidence(t *testing.T) {
+	sink := &recordingOutcomeSink{}
+	service, lease, _, principal, actionHost := actionOperationTestHarness(t, Options{OutcomeSink: sink})
+	input := actionHost.input("request.outcome.sink", "action.outcome.sink")
+	input.Request.TaskID = "task.outcome.sink"
+	operation, err := service.SubmitAction(context.Background(), principal, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pollHost(t, service, lease, 1)
+	if err := service.AcknowledgeHost(
+		"test.host", lease.LeaseID,
+		HostAcknowledgement{OperationID: operation.OperationID, Accepted: true},
+	); err != nil {
+		t.Fatal(err)
+	}
+	outcome := host.ActionOutcome{
+		OperationID: operation.OperationID, Status: host.ActionSucceeded,
+		Summary: "The Host confirmed the effect.", Epoch: testEpoch(), WorldSeq: 2,
+		OccurredAt: host.Timepoint{Clock: host.ClockStep, Value: 12},
+	}
+	if err := service.ReportHostOutcome("test.host", lease.LeaseID, outcome); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.evidence) != 1 || sink.evidence[0].TaskID != input.Request.TaskID ||
+		sink.evidence[0].OperationID != operation.OperationID ||
+		sink.evidence[0].Outcome.Summary != outcome.Summary {
+		t.Fatalf("outcome evidence = %#v", sink.evidence)
+	}
+	if err := service.ReportHostOutcome("test.host", lease.LeaseID, outcome); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.evidence) != 2 {
+		t.Fatalf("idempotent report did not heal sink: %#v", sink.evidence)
+	}
+}
+
+type recordingOutcomeSink struct {
+	evidence []OutcomeEvidence
+}
+
+func (sink *recordingOutcomeSink) RecordOutcome(_ context.Context, evidence OutcomeEvidence) error {
+	sink.evidence = append(sink.evidence, evidence)
+	return nil
+}
+
 func TestHostOutcomeCannotPredateBoundObservation(t *testing.T) {
 	service, lease, _, principal, actionHost := actionOperationTestHarness(t, Options{})
 	publication := worldPublication(2, "newer")

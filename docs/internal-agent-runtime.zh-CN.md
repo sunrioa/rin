@@ -104,6 +104,13 @@ Memory 通过 Namespace 结构化隔离：
 证据。检索受条数和字符预算约束，不会把全部历史塞入 Prompt。Forget 使用 Tombstone，
 Consolidate 可以把多条记录压缩为带来源的摘要。
 
+`rin-control` 独占 `<RIN_CONTROL_DATA_DIR>/agent/memory.db`。SQLite 是 Rin Memory 域
+的在线事实源，使用 WAL、完整同步和 FTS5；`memory.json` 只在首次启动且数据库为空时
+导入，JSONL 仅用于手动交换。无论动作来自内部 Agent、外部 MCP 还是 Macro，只有
+Control Plane 已提交的 Host Outcome 才会写入共享 `actor-episodic` 记忆，并保存
+Host、World、Epoch、Sequence 与 Digest 的 `canon_ref`。它只是对游戏 Canon 的可检索
+投影，不能反向修改 Canon。
+
 Skill 是惰性的过程指导，只包含摘要、触发 Tag、说明和 Digest。它没有执行入口、
 Scope 或 Capability Grant。模型先看到摘要，最多按需展开一个 Skill；即使 Skill
 文字要求越权，模型输出仍受允许 Capability、Binding 和 Policy 约束。
@@ -139,9 +146,10 @@ Controller 或预算。
 ## 状态与调用
 
 - Task HTTP 契约以 [`api/agent-openapi.json`](../api/agent-openapi.json) 为准。
-- 状态固定写入 `<RIN_CONTROL_DATA_DIR>/agent/tasks.json` 和 `memory.json`。
+- 状态固定写入 `<RIN_CONTROL_DATA_DIR>/agent/tasks.json` 和 `memory.db`。
 - Task Snapshot 使用 `rin.cognition.tasks/v2`。
-- 状态文件使用私有权限、原子替换和单写者进程锁；配置不能改变状态路径。
+- Task 文件使用私有权限与原子替换；Memory 使用 SQLite 事务、WAL 与单写者进程锁。
+  配置不能改变状态路径。
 - `scheduled=true` 只表示任务已进入后台队列，不表示模型已决策、游戏已执行或
   目标已经完成。
 - `allowed_capabilities` 是可选的任务级 Capability ID 白名单，最多 128 项。非空时，

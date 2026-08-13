@@ -47,6 +47,24 @@ type MemoryProvenance struct {
 	Authoritative bool         `json:"authoritative"`
 }
 
+type MemoryCanonStatus string
+
+const (
+	MemoryCanonCurrent    MemoryCanonStatus = "current"
+	MemoryCanonConflicted MemoryCanonStatus = "conflicted"
+)
+
+// MemoryCanonRef points back to Host-owned truth without copying Canon into
+// Rin. The digest identifies the projected fact; it does not authorize writes.
+type MemoryCanonRef struct {
+	HostID   string            `json:"host_id"`
+	WorldID  string            `json:"world_id"`
+	Epoch    host.Epoch        `json:"epoch"`
+	Sequence uint64            `json:"sequence"`
+	Digest   string            `json:"digest"`
+	Status   MemoryCanonStatus `json:"status"`
+}
+
 type MemoryRecord struct {
 	MemoryID       string           `json:"memory_id"`
 	Namespace      MemoryNamespace  `json:"namespace"`
@@ -55,6 +73,7 @@ type MemoryRecord struct {
 	Tags           []string         `json:"tags,omitempty"`
 	SourceEventIDs []string         `json:"source_event_ids,omitempty"`
 	Provenance     MemoryProvenance `json:"provenance"`
+	CanonRef       *MemoryCanonRef  `json:"canon_ref,omitempty"`
 	Confidence     float64          `json:"confidence"`
 	Importance     float64          `json:"importance"`
 	CreatedAt      host.Timepoint   `json:"created_at"`
@@ -505,6 +524,13 @@ func sealMemoryRecord(record MemoryRecord) (MemoryRecord, error) {
 	if err := validateMemoryProvenance(record.Provenance, record.Namespace); err != nil {
 		return MemoryRecord{}, err
 	}
+	if record.CanonRef != nil {
+		canon := *record.CanonRef
+		if err := validateMemoryCanonRef(canon, record.Provenance); err != nil {
+			return MemoryRecord{}, err
+		}
+		record.CanonRef = &canon
+	}
 	if record.Confidence < 0 || record.Confidence > 1 || record.Importance < 0 || record.Importance > 1 {
 		return MemoryRecord{}, errors.New("memory confidence and importance must be between zero and one")
 	}
@@ -623,6 +649,31 @@ func validateMemoryProvenance(provenance MemoryProvenance, namespace MemoryNames
 	}
 	if provenance.Source == MemorySourceModel && !privateMemoryDomain(namespace.Domain) {
 		return errors.New("model-generated memory must remain controller-private")
+	}
+	return nil
+}
+
+func validateMemoryCanonRef(ref MemoryCanonRef, provenance MemoryProvenance) error {
+	if provenance.Source != MemorySourceHostOutcome || !provenance.Authoritative {
+		return errors.New("canon_ref requires authoritative Host provenance")
+	}
+	if err := validateMemoryOpaqueID("canon_ref.host_id", ref.HostID); err != nil {
+		return err
+	}
+	if err := validateMemoryOpaqueID("canon_ref.world_id", ref.WorldID); err != nil {
+		return err
+	}
+	if err := ref.Epoch.Validate("canon_ref.epoch"); err != nil {
+		return err
+	}
+	if ref.Sequence == 0 || ref.Sequence > maxProviderWireInteger {
+		return errors.New("canon_ref sequence is invalid")
+	}
+	if !providerDigestPattern.MatchString(ref.Digest) {
+		return errors.New("canon_ref digest is invalid")
+	}
+	if ref.Status != MemoryCanonCurrent && ref.Status != MemoryCanonConflicted {
+		return errors.New("canon_ref status is invalid")
 	}
 	return nil
 }
@@ -835,6 +886,10 @@ func memoryTombstoneKey(tombstone MemoryTombstone) string {
 }
 
 func cloneMemoryRecord(record MemoryRecord) MemoryRecord {
+	if record.CanonRef != nil {
+		canon := *record.CanonRef
+		record.CanonRef = &canon
+	}
 	record.SubjectRefs = append([]string(nil), record.SubjectRefs...)
 	record.Tags = append([]string(nil), record.Tags...)
 	record.SourceEventIDs = append([]string(nil), record.SourceEventIDs...)
@@ -858,9 +913,17 @@ func memoryRecordsEqual(left, right MemoryRecord) bool {
 		slices.Equal(left.Tags, right.Tags) &&
 		slices.Equal(left.SourceEventIDs, right.SourceEventIDs) &&
 		left.Provenance == right.Provenance &&
+		equalMemoryCanonRef(left.CanonRef, right.CanonRef) &&
 		left.Confidence == right.Confidence && left.Importance == right.Importance &&
 		left.CreatedAt == right.CreatedAt && equalMemoryTimepoint(left.ExpiresAt, right.ExpiresAt) &&
 		slices.Equal(left.Supersedes, right.Supersedes)
+}
+
+func equalMemoryCanonRef(left, right *MemoryCanonRef) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 func equalMemoryTimepoint(left, right *host.Timepoint) bool {

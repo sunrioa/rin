@@ -123,6 +123,7 @@ func TestAgentOpenAPISchemaFieldsMatchGoDTOs(t *testing.T) {
 		"MemoryRecord":          cognition.MemoryRecord{},
 		"MemoryNamespace":       cognition.MemoryNamespace{},
 		"MemoryProvenance":      cognition.MemoryProvenance{},
+		"MemoryCanonRef":        cognition.MemoryCanonRef{},
 		"Timepoint":             host.Timepoint{},
 		"TaskTimelineQuery":     timeline.Query{},
 		"WaitTaskTimelineInput": timeline.WaitInput{},

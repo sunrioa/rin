@@ -25,6 +25,7 @@ type Options struct {
 	OperationTTL  time.Duration
 	ActionHost    ActionHost
 	PolicyEngine  *policy.Engine
+	OutcomeSink   OutcomeSink
 }
 
 // Service owns host leases and principal-filtered read models.
@@ -37,6 +38,7 @@ type Service struct {
 	emergencyStops map[actorControlKey]ActorEmergencyStop
 	actionHost     ActionHost
 	policyEngine   *policy.Engine
+	outcomeSink    OutcomeSink
 	actionFlights  map[string]*actionFlight
 	confirming     map[string]struct{}
 	hostGateway    map[string]*hostGatewayState
@@ -103,6 +105,7 @@ func New(options Options) *Service {
 		emergencyStops: make(map[actorControlKey]ActorEmergencyStop),
 		actionHost:     options.ActionHost,
 		policyEngine:   options.PolicyEngine,
+		outcomeSink:    options.OutcomeSink,
 		actionFlights:  make(map[string]*actionFlight),
 		confirming:     make(map[string]struct{}),
 		hostGateway:    make(map[string]*hostGatewayState),

@@ -97,7 +97,7 @@ func TestCloseReleasesPersistentStoresForRestart(t *testing.T) {
 	if err := first.Close(); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"tasks.json", "memory.json"} {
+	for _, name := range []string{"tasks.json", "memory.db"} {
 		if info, err := os.Stat(filepath.Join(dataDirectory, "agent", name)); err != nil || !info.Mode().IsRegular() {
 			t.Fatalf("persistent %s was not created: %v", name, err)
 		}

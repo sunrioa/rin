@@ -39,16 +39,17 @@ type AgentControlPlane interface {
 }
 
 type AgentRuntimeOptions struct {
-	Principal   host.Principal
-	Control     AgentControlPlane
-	Environment AgentEnvironment
-	Persona     PersonaProvider
-	Memory      MemoryProvider
-	Skills      SkillProvider
-	Model       ModelProvider
-	Tasks       TaskStore
-	Decisions   DecisionRecorder
-	Learning    *SkillLearningOptions
+	Principal                 host.Principal
+	Control                   AgentControlPlane
+	Environment               AgentEnvironment
+	Persona                   PersonaProvider
+	Memory                    MemoryProvider
+	Skills                    SkillProvider
+	Model                     ModelProvider
+	Tasks                     TaskStore
+	Decisions                 DecisionRecorder
+	Learning                  *SkillLearningOptions
+	OutcomesRecordedByControl bool
 
 	Now                   func() time.Time
 	ControllerLeaseMillis uint32
@@ -71,16 +72,17 @@ type StartTaskInput struct {
 }
 
 type AgentRuntime struct {
-	principal   host.Principal
-	control     AgentControlPlane
-	environment AgentEnvironment
-	persona     PersonaProvider
-	memory      MemoryProvider
-	skills      SkillProvider
-	model       ModelProvider
-	tasks       TaskStore
-	decisions   DecisionRecorder
-	learning    *skillLearningRuntime
+	principal                 host.Principal
+	control                   AgentControlPlane
+	environment               AgentEnvironment
+	persona                   PersonaProvider
+	memory                    MemoryProvider
+	skills                    SkillProvider
+	model                     ModelProvider
+	tasks                     TaskStore
+	decisions                 DecisionRecorder
+	learning                  *skillLearningRuntime
+	outcomesRecordedByControl bool
 
 	now                   func() time.Time
 	controllerLeaseMillis uint32
@@ -144,7 +146,8 @@ func NewAgentRuntime(options AgentRuntimeOptions) (*AgentRuntime, error) {
 		principal: options.Principal, control: options.Control, environment: options.Environment,
 		persona: options.Persona, memory: options.Memory, skills: options.Skills,
 		model: options.Model, tasks: options.Tasks, decisions: options.Decisions,
-		learning: learning, now: options.Now,
+		learning: learning, outcomesRecordedByControl: options.OutcomesRecordedByControl,
+		now:                   options.Now,
 		controllerLeaseMillis: options.ControllerLeaseMillis,
 		renewBeforeMillis:     options.RenewBeforeMillis,
 		operationWaitMillis:   options.OperationWaitMillis,
@@ -835,7 +838,7 @@ func (runtime *AgentRuntime) advancePendingAction(
 		return runtime.recordUnknownOperation(ctx, task, "operation.unknown", view)
 	}
 	warning := false
-	if view.Outcome != nil {
+	if view.Outcome != nil && !runtime.outcomesRecordedByControl {
 		warning = runtime.appendOutcomeMemory(ctx, task, view, "outcome")
 	}
 	if cancelling && task.MacroOperationID == "" {
@@ -989,7 +992,7 @@ func (runtime *AgentRuntime) advanceMacroOperation(
 		return runtime.recordUnknownOperation(ctx, task, "macro.unknown", view)
 	}
 	warning := false
-	if view.Outcome != nil {
+	if view.Outcome != nil && !runtime.outcomesRecordedByControl {
 		warning = runtime.appendOutcomeMemory(ctx, task, view, "macro-outcome")
 	}
 	operationID := task.MacroOperationID

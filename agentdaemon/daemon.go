@@ -17,22 +17,25 @@ import (
 )
 
 type Options struct {
-	Config             Config
-	DataDir            string
-	Control            *controlplane.Service
-	HTTPToken          string
-	APIKey             string
-	GenerationProvider provider.StructuredGenerationProvider
-	Skills             cognition.SkillProvider
-	LearnedSkills      cognition.SkillWriter
+	Config                    Config
+	DataDir                   string
+	Control                   *controlplane.Service
+	HTTPToken                 string
+	APIKey                    string
+	GenerationProvider        provider.StructuredGenerationProvider
+	Skills                    cognition.SkillProvider
+	LearnedSkills             cognition.SkillWriter
+	Memory                    cognition.MemoryProvider
+	OutcomesRecordedByControl bool
 }
 
 type Daemon struct {
-	handler   http.Handler
-	service   *agentapi.Service
-	tasks     *cognition.FileTaskStore
-	memory    *cognition.FileMemoryProvider
-	decisions *cognition.FileDecisionRecorder
+	handler      http.Handler
+	service      *agentapi.Service
+	tasks        *cognition.FileTaskStore
+	memory       cognition.MemoryProvider
+	memoryCloser interface{ Close() error }
+	decisions    *cognition.FileDecisionRecorder
 
 	closeOnce sync.Once
 	closeErr  error
@@ -96,17 +99,25 @@ func Open(options Options) (*Daemon, error) {
 		}
 	}
 	stateDirectory := filepath.Join(options.DataDir, "agent")
-	memory, err := cognition.OpenFileMemoryProvider(
-		filepath.Join(stateDirectory, "memory.json"), config.memoryProviderConfig(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("open Agent memory: %w", err)
+	memory := options.Memory
+	var memoryCloser interface{ Close() error }
+	if memory == nil {
+		sqliteMemory, openErr := cognition.OpenSQLiteMemoryProvider(
+			filepath.Join(stateDirectory, "memory.db"), config.MemoryProviderConfig(),
+		)
+		if openErr != nil {
+			return nil, fmt.Errorf("open Agent memory: %w", openErr)
+		}
+		memory = sqliteMemory
+		memoryCloser = sqliteMemory
 	}
 	tasks, err := cognition.OpenFileTaskStore(
 		filepath.Join(stateDirectory, "tasks.json"), config.Tasks.MaxTasks,
 	)
 	if err != nil {
-		_ = memory.Close()
+		if memoryCloser != nil {
+			_ = memoryCloser.Close()
+		}
 		return nil, fmt.Errorf("open Agent tasks: %w", err)
 	}
 	decisions, err := cognition.OpenFileDecisionRecorder(
@@ -114,11 +125,17 @@ func Open(options Options) (*Daemon, error) {
 	)
 	if err != nil {
 		_ = tasks.Close()
-		_ = memory.Close()
+		if memoryCloser != nil {
+			_ = memoryCloser.Close()
+		}
 		return nil, fmt.Errorf("open Agent decision records: %w", err)
 	}
 	cleanupStores := func(base error) error {
-		return errors.Join(base, decisions.Close(), tasks.Close(), memory.Close())
+		var memoryErr error
+		if memoryCloser != nil {
+			memoryErr = memoryCloser.Close()
+		}
+		return errors.Join(base, decisions.Close(), tasks.Close(), memoryErr)
 	}
 	runtimePrincipal := host.Principal{
 		ID: config.RuntimePrincipal, GrantedScopes: []string{controlplane.ScopeHostAdmin},
@@ -130,12 +147,13 @@ func Open(options Options) (*Daemon, error) {
 	runtime, err := cognition.NewAgentRuntime(cognition.AgentRuntimeOptions{
 		Principal: runtimePrincipal, Control: options.Control, Environment: environment,
 		Persona: personas, Memory: memory, Skills: skills, Model: model, Tasks: tasks,
-		Decisions:             decisions,
-		Learning:              learning,
-		ControllerLeaseMillis: config.Runtime.ControllerLeaseMillis,
-		RenewBeforeMillis:     config.Runtime.RenewBeforeMillis,
-		OperationWaitMillis:   config.Runtime.OperationWaitMillis,
-		MaxAdvancesPerRun:     config.Runtime.MaxAdvancesPerRun,
+		Decisions:                 decisions,
+		Learning:                  learning,
+		OutcomesRecordedByControl: options.OutcomesRecordedByControl,
+		ControllerLeaseMillis:     config.Runtime.ControllerLeaseMillis,
+		RenewBeforeMillis:         config.Runtime.RenewBeforeMillis,
+		OperationWaitMillis:       config.Runtime.OperationWaitMillis,
+		MaxAdvancesPerRun:         config.Runtime.MaxAdvancesPerRun,
 		MemoryBudget: cognition.MemoryBudget{
 			MaxRecords:    config.Runtime.MemoryMaxRecords,
 			MaxCharacters: config.Runtime.MemoryMaxCharacters,
@@ -161,7 +179,8 @@ func Open(options Options) (*Daemon, error) {
 		return nil, cleanupStores(err)
 	}
 	return &Daemon{
-		handler: handler, service: service, tasks: tasks, memory: memory, decisions: decisions,
+		handler: handler, service: service, tasks: tasks, memory: memory,
+		memoryCloser: memoryCloser, decisions: decisions,
 	}, nil
 }
 
@@ -211,8 +230,12 @@ func (daemon *Daemon) Close() error {
 	}
 	daemon.closeOnce.Do(func() {
 		daemon.service.Close()
+		var memoryErr error
+		if daemon.memoryCloser != nil {
+			memoryErr = daemon.memoryCloser.Close()
+		}
 		daemon.closeErr = errors.Join(
-			daemon.decisions.Close(), daemon.tasks.Close(), daemon.memory.Close(),
+			daemon.decisions.Close(), daemon.tasks.Close(), memoryErr,
 		)
 	})
 	return daemon.closeErr

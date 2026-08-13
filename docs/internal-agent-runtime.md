@@ -115,6 +115,15 @@ evidence. Retrieval is bounded by record and character budgets instead of
 sending all history to the prompt. Forget creates tombstones and consolidation
 can replace several records with a sourced summary.
 
+`rin-control` exclusively owns `<RIN_CONTROL_DATA_DIR>/agent/memory.db`.
+SQLite is the online source of truth for the Rin Memory domain and uses WAL,
+full synchronization, and FTS5. `memory.json` is imported only on the first
+empty-database startup; JSONL is a manual interchange format. Actions initiated
+by the internal Agent, external MCP, or a macro all reach the same projection,
+and only a committed Host Outcome can create shared `actor-episodic` memory.
+The `canon_ref` retains Host, World, Epoch, Sequence, and Digest evidence. It is
+a searchable projection of game-owned Canon and cannot mutate Canon.
+
 A skill is inert procedural guidance containing a summary, trigger tags,
 instructions, and digest. It has no entrypoint, scope, or capability grant. The
 model first sees summaries and may expand at most one skill. Instructions asking
@@ -156,10 +165,11 @@ data and cannot alter the allowed set, epoch, controller, or budgets.
 ## State and calls
 
 - [`api/agent-openapi.json`](../api/agent-openapi.json) is the Task HTTP contract.
-- State is fixed at `<RIN_CONTROL_DATA_DIR>/agent/tasks.json` and `memory.json`.
+- State is fixed at `<RIN_CONTROL_DATA_DIR>/agent/tasks.json` and `memory.db`.
 - Task snapshots use `rin.cognition.tasks/v2`.
-- State files use private permissions, atomic replacement, and single-writer
-  process locks. Configuration cannot redirect these paths.
+- Task files use private permissions and atomic replacement. Memory uses SQLite
+  transactions, WAL, and a single-writer process lock. Configuration cannot
+  redirect these paths.
 - `scheduled=true` only means background coordination was queued. It is not
   proof of model deliberation, game execution, or task completion.
 - `allowed_capabilities` is an optional task-local allowlist of at most 128

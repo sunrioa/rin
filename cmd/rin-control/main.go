@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -65,9 +66,33 @@ func run(
 	if err != nil {
 		return err
 	}
+	var agentConfig agentdaemon.Config
+	if config.agentConfig != "" {
+		agentConfig, err = agentdaemon.LoadConfig(config.agentConfig)
+		if err != nil {
+			return err
+		}
+	}
+	memory, err := cognition.OpenSQLiteMemoryProvider(
+		filepath.Join(config.dataDir, "agent", "memory.db"),
+		agentConfig.MemoryProviderConfig(),
+	)
+	if err != nil {
+		return fmt.Errorf("open shared memory: %w", err)
+	}
+	defer func() {
+		result = errors.Join(result, memory.Close())
+	}()
+	outcomeSink, err := cognition.NewOutcomeMemorySink(memory)
+	if err != nil {
+		return fmt.Errorf("create Outcome memory projection: %w", err)
+	}
 	service, err := controlplane.OpenFile(
 		config.dataDir,
-		controlplane.Options{PolicyEngine: policyEngine},
+		controlplane.Options{
+			PolicyEngine: policyEngine,
+			OutcomeSink:  outcomeSink,
+		},
 	)
 	if err != nil {
 		return err
@@ -84,13 +109,6 @@ func run(
 	)
 	if err != nil {
 		return err
-	}
-	var agentConfig agentdaemon.Config
-	if config.agentConfig != "" {
-		agentConfig, err = agentdaemon.LoadConfig(config.agentConfig)
-		if err != nil {
-			return err
-		}
 	}
 	catalog, learnedSkills, err := cognition.OpenDefaultSkillCatalog(
 		config.dataDir, agentConfig.Skills,
@@ -115,6 +133,7 @@ func run(
 			Config: agentConfig, DataDir: config.dataDir, Control: service,
 			HTTPToken: config.agentToken, APIKey: config.agentAPIKey,
 			Skills: catalog, LearnedSkills: learnedSkills,
+			Memory: memory, OutcomesRecordedByControl: true,
 		})
 		if err != nil {
 			return fmt.Errorf("start internal Agent Runtime: %w", err)

@@ -246,8 +246,14 @@ func (service *Service) ReportHostResult(
 	if err := validateOperationOutput(output); err != nil {
 		return err
 	}
+	var evidence *OutcomeEvidence
 	service.mu.Lock()
-	defer service.mu.Unlock()
+	defer func() {
+		service.mu.Unlock()
+		if evidence != nil && service.outcomeSink != nil {
+			_ = service.outcomeSink.RecordOutcome(context.Background(), *evidence)
+		}
+	}()
 	if err := service.persistOperationsLocked(); err != nil {
 		return err
 	}
@@ -261,7 +267,11 @@ func (service *Service) ReportHostResult(
 	if operation.outcome != nil {
 		if reflect.DeepEqual(*operation.outcome, outcome) &&
 			bytes.Equal(operation.output, output) {
-			return service.persistOperationsLocked()
+			if err := service.persistOperationsLocked(); err != nil {
+				return err
+			}
+			evidence = operationOutcomeEvidence(operation, outcome)
+			return nil
 		}
 		return fmt.Errorf("%w: terminal result changed", ErrConflict)
 	}
@@ -291,7 +301,28 @@ func (service *Service) ReportHostResult(
 	)
 	service.recordOperationTimelineLocked(operation)
 	service.markOperationsDirtyLocked()
-	return service.persistOperationsLocked()
+	if err := service.persistOperationsLocked(); err != nil {
+		return err
+	}
+	evidence = operationOutcomeEvidence(operation, outcome)
+	return nil
+}
+
+func operationOutcomeEvidence(
+	operation *operationState,
+	outcome host.ActionOutcome,
+) *OutcomeEvidence {
+	if operation == nil || operation.request.ActionRequest == nil {
+		return nil
+	}
+	request := operation.request.ActionRequest
+	return &OutcomeEvidence{
+		TaskID: request.TaskID, OperationID: operation.request.OperationID,
+		HostID: operation.request.HostID, WorldID: operation.request.WorldID,
+		ActorID: request.ActorID, ControllerID: request.ControllerID,
+		Capability: request.Capability, ExpectedEpoch: request.ExpectedEpoch,
+		ObservationSequence: request.ObservationSeq, Outcome: cloneOutcome(outcome),
+	}
 }
 
 // GetOperation returns one operation to its submitting principal.

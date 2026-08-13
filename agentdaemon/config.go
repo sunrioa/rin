@@ -338,11 +338,17 @@ func validateRuntimeConfig(config RuntimeConfig) error {
 	return nil
 }
 
-func (config Config) memoryProviderConfig() cognition.LocalMemoryConfig {
+// MemoryProviderConfig returns the validated local memory limits for shared
+// Control Plane and Agent Runtime ownership.
+func (config Config) MemoryProviderConfig() cognition.LocalMemoryConfig {
 	return cognition.LocalMemoryConfig{
 		MaxActiveRecordsPerNamespace: config.Memory.MaxActiveRecordsPerNamespace,
 		MaxHistoryPerNamespace:       config.Memory.MaxHistoryPerNamespace,
 	}
+}
+
+func (config Config) memoryProviderConfig() cognition.LocalMemoryConfig {
+	return config.MemoryProviderConfig()
 }
 
 func (config ResilienceConfig) providerConfig() provider.ResilienceConfig {
