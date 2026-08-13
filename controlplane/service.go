@@ -458,6 +458,38 @@ func (service *Service) requireLeaseLocked(
 	return current, nil
 }
 
+// ValidateHostActorSnapshot proves that a live Host lease currently owns the
+// named actor publication. It grants no client read or action authority.
+func (service *Service) ValidateHostActorSnapshot(
+	hostID, leaseID, worldID, actorID string,
+) (HostActorSnapshot, error) {
+	for field, value := range map[string]string{
+		"host_id": hostID, "lease_id": leaseID, "world_id": worldID, "actor_id": actorID,
+	} {
+		if err := validateID(field, value); err != nil {
+			return HostActorSnapshot{}, err
+		}
+	}
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	current, err := service.requireLeaseLocked(hostID, leaseID)
+	if err != nil {
+		return HostActorSnapshot{}, err
+	}
+	world, exists := current.worlds[worldID]
+	if !exists {
+		return HostActorSnapshot{}, ErrNotFound
+	}
+	for _, actor := range world.Actors {
+		if actor.ActorID == actorID {
+			return HostActorSnapshot{
+				Epoch: actor.Epoch, ObservationSequence: actor.ObservationSeq,
+			}, nil
+		}
+	}
+	return HostActorSnapshot{}, ErrNotFound
+}
+
 func (service *Service) findWorldLocked(
 	hostID, worldID string,
 ) (*hostState, WorldPublication, error) {

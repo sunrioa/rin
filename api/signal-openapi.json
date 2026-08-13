@@ -1,0 +1,112 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Rin Signal Inbox API",
+    "version": "1.0.0",
+    "description": "Short-lived, Host-authored attention hints. Signals grant no gameplay authority."
+  },
+  "servers": [{"url": "http://127.0.0.1:7375"}],
+  "security": [{"bearerAuth": []}],
+  "paths": {
+    "/signals/v1/host/settings": {
+      "post": {
+        "operationId": "signals_v1_configure_host",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HostSettingsInput"}}}},
+        "responses": {"200": {"description": "Current settings", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Settings"}}}}}
+      }
+    },
+    "/signals/v1/host/publish": {
+      "post": {
+        "operationId": "signals_v1_publish_host",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HostPublishInput"}}}},
+        "responses": {"200": {"description": "Publish result", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PublishResult"}}}}}
+      }
+    },
+    "/signals/v1/list": {
+      "post": {
+        "operationId": "signals_v1_list",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ListInput"}}}},
+        "responses": {"200": {"description": "Signal page", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Page"}}}}}
+      }
+    },
+    "/signals/v1/wait": {
+      "post": {
+        "operationId": "signals_v1_wait",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WaitInput"}}}},
+        "responses": {"200": {"description": "Signal update", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Update"}}}}}
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer"}},
+    "schemas": {
+      "Identifier": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$", "maxLength": 128},
+      "JSONSafeUnsignedInteger": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+      "JSONSafePositiveInteger": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+      "Target": {
+        "type": "object", "additionalProperties": false,
+        "properties": {"host_id": {"$ref": "#/components/schemas/Identifier"}, "world_id": {"$ref": "#/components/schemas/Identifier"}, "actor_id": {"$ref": "#/components/schemas/Identifier"}},
+        "required": ["host_id", "world_id", "actor_id"]
+      },
+      "Epoch": {
+        "type": "object", "additionalProperties": false,
+        "properties": {
+          "session_id": {"$ref": "#/components/schemas/Identifier"}, "world_id": {"$ref": "#/components/schemas/Identifier"},
+          "host": {"$ref": "#/components/schemas/JSONSafePositiveInteger"}, "world": {"$ref": "#/components/schemas/JSONSafePositiveInteger"}, "timeline": {"$ref": "#/components/schemas/JSONSafePositiveInteger"}
+        },
+        "required": ["session_id", "world_id", "host", "world", "timeline"]
+      },
+      "Signal": {
+        "type": "object", "additionalProperties": false,
+        "properties": {
+          "schema_version": {"const": "rin.signal/v1"}, "signal_id": {"$ref": "#/components/schemas/Identifier"},
+          "host_id": {"$ref": "#/components/schemas/Identifier"}, "world_id": {"$ref": "#/components/schemas/Identifier"}, "actor_id": {"$ref": "#/components/schemas/Identifier"},
+          "kind": {"$ref": "#/components/schemas/Identifier"}, "summary": {"type": "string", "minLength": 1, "maxLength": 1000},
+          "epoch": {"$ref": "#/components/schemas/Epoch"}, "observation_sequence": {"$ref": "#/components/schemas/JSONSafePositiveInteger"},
+          "expires_at_unix_millis": {"$ref": "#/components/schemas/JSONSafePositiveInteger"}, "received_at_unix_millis": {"$ref": "#/components/schemas/JSONSafeUnsignedInteger"}, "cursor": {"$ref": "#/components/schemas/JSONSafeUnsignedInteger"}
+        },
+        "required": ["schema_version", "signal_id", "host_id", "world_id", "actor_id", "kind", "summary", "epoch", "observation_sequence", "expires_at_unix_millis", "received_at_unix_millis", "cursor"]
+      },
+      "Settings": {
+        "type": "object", "additionalProperties": false,
+        "properties": {"enabled": {"type": "boolean"}, "cooldown_millis": {"type": "integer", "minimum": 0, "maximum": 3600000}, "max_pending": {"type": "integer", "minimum": 1, "maximum": 256}},
+        "required": ["enabled", "cooldown_millis", "max_pending"]
+      },
+      "HostSettingsInput": {
+        "type": "object", "additionalProperties": false,
+        "properties": {"host_id": {"$ref": "#/components/schemas/Identifier"}, "lease_id": {"$ref": "#/components/schemas/Identifier"}, "world_id": {"$ref": "#/components/schemas/Identifier"}, "actor_id": {"$ref": "#/components/schemas/Identifier"}, "settings": {"$ref": "#/components/schemas/Settings"}},
+        "required": ["host_id", "lease_id", "world_id", "actor_id", "settings"]
+      },
+      "HostPublishInput": {
+        "type": "object", "additionalProperties": false,
+        "properties": {"host_id": {"$ref": "#/components/schemas/Identifier"}, "lease_id": {"$ref": "#/components/schemas/Identifier"}, "signal": {"$ref": "#/components/schemas/Signal"}},
+        "required": ["host_id", "lease_id", "signal"]
+      },
+      "ListInput": {
+        "type": "object", "additionalProperties": false,
+        "properties": {"host_id": {"$ref": "#/components/schemas/Identifier"}, "world_id": {"$ref": "#/components/schemas/Identifier"}, "actor_id": {"$ref": "#/components/schemas/Identifier"}, "after_cursor": {"$ref": "#/components/schemas/JSONSafeUnsignedInteger"}, "limit": {"type": "integer", "minimum": 0, "maximum": 100}},
+        "required": ["host_id", "world_id", "actor_id"]
+      },
+      "WaitInput": {
+        "type": "object", "additionalProperties": false,
+        "properties": {"host_id": {"$ref": "#/components/schemas/Identifier"}, "world_id": {"$ref": "#/components/schemas/Identifier"}, "actor_id": {"$ref": "#/components/schemas/Identifier"}, "after_cursor": {"$ref": "#/components/schemas/JSONSafeUnsignedInteger"}, "limit": {"type": "integer", "minimum": 0, "maximum": 100}, "wait_millis": {"type": "integer", "minimum": 0, "maximum": 25000}},
+        "required": ["host_id", "world_id", "actor_id"]
+      },
+      "PublishResult": {
+        "type": "object", "additionalProperties": false,
+        "properties": {"accepted": {"type": "boolean"}, "reason": {"type": "string", "maxLength": 64}, "cursor": {"$ref": "#/components/schemas/JSONSafeUnsignedInteger"}},
+        "required": ["accepted"]
+      },
+      "Page": {
+        "type": "object", "additionalProperties": false,
+        "properties": {"signals": {"type": "array", "maxItems": 100, "items": {"$ref": "#/components/schemas/Signal"}}, "next_cursor": {"$ref": "#/components/schemas/JSONSafeUnsignedInteger"}, "more": {"type": "boolean"}},
+        "required": ["signals", "next_cursor", "more"]
+      },
+      "Update": {
+        "type": "object", "additionalProperties": false,
+        "properties": {"changed": {"type": "boolean"}, "page": {"$ref": "#/components/schemas/Page"}},
+        "required": ["changed", "page"]
+      }
+    }
+  }
+}

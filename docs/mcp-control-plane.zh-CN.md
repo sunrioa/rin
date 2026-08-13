@@ -202,6 +202,7 @@ Principal 和 Scope 只由 `rin-control` 启动配置决定，不能由 MCP Tool
 | `list_skills` | `skill.read` | 按 Adapter 与可用 Capability 列出 Skill 摘要 |
 | `create_task_plan`、`revise_task_plan` | `actor.control` | 创建或修订有界的粗粒度任务进度 |
 | `get_task_plan`、`wait_task_plan_update` | `actor.read` | 读取或等待共享计划 Revision |
+| `list_actor_signals`、`wait_actor_signals` | `actor.read` | 读取或等待 Host 发布的短期注意提示；不代表动作或完成 |
 | `submit_task_step_action` | `actor.execute` | 为精确的当前计划 Step 提交一个强类型动作 |
 | `get_skill` | `skill.read` | 读取指定版本的完整 Skill 指导 |
 | `save_experience_as_skill` | `skill.write` | 把已核实的过程经验保存为 learned `SKILL.md` |

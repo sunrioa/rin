@@ -91,6 +91,39 @@ func (service *Service) StartTask(
 	principal host.Principal,
 	input cognition.StartTaskInput,
 ) (TaskDispatch, error) {
+	return service.startTask(ctx, principal, input)
+}
+
+// StartSignalTask is the process-local entry point used after signalbox has
+// authenticated a current Host snapshot. It is not exposed by the Agent API.
+func (service *Service) StartSignalTask(
+	ctx context.Context,
+	principal host.Principal,
+	input cognition.StartTaskInput,
+	signal timeline.SignalContextRef,
+) (TaskDispatch, error) {
+	if err := service.authorize(ctx, principal, ScopeTaskExecute); err != nil {
+		return TaskDispatch{}, err
+	}
+	if err := cognition.ValidateStartTaskInput(input); err != nil {
+		return TaskDispatch{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
+	runtime, ok := service.runtime.(signalTaskRuntime)
+	if !ok {
+		return TaskDispatch{}, ErrUnavailable
+	}
+	task, err := runtime.StartSignalTask(ctx, input, signal)
+	if err != nil {
+		return TaskDispatch{}, normalizeServiceError(err)
+	}
+	return TaskDispatch{Task: task, Scheduled: service.enqueue(task.TaskID)}, nil
+}
+
+func (service *Service) startTask(
+	ctx context.Context,
+	principal host.Principal,
+	input cognition.StartTaskInput,
+) (TaskDispatch, error) {
 	if err := service.authorize(ctx, principal, ScopeTaskExecute); err != nil {
 		return TaskDispatch{}, err
 	}

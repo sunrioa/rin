@@ -45,6 +45,25 @@ final class HostControlSessionTest {
                         "/control/v2/host/register", "/control/v2/host/publish")),
                 "Host registration did not precede publication");
         require(session.health().leased(), "Host lease was not recorded");
+        session.configureSignals("world.fixture", "actor.fixture", true, 30_000, 32);
+        session.publishSignal(Map.ofEntries(
+                Map.entry("schema_version", "rin.signal/v1"),
+                Map.entry("signal_id", "signal.fixture"),
+                Map.entry("host_id", "host.fixture"),
+                Map.entry("world_id", "world.fixture"),
+                Map.entry("actor_id", "actor.fixture"),
+                Map.entry("kind", "fixture.player.hurt"),
+                Map.entry("summary", "The player was hurt."),
+                Map.entry("epoch", Map.of(
+                        "session_id", "session.fixture",
+                        "world_id", "world.fixture",
+                        "host", 1L,
+                        "world", 1L,
+                        "timeline", 1L)),
+                Map.entry("observation_sequence", 2L),
+                Map.entry("expires_at_unix_millis", now[0] + 10_000L),
+                Map.entry("received_at_unix_millis", 0L),
+                Map.entry("cursor", 0L)));
         session.poll(8, 0);
         session.acknowledge("operation.fixture", true, "", "");
         session.reportRun(Map.of(
@@ -80,7 +99,8 @@ final class HostControlSessionTest {
         require(paths.containsAll(List.of(
                         "/control/v2/host/poll", "/control/v2/host/ack",
                         "/control/v2/host/run", "/control/v2/host/outcome",
-                        "/control/v2/host/gateway-result")),
+                        "/control/v2/host/gateway-result",
+                        "/signals/v1/host/settings", "/signals/v1/host/publish")),
                 "Host operation lifecycle was incomplete");
         Map<String, ?> outcomeRequest = bodies.get(
                 paths.indexOf("/control/v2/host/outcome"));

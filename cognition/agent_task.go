@@ -75,6 +75,7 @@ type TaskEvent struct {
 	PlanID              string                      `json:"plan_id,omitempty"`
 	PlanRevision        uint64                      `json:"plan_revision,omitempty"`
 	PlanStepID          string                      `json:"plan_step_id,omitempty"`
+	Signal              *timeline.SignalContextRef  `json:"signal,omitempty"`
 }
 
 // TaskSession contains every decision-side value needed to resume without
@@ -680,6 +681,11 @@ func sealTaskEvent(task TaskSession, event TaskEvent, index int) (TaskEvent, err
 			return TaskEvent{}, fmt.Errorf("%s.capability: %w", field, err)
 		}
 	}
+	if event.Signal != nil {
+		if err := timeline.ValidateSignalContextRef(*event.Signal); err != nil {
+			return TaskEvent{}, err
+		}
+	}
 	if len(event.SkillRefs) > 64 || len(event.MemoryContextRefs) > 64 {
 		return TaskEvent{}, fmt.Errorf("%s context references exceed the limit", field)
 	}
@@ -703,6 +709,10 @@ func cloneTaskEvent(event TaskEvent) TaskEvent {
 	if event.Capability != nil {
 		capability := *event.Capability
 		event.Capability = &capability
+	}
+	if event.Signal != nil {
+		signal := *event.Signal
+		event.Signal = &signal
 	}
 	event.SkillRefs = append([]timeline.SkillContextRef(nil), event.SkillRefs...)
 	event.MemoryContextRefs = append([]timeline.MemoryContextRef(nil), event.MemoryContextRefs...)

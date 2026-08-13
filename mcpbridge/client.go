@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/sunrioa/rin/controlplane"
+	"github.com/sunrioa/rin/signalbox"
 	"github.com/sunrioa/rin/skillapi"
 	"github.com/sunrioa/rin/taskstate"
 )
@@ -20,3 +21,8 @@ type SkillClient interface {
 }
 
 type PlanClient = taskstate.PlanClient
+
+type SignalClient interface {
+	List(context.Context, signalbox.ListInput) (signalbox.Page, error)
+	Wait(context.Context, signalbox.WaitInput) (signalbox.Update, error)
+}

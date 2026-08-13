@@ -19,6 +19,7 @@ import (
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/internal/mcpconfig"
 	"github.com/sunrioa/rin/mcpbridge"
+	"github.com/sunrioa/rin/signalbox"
 	"github.com/sunrioa/rin/skillapi"
 	"github.com/sunrioa/rin/taskstate"
 )
@@ -69,8 +70,12 @@ func run(
 	if err != nil {
 		return err
 	}
-	gateway, err := mcpbridge.NewClientWithSkillsAndPlans(
-		client, skillClient, planClient, info.Principal,
+	signalClient, err := signalbox.NewHTTPClient(config.controlURL, config.token)
+	if err != nil {
+		return err
+	}
+	gateway, err := mcpbridge.NewClientWithServices(
+		client, skillClient, planClient, signalClient, info.Principal,
 	)
 	if err != nil {
 		return err

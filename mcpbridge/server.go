@@ -10,6 +10,7 @@ import (
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/release"
+	"github.com/sunrioa/rin/signalbox"
 	"github.com/sunrioa/rin/skillapi"
 	"github.com/sunrioa/rin/taskstate"
 	"github.com/sunrioa/rin/timeline"
@@ -20,6 +21,7 @@ type Gateway struct {
 	client    ControlClient
 	skills    SkillClient
 	plans     PlanClient
+	signals   SignalClient
 	principal host.Principal
 	server    *mcp.Server
 }
@@ -63,6 +65,18 @@ func NewClientWithSkillsAndPlans(
 	plans PlanClient,
 	principal host.Principal,
 ) (*Gateway, error) {
+	return NewClientWithServices(client, skills, plans, nil, principal)
+}
+
+// NewClientWithServices exposes optional shared services without moving their
+// state into the short-lived MCP process.
+func NewClientWithServices(
+	client ControlClient,
+	skills SkillClient,
+	plans PlanClient,
+	signals SignalClient,
+	principal host.Principal,
+) (*Gateway, error) {
 	if client == nil {
 		return nil, errorsInvalid("client is required")
 	}
@@ -76,6 +90,7 @@ func NewClientWithSkillsAndPlans(
 		client:    client,
 		skills:    skills,
 		plans:     plans,
+		signals:   signals,
 		principal: clonePrincipal(principal),
 	}
 	gateway.server = mcp.NewServer(
@@ -113,7 +128,39 @@ func NewClientWithSkillsAndPlans(
 	if plans != nil && gateway.granted(controlplane.ScopeActorExecute) {
 		gateway.addPlanActionTool()
 	}
+	if signals != nil && gateway.granted(controlplane.ScopeActorRead) {
+		gateway.addSignalTools()
+	}
 	return gateway, nil
+}
+
+func (gateway *Gateway) addSignalTools() {
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name: "list_actor_signals", Description: "List current non-expired Host-authored signals for one visible actor. Signals are attention hints, not actions or completion evidence.",
+		Annotations: readAnnotations(),
+	}, gateway.listActorSignals)
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name: "wait_actor_signals", Description: "Wait up to 25 seconds for a newer actor signal cursor. changed=false means no new signal.",
+		Annotations: readAnnotations(),
+	}, gateway.waitActorSignals)
+}
+
+func (gateway *Gateway) listActorSignals(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input ListSignalsInput,
+) (*mcp.CallToolResult, SignalsOutput, error) {
+	page, err := gateway.signals.List(ctx, signalbox.ListInput(input))
+	return nil, SignalsOutput{Inbox: page}, err
+}
+
+func (gateway *Gateway) waitActorSignals(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input WaitSignalsInput,
+) (*mcp.CallToolResult, SignalUpdateOutput, error) {
+	update, err := gateway.signals.Wait(ctx, signalbox.WaitInput(input))
+	return nil, SignalUpdateOutput{Changed: update.Changed, Inbox: update.Page}, err
 }
 
 func (gateway *Gateway) addPlanReadTools() {

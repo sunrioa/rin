@@ -167,6 +167,27 @@ func (runtime *AgentRuntime) StartTask(
 	ctx context.Context,
 	input StartTaskInput,
 ) (TaskSession, error) {
+	return runtime.startTask(ctx, input, nil)
+}
+
+// StartSignalTask starts a task with trusted, process-local Signal evidence.
+// The public Agent HTTP contract only exposes StartTask.
+func (runtime *AgentRuntime) StartSignalTask(
+	ctx context.Context,
+	input StartTaskInput,
+	signal timeline.SignalContextRef,
+) (TaskSession, error) {
+	if err := timeline.ValidateSignalContextRef(signal); err != nil {
+		return TaskSession{}, err
+	}
+	return runtime.startTask(ctx, input, &signal)
+}
+
+func (runtime *AgentRuntime) startTask(
+	ctx context.Context,
+	input StartTaskInput,
+	signalRef *timeline.SignalContextRef,
+) (TaskSession, error) {
 	if err := requireMemoryContext(ctx); err != nil {
 		return TaskSession{}, err
 	}
@@ -219,6 +240,16 @@ func (runtime *AgentRuntime) StartTask(
 		Kind: "task.created", Step: 0, Summary: "Task accepted by the internal Agent Runtime.",
 		AtUnixMillis: now,
 	})
+	if signalRef != nil {
+		signal := *signalRef
+		epoch := actor.Epoch
+		appendTaskEvent(&task, TaskEvent{
+			Kind: "signal.received", Step: 0,
+			Summary:      "Internal initiative task created from a Host signal.",
+			AtUnixMillis: now, ObservationSequence: actor.ObservationSeq,
+			Epoch: &epoch, Signal: &signal,
+		})
+	}
 	created, err := runtime.tasks.Create(ctx, task)
 	if err != nil {
 		_ = runtime.control.ReleaseController(runtime.principal, target, lease.LeaseID)

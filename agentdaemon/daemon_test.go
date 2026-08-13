@@ -8,10 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sunrioa/rin/agentapi"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/controlplane"
+	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/provider"
+	"github.com/sunrioa/rin/signalbox"
 )
 
 const testAgentToken = "0123456789abcdef0123456789abcdef"
@@ -130,6 +134,127 @@ func TestHandlerFailureDoesNotLeakStoreLocks(t *testing.T) {
 	}
 	if err := daemon.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSignalSchedulerWakesOnlyInternalInitiative(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		source    controlplane.DecisionSource
+		wantTasks int
+	}{
+		{name: "internal", source: controlplane.DecisionInternal, wantTasks: 1},
+		{name: "external", source: controlplane.DecisionExternal, wantTasks: 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			control := controlplane.New(controlplane.Options{})
+			defer control.Close()
+			lease, err := control.RegisterHost(signalTestRegistration())
+			if err != nil {
+				t.Fatal(err)
+			}
+			epoch := host.Epoch{
+				SessionID: "session.one", WorldID: "world.one", Host: 1, World: 1, Timeline: 1,
+			}
+			if err := control.PublishWorld(
+				"host.one", lease.LeaseID, signalTestPublication(epoch, test.source),
+			); err != nil {
+				t.Fatal(err)
+			}
+			signals, _ := signalbox.NewStore(signalbox.StoreConfig{})
+			defer signals.Close()
+			_, err = signals.Configure(
+				signalbox.Target{HostID: "host.one", WorldID: "world.one", ActorID: "actor.one"},
+				signalbox.Settings{Enabled: true, MaxPending: 8},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			config := testConfig(AuthenticationBearerEnv)
+			config.Personas[0].Initiative = cognition.InitiativePolicy{
+				Enabled: true, MaxConsecutiveActions: 1, Triggers: []string{"test.player.hurt"},
+			}
+			daemon, err := Open(Options{
+				Config: config, DataDir: t.TempDir(), Control: control,
+				HTTPToken: testAgentToken, GenerationProvider: inertGenerationProvider{},
+				Signals: signals,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer daemon.Close()
+			current := signalbox.Signal{
+				SignalID: "signal.one", HostID: "host.one", WorldID: "world.one", ActorID: "actor.one",
+				Kind: "test.player.hurt", Summary: "The player was hurt.", Epoch: epoch,
+				ObservationSequence: 2, ExpiresAtUnixMillis: time.Now().Add(time.Minute).UnixMilli(),
+			}
+			if result, err := signals.Publish(current); err != nil || !result.Accepted {
+				t.Fatalf("publish = %#v, %v", result, err)
+			}
+			deadline := time.Now().Add(time.Second)
+			for {
+				snapshot, err := daemon.tasks.Snapshot(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				ready := len(snapshot.Tasks) == test.wantTasks
+				if test.wantTasks == 0 {
+					ready = time.Now().After(deadline)
+				}
+				if ready || time.Now().After(deadline) {
+					if len(snapshot.Tasks) != test.wantTasks {
+						t.Fatalf("tasks = %#v, want %d", snapshot.Tasks, test.wantTasks)
+					}
+					if test.wantTasks == 1 {
+						task := snapshot.Tasks[0]
+						if task.TaskID != proactiveTaskID(current) || task.Budget.MaxActions != 1 ||
+							len(task.History) < 2 || task.History[1].Kind != "signal.received" ||
+							task.History[1].Signal == nil || task.History[1].Signal.SignalID != current.SignalID {
+							t.Fatalf("signal task = %#v", task)
+						}
+					}
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		})
+	}
+}
+
+func signalTestRegistration() controlplane.HostRegistration {
+	return controlplane.HostRegistration{
+		ContractVersion: controlplane.ContractVersion, HostID: "host.one",
+		InstanceID: "instance.one", LeaseTTLMillis: 5_000,
+		Manifest: host.HostManifest{
+			ContractVersion: host.ContractVersion, AdapterID: "test.adapter", AdapterVersion: "1.0.0",
+			EngineID: "test.engine", EngineVersion: "1", Runtime: "go", Platform: "test",
+			Headless: true, Authority: host.AuthorityServer,
+			Deployment: host.DeploymentLoopbackSidecar, Control: host.ControlSemantic,
+			ClockModes:          []host.ClockMode{host.ClockStep},
+			DecisionModes:       []host.DecisionMode{host.DecisionAsynchronous},
+			MaxConcurrentActors: 4,
+			Durability:          host.Durability{Profile: host.DurabilityAdvisory, StableIdentity: true},
+		},
+	}
+}
+
+func signalTestPublication(
+	epoch host.Epoch,
+	source controlplane.DecisionSource,
+) controlplane.WorldPublication {
+	authority := &controlplane.DecisionAuthority{
+		Source: source, Revision: 1, PersonaMode: controlplane.PersonaCharacterBound,
+	}
+	if source == controlplane.DecisionExternal {
+		authority.ControllerPrincipalID = "player.one"
+	}
+	return controlplane.WorldPublication{
+		WorldID: "world.one", DisplayName: "World", Sequence: 1,
+		Actors: []controlplane.ActorPublication{{
+			ActorID: "actor.one", OwnerPrincipalID: "player.one", DisplayName: "Companion",
+			ObservationSeq: 2, Epoch: epoch, Authority: authority,
+			State: json.RawMessage(`{"status":"ready"}`),
+		}},
 	}
 }
 

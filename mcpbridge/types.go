@@ -4,6 +4,7 @@ import (
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/signalbox"
 	"github.com/sunrioa/rin/skillapi"
 	"github.com/sunrioa/rin/taskstate"
 	"github.com/sunrioa/rin/timeline"
@@ -28,6 +29,18 @@ type PlanOutput struct {
 }
 
 type PlanUpdateOutput taskstate.PlanUpdate
+
+type ListSignalsInput = signalbox.ListInput
+type WaitSignalsInput = signalbox.WaitInput
+
+type SignalsOutput struct {
+	Inbox signalbox.Page `json:"inbox"`
+}
+
+type SignalUpdateOutput struct {
+	Changed bool           `json:"changed"`
+	Inbox   signalbox.Page `json:"inbox"`
+}
 
 type ChangeTaskPlanStatusInput struct {
 	PlanID           string `json:"plan_id" jsonschema:"plan identifier returned by create_task_plan"`

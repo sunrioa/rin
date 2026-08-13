@@ -23,6 +23,7 @@ import (
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/internal/jsonwire"
 	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/signalbox"
 	"github.com/sunrioa/rin/skillapi"
 	"github.com/sunrioa/rin/taskstate"
 )
@@ -128,6 +129,21 @@ func run(
 	if err != nil {
 		return err
 	}
+	signals, err := signalbox.NewStore(signalbox.StoreConfig{})
+	if err != nil {
+		return err
+	}
+	defer signals.Close()
+	signalService, err := signalbox.NewService(signals, service, planControlClient)
+	if err != nil {
+		return err
+	}
+	signalHandler, err := signalbox.NewHTTPHandler(
+		signalService, signalbox.HTTPOptions{Token: config.token},
+	)
+	if err != nil {
+		return err
+	}
 	handler, err := controlplane.NewHTTPHandler(
 		service,
 		controlplane.HTTPOptions{
@@ -162,7 +178,7 @@ func run(
 			HTTPToken: config.agentToken, APIKey: config.agentAPIKey,
 			Skills: catalog, LearnedSkills: learnedSkills,
 			Memory: memory, OutcomesRecordedByControl: true,
-			PlanStore: planStore,
+			PlanStore: planStore, Signals: signals,
 		})
 		if err != nil {
 			return fmt.Errorf("start internal Agent Runtime: %w", err)
@@ -172,7 +188,7 @@ func run(
 		}()
 		agentHandler = internalAgent.Handler()
 	}
-	rootHandler := composeHandlers(handler, skillHandler, agentHandler, planHandler)
+	rootHandler := composeHandlers(handler, skillHandler, agentHandler, planHandler, signalHandler)
 	listener, err := net.Listen("tcp", config.address)
 	if err != nil {
 		return fmt.Errorf("listen for Host Control: %w", err)
@@ -336,6 +352,9 @@ func composeHandlers(
 	mux.Handle("/skills/", skillHandler)
 	if len(additional) != 0 && additional[0] != nil {
 		mux.Handle("/plans/", additional[0])
+	}
+	if len(additional) > 1 && additional[1] != nil {
+		mux.Handle("/signals/", additional[1])
 	}
 	if agentHandler != nil {
 		mux.Handle("/agent/", agentHandler)

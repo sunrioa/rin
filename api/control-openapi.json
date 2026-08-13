@@ -3659,6 +3659,9 @@
           "capability": {
             "$ref": "#/components/schemas/CapabilityRef"
           },
+          "signal": {
+            "$ref": "#/components/schemas/SignalContextRef"
+          },
           "skill_refs": {
             "type": "array",
             "items": {
@@ -3728,6 +3731,16 @@
           }
         },
         "required": ["skill_id", "version", "digest"]
+      },
+      "SignalContextRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "signal_id": { "$ref": "#/components/schemas/Identifier" },
+          "kind": { "$ref": "#/components/schemas/Identifier" },
+          "cursor": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+        },
+        "required": ["signal_id", "kind", "cursor"]
       },
       "ModelUsage": {
         "type": "object",

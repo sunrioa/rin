@@ -141,6 +141,13 @@ type HostLease struct {
 	ExpiresAtUnixMillis int64  `json:"expires_at_unix_millis"`
 }
 
+// HostActorSnapshot is the minimum cursor needed by an adjacent generic
+// service to verify that a Host-authored event belongs to the current actor.
+type HostActorSnapshot struct {
+	Epoch               host.Epoch `json:"epoch"`
+	ObservationSequence uint64     `json:"observation_sequence"`
+}
+
 // WorldPublication atomically replaces one host's read model for a world.
 type WorldPublication struct {
 	WorldID     string             `json:"world_id"`

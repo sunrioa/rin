@@ -16,8 +16,9 @@ contracts. Documentation examples never replace authoritative game-adapter check
 6. [Internal Agent Runtime](internal-agent-runtime.md): persona, memory, skills, models, and task execution.
 7. [Task timeline](task-timeline.md): inspect public task decisions, policy, delivery, and authoritative outcomes.
 8. [Task plans](task-plans.md): coordinate bounded multi-action work without bypassing the action gateway.
-8. [Host scaffolding](host-scaffolding.md): generate a contract skeleton for a language and engine.
-9. [Integration acceptance](host-integration-validation.md): automated gates and human game testing.
+9. [Signal inbox](signals.md): receive short-lived Host attention hints for internal wake-up or external MCP reads.
+10. [Host scaffolding](host-scaffolding.md): generate a contract skeleton for a language and engine.
+11. [Integration acceptance](host-integration-validation.md): automated gates and human game testing.
 
 Additional material:
 
@@ -33,6 +34,7 @@ Additional material:
 | Control `rin.control/v2` | `api/control-openapi.json`, `controlplane/*.go` |
 | Agent Task API `v1` | `api/agent-openapi.json`, `agentapi/*.go` |
 | Task timeline `v1` | `timeline/*.go`, `api/task-timeline-v1-fixtures.json` |
+| Signal `rin.signal/v1` | `signalbox/*.go`, `api/signal-openapi.json` |
 | MCP tools | `mcpbridge/server.go` |
 | Gameplay policy | `policy/*.go` |
 

@@ -16,6 +16,7 @@ import (
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/signalbox"
 )
 
 func TestGatewayNegotiatesCurrentProtocolAndReadsV2State(t *testing.T) {
@@ -145,6 +146,67 @@ func TestGatewayAcceptsOlderProtocolThroughOfficialNegotiation(t *testing.T) {
 	var tools mcp.ListToolsResult
 	if err := json.Unmarshal(payload, &tools); err != nil || len(tools.Tools) == 0 {
 		t.Fatalf("older tools/list = %#v, %v", tools, err)
+	}
+}
+
+func TestGatewayExposesHostSignalsAsReadOnlyHints(t *testing.T) {
+	environment := newMCPEnvironment(t, host.RiskLow)
+	principal := readPrincipal()
+	client, err := controlplane.NewClientService(environment.service, principal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := signalbox.NewStore(signalbox.StoreConfig{
+		Now: func() time.Time { return time.UnixMilli(1_000_000) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.Configure(signalbox.Target{
+		HostID: "test.host", WorldID: "world.one", ActorID: "actor.one",
+	}, signalbox.Settings{Enabled: true, MaxPending: 8}); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := store.Publish(signalbox.Signal{
+		SignalID: "signal.one", HostID: "test.host", WorldID: "world.one", ActorID: "actor.one",
+		Kind: "test.player.hurt", Summary: "The player was hurt.", Epoch: testEpoch(),
+		ObservationSequence: 1, ExpiresAtUnixMillis: 1_010_000,
+	}); err != nil || !result.Accepted {
+		t.Fatalf("publish = %#v, %v", result, err)
+	}
+	signals, err := signalbox.NewService(store, environment.service, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway, err := NewClientWithServices(client, nil, nil, signals, principal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	serverSession, err := gateway.Server().Connect(testContext(t), serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = serverSession.Close() })
+	mcpClient := mcp.NewClient(&mcp.Implementation{Name: "rin-test", Version: "1.0.0"}, nil)
+	session, err := mcpClient.Connect(testContext(t), clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+	tools, err := session.ListTools(testContext(t), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := toolNames(tools.Tools)
+	if !slices.Contains(names, "list_actor_signals") || !slices.Contains(names, "wait_actor_signals") {
+		t.Fatalf("signal tools = %v", names)
+	}
+	var listed SignalsOutput
+	callTool(t, session, "list_actor_signals", actorTargetArguments(), &listed)
+	if len(listed.Inbox.Signals) != 1 || listed.Inbox.Signals[0].SignalID != "signal.one" {
+		t.Fatalf("list_actor_signals = %#v", listed)
 	}
 }
 

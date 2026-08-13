@@ -15,8 +15,9 @@
 6. [内部 Agent Runtime](internal-agent-runtime.zh-CN.md)：人格、记忆、Skill、模型和任务执行。
 7. [任务时间线](task-timeline.zh-CN.md)：查看公开任务决策、策略、投递与权威结果。
 8. [任务计划](task-plans.zh-CN.md)：在不绕过动作网关的前提下协调有界复杂任务。
-8. [Host 脚手架](host-scaffolding.zh-CN.md)：生成契约骨架并接入自己的语言与引擎。
-9. [集成验收](host-integration-validation.zh-CN.md)：自动门禁与真人游戏测试。
+9. [Signal 收件箱](signals.zh-CN.md)：由 Host 发布短期注意提示，供内部唤醒或外部 MCP 读取。
+10. [Host 脚手架](host-scaffolding.zh-CN.md)：生成契约骨架并接入自己的语言与引擎。
+11. [集成验收](host-integration-validation.zh-CN.md)：自动门禁与真人游戏测试。
 
 补充资料：
 
@@ -32,6 +33,7 @@
 | Control `rin.control/v2` | `api/control-openapi.json`、`controlplane/*.go` |
 | Agent Task API `v1` | `api/agent-openapi.json`、`agentapi/*.go` |
 | Task Timeline `v1` | `timeline/*.go`、`api/task-timeline-v1-fixtures.json` |
+| Signal `rin.signal/v1` | `signalbox/*.go`、`api/signal-openapi.json` |
 | MCP Tool | `mcpbridge/server.go` |
 | Gameplay Policy | `policy/*.go` |
 

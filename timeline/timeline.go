@@ -39,6 +39,12 @@ type SkillContextRef struct {
 	Digest  string `json:"digest"`
 }
 
+type SignalContextRef struct {
+	SignalID string `json:"signal_id"`
+	Kind     string `json:"kind"`
+	Cursor   uint64 `json:"cursor"`
+}
+
 // ModelUsage contains measured provider metadata only. A nil pointer means the
 // provider did not report that metric; callers must not interpret it as zero.
 type ModelUsage struct {
@@ -81,16 +87,17 @@ type Event struct {
 	Cursor               string `json:"cursor"`
 	OccurredAtUnixMillis int64  `json:"occurred_at_unix_millis"`
 
-	TaskID       string `json:"task_id"`
-	SessionID    string `json:"session_id,omitempty"`
-	HostID       string `json:"host_id,omitempty"`
-	WorldID      string `json:"world_id,omitempty"`
-	ActorID      string `json:"actor_id,omitempty"`
-	ControllerID string `json:"controller_id,omitempty"`
-	Step         uint32 `json:"step,omitempty"`
-	PlanID       string `json:"plan_id,omitempty"`
-	PlanRevision uint64 `json:"plan_revision,omitempty"`
-	PlanStepID   string `json:"plan_step_id,omitempty"`
+	TaskID       string            `json:"task_id"`
+	SessionID    string            `json:"session_id,omitempty"`
+	HostID       string            `json:"host_id,omitempty"`
+	WorldID      string            `json:"world_id,omitempty"`
+	ActorID      string            `json:"actor_id,omitempty"`
+	ControllerID string            `json:"controller_id,omitempty"`
+	Step         uint32            `json:"step,omitempty"`
+	PlanID       string            `json:"plan_id,omitempty"`
+	PlanRevision uint64            `json:"plan_revision,omitempty"`
+	PlanStepID   string            `json:"plan_step_id,omitempty"`
+	Signal       *SignalContextRef `json:"signal,omitempty"`
 
 	EventKind     string `json:"event_kind"`
 	PublicSummary string `json:"public_summary,omitempty"`
@@ -346,6 +353,13 @@ func sealEvent(snapshot Snapshot, record Record) (Event, error) {
 	}).Validate("plan_step_ref"); err != nil {
 		return Event{}, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
+	if event.Signal != nil {
+		if err := ValidateSignalContextRef(*event.Signal); err != nil {
+			return Event{}, err
+		}
+		signal := *event.Signal
+		event.Signal = &signal
+	}
 	if err := validateContextRefs(event); err != nil {
 		return Event{}, err
 	}
@@ -389,6 +403,19 @@ func sealEvent(snapshot Snapshot, record Record) (Event, error) {
 		event.Operation = &operation
 	}
 	return event, nil
+}
+
+func ValidateSignalContextRef(value SignalContextRef) error {
+	if err := validateText("signal_id", value.SignalID, 128, true); err != nil {
+		return err
+	}
+	if err := validateText("signal.kind", value.Kind, 128, true); err != nil {
+		return err
+	}
+	if value.Cursor == 0 || value.Cursor > maxJSONSafeUint {
+		return fmt.Errorf("%w: signal cursor is invalid", ErrInvalid)
+	}
+	return nil
 }
 
 func validateContextRefs(event Event) error {

@@ -221,6 +221,7 @@ Daemon scopes register the remaining tools:
 | `list_skills` | `skill.read` | List summaries compatible with an adapter and available capabilities |
 | `create_task_plan`, `revise_task_plan` | `actor.control` | Create or revise bounded coarse task progress |
 | `get_task_plan`, `wait_task_plan_update` | `actor.read` | Read or wait for a shared plan revision |
+| `list_actor_signals`, `wait_actor_signals` | `actor.read` | Read or wait for short-lived Host attention hints; never action or completion evidence |
 | `submit_task_step_action` | `actor.execute` | Submit one typed action for the exact active plan step |
 | `get_skill` | `skill.read` | Read one exact version of a complete skill |
 | `save_experience_as_skill` | `skill.write` | Save verified procedural guidance as a learned `SKILL.md` |

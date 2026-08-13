@@ -84,6 +84,45 @@ public final class HostControlSession {
                 "publication", copyObject(publication)));
     }
 
+    /** Configures the bounded Signal inbox for one actor under the current Host lease. */
+    public synchronized Map<String, Object> configureSignals(
+            String worldId,
+            String actorId,
+            boolean enabled,
+            int cooldownMillis,
+            int maxPending) throws IOException, InterruptedException {
+        if (cooldownMillis < 0 || cooldownMillis > 3_600_000
+                || maxPending < 1 || maxPending > 256) {
+            throw new IllegalArgumentException("Invalid Signal inbox settings");
+        }
+        ensureCurrentLease();
+        return transport.post("/signals/v1/host/settings", mapOf(
+                "host_id", hostId(),
+                "lease_id", leaseId(),
+                "world_id", identifier(worldId, "worldId"),
+                "actor_id", identifier(actorId, "actorId"),
+                "settings", mapOf(
+                        "enabled", enabled,
+                        "cooldown_millis", cooldownMillis,
+                        "max_pending", maxPending)));
+    }
+
+    /** Publishes one current, Host-authored Signal. It does not grant action authority. */
+    public synchronized Map<String, Object> publishSignal(Map<String, ?> signal)
+            throws IOException, InterruptedException {
+        Map<String, Object> copy = copyObject(inputObject(signal, "signal"));
+        String signalHost = identifier(
+                inputText(copy.get("host_id"), "signal.host_id"), "signal.host_id");
+        ensureCurrentLease();
+        if (!hostId().equals(signalHost)) {
+            throw new IllegalArgumentException("Signal host does not match the current lease");
+        }
+        return transport.post("/signals/v1/host/publish", mapOf(
+                "host_id", hostId(),
+                "lease_id", leaseId(),
+                "signal", copy));
+    }
+
     public synchronized Map<String, Object> poll(int limit, int waitMillis)
             throws IOException, InterruptedException {
         if (limit < 1 || limit > 64 || waitMillis < 0 || waitMillis > 25_000) {

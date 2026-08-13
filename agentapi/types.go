@@ -43,6 +43,14 @@ type TaskRuntime interface {
 	WaitTaskTimeline(context.Context, timeline.WaitInput) (timeline.Update, error)
 }
 
+type signalTaskRuntime interface {
+	StartSignalTask(
+		context.Context,
+		cognition.StartTaskInput,
+		timeline.SignalContextRef,
+	) (cognition.TaskSession, error)
+}
+
 type Options struct {
 	Runtime           TaskRuntime
 	WorkerCount       uint32
