@@ -14,6 +14,7 @@ import (
 
 	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/controlplane"
+	"github.com/sunrioa/rin/experience"
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/timeline"
 )
@@ -66,6 +67,50 @@ func TestAgentRuntimeCompletesMultiStepTaskThroughControlPlane(t *testing.T) {
 		if match.Record.MemoryID == "task.follow.outcome.1" && !match.Record.Provenance.Authoritative {
 			t.Fatal("Host outcome lost its authoritative provenance")
 		}
+	}
+}
+
+func TestAgentRuntimeCreatesDraftOnlyAfterVerifiedComplexTask(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	fixture.model.decisions = []cognition.ModelDecision{
+		agentActionDecision(),
+		{Kind: cognition.ModelDecisionComplete, Summary: "The player has been reached."},
+	}
+	fixture.control.operationAfterSubmit = succeededAgentOperation(fixture.environment.observation)
+	drafts := &recordingSkillWriter{}
+	generator := &recordingDraftGenerator{}
+	runtime, err := cognition.NewAgentRuntime(cognition.AgentRuntimeOptions{
+		Principal: fixture.principal, Control: fixture.control, Environment: fixture.environment,
+		Persona: fixture.persona, Memory: fixture.memory, Skills: fixture.skills,
+		Model: fixture.model, Tasks: fixture.tasks, Decisions: fixture.decisions, Now: fixture.now,
+		MaxAdvancesPerRun: 16,
+		Learning: &cognition.SkillLearningOptions{
+			Generator: generator, Drafts: drafts, Mode: cognition.SkillPublishDraft,
+			MinActions: 1, Adapter: "test.adapter",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := fixture.start(t, runtime, "task.learn-draft")
+	completed, err := runtime.RunTask(context.Background(), task.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.SkillLearning == nil ||
+		completed.SkillLearning.Status != cognition.SkillLearningDrafted ||
+		len(drafts.skills) != 1 || generator.calls != 1 {
+		t.Fatalf("learning = %#v, drafts = %#v, calls = %d", completed.SkillLearning, drafts.skills, generator.calls)
+	}
+	if drafts.skills[0].Adapters[0] != "test.adapter" ||
+		!slices.Contains(drafts.skills[0].Capabilities, "rin.navigation.move-to") {
+		t.Fatalf("draft scope = %#v", drafts.skills[0])
+	}
+	if _, err := runtime.RunTask(context.Background(), task.TaskID); err != nil {
+		t.Fatal(err)
+	}
+	if generator.calls != 1 {
+		t.Fatalf("completed task regenerated its draft %d times", generator.calls)
 	}
 }
 
@@ -1150,6 +1195,42 @@ type scriptedModelProvider struct {
 	err       error
 	inputs    []cognition.ModelInput
 	cancel    context.CancelFunc
+}
+
+type recordingDraftGenerator struct {
+	calls int
+}
+
+func (generator *recordingDraftGenerator) Generate(
+	_ context.Context,
+	request experience.DraftRequest,
+) (experience.SkillDraft, error) {
+	generator.calls++
+	if request.Episode.VerifiedResult == nil || !request.Episode.VerifiedResult.Success {
+		return experience.SkillDraft{}, errors.New("episode is not verified")
+	}
+	capabilities := []string(nil)
+	for _, event := range request.Episode.Events {
+		if event.Evidence.Capability != nil {
+			capabilities = append(capabilities, event.Evidence.Capability.ID)
+		}
+	}
+	capabilities = slices.Compact(capabilities)
+	return experience.SkillDraft{
+		SkillID: request.SkillID, Version: "v1", Description: "Follow a nearby player",
+		Instructions: "Observe the player, move using current capabilities, and verify the outcome.",
+		Triggers:     request.Episode.Tags, Adapters: []string{request.Adapter},
+		Capabilities: capabilities,
+	}, nil
+}
+
+type recordingSkillWriter struct {
+	skills []cognition.Skill
+}
+
+func (writer *recordingSkillWriter) Save(_ context.Context, skill cognition.Skill) error {
+	writer.skills = append(writer.skills, skill)
+	return nil
 }
 
 func (model *scriptedModelProvider) Decide(

@@ -106,6 +106,28 @@ func TestNormalizeConfigRejectsRemotePlaintextModelTransport(t *testing.T) {
 	}
 }
 
+func TestNormalizeConfigKeepsExperienceLearningExplicit(t *testing.T) {
+	config := testConfig(AuthenticationNone)
+	config.Learning.MinActions = 2
+	if _, err := normalizeConfig(config); err == nil {
+		t.Fatal("learning settings without enabled=true were accepted")
+	}
+	config.Learning = LearningConfig{
+		Enabled: true, Adapter: "minecraft", PublishMode: "draft",
+	}
+	sealed, err := normalizeConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sealed.Learning.MinActions != 3 || sealed.Learning.MaxOutputTokens != 1_200 {
+		t.Fatalf("learning defaults = %#v", sealed.Learning)
+	}
+	config.Learning.PublishMode = "public"
+	if _, err := normalizeConfig(config); err == nil {
+		t.Fatal("unknown learning publish mode was accepted")
+	}
+}
+
 func testConfig(authentication string) Config {
 	return Config{
 		ContractVersion: ConfigVersion,

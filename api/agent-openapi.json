@@ -953,6 +953,9 @@
             },
             "maxItems": 8
           },
+          "skill_learning": {
+            "$ref": "#/components/schemas/SkillLearningState"
+          },
           "last_observation_id": {
             "$ref": "#/components/schemas/Identifier"
           },
@@ -996,6 +999,31 @@
           "created_at_unix_millis",
           "updated_at_unix_millis"
         ]
+      },
+      "SkillLearningState": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["pending", "drafted", "enabled", "skipped", "failed"]
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3
+          },
+          "skill_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "digest": {
+            "$ref": "#/components/schemas/SHA256"
+          },
+          "code": {
+            "$ref": "#/components/schemas/Identifier"
+          }
+        },
+        "required": ["status", "attempts"]
       },
       "TaskEvent": {
         "type": "object",

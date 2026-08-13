@@ -37,6 +37,7 @@ type Config struct {
 	Tasks            TaskConfig                 `json:"tasks,omitempty"`
 	Scheduler        SchedulerConfig            `json:"scheduler,omitempty"`
 	Runtime          RuntimeConfig              `json:"runtime,omitempty"`
+	Learning         LearningConfig             `json:"learning,omitempty"`
 }
 
 type ModelConfig struct {
@@ -83,6 +84,14 @@ type RuntimeConfig struct {
 	MaxAdvancesPerRun     uint32 `json:"max_advances_per_run,omitempty"`
 	MemoryMaxRecords      uint32 `json:"memory_max_records,omitempty"`
 	MemoryMaxCharacters   uint32 `json:"memory_max_characters,omitempty"`
+}
+
+type LearningConfig struct {
+	Enabled         bool   `json:"enabled,omitempty"`
+	PublishMode     string `json:"publish_mode,omitempty"`
+	MinActions      uint32 `json:"min_actions,omitempty"`
+	Adapter         string `json:"adapter,omitempty"`
+	MaxOutputTokens int    `json:"max_output_tokens,omitempty"`
 }
 
 // LoadConfig reads one strict, private configuration. Credentials are not a
@@ -162,7 +171,53 @@ func normalizeConfig(config Config) (Config, error) {
 	if err := validateRuntimeConfig(config.Runtime); err != nil {
 		return Config{}, err
 	}
+	if err := normalizeLearningConfig(&config.Learning); err != nil {
+		return Config{}, err
+	}
 	return config, nil
+}
+
+func normalizeLearningConfig(config *LearningConfig) error {
+	config.PublishMode = strings.TrimSpace(config.PublishMode)
+	config.Adapter = strings.TrimSpace(config.Adapter)
+	if !config.Enabled {
+		if config.PublishMode != "" || config.MinActions != 0 || config.Adapter != "" ||
+			config.MaxOutputTokens != 0 {
+			return errors.New("learning settings require learning.enabled=true")
+		}
+		return nil
+	}
+	if config.PublishMode == "" {
+		config.PublishMode = string(cognition.SkillPublishDraft)
+	}
+	if config.PublishMode != string(cognition.SkillPublishDraft) &&
+		config.PublishMode != string(cognition.SkillPublishLearned) {
+		return errors.New("learning.publish_mode must be draft or learned")
+	}
+	if config.MinActions == 0 {
+		config.MinActions = 3
+	}
+	if config.MinActions > 100 {
+		return errors.New("learning.min_actions must not exceed 100")
+	}
+	if config.Adapter != "" {
+		if _, err := cognition.NewLocalSkillProvider([]cognition.Skill{{
+			SkillSummary: cognition.SkillSummary{
+				SkillID: "validation.skill", Version: "v1", Summary: "Validation",
+				Source: "system", Adapters: []string{config.Adapter},
+			},
+			Instructions: "Validation only.",
+		}}); err != nil {
+			return fmt.Errorf("learning.adapter: %w", err)
+		}
+	}
+	if config.MaxOutputTokens == 0 {
+		config.MaxOutputTokens = 1_200
+	}
+	if config.MaxOutputTokens < 128 || config.MaxOutputTokens > 4_096 {
+		return errors.New("learning.max_output_tokens must be between 128 and 4096")
+	}
+	return nil
 }
 
 func validateTaskPrincipal(principal host.Principal) error {

@@ -42,6 +42,10 @@ type SkillProvider interface {
 	Health(context.Context) ProviderHealth
 }
 
+type SkillWriter interface {
+	Save(context.Context, Skill) error
+}
+
 type LocalSkillProvider struct {
 	mu     sync.RWMutex
 	skills map[string]Skill

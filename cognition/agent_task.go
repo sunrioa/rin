@@ -36,6 +36,24 @@ type TaskBudget struct {
 	MaxActions     uint32 `json:"max_actions"`
 }
 
+type SkillLearningStatus string
+
+const (
+	SkillLearningPending SkillLearningStatus = "pending"
+	SkillLearningDrafted SkillLearningStatus = "drafted"
+	SkillLearningEnabled SkillLearningStatus = "enabled"
+	SkillLearningSkipped SkillLearningStatus = "skipped"
+	SkillLearningFailed  SkillLearningStatus = "failed"
+)
+
+type SkillLearningState struct {
+	Status   SkillLearningStatus `json:"status"`
+	Attempts uint32              `json:"attempts"`
+	SkillID  string              `json:"skill_id,omitempty"`
+	Digest   string              `json:"digest,omitempty"`
+	Code     string              `json:"code,omitempty"`
+}
+
 type TaskEvent struct {
 	Sequence            uint64                      `json:"sequence"`
 	Kind                string                      `json:"kind"`
@@ -84,6 +102,7 @@ type TaskSession struct {
 	PendingOperationID string                       `json:"pending_operation_id,omitempty"`
 	MacroOperationID   string                       `json:"macro_operation_id,omitempty"`
 	PendingMemories    []MemoryRecord               `json:"pending_memories,omitempty"`
+	SkillLearning      *SkillLearningState          `json:"skill_learning,omitempty"`
 
 	LastObservationID   string      `json:"last_observation_id,omitempty"`
 	LastObservationSeq  uint64      `json:"last_observation_sequence,omitempty"`
@@ -352,6 +371,13 @@ func sealTaskSession(task TaskSession) (TaskSession, error) {
 	if len(task.PendingMemories) > 8 {
 		return TaskSession{}, errors.New("task has too many pending memories")
 	}
+	if task.SkillLearning != nil {
+		learning := *task.SkillLearning
+		if err := validateSkillLearningState(learning); err != nil {
+			return TaskSession{}, err
+		}
+		task.SkillLearning = &learning
+	}
 	task.PendingMemories = append([]MemoryRecord(nil), task.PendingMemories...)
 	for index, record := range task.PendingMemories {
 		sealed, err := sealMemoryRecord(record)
@@ -498,6 +524,10 @@ func validateTaskID(taskID string) error {
 func cloneTaskSession(task TaskSession) TaskSession {
 	task.Tags = append([]string(nil), task.Tags...)
 	task.AllowedCapabilities = append([]string(nil), task.AllowedCapabilities...)
+	if task.SkillLearning != nil {
+		learning := *task.SkillLearning
+		task.SkillLearning = &learning
+	}
 	if task.PendingAction != nil {
 		request := cloneTaskActionRequest(*task.PendingAction)
 		task.PendingAction = &request
@@ -513,6 +543,35 @@ func cloneTaskSession(task TaskSession) TaskSession {
 		task.History[index] = cloneTaskEvent(event)
 	}
 	return task
+}
+
+func validateSkillLearningState(state SkillLearningState) error {
+	if state.Attempts == 0 || state.Attempts > 3 {
+		return errors.New("skill learning attempts are invalid")
+	}
+	switch state.Status {
+	case SkillLearningPending:
+		if state.SkillID != "" || state.Digest != "" || state.Code != "" {
+			return errors.New("pending skill learning contains a result")
+		}
+	case SkillLearningDrafted, SkillLearningEnabled:
+		if err := validateProviderID("skill_learning.skill_id", state.SkillID); err != nil {
+			return err
+		}
+		if !providerDigestPattern.MatchString(state.Digest) || state.Code != "" {
+			return errors.New("completed skill learning result is invalid")
+		}
+	case SkillLearningSkipped, SkillLearningFailed:
+		if err := validateProviderID("skill_learning.code", state.Code); err != nil {
+			return err
+		}
+		if state.SkillID != "" || state.Digest != "" {
+			return errors.New("unsuccessful skill learning contains a skill")
+		}
+	default:
+		return errors.New("skill learning status is invalid")
+	}
+	return nil
 }
 
 func taskAllowsCapability(task TaskSession, capabilityID string) bool {

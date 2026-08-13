@@ -57,7 +57,14 @@ Runtime 当前推进显式创建的 Task，不会仅凭 Persona 的 `initiative_
   "persona_bindings": [{
     "persona_id": "companion",
     "version": "v1"
-  }]
+  }],
+  "learning": {
+    "enabled": true,
+    "publish_mode": "draft",
+    "min_actions": 3,
+    "adapter": "minecraft",
+    "max_output_tokens": 1200
+  }
 }
 ```
 
@@ -108,6 +115,13 @@ Skill、`skills/installed` 与 `skills/learned` 被合并成同一确定性目�
 
 外部 MCP Controller 的人格和私有记忆由外部 Agent 管理，不会被 Internal Persona
 覆盖，也不会自动复制进 Rin Memory。
+
+`learning` 默认关闭。开启后，只有至少完成 `min_actions` 次动作、且时间线包含 Host
+权威成功 Outcome 的已完成任务才会额外调用一次模型生成经验 Skill。默认
+`publish_mode=draft`，文件写入 `skills/drafts`，不会进入活动 Catalog；明确改成
+`learned` 才写入 `skills/learned` 并在后续任务中可见。草稿输入不含 Operation ID、
+HostRef、坐标、世界 UUID 或密钥，Skill 的 Adapter 和 Capability 由 Rin 根据证据绑定，
+不能由总结模型扩大。学习失败不改变原任务结果。
 
 ## 模型决策
 

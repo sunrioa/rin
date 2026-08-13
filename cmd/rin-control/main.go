@@ -114,7 +114,7 @@ func run(
 		internalAgent, err = agentdaemon.Open(agentdaemon.Options{
 			Config: agentConfig, DataDir: config.dataDir, Control: service,
 			HTTPToken: config.agentToken, APIKey: config.agentAPIKey,
-			Skills: catalog,
+			Skills: catalog, LearnedSkills: learnedSkills,
 		})
 		if err != nil {
 			return fmt.Errorf("start internal Agent Runtime: %w", err)

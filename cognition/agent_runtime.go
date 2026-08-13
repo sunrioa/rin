@@ -48,6 +48,7 @@ type AgentRuntimeOptions struct {
 	Model       ModelProvider
 	Tasks       TaskStore
 	Decisions   DecisionRecorder
+	Learning    *SkillLearningOptions
 
 	Now                   func() time.Time
 	ControllerLeaseMillis uint32
@@ -79,6 +80,7 @@ type AgentRuntime struct {
 	model       ModelProvider
 	tasks       TaskStore
 	decisions   DecisionRecorder
+	learning    *skillLearningRuntime
 
 	now                   func() time.Time
 	controllerLeaseMillis uint32
@@ -134,10 +136,15 @@ func NewAgentRuntime(options AgentRuntimeOptions) (*AgentRuntime, error) {
 	if options.MemoryBudget.MaxCharacters == 0 {
 		options.MemoryBudget.MaxCharacters = 6_000
 	}
+	learning, err := normalizeSkillLearningOptions(options.Learning)
+	if err != nil {
+		return nil, err
+	}
 	return &AgentRuntime{
 		principal: options.Principal, control: options.Control, environment: options.Environment,
 		persona: options.Persona, memory: options.Memory, skills: options.Skills,
-		model: options.Model, tasks: options.Tasks, decisions: options.Decisions, now: options.Now,
+		model: options.Model, tasks: options.Tasks, decisions: options.Decisions,
+		learning: learning, now: options.Now,
 		controllerLeaseMillis: options.ControllerLeaseMillis,
 		renewBeforeMillis:     options.RenewBeforeMillis,
 		operationWaitMillis:   options.OperationWaitMillis,
@@ -314,11 +321,17 @@ func (runtime *AgentRuntime) RunTask(
 			return TaskSession{}, err
 		}
 		if terminalTaskStatus(task.Status) || task.Status == TaskPaused {
+			if task.Status == TaskCompleted {
+				return runtime.maybeLearnSkill(ctx, task)
+			}
 			return task, nil
 		}
 		var keepRunning bool
 		task, keepRunning, err = runtime.advanceTask(ctx, task)
 		if err != nil || !keepRunning {
+			if err == nil && task.Status == TaskCompleted {
+				return runtime.maybeLearnSkill(ctx, task)
+			}
 			return task, err
 		}
 	}

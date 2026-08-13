@@ -10,6 +10,7 @@ import (
 	"github.com/sunrioa/rin/agentapi"
 	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/controlplane"
+	"github.com/sunrioa/rin/experience"
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/provider"
 	"github.com/sunrioa/rin/provider/openai"
@@ -23,6 +24,7 @@ type Options struct {
 	APIKey             string
 	GenerationProvider provider.StructuredGenerationProvider
 	Skills             cognition.SkillProvider
+	LearnedSkills      cognition.SkillWriter
 }
 
 type Daemon struct {
@@ -66,13 +68,32 @@ func Open(options Options) (*Daemon, error) {
 		return nil, err
 	}
 	skills := options.Skills
+	learnedSkills := options.LearnedSkills
 	if skills == nil {
-		catalog, _, catalogErr := cognition.OpenDefaultSkillCatalog(options.DataDir, config.Skills)
+		catalog, learned, catalogErr := cognition.OpenDefaultSkillCatalog(options.DataDir, config.Skills)
 		err = catalogErr
 		if err != nil {
 			return nil, fmt.Errorf("open skill catalog: %w", err)
 		}
 		skills = catalog
+		learnedSkills = learned
+	}
+	var learning *cognition.SkillLearningOptions
+	if config.Learning.Enabled {
+		drafts, openErr := cognition.OpenDirectorySkillProvider(
+			filepath.Join(options.DataDir, "skills", "drafts"), "draft", true,
+		)
+		if openErr != nil {
+			return nil, fmt.Errorf("open skill drafts: %w", openErr)
+		}
+		learning = &cognition.SkillLearningOptions{
+			Generator: experience.ModelDraftGenerator{
+				Provider: generation, MaxTokens: config.Learning.MaxOutputTokens,
+			},
+			Drafts: drafts, Learned: learnedSkills,
+			Mode:       cognition.SkillPublishMode(config.Learning.PublishMode),
+			MinActions: config.Learning.MinActions, Adapter: config.Learning.Adapter,
+		}
 	}
 	stateDirectory := filepath.Join(options.DataDir, "agent")
 	memory, err := cognition.OpenFileMemoryProvider(
@@ -110,6 +131,7 @@ func Open(options Options) (*Daemon, error) {
 		Principal: runtimePrincipal, Control: options.Control, Environment: environment,
 		Persona: personas, Memory: memory, Skills: skills, Model: model, Tasks: tasks,
 		Decisions:             decisions,
+		Learning:              learning,
 		ControllerLeaseMillis: config.Runtime.ControllerLeaseMillis,
 		RenewBeforeMillis:     config.Runtime.RenewBeforeMillis,
 		OperationWaitMillis:   config.Runtime.OperationWaitMillis,

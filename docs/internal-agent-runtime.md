@@ -63,7 +63,14 @@ Create a JSON file readable only by the current user, such as
   "persona_bindings": [{
     "persona_id": "companion",
     "version": "v1"
-  }]
+  }],
+  "learning": {
+    "enabled": true,
+    "publish_mode": "draft",
+    "min_actions": 3,
+    "adapter": "minecraft",
+    "max_output_tokens": 1200
+  }
 }
 ```
 
@@ -123,6 +130,15 @@ internal model runtime is disabled.
 An external MCP controller keeps its persona and private memory in the external
 Agent. Internal persona does not override it and Rin does not automatically copy
 that private state into Internal Agent memory.
+
+`learning` is disabled by default. When enabled, only a completed task with at
+least `min_actions` actions and an authoritative successful Host Outcome makes
+one additional model call. The default `publish_mode=draft` writes below
+`skills/drafts` and does not expose the result to the active catalog. Explicit
+`learned` mode writes below `skills/learned`. Draft input omits operation IDs,
+Host references, coordinates, world UUIDs, and credentials. Rin derives adapter
+and capability applicability from evidence instead of trusting the summarizing
+model. Learning failure never changes the task result.
 
 ## Model decisions
 
