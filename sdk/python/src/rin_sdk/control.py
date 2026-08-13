@@ -128,6 +128,45 @@ class RinControlClient:
     def set_emergency_stop(self, payload: Dict[str, Any]) -> Any:
         return self._post("/control/v2/emergency-stop", payload)
 
+    def register_host(self, payload: Dict[str, Any]) -> Any:
+        return self._post("/control/v2/host/register", payload)
+
+    def renew_host(self, payload: Dict[str, Any]) -> Any:
+        return self._post("/control/v2/host/renew", payload)
+
+    def unregister_host(self, payload: Dict[str, Any]) -> Any:
+        return self._post("/control/v2/host/unregister", payload)
+
+    def publish_world(self, payload: Dict[str, Any]) -> Any:
+        return self._post("/control/v2/host/publish", payload)
+
+    def poll_host(self, payload: Dict[str, Any]) -> Any:
+        return self._post("/control/v2/host/poll", payload)
+
+    def report_gateway_result(self, payload: Dict[str, Any]) -> Any:
+        return self._post("/control/v2/host/gateway-result", payload)
+
+    def acknowledge_host(self, payload: Dict[str, Any]) -> Any:
+        return self._post("/control/v2/host/ack", payload)
+
+    def report_host_run(self, payload: Dict[str, Any]) -> Any:
+        return self._post("/control/v2/host/run", payload)
+
+    def report_host_outcome(self, payload: Dict[str, Any]) -> Any:
+        return self._post("/control/v2/host/outcome", payload)
+
+    def configure_host_signals(self, payload: Dict[str, Any]) -> Any:
+        return self._post("/signals/v1/host/settings", payload)
+
+    def publish_host_signal(self, payload: Dict[str, Any]) -> Any:
+        return self._post("/signals/v1/host/publish", payload)
+
+    def list_actor_signals(self, payload: Dict[str, Any]) -> Any:
+        return self._post("/signals/v1/list", payload)
+
+    def wait_actor_signals(self, payload: Dict[str, Any]) -> Any:
+        return self._post("/signals/v1/wait", payload)
+
     def create_task_plan(self, payload: Dict[str, Any]) -> Any:
         return self._post("/plans/v1/create", payload)
 
@@ -159,7 +198,7 @@ class RinControlClient:
         payload: Optional[Dict[str, Any]] = None,
     ) -> Any:
         if (
-            not path.startswith(("/control/v2/", "/plans/v1/"))
+            not path.startswith(("/control/v2/", "/plans/v1/", "/signals/v1/"))
             or "//" in path
             or ".." in path
         ):

@@ -4,7 +4,8 @@
 
 适用于 Python 3.9+ 的零运行时依赖 `rin.control/v2` 客户端。
 
-同一客户端也通过原始 JSON 方法提供固定的 `/plans/v1/*` 任务计划接口。
+同一客户端也通过原始 JSON 方法提供固定的 `/plans/v1/*` 任务计划和
+`/signals/v1/*` Signal Inbox 接口。
 
 ```bash
 python3 -m pip install -e ./sdk/python
@@ -23,7 +24,9 @@ print(control.list_worlds())
 和 `max_response_bytes`，但 URL 仍必须是无凭据、无路径的回环 HTTP Origin。
 
 客户端暴露世界、Actor、Observation、Capability、Controller Lease、Action、
-Operation 和 Emergency Stop 的全部 Control V2 路由。请求参数保持为普通 `dict`，
+Operation、Emergency Stop，以及 Host 注册、发布、轮询、确认、进度和 Outcome
+生命周期的全部 Control V2 路由，同时支持配置、发布、列出和等待有界 Actor Signal。
+请求参数保持为普通 `dict`，
 字段以仓库根目录的 `api/control-openapi.json` 为准。
 
 异常分为 `RinConfigurationError`、`RinTransportError`、`RinProtocolError` 和

@@ -4,7 +4,8 @@
 
 A dependency-free `rin.control/v2` client for Python 3.9 and newer.
 
-The same client exposes the fixed `/plans/v1/*` task-plan routes as raw JSON methods.
+The same client exposes the fixed `/plans/v1/*` task-plan and `/signals/v1/*`
+Signal Inbox routes as raw JSON methods.
 
 ```bash
 python3 -m pip install -e ./sdk/python
@@ -24,7 +25,9 @@ The default endpoint is `http://127.0.0.1:7375`. The constructor also accepts
 credential-free loopback HTTP origin with no path.
 
 The client exposes every Control V2 route for worlds, actors, observations,
-capabilities, controller leases, actions, operations, and emergency stop.
+capabilities, controller leases, actions, operations, emergency stop, and the
+Host register, publish, poll, acknowledgement, progress, and outcome lifecycle.
+It also configures, publishes, lists, and waits for bounded Actor signals.
 Payloads remain ordinary dictionaries; use the repository's
 `api/control-openapi.json` for exact fields.
 
