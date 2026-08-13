@@ -12,12 +12,14 @@ import (
 )
 
 type SkillSummary struct {
-	SkillID  string   `json:"skill_id"`
-	Version  string   `json:"version"`
-	Summary  string   `json:"summary"`
-	Triggers []string `json:"triggers,omitempty"`
-	Source   string   `json:"source"`
-	Digest   string   `json:"digest"`
+	SkillID      string   `json:"skill_id"`
+	Version      string   `json:"version"`
+	Summary      string   `json:"summary"`
+	Triggers     []string `json:"triggers,omitempty"`
+	Adapters     []string `json:"adapters,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
+	Source       string   `json:"source"`
+	Digest       string   `json:"digest"`
 }
 
 // Skill contains inert procedural guidance. It intentionally has no scopes,
@@ -28,8 +30,10 @@ type Skill struct {
 }
 
 type SkillQuery struct {
-	Tags  []string `json:"tags,omitempty"`
-	Limit uint32   `json:"limit"`
+	Tags                  []string `json:"tags,omitempty"`
+	Adapter               string   `json:"adapter,omitempty"`
+	AvailableCapabilities []string `json:"available_capabilities,omitempty"`
+	Limit                 uint32   `json:"limit"`
 }
 
 type SkillProvider interface {
@@ -79,11 +83,29 @@ func (provider *LocalSkillProvider) ListSkills(
 	if err != nil {
 		return nil, err
 	}
+	if query.Adapter != "" {
+		if err := validateProviderID("adapter", query.Adapter); err != nil {
+			return nil, err
+		}
+	}
+	available, err := normalizeProviderIDs(
+		"available_capabilities", query.AvailableCapabilities, 256,
+	)
+	if err != nil {
+		return nil, err
+	}
 	provider.mu.RLock()
 	defer provider.mu.RUnlock()
 	result := make([]SkillSummary, 0, len(provider.skills))
 	for _, skill := range provider.skills {
 		if len(skill.Triggers) != 0 && !providerIDsIntersect(skill.Triggers, tags) {
+			continue
+		}
+		if query.Adapter != "" && len(skill.Adapters) != 0 &&
+			!slices.Contains(skill.Adapters, query.Adapter) {
+			continue
+		}
+		if len(available) != 0 && !providerIDsContainAll(available, skill.Capabilities) {
 			continue
 		}
 		result = append(result, cloneSkillSummary(skill.SkillSummary))
@@ -153,9 +175,29 @@ func SealSkill(skill Skill) (Skill, error) {
 		return Skill{}, err
 	}
 	skill.Triggers = triggers
+	if skill.Adapters, err = normalizeProviderIDs("adapters", skill.Adapters, 32); err != nil {
+		return Skill{}, err
+	}
+	if skill.Capabilities, err = normalizeProviderIDs(
+		"capabilities", skill.Capabilities, 64,
+	); err != nil {
+		return Skill{}, err
+	}
 	claimed := skill.Digest
 	skill.Digest = ""
-	payload, err := json.Marshal(skill)
+	payload, err := json.Marshal(struct {
+		SkillID      string   `json:"skill_id"`
+		Version      string   `json:"version"`
+		Summary      string   `json:"summary"`
+		Triggers     []string `json:"triggers,omitempty"`
+		Adapters     []string `json:"adapters,omitempty"`
+		Capabilities []string `json:"capabilities,omitempty"`
+		Instructions string   `json:"instructions"`
+	}{
+		SkillID: skill.SkillID, Version: skill.Version, Summary: skill.Summary,
+		Triggers: skill.Triggers, Adapters: skill.Adapters,
+		Capabilities: skill.Capabilities, Instructions: skill.Instructions,
+	})
 	if err != nil {
 		return Skill{}, err
 	}
@@ -169,7 +211,18 @@ func SealSkill(skill Skill) (Skill, error) {
 
 func cloneSkillSummary(summary SkillSummary) SkillSummary {
 	summary.Triggers = append([]string(nil), summary.Triggers...)
+	summary.Adapters = append([]string(nil), summary.Adapters...)
+	summary.Capabilities = append([]string(nil), summary.Capabilities...)
 	return summary
+}
+
+func providerIDsContainAll(available, required []string) bool {
+	for _, value := range required {
+		if !slices.Contains(available, value) {
+			return false
+		}
+	}
+	return true
 }
 
 func cloneSkill(skill Skill) Skill {

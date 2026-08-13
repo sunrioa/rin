@@ -812,12 +812,26 @@ func validateSkillSummaries(summaries []SkillSummary) error {
 		if err != nil {
 			return err
 		}
+		adapters, err := normalizeProviderIDs(
+			fmt.Sprintf("skills[%d].adapters", index), summary.Adapters, 32,
+		)
+		if err != nil {
+			return err
+		}
+		capabilities, err := normalizeProviderIDs(
+			fmt.Sprintf("skills[%d].capabilities", index), summary.Capabilities, 64,
+		)
+		if err != nil {
+			return err
+		}
 		key := providerKey(summary.SkillID, summary.Version)
 		if _, duplicate := seen[key]; duplicate {
 			return errors.New("skill summaries contain duplicates")
 		}
 		seen[key] = struct{}{}
 		summary.Triggers = triggers
+		summary.Adapters = adapters
+		summary.Capabilities = capabilities
 	}
 	return nil
 }

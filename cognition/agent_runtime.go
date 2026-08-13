@@ -440,7 +440,13 @@ func (runtime *AgentRuntime) advanceTask(
 	}
 	skills := []SkillSummary(nil)
 	if runtime.skills != nil {
-		skills, err = runtime.skills.ListSkills(ctx, SkillQuery{Tags: task.Tags, Limit: 64})
+		availableCapabilities := make([]string, 0, len(summaries))
+		for _, summary := range summaries {
+			availableCapabilities = append(availableCapabilities, summary.Capability.ID)
+		}
+		skills, err = runtime.skills.ListSkills(ctx, SkillQuery{
+			Tags: task.Tags, AvailableCapabilities: availableCapabilities, Limit: 64,
+		})
 		if err != nil {
 			if ctx.Err() != nil {
 				return task, false, ctx.Err()
