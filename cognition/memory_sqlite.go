@@ -23,8 +23,13 @@ import (
 )
 
 const (
-	MemorySQLiteSchemaVersion = 1
+	MemorySQLiteSchemaVersion = 2
 	maxMemoryJSONLBytes       = 128 << 20
+)
+
+const (
+	recallSourceFTS    = "fts"
+	recallSourceRecent = "recent"
 )
 
 const memoryColumns = `
@@ -139,7 +144,7 @@ func (provider *SQLiteMemoryProvider) initialize(ctx context.Context) error {
 	if err := provider.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return fmt.Errorf("%w: read schema version: %v", ErrMemoryStorePersistence, err)
 	}
-	if version != 0 && version != MemorySQLiteSchemaVersion {
+	if version < 0 || version > MemorySQLiteSchemaVersion {
 		return fmt.Errorf("%w: unsupported memory schema version %d", ErrMemoryStorePersistence, version)
 	}
 	tx, err := provider.db.BeginTx(ctx, nil)
@@ -152,7 +157,10 @@ func (provider *SQLiteMemoryProvider) initialize(ctx context.Context) error {
 			return fmt.Errorf("%w: migrate sqlite: %v", ErrMemoryStorePersistence, err)
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `PRAGMA user_version = 1`); err != nil {
+	if err := rebuildMemorySearchIndexes(ctx, tx); err != nil {
+		return fmt.Errorf("%w: rebuild search indexes: %v", ErrMemoryStorePersistence, err)
+	}
+	if _, err := tx.ExecContext(ctx, `PRAGMA user_version = 2`); err != nil {
 		return fmt.Errorf("%w: set schema version: %v", ErrMemoryStorePersistence, err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -205,6 +213,9 @@ func memorySchemaStatements() []string {
 		`CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
             memory_key UNINDEXED, content, tokenize='unicode61'
         )`,
+		`CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts_trigram USING fts5(
+            memory_key UNINDEXED, content, tokenize='trigram'
+        )`,
 		`CREATE TRIGGER IF NOT EXISTS memory_records_ai AFTER INSERT ON memory_records BEGIN
             INSERT INTO memory_fts(memory_key, content) VALUES (new.memory_key, new.content);
         END`,
@@ -214,6 +225,16 @@ func memorySchemaStatements() []string {
 		`CREATE TRIGGER IF NOT EXISTS memory_records_au AFTER UPDATE OF content ON memory_records BEGIN
             DELETE FROM memory_fts WHERE memory_key = old.memory_key;
             INSERT INTO memory_fts(memory_key, content) VALUES (new.memory_key, new.content);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS memory_records_trigram_ai AFTER INSERT ON memory_records BEGIN
+			INSERT INTO memory_fts_trigram(memory_key, content) VALUES (new.memory_key, new.content);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS memory_records_trigram_ad AFTER DELETE ON memory_records BEGIN
+			DELETE FROM memory_fts_trigram WHERE memory_key = old.memory_key;
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS memory_records_trigram_au AFTER UPDATE OF content ON memory_records BEGIN
+			DELETE FROM memory_fts_trigram WHERE memory_key = old.memory_key;
+			INSERT INTO memory_fts_trigram(memory_key, content) VALUES (new.memory_key, new.content);
         END`,
 		`CREATE TABLE IF NOT EXISTS experience_corrections (
             task_id TEXT NOT NULL,
@@ -224,6 +245,30 @@ func memorySchemaStatements() []string {
             PRIMARY KEY(task_id, correction_id)
         ) STRICT`,
 	}
+}
+
+func rebuildMemorySearchIndexes(ctx context.Context, tx *sql.Tx) error {
+	var records int64
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM memory_records`).Scan(&records); err != nil {
+		return err
+	}
+	for _, table := range []string{"memory_fts", "memory_fts_trigram"} {
+		var indexed int64
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table).Scan(&indexed); err != nil {
+			return err
+		}
+		if indexed == records {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO `+table+`(memory_key, content)
+			SELECT memory_key, content FROM memory_records`); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (provider *SQLiteMemoryProvider) Append(
@@ -306,7 +351,7 @@ func (provider *SQLiteMemoryProvider) Retrieve(
 	defer tx.Rollback()
 	limit := max(256, int(sealed.Budget.MaxRecords)*16)
 	limit = min(limit, 2_048)
-	candidates := make(map[string]MemoryRecord)
+	candidates := make(map[string]recallCandidate)
 	if err := queryRecentMemories(ctx, tx, sealed, limit, candidates); err != nil {
 		return nil, err
 	}
@@ -314,14 +359,26 @@ func (provider *SQLiteMemoryProvider) Retrieve(
 		if err := queryFTSMemories(ctx, tx, sealed, limit, candidates); err != nil {
 			return nil, err
 		}
+		if err := queryTrigramMemories(ctx, tx, sealed, limit, candidates); err != nil {
+			return nil, err
+		}
 	}
 	matches := make([]MemoryMatch, 0, len(candidates))
-	for _, record := range candidates {
+	for _, candidate := range candidates {
+		record := candidate.record
 		if !memoryVisibleToQuery(record, sealed) || memoryExpired(record, sealed.Now) ||
 			!memoryMatchesFilters(record, sealed) {
 			continue
 		}
 		score, reasons := scoreMemory(record, sealed)
+		if rank, ok := candidate.ranks[recallSourceFTS]; ok {
+			score += max(1, 48-min(rank, 47))
+			reasons = appendUniqueString(reasons, recallSourceFTS)
+		}
+		if rank, ok := candidate.ranks[recallSourceRecent]; ok {
+			score += max(1, 16-min(rank, 15))
+			reasons = appendUniqueString(reasons, recallSourceRecent)
+		}
 		matches = append(matches, MemoryMatch{Record: record, Score: score, Reasons: reasons})
 	}
 	slices.SortFunc(matches, compareMemoryMatches)
@@ -916,23 +973,25 @@ func queryRecentMemories(
 	tx *sql.Tx,
 	query MemoryQuery,
 	limit int,
-	result map[string]MemoryRecord,
+	result map[string]recallCandidate,
 ) error {
-	rows, err := tx.QueryContext(ctx, `SELECT `+memoryColumns+` FROM memory_records
-        WHERE session_id = ? AND actor_id = ? AND forgotten = 0
-        ORDER BY created_value DESC, memory_key LIMIT ?`,
-		query.SessionID, query.ActorID, limit,
-	)
+	predicate, arguments := memoryCandidatePredicate("r", query)
+	arguments = append(arguments, limit)
+	rows, err := tx.QueryContext(ctx, `SELECT `+prefixMemoryColumns("r")+`
+		FROM memory_records r WHERE `+predicate+`
+		ORDER BY r.created_value DESC, r.memory_key LIMIT ?`, arguments...)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
+	rank := 0
 	for rows.Next() {
 		record, _, err := scanMemoryRow(rows)
 		if err != nil {
 			return err
 		}
-		result[sqliteMemoryKey(record)] = record
+		mergeRecallCandidate(result, record, recallSourceRecent, rank)
+		rank++
 	}
 	return rows.Err()
 }
@@ -942,30 +1001,110 @@ func queryFTSMemories(
 	tx *sql.Tx,
 	query MemoryQuery,
 	limit int,
-	result map[string]MemoryRecord,
+	result map[string]recallCandidate,
 ) error {
 	terms := make([]string, len(query.Terms))
 	for index, term := range query.Terms {
 		terms[index] = `"` + strings.ReplaceAll(term, `"`, `""`) + `"`
 	}
+	predicate, arguments := memoryCandidatePredicate("r", query)
+	arguments = append([]any{strings.Join(terms, " AND ")}, arguments...)
+	arguments = append(arguments, limit)
 	rows, err := tx.QueryContext(ctx, `SELECT `+prefixMemoryColumns("r")+`
-        FROM memory_fts f JOIN memory_records r ON r.memory_key = f.memory_key
-        WHERE memory_fts MATCH ? AND r.session_id = ? AND r.actor_id = ?
-          AND r.forgotten = 0 ORDER BY bm25(memory_fts), r.created_value DESC LIMIT ?`,
-		strings.Join(terms, " AND "), query.SessionID, query.ActorID, limit,
-	)
+		FROM memory_fts f JOIN memory_records r ON r.memory_key = f.memory_key
+		WHERE memory_fts MATCH ? AND `+predicate+`
+		ORDER BY bm25(memory_fts), r.created_value DESC, r.memory_key LIMIT ?`, arguments...)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
+	rank := 0
 	for rows.Next() {
 		record, _, err := scanMemoryRow(rows)
 		if err != nil {
 			return err
 		}
-		result[sqliteMemoryKey(record)] = record
+		mergeRecallCandidate(result, record, recallSourceFTS, rank)
+		rank++
 	}
 	return rows.Err()
+}
+
+func queryTrigramMemories(
+	ctx context.Context,
+	tx *sql.Tx,
+	query MemoryQuery,
+	limit int,
+	result map[string]recallCandidate,
+) error {
+	terms := make([]string, 0, len(query.Terms))
+	for _, term := range query.Terms {
+		if utf8.RuneCountInString(term) < 3 {
+			continue
+		}
+		terms = append(terms, `"`+strings.ReplaceAll(term, `"`, `""`)+`"`)
+	}
+	if len(terms) == 0 {
+		return nil
+	}
+	predicate, arguments := memoryCandidatePredicate("r", query)
+	arguments = append([]any{strings.Join(terms, " AND ")}, arguments...)
+	arguments = append(arguments, limit)
+	rows, err := tx.QueryContext(ctx, `SELECT `+prefixMemoryColumns("r")+`
+		FROM memory_fts_trigram f JOIN memory_records r ON r.memory_key = f.memory_key
+		WHERE memory_fts_trigram MATCH ? AND `+predicate+`
+		ORDER BY bm25(memory_fts_trigram), r.created_value DESC, r.memory_key LIMIT ?`, arguments...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	rank := 0
+	for rows.Next() {
+		record, _, err := scanMemoryRow(rows)
+		if err != nil {
+			return err
+		}
+		mergeRecallCandidate(result, record, recallSourceFTS, rank)
+		rank++
+	}
+	return rows.Err()
+}
+
+type recallCandidate struct {
+	record MemoryRecord
+	ranks  map[string]int
+}
+
+func mergeRecallCandidate(
+	result map[string]recallCandidate,
+	record MemoryRecord,
+	source string,
+	rank int,
+) {
+	key := sqliteMemoryKey(record)
+	candidate, exists := result[key]
+	if !exists {
+		candidate = recallCandidate{record: record, ranks: make(map[string]int, 2)}
+	}
+	if current, ranked := candidate.ranks[source]; !ranked || rank < current {
+		candidate.ranks[source] = rank
+	}
+	result[key] = candidate
+}
+
+func memoryCandidatePredicate(alias string, query MemoryQuery) (string, []any) {
+	parts := make([]string, 0, 5)
+	arguments := []any{query.SessionID, query.ActorID}
+	for _, namespace := range memoryQueryNamespaces(query) {
+		parts = append(parts, "("+alias+".controller_id = ? AND "+alias+".domain = ?)")
+		arguments = append(arguments, namespace.ControllerID, string(namespace.Domain))
+	}
+	predicate := alias + ".session_id = ? AND " + alias + ".actor_id = ?" +
+		" AND " + alias + ".forgotten = 0 AND (" + strings.Join(parts, " OR ") + ")" +
+		" AND (" + alias + ".expires_clock IS NULL OR " + alias + ".expires_clock != ?" +
+		" OR " + alias + ".expires_value > ?)"
+	arguments = append(arguments, string(query.Now.Clock), query.Now.Value)
+	return predicate, arguments
 }
 
 func prefixMemoryColumns(alias string) string {

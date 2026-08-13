@@ -115,6 +115,14 @@ evidence. Retrieval is bounded by record and character budgets instead of
 sending all history to the prompt. Forget creates tombstones and consolidation
 can replace several records with a sourced summary.
 
+Default retrieval is fully offline. SQL first constrains candidates by session,
+actor, controller, domain, tombstone, and expiry, then deterministically merges
+recent candidates, `unicode61` FTS5/BM25, and trigram FTS5 for CJK substrings.
+Queries shorter than three characters never invoke the trigram path. Record and
+character budgets are applied after source ranks and existing memory scores are
+merged. Wiki projections, relation graphs, rerankers, and background vector
+services are not part of this path.
+
 `rin-control` exclusively owns `<RIN_CONTROL_DATA_DIR>/agent/memory.db`.
 SQLite is the online source of truth for the Rin Memory domain and uses WAL,
 full synchronization, and FTS5. `memory.json` is imported only on the first

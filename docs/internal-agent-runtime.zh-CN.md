@@ -104,6 +104,11 @@ Memory 通过 Namespace 结构化隔离：
 证据。检索受条数和字符预算约束，不会把全部历史塞入 Prompt。Forget 使用 Tombstone，
 Consolidate 可以把多条记录压缩为带来源的摘要。
 
+默认检索完全离线：SQL 先按 Session、Actor、Controller、Domain、Tombstone 和过期时间
+裁剪合法记录，再合并近期候选、`unicode61` FTS5/BM25 与中日文子串使用的 trigram FTS5。
+短于 3 个字符的查询不会触发 trigram 扫描，最终结果按来源排名和既有 Memory 分数稳定合并，
+然后应用记录数与字符预算。当前没有 Wiki、关系图、Reranker 或后台向量服务。
+
 `rin-control` 独占 `<RIN_CONTROL_DATA_DIR>/agent/memory.db`。SQLite 是 Rin Memory 域
 的在线事实源，使用 WAL、完整同步和 FTS5；`memory.json` 只在首次启动且数据库为空时
 导入，JSONL 仅用于手动交换。无论动作来自内部 Agent、外部 MCP 还是 Macro，只有
