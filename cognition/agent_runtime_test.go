@@ -187,6 +187,27 @@ func TestAgentRuntimeTimelineUsesReferencesAndMeasuredEvidence(t *testing.T) {
 		strings.Contains(string(payload), "Inspect the observed target") {
 		t.Fatalf("timeline leaked memory or skill text: %s", payload)
 	}
+	decisionSnapshot, err := fixture.decisions.Snapshot(context.Background())
+	if err != nil || len(decisionSnapshot.Records) != 2 {
+		t.Fatalf("decision records = %#v, %v", decisionSnapshot, err)
+	}
+	record := decisionSnapshot.Records[0]
+	if record.ContextDigest == "" || record.PersonaDigest == "" ||
+		len(record.MemoryRefs) != 1 || record.MemoryRefs[0].MemoryID != "memory.timeline.private" ||
+		record.Usage.PromptCacheHitTokens == nil || *record.Usage.PromptCacheHitTokens != 5 {
+		t.Fatalf("decision record = %#v", record)
+	}
+	privatePayload, err := json.Marshal(decisionSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{
+		secretMemory, "Follow safely.", "Inspect the observed target", "private memory text",
+	} {
+		if strings.Contains(string(privatePayload), forbidden) {
+			t.Fatalf("decision record leaked %q: %s", forbidden, privatePayload)
+		}
+	}
 }
 
 func TestAgentRuntimeEnforcesTaskCapabilityScopeBeforeModelExecution(t *testing.T) {
@@ -1012,6 +1033,7 @@ type agentRuntimeFixture struct {
 	skills      *cognition.LocalSkillProvider
 	model       *scriptedModelProvider
 	tasks       *cognition.LocalTaskStore
+	decisions   *cognition.LocalDecisionRecorder
 	now         func() time.Time
 }
 
@@ -1076,6 +1098,10 @@ func newAgentRuntimeFixture(t *testing.T) *agentRuntimeFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	decisions, err := cognition.NewLocalDecisionRecorder(32)
+	if err != nil {
+		t.Fatal(err)
+	}
 	nowValue := time.UnixMilli(2_000)
 	return &agentRuntimeFixture{
 		principal: host.Principal{ID: "principal.internal", GrantedScopes: []string{
@@ -1083,7 +1109,8 @@ func newAgentRuntimeFixture(t *testing.T) *agentRuntimeFixture {
 		}},
 		control: control, environment: environment, persona: persona, memory: memory,
 		skills: skills, model: &scriptedModelProvider{}, tasks: tasks,
-		now: func() time.Time { return nowValue },
+		decisions: decisions,
+		now:       func() time.Time { return nowValue },
 	}
 }
 
@@ -1092,7 +1119,7 @@ func (fixture *agentRuntimeFixture) runtime(t *testing.T, advances uint32) *cogn
 	runtime, err := cognition.NewAgentRuntime(cognition.AgentRuntimeOptions{
 		Principal: fixture.principal, Control: fixture.control, Environment: fixture.environment,
 		Persona: fixture.persona, Memory: fixture.memory, Skills: fixture.skills,
-		Model: fixture.model, Tasks: fixture.tasks, Now: fixture.now,
+		Model: fixture.model, Tasks: fixture.tasks, Decisions: fixture.decisions, Now: fixture.now,
 		MaxAdvancesPerRun: advances,
 	})
 	if err != nil {

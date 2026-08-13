@@ -46,7 +46,8 @@ func TestStructuredDecisionProviderReturnsGroundedAction(t *testing.T) {
 	if decision.Kind != cognition.ModelDecisionAction ||
 		decision.Capability != input.Capabilities[0].Capability ||
 		string(decision.Arguments) != `{"distance":2}` ||
-		decision.ProviderModel != "test-model" || decision.Usage.TotalTokens != 42 {
+		decision.ProviderModel != "test-model" || decision.Usage.TotalTokens != 42 ||
+		!strings.HasPrefix(decision.ProviderRequestDigest, "sha256:") {
 		t.Fatalf("unexpected grounded decision: %+v", decision)
 	}
 	if len(decision.MemoryCandidates) != 1 || decision.MemoryCandidates[0].Confidence != 0.6 {

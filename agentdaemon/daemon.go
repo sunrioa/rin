@@ -25,10 +25,11 @@ type Options struct {
 }
 
 type Daemon struct {
-	handler http.Handler
-	service *agentapi.Service
-	tasks   *cognition.FileTaskStore
-	memory  *cognition.FileMemoryProvider
+	handler   http.Handler
+	service   *agentapi.Service
+	tasks     *cognition.FileTaskStore
+	memory    *cognition.FileMemoryProvider
+	decisions *cognition.FileDecisionRecorder
 
 	closeOnce sync.Once
 	closeErr  error
@@ -81,8 +82,16 @@ func Open(options Options) (*Daemon, error) {
 		_ = memory.Close()
 		return nil, fmt.Errorf("open Agent tasks: %w", err)
 	}
+	decisions, err := cognition.OpenFileDecisionRecorder(
+		filepath.Join(stateDirectory, "decision-records.json"), cognition.DefaultDecisionRecordLimit,
+	)
+	if err != nil {
+		_ = tasks.Close()
+		_ = memory.Close()
+		return nil, fmt.Errorf("open Agent decision records: %w", err)
+	}
 	cleanupStores := func(base error) error {
-		return errors.Join(base, tasks.Close(), memory.Close())
+		return errors.Join(base, decisions.Close(), tasks.Close(), memory.Close())
 	}
 	runtimePrincipal := host.Principal{
 		ID: config.RuntimePrincipal, GrantedScopes: []string{controlplane.ScopeHostAdmin},
@@ -94,6 +103,7 @@ func Open(options Options) (*Daemon, error) {
 	runtime, err := cognition.NewAgentRuntime(cognition.AgentRuntimeOptions{
 		Principal: runtimePrincipal, Control: options.Control, Environment: environment,
 		Persona: personas, Memory: memory, Skills: skills, Model: model, Tasks: tasks,
+		Decisions:             decisions,
 		ControllerLeaseMillis: config.Runtime.ControllerLeaseMillis,
 		RenewBeforeMillis:     config.Runtime.RenewBeforeMillis,
 		OperationWaitMillis:   config.Runtime.OperationWaitMillis,
@@ -123,7 +133,7 @@ func Open(options Options) (*Daemon, error) {
 		return nil, cleanupStores(err)
 	}
 	return &Daemon{
-		handler: handler, service: service, tasks: tasks, memory: memory,
+		handler: handler, service: service, tasks: tasks, memory: memory, decisions: decisions,
 	}, nil
 }
 
@@ -173,7 +183,9 @@ func (daemon *Daemon) Close() error {
 	}
 	daemon.closeOnce.Do(func() {
 		daemon.service.Close()
-		daemon.closeErr = errors.Join(daemon.tasks.Close(), daemon.memory.Close())
+		daemon.closeErr = errors.Join(
+			daemon.decisions.Close(), daemon.tasks.Close(), daemon.memory.Close(),
+		)
 	})
 	return daemon.closeErr
 }

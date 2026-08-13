@@ -137,16 +137,17 @@ type ModelMemoryCandidate struct {
 }
 
 type ModelDecision struct {
-	Kind                ModelDecisionKind      `json:"kind"`
-	Capability          host.CapabilityRef     `json:"capability,omitempty"`
-	Arguments           json.RawMessage        `json:"arguments,omitempty"`
-	TargetHandles       []string               `json:"target_handles,omitempty"`
-	InspectCapabilities []host.CapabilityRef   `json:"inspect_capabilities,omitempty"`
-	InspectSkills       []SkillRef             `json:"inspect_skills,omitempty"`
-	Summary             string                 `json:"summary"`
-	MemoryCandidates    []ModelMemoryCandidate `json:"memory_candidates,omitempty"`
-	ProviderModel       string                 `json:"provider_model,omitempty"`
-	Usage               provider.Usage         `json:"usage"`
+	Kind                  ModelDecisionKind      `json:"kind"`
+	Capability            host.CapabilityRef     `json:"capability,omitempty"`
+	Arguments             json.RawMessage        `json:"arguments,omitempty"`
+	TargetHandles         []string               `json:"target_handles,omitempty"`
+	InspectCapabilities   []host.CapabilityRef   `json:"inspect_capabilities,omitempty"`
+	InspectSkills         []SkillRef             `json:"inspect_skills,omitempty"`
+	Summary               string                 `json:"summary"`
+	MemoryCandidates      []ModelMemoryCandidate `json:"memory_candidates,omitempty"`
+	ProviderModel         string                 `json:"provider_model,omitempty"`
+	Usage                 provider.Usage         `json:"usage"`
+	ProviderRequestDigest string                 `json:"-"`
 }
 
 type ModelProvider interface {
@@ -244,7 +245,7 @@ func (decisionProvider StructuredDecisionProvider) Decide(
 		return ModelDecision{}, ErrProviderCapacity
 	}
 	maxTokens := decisionProvider.outputTokenLimit()
-	response, err := decisionProvider.GenerationProvider.Complete(ctx, provider.CompletionRequest{
+	completionRequest := provider.CompletionRequest{
 		Messages: []provider.Message{
 			{Role: "system", Content: modelV2SystemPrompt},
 			{Role: "user", Content: string(payload)},
@@ -254,7 +255,9 @@ func (decisionProvider StructuredDecisionProvider) Decide(
 		},
 		Temperature: decisionProvider.Temperature,
 		MaxTokens:   maxTokens,
-	})
+	}
+	requestDigest := digestJSON(completionRequest)
+	response, err := decisionProvider.GenerationProvider.Complete(ctx, completionRequest)
 	if err != nil {
 		return ModelDecision{}, err
 	}
@@ -274,6 +277,7 @@ func (decisionProvider StructuredDecisionProvider) Decide(
 	}
 	decision.ProviderModel = response.Model
 	decision.Usage = response.Usage
+	decision.ProviderRequestDigest = requestDigest
 	return decision, nil
 }
 

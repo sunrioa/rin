@@ -47,6 +47,7 @@ type AgentRuntimeOptions struct {
 	Skills      SkillProvider
 	Model       ModelProvider
 	Tasks       TaskStore
+	Decisions   DecisionRecorder
 
 	Now                   func() time.Time
 	ControllerLeaseMillis uint32
@@ -77,6 +78,7 @@ type AgentRuntime struct {
 	skills      SkillProvider
 	model       ModelProvider
 	tasks       TaskStore
+	decisions   DecisionRecorder
 
 	now                   func() time.Time
 	controllerLeaseMillis uint32
@@ -135,7 +137,7 @@ func NewAgentRuntime(options AgentRuntimeOptions) (*AgentRuntime, error) {
 	return &AgentRuntime{
 		principal: options.Principal, control: options.Control, environment: options.Environment,
 		persona: options.Persona, memory: options.Memory, skills: options.Skills,
-		model: options.Model, tasks: options.Tasks, now: options.Now,
+		model: options.Model, tasks: options.Tasks, decisions: options.Decisions, now: options.Now,
 		controllerLeaseMillis: options.ControllerLeaseMillis,
 		renewBeforeMillis:     options.RenewBeforeMillis,
 		operationWaitMillis:   options.OperationWaitMillis,
@@ -555,6 +557,17 @@ func (runtime *AgentRuntime) callModel(
 		return ModelDecision{}, failed, failErr
 	}
 	memories, skills := modelContextTimelineFields(input)
+	if runtime.decisions != nil {
+		record, recordErr := newDecisionRecord(
+			task, input, decision, latency, finishedAt.UnixMilli(),
+		)
+		if recordErr == nil {
+			recordErr = runtime.decisions.Append(context.Background(), record)
+		}
+		if recordErr != nil {
+			appendTaskEvent(&task, runtime.warningEvent(task, "decision-record.degraded"))
+		}
+	}
 	appendTaskEvent(&task, TaskEvent{
 		Kind: "model.decision", Step: task.Step, Code: string(decision.Kind),
 		Summary: decision.Summary, AtUnixMillis: finishedAt.UnixMilli(),
