@@ -45,6 +45,7 @@ type DecisionRecord struct {
 	CapabilityDigest    string                      `json:"capability_digest"`
 	ContextDigest       string                      `json:"context_digest"`
 	ProviderRequestHash string                      `json:"provider_request_digest,omitempty"`
+	StablePrefixDigest  string                      `json:"stable_prefix_digest,omitempty"`
 	SkillRefs           []timeline.SkillContextRef  `json:"skill_refs,omitempty"`
 	MemoryRefs          []timeline.MemoryContextRef `json:"memory_refs,omitempty"`
 	DecisionKind        ModelDecisionKind           `json:"decision_kind"`
@@ -183,6 +184,7 @@ func newDecisionRecord(
 		PersonaVersion: sealed.Persona.Version, PersonaDigest: digestJSON(sealed.Persona),
 		CapabilityDigest: digestJSON(sealed.Capabilities), ContextDigest: digestJSON(packet),
 		ProviderRequestHash: decision.ProviderRequestDigest,
+		StablePrefixDigest:  decision.StablePrefixDigest,
 		SkillRefs:           skills, MemoryRefs: memories, DecisionKind: decision.Kind,
 		DecisionSummary: decision.Summary, ProviderModel: decision.ProviderModel,
 		LatencyMillis: latency, Usage: cloneProviderUsage(decision.Usage),
@@ -222,6 +224,9 @@ func sealDecisionRecord(record DecisionRecord) (DecisionRecord, error) {
 	}
 	if record.ProviderRequestHash != "" && !validDecisionDigest(record.ProviderRequestHash) {
 		return DecisionRecord{}, errors.New("provider_request_digest is invalid")
+	}
+	if record.StablePrefixDigest != "" && !validDecisionDigest(record.StablePrefixDigest) {
+		return DecisionRecord{}, errors.New("stable_prefix_digest is invalid")
 	}
 	if err := validateProviderText("decision_summary", record.DecisionSummary, 500, true); err != nil {
 		return DecisionRecord{}, err

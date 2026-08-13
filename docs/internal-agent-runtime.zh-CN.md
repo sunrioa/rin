@@ -163,6 +163,18 @@ HostRef、坐标、世界 UUID 或密钥，Skill 的 Adapter 和 Capability 由 
 
 ## 模型决策
 
+每次 Completion 请求先发送固定协议，再发送一条确定性序列化的静态上下文消息，其中包含
+决策 Schema 摘要、Persona、按 ID 排序的 Capability 摘要和 Skill 摘要。Task ID、目标、
+Observation、Epoch、Target、检索记忆、展开内容和 PlanState 都留在最后一条动态消息。该字节
+稳定前缀允许兼容供应商直接使用自身 Prompt Cache，不需要 Rin 再建设缓存服务。Persona、
+Capability Spec Digest、Skill Digest 或决策 Schema 改变时，私有 DecisionRecord 中的
+`stable_prefix_digest` 也会改变。
+
+OpenAI-compatible Adapter 会把供应商实际返回的缓存命中、未命中和写入 Token（包括常见兼容
+别名）映射到 `provider.Usage`；任务时间线只记录这些实测值。供应商未返回的字段保持“未知”，
+不会伪装为零。Rin 不缓存 ActionRequest、Observation、PolicyDecision 或游戏 Outcome，也不
+默认发送供应商专属缓存参数。
+
 一次模型输出只能是 `action`、`wait`、`complete` 或 `inspect`：
 
 - `action` 选择一个允许 Capability、严格 JSON 参数和已列出的 Target Handle；

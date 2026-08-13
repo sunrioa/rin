@@ -94,7 +94,44 @@ type responseBody struct {
 		} `json:"message"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
-	Usage provider.Usage `json:"usage"`
+	Usage responseUsage `json:"usage"`
+}
+
+type responseUsage struct {
+	PromptTokens          int  `json:"prompt_tokens"`
+	CompletionTokens      int  `json:"completion_tokens"`
+	TotalTokens           int  `json:"total_tokens"`
+	PromptCacheHitTokens  *int `json:"prompt_cache_hit_tokens,omitempty"`
+	PromptCacheMissTokens *int `json:"prompt_cache_miss_tokens,omitempty"`
+	CacheWriteTokens      *int `json:"cache_write_tokens,omitempty"`
+	CacheReadInputTokens  *int `json:"cache_read_input_tokens,omitempty"`
+	CacheCreationTokens   *int `json:"cache_creation_input_tokens,omitempty"`
+	PromptTokensDetails   *struct {
+		CachedTokens *int `json:"cached_tokens,omitempty"`
+	} `json:"prompt_tokens_details,omitempty"`
+}
+
+func (usage responseUsage) providerUsage() provider.Usage {
+	result := provider.Usage{
+		PromptTokens: usage.PromptTokens, CompletionTokens: usage.CompletionTokens,
+		TotalTokens: usage.TotalTokens, PromptCacheHitTokens: usage.PromptCacheHitTokens,
+		PromptCacheMissTokens: usage.PromptCacheMissTokens, CacheWriteTokens: usage.CacheWriteTokens,
+	}
+	if result.PromptCacheHitTokens == nil && usage.CacheReadInputTokens != nil {
+		result.PromptCacheHitTokens = usage.CacheReadInputTokens
+	}
+	if result.PromptCacheHitTokens == nil && usage.PromptTokensDetails != nil {
+		result.PromptCacheHitTokens = usage.PromptTokensDetails.CachedTokens
+	}
+	if result.PromptCacheMissTokens == nil && result.PromptCacheHitTokens != nil &&
+		usage.PromptTokens >= *result.PromptCacheHitTokens {
+		miss := usage.PromptTokens - *result.PromptCacheHitTokens
+		result.PromptCacheMissTokens = &miss
+	}
+	if result.CacheWriteTokens == nil {
+		result.CacheWriteTokens = usage.CacheCreationTokens
+	}
+	return result
 }
 
 func (c *Client) Complete(ctx context.Context, request provider.CompletionRequest) (provider.CompletionResponse, error) {
@@ -187,7 +224,7 @@ func (c *Client) Complete(ctx context.Context, request provider.CompletionReques
 		Content:      decoded.Choices[0].Message.Content,
 		Model:        decoded.Model,
 		FinishReason: decoded.Choices[0].FinishReason,
-		Usage:        decoded.Usage,
+		Usage:        decoded.Usage.providerUsage(),
 	}, nil
 }
 

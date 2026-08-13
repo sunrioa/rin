@@ -26,6 +26,8 @@ pin an exact commit or tag for every distribution.
 
 ### Changed
 
+- Internal model requests now use a deterministic static prompt prefix and map
+  compatible provider cache-token aliases into the existing task timeline.
 - Models now choose capabilities, arguments, and targets inside a Host-published
   catalog and trusted observation rather than selecting a few prebound options.
 - Authorization now evaluates Host-bound effects, ownership, scope, risk, rules,

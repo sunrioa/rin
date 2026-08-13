@@ -25,6 +25,8 @@ Commit 或 Tag。
 
 ### 变化
 
+- 内部模型请求改用确定性静态 Prompt 前缀，并把兼容供应商的缓存 Token 别名映射到
+  现有任务时间线。
 - 模型从选择 Host 预制少量选项，改为在已发布 Capability 和可信 Observation 内
   自行选择能力、参数和目标。
 - 授权从能力名称判断改为 Host Binding 后按实际 Effect、所有权、Scope、风险、

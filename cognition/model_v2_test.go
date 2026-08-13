@@ -48,7 +48,8 @@ func TestStructuredDecisionProviderReturnsGroundedAction(t *testing.T) {
 		decision.Capability != input.Capabilities[0].Capability ||
 		string(decision.Arguments) != `{"distance":2}` ||
 		decision.ProviderModel != "test-model" || decision.Usage.TotalTokens != 42 ||
-		!strings.HasPrefix(decision.ProviderRequestDigest, "sha256:") {
+		!strings.HasPrefix(decision.ProviderRequestDigest, "sha256:") ||
+		!strings.HasPrefix(decision.StablePrefixDigest, "sha256:") {
 		t.Fatalf("unexpected grounded decision: %+v", decision)
 	}
 	if len(decision.MemoryCandidates) != 1 || decision.MemoryCandidates[0].Confidence != 0.6 {
@@ -63,19 +64,25 @@ func TestStructuredDecisionProviderReturnsGroundedAction(t *testing.T) {
 	}
 
 	request := generation.lastRequest(t)
+	if len(request.Messages) != 3 {
+		t.Fatalf("model message count = %d, want 3", len(request.Messages))
+	}
 	if request.Schema == nil || !request.Schema.Strict || request.Schema.Name != "rin_v2_model_decision" {
 		t.Fatalf("strict response schema was not requested: %+v", request.Schema)
 	}
 	if !strings.Contains(request.Messages[0].Content, "untrusted_context") {
 		t.Fatal("system prompt does not separate untrusted game data")
 	}
+	if strings.Contains(request.Messages[1].Content, "UNTRUSTED_CANARY") {
+		t.Fatal("dynamic goal leaked into the stable prefix")
+	}
 	var packet map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(request.Messages[1].Content), &packet); err != nil {
+	if err := json.Unmarshal([]byte(request.Messages[2].Content), &packet); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(packet["contract"]), "UNTRUSTED_CANARY") ||
 		!strings.Contains(string(packet["untrusted_context"]), "UNTRUSTED_CANARY") {
-		t.Fatalf("narrative text crossed the trusted contract boundary: %s", request.Messages[1].Content)
+		t.Fatalf("narrative text crossed the trusted contract boundary: %s", request.Messages[2].Content)
 	}
 	var contract map[string]any
 	if err := json.Unmarshal(packet["contract"], &contract); err != nil {
@@ -83,6 +90,93 @@ func TestStructuredDecisionProviderReturnsGroundedAction(t *testing.T) {
 	}
 	if contract["parent_operation_id"] != input.Task.ParentOperationID {
 		t.Fatalf("trusted macro parent is missing from model contract: %+v", contract)
+	}
+}
+
+func TestStructuredDecisionProviderKeepsStaticPrefixStable(t *testing.T) {
+	response := provider.CompletionResponse{
+		Content: modelActionResponse("rin.navigation.move-to", "2.0.0", `{}`, `["target.0"]`),
+		Model:   "test-model",
+	}
+	generation := &recordingGenerationProvider{responses: []provider.CompletionResponse{
+		response, response, response, response, response,
+	}}
+	decisionProvider := cognition.StructuredDecisionProvider{GenerationProvider: generation}
+	addStaticValues := func(input *cognition.ModelInput, reverse bool) {
+		capability := cognition.CapabilitySummary{
+			Capability:  host.CapabilityRef{ID: "rin.world.wait", Version: "1.0.0"},
+			Description: "Wait for the world to change.", Kind: host.CapabilityAtomic,
+			Execution: host.ExecutionImmediate, Cancellation: host.CancellationUnsupported,
+			RiskFloor: host.RiskLow, RequiredDurability: host.DurabilityAdvisory,
+			MaxInputBytes: 128, MaxEffects: 1, SpecDigest: strings.Repeat("c", 64),
+		}
+		skill, err := cognition.SealSkill(cognition.Skill{
+			SkillSummary: cognition.SkillSummary{
+				SkillID: "skill.wait", Version: "v1", Summary: "Wait deliberately.", Source: "builtin",
+			},
+			Instructions: "Wait only when observation cannot support progress.",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if reverse {
+			input.Capabilities = append([]cognition.CapabilitySummary{capability}, input.Capabilities...)
+			input.Skills = append([]cognition.SkillSummary{skill.SkillSummary}, input.Skills...)
+		} else {
+			input.Capabilities = append(input.Capabilities, capability)
+			input.Skills = append(input.Skills, skill.SkillSummary)
+		}
+	}
+
+	first := modelV2Input(t)
+	addStaticValues(&first, false)
+	firstDecision, err := decisionProvider.Decide(context.Background(), first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := modelV2Input(t)
+	addStaticValues(&second, true)
+	second.Task.Goal = "Move near the player without blocking them."
+	second.Observation.ObservationID = "observation.2"
+	second.Observation.Sequence = 2
+	secondDecision, err := decisionProvider.Decide(context.Background(), second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstRequest, secondRequest := generation.requests[0], generation.requests[1]
+	if firstRequest.Messages[0] != secondRequest.Messages[0] ||
+		firstRequest.Messages[1] != secondRequest.Messages[1] ||
+		firstRequest.Messages[2] == secondRequest.Messages[2] ||
+		firstDecision.StablePrefixDigest != secondDecision.StablePrefixDigest ||
+		firstDecision.ProviderRequestDigest == secondDecision.ProviderRequestDigest {
+		t.Fatalf("stable/dynamic split changed unexpectedly:\nfirst=%#v\nsecond=%#v", firstRequest.Messages, secondRequest.Messages)
+	}
+
+	changedPersona := modelV2Input(t)
+	addStaticValues(&changedPersona, false)
+	changedPersona.Persona.Identity = "Mira now speaks with a calmer voice."
+	personaDecision, err := decisionProvider.Decide(context.Background(), changedPersona)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedCapability := modelV2Input(t)
+	addStaticValues(&changedCapability, false)
+	changedCapability.Capabilities[0].SpecDigest = strings.Repeat("d", 64)
+	capabilityDecision, err := decisionProvider.Decide(context.Background(), changedCapability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedSkill := modelV2Input(t)
+	addStaticValues(&changedSkill, false)
+	changedSkill.Skills[0].Digest = strings.Repeat("e", 64)
+	skillDecision, err := decisionProvider.Decide(context.Background(), changedSkill)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if personaDecision.StablePrefixDigest == firstDecision.StablePrefixDigest ||
+		capabilityDecision.StablePrefixDigest == firstDecision.StablePrefixDigest ||
+		skillDecision.StablePrefixDigest == firstDecision.StablePrefixDigest {
+		t.Fatal("persona, capability schema, or skill change reused the old stable prefix digest")
 	}
 }
 

@@ -190,6 +190,21 @@ model. Learning failure never changes the task result.
 
 ## Model decisions
 
+Each completion request places the fixed protocol first, followed by one
+deterministically serialized static-context message containing the decision
+schema digest, Persona, sorted Capability summaries, and sorted Skill summaries.
+Task ID, goal, Observation, Epoch, targets, retrieved memory, inspection output,
+and PlanState remain in the final dynamic message. This byte-stable prefix lets
+compatible providers reuse their own prompt cache without a Rin cache service.
+Changing Persona, a Capability spec digest, a Skill digest, or the decision
+schema changes the private `stable_prefix_digest` recorded with the request.
+
+The OpenAI-compatible adapter maps provider-reported cache hit, miss, and write
+tokens, including common compatible aliases, into `provider.Usage`; the task
+timeline records only those measured values. Missing fields remain unknown, not
+zero. Rin does not cache ActionRequest, Observation, Policy decisions, or world
+outcomes and sends no provider-specific cache parameter by default.
+
 One model response is exactly `action`, `wait`, `complete`, or `inspect`:
 
 - `action` selects one allowed capability, strict JSON arguments, and listed target handles;

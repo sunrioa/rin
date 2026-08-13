@@ -69,6 +69,67 @@ func TestCompleteSendsSchemaAndDecodesFixture(t *testing.T) {
 	}
 }
 
+func TestCompleteMapsCompatibleCacheUsageAliases(t *testing.T) {
+	payload := []byte(`{
+      "model":"fixture-model",
+      "choices":[{"message":{"content":"{\"kind\":\"wait\"}"},"finish_reason":"stop"}],
+      "usage":{
+        "prompt_tokens":100,
+        "completion_tokens":5,
+        "total_tokens":105,
+        "prompt_tokens_details":{"cached_tokens":75},
+        "cache_creation_input_tokens":9
+      }
+    }`)
+	client, err := New(Config{
+		BaseURL: "https://models.example/v1", Model: "fixture-model",
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return response(http.StatusOK, payload, nil), nil
+		})},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.Complete(context.Background(), provider.CompletionRequest{
+		Messages: []provider.Message{{Role: "user", Content: "test"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Usage.PromptCacheHitTokens == nil || *result.Usage.PromptCacheHitTokens != 75 ||
+		result.Usage.PromptCacheMissTokens == nil || *result.Usage.PromptCacheMissTokens != 25 ||
+		result.Usage.CacheWriteTokens == nil || *result.Usage.CacheWriteTokens != 9 {
+		t.Fatalf("cache usage aliases = %#v", result.Usage)
+	}
+}
+
+func TestCompleteLeavesUnreportedCacheUsageUnknown(t *testing.T) {
+	payload := []byte(`{
+      "model":"fixture-model",
+      "choices":[{"message":{"content":"{\"kind\":\"wait\"}"},"finish_reason":"stop"}],
+      "usage":{"prompt_tokens":100,"completion_tokens":5,"total_tokens":105}
+    }`)
+	client, err := New(Config{
+		BaseURL: "https://models.example/v1", Model: "fixture-model",
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return response(http.StatusOK, payload, nil), nil
+		})},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.Complete(context.Background(), provider.CompletionRequest{
+		Messages: []provider.Message{{Role: "user", Content: "test"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Usage.PromptCacheHitTokens != nil ||
+		result.Usage.PromptCacheMissTokens != nil || result.Usage.CacheWriteTokens != nil {
+		t.Fatalf("unreported cache usage was fabricated: %#v", result.Usage)
+	}
+}
+
 func TestCompleteRejectsNilContextBeforeTransport(t *testing.T) {
 	var calls atomic.Int32
 	client, err := New(Config{
