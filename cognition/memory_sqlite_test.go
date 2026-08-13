@@ -459,6 +459,9 @@ func TestSQLiteMemoryRetrievalIsStableAndBounded(t *testing.T) {
 }
 
 func TestSQLiteMemoryRetrievalLatencySample(t *testing.T) {
+	if raceDetectorEnabled {
+		t.Skip("wall-clock latency guard is not meaningful with the race detector enabled")
+	}
 	provider, err := cognition.OpenSQLiteMemoryProvider(
 		filepath.Join(t.TempDir(), "memory.db"), cognition.LocalMemoryConfig{},
 	)
