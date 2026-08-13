@@ -22,6 +22,10 @@ FIXTURES = json.loads(
     (Path(__file__).resolve().parents[3] / "api" / "control-v2-fixtures.json")
     .read_text(encoding="utf-8")
 )
+PLAN_FIXTURES = json.loads(
+    (Path(__file__).resolve().parents[3] / "api" / "task-plan-v1-fixtures.json")
+    .read_text(encoding="utf-8")
+)
 TOKEN = "control-fixture-token-32-bytes!!"
 
 
@@ -105,6 +109,13 @@ class ControlClientTests(unittest.TestCase):
             (client.wait_task_timeline, (FIXTURES["wait_task_timeline"],), "POST", "/control/v2/tasks/timeline/wait", FIXTURES["wait_task_timeline"]),
             (client.cancel_operation, (FIXTURES["operation_target"],), "POST", "/control/v2/operations/cancel", FIXTURES["operation_target"]),
             (client.set_emergency_stop, (FIXTURES["emergency_stop"],), "POST", "/control/v2/emergency-stop", FIXTURES["emergency_stop"]),
+            (client.create_task_plan, (PLAN_FIXTURES["create"],), "POST", "/plans/v1/create", PLAN_FIXTURES["create"]),
+            (client.get_task_plan, (PLAN_FIXTURES["get"],), "POST", "/plans/v1/get", PLAN_FIXTURES["get"]),
+            (client.wait_task_plan, (PLAN_FIXTURES["wait"],), "POST", "/plans/v1/wait", PLAN_FIXTURES["wait"]),
+            (client.revise_task_plan, (PLAN_FIXTURES["create"],), "POST", "/plans/v1/revise", PLAN_FIXTURES["create"]),
+            (client.set_task_plan_status, (PLAN_FIXTURES["status"],), "POST", "/plans/v1/status", PLAN_FIXTURES["status"]),
+            (client.request_task_step_transition, (PLAN_FIXTURES["transition"],), "POST", "/plans/v1/transition", PLAN_FIXTURES["transition"]),
+            (client.submit_task_step_action, (FIXTURES["submit_action"],), "POST", "/plans/v1/submit-step-action", FIXTURES["submit_action"]),
         )
         for method, args, expected_method, path, body in cases:
             method(*args)

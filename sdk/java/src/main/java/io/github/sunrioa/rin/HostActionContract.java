@@ -266,6 +266,9 @@ public final class HostActionContract {
         if (actionRequest.containsKey("task_id")) {
             bound.put("task_id", actionRequest.get("task_id"));
         }
+        if (actionRequest.containsKey("plan_step_ref")) {
+            bound.put("plan_step_ref", actionRequest.get("plan_step_ref"));
+        }
         bound.put("idempotency_key", actionRequest.get("idempotency_key"));
         bound.put("effect_preview", effects);
         bound.put("effect_digest", effectDigest);
@@ -278,7 +281,7 @@ public final class HostActionContract {
         requireShape(request, Set.of(
                 "request_id", "controller_id", "actor_id", "capability", "spec_digest",
                 "arguments", "expected_epoch", "observation_sequence", "idempotency_key"),
-                Set.of("target_refs", "task_id"), "action request");
+                Set.of("target_refs", "task_id", "plan_step_ref"), "action request");
         Map<String, Object> normalized = object(
                 "request_id", identifier(request.get("request_id"), "request_id"),
                 "controller_id", identifier(request.get("controller_id"), "controller_id"),
@@ -297,6 +300,12 @@ public final class HostActionContract {
                 "observation_sequence", 1, MAX_JSON_SAFE_INTEGER));
         if (request.containsKey("task_id")) {
             normalized.put("task_id", identifier(request.get("task_id"), "task_id"));
+        }
+        if (request.containsKey("plan_step_ref")) {
+            if (!request.containsKey("task_id")) {
+                throw invalid("plan_step_ref requires task_id");
+            }
+            normalized.put("plan_step_ref", planStepRef(request.get("plan_step_ref")));
         }
         normalized.put("idempotency_key",
                 identifier(request.get("idempotency_key"), "idempotency_key"));
@@ -320,8 +329,30 @@ public final class HostActionContract {
                 request.get("expected_epoch"), "expected_epoch")));
         value.put("observation_sequence", request.get("observation_sequence"));
         if (request.containsKey("task_id")) value.put("task_id", request.get("task_id"));
+        if (request.containsKey("plan_step_ref")) {
+            value.put("plan_step_ref", orderedPlanStepRef(objectValue(
+                    request.get("plan_step_ref"), "plan_step_ref")));
+        }
         value.put("idempotency_key", request.get("idempotency_key"));
         return value;
+    }
+
+    private static Map<String, Object> planStepRef(Object raw) {
+        Map<String, ?> ref = objectValue(raw, "plan_step_ref");
+        requireShape(ref, Set.of("plan_id", "plan_revision", "step_id"), Set.of(),
+                "plan_step_ref");
+        return object(
+                "plan_id", identifier(ref.get("plan_id"), "plan_step_ref.plan_id"),
+                "plan_revision", whole(ref.get("plan_revision"),
+                        "plan_step_ref.plan_revision", 1, MAX_JSON_SAFE_INTEGER),
+                "step_id", identifier(ref.get("step_id"), "plan_step_ref.step_id"));
+    }
+
+    private static OrderedObject orderedPlanStepRef(Map<String, Object> ref) {
+        return ordered(
+                "plan_id", ref.get("plan_id"),
+                "plan_revision", ref.get("plan_revision"),
+                "step_id", ref.get("step_id"));
     }
 
     private static Map<String, Object> normalizeEffect(

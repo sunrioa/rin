@@ -1,0 +1,62 @@
+{
+  "contract_version": "rin.task-plan/v1",
+  "create": {
+    "plan_id": "plan.fixture",
+    "task_id": "task.fixture",
+    "session_id": "session.fixture",
+    "host_id": "host.fixture",
+    "world_id": "world.fixture",
+    "actor_id": "actor.fixture",
+    "controller_id": "controller.fixture",
+    "controller_source": "external",
+    "goal": "Collect material and return home.",
+    "planning_mode": "auto",
+    "phase": "Collect",
+    "steps": [
+      {
+        "step_id": "step.collect",
+        "title": "Collect",
+        "objective": "Collect nearby material.",
+        "success_conditions": [
+          {
+            "condition_id": "condition.collected",
+            "kind": "operation-outcome",
+            "summary": "The Host confirms collection."
+          }
+        ],
+        "capability_hints": [
+          { "id": "resource.harvest", "version": "1.0.0" }
+        ],
+        "max_attempts": 3
+      }
+    ],
+    "max_replans": 2,
+    "based_on_epoch": {
+      "session_id": "session.fixture",
+      "world_id": "world.fixture",
+      "host": 2,
+      "world": 4,
+      "timeline": 1
+    },
+    "based_on_observation_sequence": 7
+  },
+  "get": { "plan_id": "plan.fixture" },
+  "wait": {
+    "plan_id": "plan.fixture",
+    "after_revision": 1,
+    "wait_millis": 25000
+  },
+  "status": {
+    "plan_id": "plan.fixture",
+    "expected_revision": 1,
+    "status": "paused",
+    "summary": "The external controller disconnected."
+  },
+  "transition": {
+    "plan_id": "plan.fixture",
+    "expected_revision": 1,
+    "condition_id": "condition.collected",
+    "kind": "operation-outcome",
+    "evidence_id": "operation.fixture"
+  }
+}

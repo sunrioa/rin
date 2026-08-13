@@ -11,6 +11,7 @@ import (
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/release"
 	"github.com/sunrioa/rin/skillapi"
+	"github.com/sunrioa/rin/taskstate"
 	"github.com/sunrioa/rin/timeline"
 )
 
@@ -18,6 +19,7 @@ import (
 type Gateway struct {
 	client    ControlClient
 	skills    SkillClient
+	plans     PlanClient
 	principal host.Principal
 	server    *mcp.Server
 }
@@ -50,6 +52,17 @@ func NewClientWithSkills(
 	skills SkillClient,
 	principal host.Principal,
 ) (*Gateway, error) {
+	return NewClientWithSkillsAndPlans(client, skills, nil, principal)
+}
+
+// NewClientWithSkillsAndPlans exposes the shared inert Skill catalog and
+// engine-neutral task coordinator through the same thin MCP process.
+func NewClientWithSkillsAndPlans(
+	client ControlClient,
+	skills SkillClient,
+	plans PlanClient,
+	principal host.Principal,
+) (*Gateway, error) {
 	if client == nil {
 		return nil, errorsInvalid("client is required")
 	}
@@ -62,6 +75,7 @@ func NewClientWithSkills(
 	gateway := &Gateway{
 		client:    client,
 		skills:    skills,
+		plans:     plans,
 		principal: clonePrincipal(principal),
 	}
 	gateway.server = mcp.NewServer(
@@ -90,7 +104,177 @@ func NewClientWithSkills(
 	if skills != nil && gateway.granted(skillapi.ScopeSkillWrite) {
 		gateway.addSkillWriteTools()
 	}
+	if plans != nil && gateway.granted(controlplane.ScopeActorRead) {
+		gateway.addPlanReadTools()
+	}
+	if plans != nil && gateway.granted(controlplane.ScopeActorControl) {
+		gateway.addPlanControlTools()
+	}
+	if plans != nil && gateway.granted(controlplane.ScopeActorExecute) {
+		gateway.addPlanActionTool()
+	}
 	return gateway, nil
+}
+
+func (gateway *Gateway) addPlanReadTools() {
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name: "get_task_plan", Description: "Read one engine-neutral coarse task plan. A plan describes progress but grants no gameplay authority.",
+		Annotations: readAnnotations(),
+	}, gateway.getTaskPlan)
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name: "wait_task_plan_update", Description: "Wait up to 25 seconds for a newer plan revision. changed=false is no new evidence.",
+		Annotations: readAnnotations(),
+	}, gateway.waitTaskPlanUpdate)
+}
+
+func (gateway *Gateway) addPlanControlTools() {
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name: "create_task_plan", Description: "Create a bounded coarse plan against the exact current actor Epoch and observation. Capability hints never grant permission.",
+		Annotations: writeAnnotations(false),
+	}, gateway.createTaskPlan)
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name: "revise_task_plan", Description: "Replace a plan at one exact revision after a deterministic replan reason. Unfinished operations block revision.",
+		Annotations: writeAnnotations(false),
+	}, gateway.reviseTaskPlan)
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name: "request_task_step_transition", Description: "Request a step transition using a confirmed operation or current Host observation fact. Model text is never completion evidence.",
+		Annotations: writeAnnotations(false),
+	}, gateway.requestTaskStepTransition)
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name: "pause_task_plan", Description: "Pause one exact plan revision without cancelling an already running game operation.",
+		Annotations: writeAnnotations(false),
+	}, gateway.pauseTaskPlan)
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name: "resume_task_plan", Description: "Resume one paused plan after the current controller lease and Epoch are revalidated.",
+		Annotations: writeAnnotations(false),
+	}, gateway.resumeTaskPlan)
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name: "cancel_task_plan", Description: "Cancel one plan after its linked operations have reached terminal state or were cancelled separately.",
+		Annotations: writeAnnotations(false),
+	}, gateway.cancelTaskPlan)
+}
+
+func (gateway *Gateway) addPlanActionTool() {
+	mcp.AddTool(gateway.server, &mcp.Tool{
+		Name: "submit_task_step_action", Description: "Submit one typed action for the exact active plan step. It still passes Host binding and Policy; queued is not completion.",
+		Annotations: writeAnnotations(true),
+	}, gateway.submitTaskStepAction)
+}
+
+func (gateway *Gateway) createTaskPlan(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input CreateTaskPlanInput,
+) (*mcp.CallToolResult, PlanOutput, error) {
+	plan, err := gateway.plans.CreatePlan(ctx, taskstate.Draft(input))
+	return nil, PlanOutput{Plan: plan}, err
+}
+
+func (gateway *Gateway) getTaskPlan(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input GetTaskPlanInput,
+) (*mcp.CallToolResult, PlanOutput, error) {
+	plan, err := gateway.plans.GetPlan(ctx, input.PlanID)
+	return nil, PlanOutput{Plan: plan}, err
+}
+
+func (gateway *Gateway) waitTaskPlanUpdate(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input WaitTaskPlanInput,
+) (*mcp.CallToolResult, PlanUpdateOutput, error) {
+	update, err := gateway.plans.WaitPlan(ctx, taskstate.WaitInput(input))
+	return nil, PlanUpdateOutput(update), err
+}
+
+func (gateway *Gateway) reviseTaskPlan(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input ReviseTaskPlanInput,
+) (*mcp.CallToolResult, PlanOutput, error) {
+	plan, err := gateway.plans.RevisePlan(ctx, taskstate.ReviseInput(input))
+	return nil, PlanOutput{Plan: plan}, err
+}
+
+func (gateway *Gateway) requestTaskStepTransition(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input RequestTaskStepTransitionInput,
+) (*mcp.CallToolResult, PlanOutput, error) {
+	plan, err := gateway.plans.RequestTransition(ctx, taskstate.TransitionInput(input))
+	return nil, PlanOutput{Plan: plan}, err
+}
+
+func (gateway *Gateway) pauseTaskPlan(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input ChangeTaskPlanStatusInput,
+) (*mcp.CallToolResult, PlanOutput, error) {
+	return gateway.changeTaskPlanStatus(ctx, input, taskstate.PlanPaused)
+}
+
+func (gateway *Gateway) resumeTaskPlan(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input ChangeTaskPlanStatusInput,
+) (*mcp.CallToolResult, PlanOutput, error) {
+	return gateway.changeTaskPlanStatus(ctx, input, taskstate.PlanActive)
+}
+
+func (gateway *Gateway) cancelTaskPlan(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input ChangeTaskPlanStatusInput,
+) (*mcp.CallToolResult, PlanOutput, error) {
+	return gateway.changeTaskPlanStatus(ctx, input, taskstate.PlanCancelled)
+}
+
+func (gateway *Gateway) changeTaskPlanStatus(
+	ctx context.Context,
+	input ChangeTaskPlanStatusInput,
+	status taskstate.PlanStatus,
+) (*mcp.CallToolResult, PlanOutput, error) {
+	plan, err := gateway.plans.SetPlanStatus(ctx, taskstate.StatusInput{
+		PlanID: input.PlanID, ExpectedRevision: input.ExpectedRevision,
+		Status: status, Summary: input.Summary,
+	})
+	return nil, PlanOutput{Plan: plan}, err
+}
+
+func (gateway *Gateway) submitTaskStepAction(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	input SubmitTaskStepActionInput,
+) (*mcp.CallToolResult, OperationOutput, error) {
+	arguments, err := encodeObject(input.Arguments)
+	if err != nil {
+		return nil, OperationOutput{}, err
+	}
+	operation, err := gateway.plans.SubmitStepAction(ctx, taskstate.SubmitStepActionInput{
+		Action: controlplane.SubmitActionInput{
+			HostID: input.HostID, WorldID: input.WorldID,
+			Request: host.ActionRequest{
+				RequestID: input.RequestID, ControllerID: input.ControllerID,
+				ActorID:    input.ActorID,
+				Capability: host.CapabilityRef{ID: input.CapabilityID, Version: input.CapabilityVersion},
+				SpecDigest: input.SpecDigest, Arguments: arguments,
+				Targets:       append([]host.HostRef(nil), input.Targets...),
+				ExpectedEpoch: input.ExpectedEpoch, ObservationSeq: input.ObservationSeq,
+				TaskID: input.TaskID, PlanStep: &host.PlanStepRef{
+					PlanID: input.PlanID, PlanRevision: input.PlanRevision, StepID: input.StepID,
+				},
+				IdempotencyKey: input.IdempotencyKey,
+			},
+			ParentOperationID: input.ParentOperationID,
+		},
+		ConditionIDs: append([]string(nil), input.ConditionIDs...),
+	})
+	if err != nil {
+		return nil, OperationOutput{}, err
+	}
+	converted, err := convertOperation(operation)
+	return nil, OperationOutput{Operation: converted}, err
 }
 
 func (gateway *Gateway) Server() *mcp.Server {
@@ -676,7 +860,7 @@ func convertActionRequest(value host.ActionRequest) (ActionRequest, error) {
 		SpecDigest: value.SpecDigest, Arguments: arguments,
 		Targets:       append([]host.HostRef(nil), value.Targets...),
 		ExpectedEpoch: value.ExpectedEpoch, ObservationSeq: value.ObservationSeq,
-		TaskID: value.TaskID, IdempotencyKey: value.IdempotencyKey,
+		TaskID: value.TaskID, PlanStep: value.PlanStep, IdempotencyKey: value.IdempotencyKey,
 	}, nil
 }
 
@@ -709,7 +893,7 @@ func convertBoundAction(value host.BoundAction) (BoundAction, error) {
 		RequestedTargets: append([]host.HostRef(nil), value.RequestedTargets...),
 		ResolvedTargets:  append([]host.HostRef(nil), value.ResolvedTargets...),
 		ExpectedEpoch:    value.ExpectedEpoch, ObservationSeq: value.ObservationSeq,
-		TaskID: value.TaskID, IdempotencyKey: value.IdempotencyKey,
+		TaskID: value.TaskID, PlanStep: value.PlanStep, IdempotencyKey: value.IdempotencyKey,
 		Effects: effects, EffectDigest: value.EffectDigest,
 		BoundAt: value.BoundAt, ValidUntil: value.ValidUntil,
 	}, nil

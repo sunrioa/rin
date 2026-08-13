@@ -38,9 +38,14 @@
     },
     "observation_sequence": 7,
     "task_id": "task.reach.dock",
+    "plan_step_ref": {
+      "plan_id": "plan.reach.dock",
+      "plan_revision": 2,
+      "step_id": "step.move.dock"
+    },
     "idempotency_key": "request.move.1"
   },
-  "action_request_digest": "8227d8c696b50aeb5c74323d3bb3c978576c617c516a72628db730d4ee1d69d7",
+  "action_request_digest": "c7f15c94ca4d4cc7774c2465a2b4188e80bd1b40122a9dbeaccb5c49f4f00db3",
   "effect_preview": [
     {
       "effect_id": "effect.move.position",

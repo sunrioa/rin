@@ -16,8 +16,65 @@ import (
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/experience"
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/taskstate"
 	"github.com/sunrioa/rin/timeline"
 )
+
+func TestAgentRuntimeSharesOnePlanAcrossDecisionAndOutcome(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	plans := &runtimePlanStub{control: fixture.control, principal: fixture.principal}
+	action := agentActionDecision()
+	action.PlanDraft = &taskstate.Draft{
+		Phase: "Approach", MaxReplans: 2,
+		Steps: []taskstate.StepDraft{{
+			StepID: "step.approach", Title: "Approach", Objective: "Reach the player.",
+			CapabilityHints: []host.CapabilityRef{action.Capability}, MaxAttempts: 3,
+			SuccessConditions: []taskstate.PlanCondition{{
+				ConditionID: "condition.arrived", Kind: taskstate.EvidenceOperationOutcome,
+				Summary: "The Host confirms arrival.",
+			}},
+		}},
+	}
+	fixture.model.decisions = []cognition.ModelDecision{
+		action,
+		{Kind: cognition.ModelDecisionComplete, Summary: "The plan is complete."},
+	}
+	fixture.control.operationAfterSubmit = succeededAgentOperation(fixture.environment.observation)
+	runtime, err := cognition.NewAgentRuntime(cognition.AgentRuntimeOptions{
+		Principal: fixture.principal, Control: fixture.control, Environment: fixture.environment,
+		Persona: fixture.persona, Memory: fixture.memory, Skills: fixture.skills,
+		Model: fixture.model, Tasks: fixture.tasks, Decisions: fixture.decisions,
+		Plans: plans, Now: fixture.now, MaxAdvancesPerRun: 16,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err := runtime.StartTask(context.Background(), cognition.StartTaskInput{
+		TaskID: "task.planned", HostID: "host.test", WorldID: "world.test",
+		ActorID: "actor.mira", ControllerID: "controller.internal",
+		Goal: "Reach the nearby player.", PlanningMode: taskstate.PlanningRequired,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed, err := runtime.RunTask(context.Background(), started.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.Status != cognition.TaskCompleted || completed.PlanID == "" ||
+		completed.CurrentPlanStepID != "" || plans.plan.Status != taskstate.PlanCompleted {
+		t.Fatalf("completed task = %#v, plan = %#v", completed, plans.plan)
+	}
+	if len(plans.submissions) != 1 || plans.submissions[0].Action.Request.PlanStep == nil ||
+		plans.submissions[0].Action.Request.PlanStep.PlanID != completed.PlanID {
+		t.Fatalf("planned submissions = %#v", plans.submissions)
+	}
+	if len(fixture.model.inputs) != 2 || fixture.model.inputs[0].Plan != nil ||
+		fixture.model.inputs[1].Plan == nil ||
+		fixture.model.inputs[1].Plan.Status != taskstate.PlanCompleted {
+		t.Fatalf("model plan contexts = %#v", fixture.model.inputs)
+	}
+}
 
 func TestAgentRuntimeCompletesMultiStepTaskThroughControlPlane(t *testing.T) {
 	fixture := newAgentRuntimeFixture(t)
@@ -968,6 +1025,46 @@ func TestAgentRuntimeCancelsPendingActionBeforeSubmission(t *testing.T) {
 	}
 }
 
+func TestAgentRuntimeCancelsOwnedPlanWithPendingAction(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	plans := &runtimePlanStub{control: fixture.control, principal: fixture.principal}
+	action := agentActionDecision()
+	action.PlanDraft = &taskstate.Draft{
+		Phase: "Approach",
+		Steps: []taskstate.StepDraft{{
+			StepID: "step.approach", Title: "Approach", Objective: "Reach the player.",
+			CapabilityHints: []host.CapabilityRef{action.Capability}, MaxAttempts: 3,
+			SuccessConditions: []taskstate.PlanCondition{{
+				ConditionID: "condition.arrived", Kind: taskstate.EvidenceOperationOutcome,
+				Summary: "The Host confirms arrival.",
+			}},
+		}},
+	}
+	fixture.model.decisions = []cognition.ModelDecision{action}
+	fixture.plans = plans
+	runtime := fixture.runtime(t, 1)
+	started, err := runtime.StartTask(context.Background(), cognition.StartTaskInput{
+		TaskID: "task.cancel-plan", HostID: "host.test", WorldID: "world.test",
+		ActorID: "actor.mira", ControllerID: "controller.internal",
+		Goal: "Reach the nearby player.", PlanningMode: taskstate.PlanningRequired,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := runtime.RunTask(context.Background(), started.TaskID)
+	if err != nil || pending.PlanID == "" || pending.PendingAction == nil {
+		t.Fatalf("planned task did not stop before submission: task=%+v err=%v", pending, err)
+	}
+	cancelled, err := runtime.CancelTask(context.Background(), started.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cancelled.Status != cognition.TaskCancelled || plans.plan.Status != taskstate.PlanCancelled ||
+		cancelled.PlanRevision != plans.plan.Revision || plans.statusUpdates != 1 {
+		t.Fatalf("task and plan cancellation diverged: task=%+v plan=%+v", cancelled, plans.plan)
+	}
+}
+
 func TestAgentRuntimePersistsCancellationUntilHostOutcome(t *testing.T) {
 	fixture := newAgentRuntimeFixture(t)
 	fixture.model.decisions = []cognition.ModelDecision{agentActionDecision()}
@@ -1079,7 +1176,78 @@ type agentRuntimeFixture struct {
 	model       *scriptedModelProvider
 	tasks       *cognition.LocalTaskStore
 	decisions   *cognition.LocalDecisionRecorder
+	plans       taskstate.PlanClient
 	now         func() time.Time
+}
+
+type runtimePlanStub struct {
+	control       *fakeAgentControlPlane
+	principal     host.Principal
+	plan          taskstate.PlanState
+	submissions   []taskstate.SubmitStepActionInput
+	advanced      bool
+	statusUpdates int
+}
+
+func (client *runtimePlanStub) CreatePlan(_ context.Context, input taskstate.Draft) (taskstate.PlanState, error) {
+	plan, err := taskstate.NewPlan(input, 2_000)
+	client.plan = plan
+	return plan, err
+}
+
+func (client *runtimePlanStub) GetPlan(context.Context, string) (taskstate.PlanState, error) {
+	if len(client.submissions) != 0 && !client.advanced {
+		evidence := taskstate.PlanEvidence{
+			EvidenceID: "evidence.arrived", ConditionID: "condition.arrived",
+			Kind: taskstate.EvidenceOperationOutcome, OperationID: "operation.agent.1",
+			Epoch: client.plan.BasedOnEpoch, ObservationSequence: 2,
+			Digest: strings.Repeat("a", 64), RecordedAtUnixMillis: 2_001,
+		}
+		plan, _, err := taskstate.ApplyEvidence(client.plan, evidence, 2_001)
+		if err != nil {
+			return taskstate.PlanState{}, err
+		}
+		client.plan = plan
+		client.advanced = true
+	}
+	return client.plan, nil
+}
+
+func (client *runtimePlanStub) WaitPlan(context.Context, taskstate.WaitInput) (taskstate.PlanUpdate, error) {
+	return taskstate.PlanUpdate{Plan: client.plan}, nil
+}
+
+func (client *runtimePlanStub) RevisePlan(context.Context, taskstate.ReviseInput) (taskstate.PlanState, error) {
+	return taskstate.PlanState{}, taskstate.ErrConflict
+}
+
+func (client *runtimePlanStub) SetPlanStatus(_ context.Context, input taskstate.StatusInput) (taskstate.PlanState, error) {
+	if input.PlanID != client.plan.PlanID || input.ExpectedRevision != client.plan.Revision ||
+		input.Status != taskstate.PlanCancelled {
+		return taskstate.PlanState{}, taskstate.ErrConflict
+	}
+	client.plan.Status = taskstate.PlanCancelled
+	client.plan.CurrentStepID = ""
+	client.plan.Revision++
+	for index := range client.plan.Steps {
+		if client.plan.Steps[index].Status != taskstate.StepCompleted {
+			client.plan.Steps[index].Status = taskstate.StepSkipped
+		}
+	}
+	client.statusUpdates++
+	return client.plan, nil
+}
+
+func (client *runtimePlanStub) RequestTransition(context.Context, taskstate.TransitionInput) (taskstate.PlanState, error) {
+	return taskstate.PlanState{}, taskstate.ErrForbidden
+}
+
+func (client *runtimePlanStub) SubmitStepAction(
+	ctx context.Context,
+	input taskstate.SubmitStepActionInput,
+) (controlplane.OperationView, error) {
+	client.submissions = append(client.submissions, input)
+	return client.control.SubmitAction(ctx, client.principal, input.Action)
 }
 
 func newAgentRuntimeFixture(t *testing.T) *agentRuntimeFixture {
@@ -1165,6 +1333,7 @@ func (fixture *agentRuntimeFixture) runtime(t *testing.T, advances uint32) *cogn
 		Principal: fixture.principal, Control: fixture.control, Environment: fixture.environment,
 		Persona: fixture.persona, Memory: fixture.memory, Skills: fixture.skills,
 		Model: fixture.model, Tasks: fixture.tasks, Decisions: fixture.decisions, Now: fixture.now,
+		Plans:             fixture.plans,
 		MaxAdvancesPerRun: advances,
 	})
 	if err != nil {

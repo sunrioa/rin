@@ -31,6 +31,11 @@ final class RinControlClientTest {
                 "shared Control fixture has the wrong contract");
         require(fixture.contains("\"request_id\": \"request.fixture\""),
                 "shared Control fixture lost its action request");
+        String planFixture = Files.readString(
+                Path.of("api/task-plan-v1-fixtures.json"),
+                StandardCharsets.UTF_8);
+        require(planFixture.contains("\"contract_version\": \"rin.task-plan/v1\""),
+                "shared task plan fixture has the wrong contract");
 
         String[] lastRequest = new String[4];
         String[] mode = {"normal"};
@@ -112,7 +117,14 @@ final class RinControlClientTest {
                     new RequestCase(() -> client.getTaskTimeline(taskTimeline()), "POST", "/control/v2/tasks/timeline/get"),
                     new RequestCase(() -> client.waitTaskTimeline(waitTaskTimeline()), "POST", "/control/v2/tasks/timeline/wait"),
                     new RequestCase(() -> client.cancelOperation(operation), "POST", "/control/v2/operations/cancel"),
-                    new RequestCase(() -> client.setEmergencyStop(emergencyStop()), "POST", "/control/v2/emergency-stop"));
+                    new RequestCase(() -> client.setEmergencyStop(emergencyStop()), "POST", "/control/v2/emergency-stop"),
+                    new RequestCase(() -> client.createTaskPlan(actor), "POST", "/plans/v1/create"),
+                    new RequestCase(() -> client.getTaskPlan(actor), "POST", "/plans/v1/get"),
+                    new RequestCase(() -> client.waitTaskPlan(actor), "POST", "/plans/v1/wait"),
+                    new RequestCase(() -> client.reviseTaskPlan(actor), "POST", "/plans/v1/revise"),
+                    new RequestCase(() -> client.setTaskPlanStatus(actor), "POST", "/plans/v1/status"),
+                    new RequestCase(() -> client.requestTaskStepTransition(actor), "POST", "/plans/v1/transition"),
+                    new RequestCase(() -> client.submitTaskStepAction(actor), "POST", "/plans/v1/submit-step-action"));
 
             for (RequestCase request : requests) {
                 request.call().get().join();
@@ -125,7 +137,7 @@ final class RinControlClientTest {
                 require(request.method().equals("GET") || !lastRequest[3].isEmpty(),
                         "Control POST body was omitted for " + request.path());
             }
-            require(codec.encodedInputs.size() == 19, "Control client did not encode every POST body");
+            require(codec.encodedInputs.size() == 26, "Control client did not encode every POST body");
 
             mode[0] = "api-error";
             expectCode(() -> client.getActor(actor).join(), RinApiException.class, "stale");

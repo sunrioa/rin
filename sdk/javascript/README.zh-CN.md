@@ -4,6 +4,8 @@
 
 适用于 Node.js 18+ 的零依赖 ESM `rin.control/v2` 客户端。
 
+同一客户端也通过原始 JSON 方法提供固定的 `/plans/v1/*` 任务计划接口。
+
 ```javascript
 import { RinControlClient } from "./sdk/javascript/src/index.js";
 

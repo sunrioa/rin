@@ -4,6 +4,8 @@
 
 A zero-dependency ESM `rin.control/v2` client for Node.js 18 and newer.
 
+The same client exposes the fixed `/plans/v1/*` task-plan routes as raw JSON methods.
+
 ```javascript
 import { RinControlClient } from "./sdk/javascript/src/index.js";
 

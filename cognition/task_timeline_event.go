@@ -84,6 +84,11 @@ func operationTimelineEvent(
 		event.ObservationSequence = view.ActionRequest.ObservationSeq
 		epoch := view.ActionRequest.ExpectedEpoch
 		event.Epoch = &epoch
+		if view.ActionRequest.PlanStep != nil {
+			event.PlanID = view.ActionRequest.PlanStep.PlanID
+			event.PlanRevision = view.ActionRequest.PlanStep.PlanRevision
+			event.PlanStepID = view.ActionRequest.PlanStep.StepID
+		}
 	}
 	return event
 }

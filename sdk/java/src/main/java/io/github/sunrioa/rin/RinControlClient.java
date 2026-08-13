@@ -157,6 +157,34 @@ public final class RinControlClient {
         return postObject("/control/v2/emergency-stop", input);
     }
 
+    public CompletableFuture<Map<String, Object>> createTaskPlan(Map<String, ?> input) {
+        return postObject("/plans/v1/create", input);
+    }
+
+    public CompletableFuture<Map<String, Object>> getTaskPlan(Map<String, ?> input) {
+        return postObject("/plans/v1/get", input);
+    }
+
+    public CompletableFuture<Map<String, Object>> waitTaskPlan(Map<String, ?> input) {
+        return postObject("/plans/v1/wait", input);
+    }
+
+    public CompletableFuture<Map<String, Object>> reviseTaskPlan(Map<String, ?> input) {
+        return postObject("/plans/v1/revise", input);
+    }
+
+    public CompletableFuture<Map<String, Object>> setTaskPlanStatus(Map<String, ?> input) {
+        return postObject("/plans/v1/status", input);
+    }
+
+    public CompletableFuture<Map<String, Object>> requestTaskStepTransition(Map<String, ?> input) {
+        return postObject("/plans/v1/transition", input);
+    }
+
+    public CompletableFuture<Map<String, Object>> submitTaskStepAction(Map<String, ?> input) {
+        return postObject("/plans/v1/submit-step-action", input);
+    }
+
     private CompletableFuture<Map<String, Object>> postObject(String path, Map<String, ?> input) {
         return requestObject("POST", path, Objects.requireNonNull(input, "input"));
     }

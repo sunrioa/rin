@@ -1979,6 +1979,20 @@
           "world_id"
         ]
       },
+      "PlanStepRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "plan_id": { "$ref": "#/components/schemas/Identifier" },
+          "plan_revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "step_id": { "$ref": "#/components/schemas/Identifier" }
+        },
+        "required": ["plan_id", "plan_revision", "step_id"]
+      },
       "ActionRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -2019,6 +2033,9 @@
           },
           "task_id": {
             "$ref": "#/components/schemas/Identifier"
+          },
+          "plan_step_ref": {
+            "$ref": "#/components/schemas/PlanStepRef"
           },
           "idempotency_key": {
             "$ref": "#/components/schemas/Identifier"
@@ -2176,6 +2193,9 @@
           },
           "task_id": {
             "$ref": "#/components/schemas/Identifier"
+          },
+          "plan_step_ref": {
+            "$ref": "#/components/schemas/PlanStepRef"
           },
           "idempotency_key": {
             "$ref": "#/components/schemas/Identifier"
@@ -3603,6 +3623,13 @@
             "type": "integer",
             "minimum": 0
           },
+          "plan_id": { "$ref": "#/components/schemas/Identifier" },
+          "plan_revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "plan_step_id": { "$ref": "#/components/schemas/Identifier" },
           "event_kind": {
             "type": "string",
             "minLength": 1,

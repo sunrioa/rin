@@ -5,6 +5,7 @@ import (
 
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/skillapi"
+	"github.com/sunrioa/rin/taskstate"
 )
 
 // ControlClient is the same V2 application contract used by HTTP. MCP is a
@@ -17,3 +18,5 @@ type SkillClient interface {
 	Save(context.Context, skillapi.SaveInput) (skillapi.GetOutput, error)
 	Reload(context.Context) (skillapi.ReloadOutput, error)
 }
+
+type PlanClient = taskstate.PlanClient

@@ -24,6 +24,7 @@ import (
 	"github.com/sunrioa/rin/internal/jsonwire"
 	"github.com/sunrioa/rin/policy"
 	"github.com/sunrioa/rin/skillapi"
+	"github.com/sunrioa/rin/taskstate"
 )
 
 const shutdownTimeout = 5 * time.Second
@@ -87,11 +88,24 @@ func run(
 	if err != nil {
 		return fmt.Errorf("create Outcome memory projection: %w", err)
 	}
+	planStore, err := taskstate.OpenSQLiteStore(
+		filepath.Join(config.dataDir, "agent", "taskstate.db"), taskstate.StoreConfig{},
+	)
+	if err != nil {
+		return fmt.Errorf("open task plan store: %w", err)
+	}
+	defer func() {
+		result = errors.Join(result, planStore.Close())
+	}()
+	planOutcomeSink, err := taskstate.NewOutcomeSink(planStore)
+	if err != nil {
+		return fmt.Errorf("create task plan Outcome projection: %w", err)
+	}
 	service, err := controlplane.OpenFile(
 		config.dataDir,
 		controlplane.Options{
 			PolicyEngine: policyEngine,
-			OutcomeSink:  outcomeSink,
+			OutcomeSink:  controlplane.JoinOutcomeSinks(outcomeSink, planOutcomeSink),
 		},
 	)
 	if err != nil {
@@ -100,6 +114,20 @@ func run(
 	defer func() {
 		result = errors.Join(result, service.Close())
 	}()
+	planControlClient, err := controlplane.NewClientService(service, config.principal)
+	if err != nil {
+		return err
+	}
+	planCoordinator, err := taskstate.NewCoordinator(planStore, planControlClient)
+	if err != nil {
+		return err
+	}
+	planHandler, err := taskstate.NewHTTPHandler(
+		planCoordinator, taskstate.HTTPOptions{Token: config.token},
+	)
+	if err != nil {
+		return err
+	}
 	handler, err := controlplane.NewHTTPHandler(
 		service,
 		controlplane.HTTPOptions{
@@ -134,6 +162,7 @@ func run(
 			HTTPToken: config.agentToken, APIKey: config.agentAPIKey,
 			Skills: catalog, LearnedSkills: learnedSkills,
 			Memory: memory, OutcomesRecordedByControl: true,
+			PlanStore: planStore,
 		})
 		if err != nil {
 			return fmt.Errorf("start internal Agent Runtime: %w", err)
@@ -143,7 +172,7 @@ func run(
 		}()
 		agentHandler = internalAgent.Handler()
 	}
-	rootHandler := composeHandlers(handler, skillHandler, agentHandler)
+	rootHandler := composeHandlers(handler, skillHandler, agentHandler, planHandler)
 	listener, err := net.Listen("tcp", config.address)
 	if err != nil {
 		return fmt.Errorf("listen for Host Control: %w", err)
@@ -300,10 +329,14 @@ func parseConfiguration(
 
 func composeHandlers(
 	controlHandler, skillHandler, agentHandler http.Handler,
+	additional ...http.Handler,
 ) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/control/", controlHandler)
 	mux.Handle("/skills/", skillHandler)
+	if len(additional) != 0 && additional[0] != nil {
+		mux.Handle("/plans/", additional[0])
+	}
 	if agentHandler != nil {
 		mux.Handle("/agent/", agentHandler)
 	}

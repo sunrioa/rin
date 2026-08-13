@@ -348,6 +348,10 @@
           "id"
         ]
       },
+      "PlanningMode": {
+        "type": "string",
+        "enum": ["disabled", "auto", "required"]
+      },
       "StartTaskInput": {
         "type": "object",
         "additionalProperties": false,
@@ -388,6 +392,9 @@
             },
             "maxItems": 128,
             "uniqueItems": true
+          },
+          "planning_mode": {
+            "$ref": "#/components/schemas/PlanningMode"
           },
           "budget": {
             "$ref": "#/components/schemas/TaskBudget"
@@ -570,6 +577,9 @@
             "type": "integer",
             "minimum": 0
           },
+          "plan_id": { "$ref": "#/components/schemas/Identifier" },
+          "plan_revision": { "$ref": "#/components/schemas/JSONSafePositiveInteger" },
+          "plan_step_id": { "$ref": "#/components/schemas/Identifier" },
           "event_kind": {
             "type": "string",
             "minLength": 1,
@@ -621,7 +631,10 @@
           },
           "operation": {
             "$ref": "#/components/schemas/OperationSummary"
-          }
+          },
+          "plan_id": { "$ref": "#/components/schemas/Identifier" },
+          "plan_revision": { "$ref": "#/components/schemas/JSONSafePositiveInteger" },
+          "plan_step_id": { "$ref": "#/components/schemas/Identifier" }
         },
         "required": [
           "event_id",
@@ -889,6 +902,18 @@
             "maxItems": 128,
             "uniqueItems": true
           },
+          "planning_mode": {
+            "$ref": "#/components/schemas/PlanningMode"
+          },
+          "plan_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "plan_revision": {
+            "$ref": "#/components/schemas/JSONSafePositiveInteger"
+          },
+          "current_plan_step_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -987,6 +1012,7 @@
           "actor_id",
           "controller_id",
           "goal",
+          "planning_mode",
           "status",
           "revision",
           "step",
@@ -1087,6 +1113,15 @@
           },
           "operation": {
             "$ref": "#/components/schemas/OperationSummary"
+          },
+          "plan_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "plan_revision": {
+            "$ref": "#/components/schemas/JSONSafePositiveInteger"
+          },
+          "plan_step_id": {
+            "$ref": "#/components/schemas/Identifier"
           }
         },
         "required": [
@@ -1234,6 +1269,16 @@
           "epoch"
         ]
       },
+      "PlanStepRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "plan_id": { "$ref": "#/components/schemas/TaskIdentifier" },
+          "plan_revision": { "$ref": "#/components/schemas/JSONSafePositiveInteger" },
+          "step_id": { "$ref": "#/components/schemas/Identifier" }
+        },
+        "required": ["plan_id", "plan_revision", "step_id"]
+      },
       "ActionRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -1272,6 +1317,9 @@
           },
           "task_id": {
             "$ref": "#/components/schemas/TaskIdentifier"
+          },
+          "plan_step_ref": {
+            "$ref": "#/components/schemas/PlanStepRef"
           },
           "idempotency_key": {
             "$ref": "#/components/schemas/Identifier"

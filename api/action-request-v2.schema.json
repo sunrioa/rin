@@ -25,6 +25,7 @@
       "maximum": 9007199254740991
     },
     "task_id": { "$ref": "#/$defs/id" },
+    "plan_step_ref": { "$ref": "#/$defs/plan_step_ref" },
     "idempotency_key": { "$ref": "#/$defs/id" }
   },
   "required": [
@@ -66,6 +67,20 @@
         "version": { "$ref": "#/$defs/semver" }
       },
       "required": ["id", "version"],
+      "additionalProperties": false
+    },
+    "plan_step_ref": {
+      "type": "object",
+      "properties": {
+        "plan_id": { "$ref": "#/$defs/id" },
+        "plan_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "step_id": { "$ref": "#/$defs/id" }
+      },
+      "required": ["plan_id", "plan_revision", "step_id"],
       "additionalProperties": false
     },
     "epoch": {

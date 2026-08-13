@@ -5,6 +5,7 @@ import (
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/policy"
 	"github.com/sunrioa/rin/skillapi"
+	"github.com/sunrioa/rin/taskstate"
 	"github.com/sunrioa/rin/timeline"
 )
 
@@ -15,6 +16,24 @@ type GetSkillOutput = skillapi.GetOutput
 type SaveExperienceAsSkillInput = skillapi.SaveInput
 type ReloadSkillsInput struct{}
 type ReloadSkillsOutput = skillapi.ReloadOutput
+
+type CreateTaskPlanInput taskstate.Draft
+type GetTaskPlanInput = taskstate.GetPlanInput
+type WaitTaskPlanInput taskstate.WaitInput
+type ReviseTaskPlanInput taskstate.ReviseInput
+type RequestTaskStepTransitionInput taskstate.TransitionInput
+
+type PlanOutput struct {
+	Plan taskstate.PlanState `json:"plan"`
+}
+
+type PlanUpdateOutput taskstate.PlanUpdate
+
+type ChangeTaskPlanStatusInput struct {
+	PlanID           string `json:"plan_id" jsonschema:"plan identifier returned by create_task_plan"`
+	ExpectedRevision uint64 `json:"expected_revision" jsonschema:"exact latest plan revision"`
+	Summary          string `json:"summary" jsonschema:"short public reason for the status change"`
+}
 
 type ListWorldsInput struct{}
 
@@ -231,6 +250,14 @@ type SubmitActorActionInput struct {
 	ParentOperationID string         `json:"parent_operation_id,omitempty" jsonschema:"optional accepted or running child-producing macro operation with the same non-empty task_id"`
 }
 
+type SubmitTaskStepActionInput struct {
+	SubmitActorActionInput
+	PlanID       string   `json:"plan_id" jsonschema:"exact active plan identifier"`
+	PlanRevision uint64   `json:"plan_revision" jsonschema:"exact active plan revision"`
+	StepID       string   `json:"step_id" jsonschema:"exact active step identifier"`
+	ConditionIDs []string `json:"condition_ids,omitempty" jsonschema:"operation-outcome condition IDs this action may satisfy"`
+}
+
 type ConfirmActionInput struct {
 	OperationID string `json:"operation_id" jsonschema:"awaiting-confirmation operation identifier"`
 }
@@ -300,6 +327,7 @@ type ActionRequest struct {
 	ExpectedEpoch  host.Epoch         `json:"expected_epoch"`
 	ObservationSeq uint64             `json:"observation_sequence"`
 	TaskID         string             `json:"task_id,omitempty"`
+	PlanStep       *host.PlanStepRef  `json:"plan_step_ref,omitempty"`
 	IdempotencyKey string             `json:"idempotency_key"`
 }
 
@@ -333,6 +361,7 @@ type BoundAction struct {
 	ExpectedEpoch       host.Epoch         `json:"expected_epoch"`
 	ObservationSeq      uint64             `json:"observation_sequence"`
 	TaskID              string             `json:"task_id,omitempty"`
+	PlanStep            *host.PlanStepRef  `json:"plan_step_ref,omitempty"`
 	IdempotencyKey      string             `json:"idempotency_key"`
 	Effects             []Effect           `json:"effect_preview"`
 	EffectDigest        string             `json:"effect_digest"`

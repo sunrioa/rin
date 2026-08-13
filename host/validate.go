@@ -199,6 +199,18 @@ func (ref CapabilityRef) Validate(field string) error {
 	return validateExactVersion(field+".version", ref.Version)
 }
 
+// Validate verifies engine-neutral plan correlation metadata. A PlanStepRef
+// never grants authority and is meaningful only to the task coordinator.
+func (ref PlanStepRef) Validate(field string) error {
+	if err := validateHostID(field+".plan_id", ref.PlanID, false); err != nil {
+		return err
+	}
+	if ref.PlanRevision == 0 || ref.PlanRevision > maxInteroperableInteger {
+		return invalid(field+".plan_revision", "must be a positive JSON-safe integer")
+	}
+	return validateHostID(field+".step_id", ref.StepID, false)
+}
+
 // ValidateActionRun verifies one action progress record.
 func ValidateActionRun(run ActionRun) error {
 	if err := validateHostID("operation_id", run.OperationID, false); err != nil {

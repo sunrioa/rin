@@ -5,6 +5,7 @@
 Java 17 source-first SDK 包含三部分：
 
 - `RinControlClient`：异步 `rin.control/v2` 客户端；
+- 同一客户端中的 `/plans/v1/*` 任务计划原始 JSON 方法；
 - `RinAgentClient`：异步内部 Agent Task API 客户端；
 - `HostActionContract` / `HostControlSession`：游戏 Adapter 的 V2 Host 辅助边界。
 

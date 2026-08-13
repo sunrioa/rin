@@ -854,6 +854,10 @@ func controllerLeaseIDFromRequest(request HostControlRequest) string {
 func cloneActionRequest(value host.ActionRequest) host.ActionRequest {
 	value.Arguments = append(json.RawMessage(nil), value.Arguments...)
 	value.Targets = append([]host.HostRef(nil), value.Targets...)
+	if value.PlanStep != nil {
+		planStep := *value.PlanStep
+		value.PlanStep = &planStep
+	}
 	return value
 }
 
@@ -861,6 +865,10 @@ func cloneBoundAction(value host.BoundAction) host.BoundAction {
 	value.NormalizedArguments = append(json.RawMessage(nil), value.NormalizedArguments...)
 	value.RequestedTargets = append([]host.HostRef(nil), value.RequestedTargets...)
 	value.ResolvedTargets = append([]host.HostRef(nil), value.ResolvedTargets...)
+	if value.PlanStep != nil {
+		planStep := *value.PlanStep
+		value.PlanStep = &planStep
+	}
 	effects := value.Effects
 	value.Effects = make([]host.Effect, len(effects))
 	for index, effect := range effects {

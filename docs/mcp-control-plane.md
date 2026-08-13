@@ -219,6 +219,9 @@ Daemon scopes register the remaining tools:
 | `submit_actor_action` | `actor.execute` | Submit arguments matching an exact Host capability schema |
 | `cancel_operation` | `operation.cancel` | Request cancellation; this is not rollback |
 | `list_skills` | `skill.read` | List summaries compatible with an adapter and available capabilities |
+| `create_task_plan`, `revise_task_plan` | `actor.control` | Create or revise bounded coarse task progress |
+| `get_task_plan`, `wait_task_plan_update` | `actor.read` | Read or wait for a shared plan revision |
+| `submit_task_step_action` | `actor.execute` | Submit one typed action for the exact active plan step |
 | `get_skill` | `skill.read` | Read one exact version of a complete skill |
 | `save_experience_as_skill` | `skill.write` | Save verified procedural guidance as a learned `SKILL.md` |
 | `reload_skills` | `skill.write` | Reload installed and learned skills from disk |

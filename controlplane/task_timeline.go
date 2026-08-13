@@ -166,6 +166,11 @@ func (service *Service) projectOperationTimelineEvent(
 	}
 	capability := request.Capability
 	event.Capability = &capability
+	if request.PlanStep != nil {
+		event.PlanID = request.PlanStep.PlanID
+		event.PlanRevision = request.PlanStep.PlanRevision
+		event.PlanStepID = request.PlanStep.StepID
+	}
 	if operation.request.BoundAction != nil {
 		event.ControllerID = operation.request.BoundAction.ControllerID
 	}

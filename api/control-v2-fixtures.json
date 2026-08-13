@@ -91,6 +91,11 @@
       },
       "observation_sequence": 7,
       "task_id": "task.fixture",
+      "plan_step_ref": {
+        "plan_id": "plan.fixture",
+        "plan_revision": 2,
+        "step_id": "step.fixture"
+      },
       "idempotency_key": "action.fixture"
     },
     "parent_operation_id": "operation.parent.fixture"

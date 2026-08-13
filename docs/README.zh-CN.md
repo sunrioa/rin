@@ -14,6 +14,7 @@
 5. [MCP 与 Control Plane](mcp-control-plane.zh-CN.md)：外部 Agent、Daemon、工具和安装更新。
 6. [内部 Agent Runtime](internal-agent-runtime.zh-CN.md)：人格、记忆、Skill、模型和任务执行。
 7. [任务时间线](task-timeline.zh-CN.md)：查看公开任务决策、策略、投递与权威结果。
+8. [任务计划](task-plans.zh-CN.md)：在不绕过动作网关的前提下协调有界复杂任务。
 8. [Host 脚手架](host-scaffolding.zh-CN.md)：生成契约骨架并接入自己的语言与引擎。
 9. [集成验收](host-integration-validation.zh-CN.md)：自动门禁与真人游戏测试。
 

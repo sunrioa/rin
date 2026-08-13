@@ -432,6 +432,14 @@ func ValidateActionRequest(request ActionRequest) error {
 			return err
 		}
 	}
+	if request.PlanStep != nil {
+		if request.TaskID == "" {
+			return invalid("plan_step_ref", "requires task_id")
+		}
+		if err := request.PlanStep.Validate("plan_step_ref"); err != nil {
+			return err
+		}
+	}
 	if err := request.Capability.Validate("capability"); err != nil {
 		return err
 	}
@@ -473,6 +481,7 @@ func ActionRequestDigest(request ActionRequest) (string, error) {
 		ExpectedEpoch  Epoch           `json:"expected_epoch"`
 		ObservationSeq uint64          `json:"observation_sequence"`
 		TaskID         string          `json:"task_id,omitempty"`
+		PlanStep       *PlanStepRef    `json:"plan_step_ref,omitempty"`
 		IdempotencyKey string          `json:"idempotency_key"`
 	}{
 		RequestID:      request.RequestID,
@@ -485,6 +494,7 @@ func ActionRequestDigest(request ActionRequest) (string, error) {
 		ExpectedEpoch:  request.ExpectedEpoch,
 		ObservationSeq: request.ObservationSeq,
 		TaskID:         request.TaskID,
+		PlanStep:       clonePlanStepRef(request.PlanStep),
 		IdempotencyKey: request.IdempotencyKey,
 	}
 	encoded, err := json.Marshal(payload)
@@ -578,6 +588,14 @@ func ValidateBoundAction(action BoundAction) error {
 			return err
 		}
 	}
+	if action.PlanStep != nil {
+		if action.TaskID == "" {
+			return invalid("plan_step_ref", "requires task_id")
+		}
+		if err := action.PlanStep.Validate("plan_step_ref"); err != nil {
+			return err
+		}
+	}
 	if !lowerHexSHA256.MatchString(action.RequestDigest) {
 		return invalid("request_digest", "must be a lowercase SHA-256 digest")
 	}
@@ -668,8 +686,17 @@ func (action BoundAction) asRequest() ActionRequest {
 		ExpectedEpoch:  action.ExpectedEpoch,
 		ObservationSeq: action.ObservationSeq,
 		TaskID:         action.TaskID,
+		PlanStep:       clonePlanStepRef(action.PlanStep),
 		IdempotencyKey: action.IdempotencyKey,
 	}
+}
+
+func clonePlanStepRef(ref *PlanStepRef) *PlanStepRef {
+	if ref == nil {
+		return nil
+	}
+	cloned := *ref
+	return &cloned
 }
 
 func normalizeEffects(

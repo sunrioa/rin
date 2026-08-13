@@ -88,6 +88,9 @@ type Event struct {
 	ActorID      string `json:"actor_id,omitempty"`
 	ControllerID string `json:"controller_id,omitempty"`
 	Step         uint32 `json:"step,omitempty"`
+	PlanID       string `json:"plan_id,omitempty"`
+	PlanRevision uint64 `json:"plan_revision,omitempty"`
+	PlanStepID   string `json:"plan_step_id,omitempty"`
 
 	EventKind     string `json:"event_kind"`
 	PublicSummary string `json:"public_summary,omitempty"`
@@ -333,6 +336,15 @@ func sealEvent(snapshot Snapshot, record Record) (Event, error) {
 		if err := event.Capability.Validate("capability"); err != nil {
 			return Event{}, fmt.Errorf("%w: %v", ErrInvalid, err)
 		}
+	}
+	if event.PlanID == "" {
+		if event.PlanRevision != 0 || event.PlanStepID != "" {
+			return Event{}, fmt.Errorf("%w: incomplete plan reference", ErrInvalid)
+		}
+	} else if err := (host.PlanStepRef{
+		PlanID: event.PlanID, PlanRevision: event.PlanRevision, StepID: event.PlanStepID,
+	}).Validate("plan_step_ref"); err != nil {
+		return Event{}, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
 	if err := validateContextRefs(event); err != nil {
 		return Event{}, err

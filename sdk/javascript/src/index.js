@@ -92,13 +92,21 @@ export class RinControlClient {
   waitTaskTimeline(input) { return this.post("/control/v2/tasks/timeline/wait", input); }
   cancelOperation(input) { return this.post("/control/v2/operations/cancel", input); }
   setEmergencyStop(input) { return this.post("/control/v2/emergency-stop", input); }
+  createTaskPlan(input) { return this.post("/plans/v1/create", input); }
+  getTaskPlan(input) { return this.post("/plans/v1/get", input); }
+  waitTaskPlan(input) { return this.post("/plans/v1/wait", input); }
+  reviseTaskPlan(input) { return this.post("/plans/v1/revise", input); }
+  setTaskPlanStatus(input) { return this.post("/plans/v1/status", input); }
+  requestTaskStepTransition(input) { return this.post("/plans/v1/transition", input); }
+  submitTaskStepAction(input) { return this.post("/plans/v1/submit-step-action", input); }
 
   post(path, input) {
     return this.request("POST", path, input);
   }
 
   async request(method, path, input) {
-    if (typeof path !== "string" || !path.startsWith("/control/v2/") ||
+    if (typeof path !== "string" ||
+        !(path.startsWith("/control/v2/") || path.startsWith("/plans/v1/")) ||
         path.includes("//") || path.includes("..")) {
       throw new RinConfigurationError("invalid_path", "Control request path is invalid");
     }

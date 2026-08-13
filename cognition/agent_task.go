@@ -9,10 +9,11 @@ import (
 
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/taskstate"
 	"github.com/sunrioa/rin/timeline"
 )
 
-const TaskSnapshotVersion = "rin.cognition.tasks/v2"
+const TaskSnapshotVersion = "rin.cognition.tasks/v3"
 
 var ErrTaskRevisionConflict = errors.New("cognition task revision conflict")
 
@@ -71,20 +72,27 @@ type TaskEvent struct {
 	Model               *timeline.ModelUsage        `json:"model_usage,omitempty"`
 	Policy              *timeline.PolicySummary     `json:"policy,omitempty"`
 	Operation           *timeline.OperationSummary  `json:"operation,omitempty"`
+	PlanID              string                      `json:"plan_id,omitempty"`
+	PlanRevision        uint64                      `json:"plan_revision,omitempty"`
+	PlanStepID          string                      `json:"plan_step_id,omitempty"`
 }
 
 // TaskSession contains every decision-side value needed to resume without
 // regenerating or mutating an already selected action.
 type TaskSession struct {
-	TaskID              string   `json:"task_id"`
-	SessionID           string   `json:"session_id"`
-	HostID              string   `json:"host_id"`
-	WorldID             string   `json:"world_id"`
-	ActorID             string   `json:"actor_id"`
-	ControllerID        string   `json:"controller_id"`
-	Goal                string   `json:"goal"`
-	Tags                []string `json:"tags,omitempty"`
-	AllowedCapabilities []string `json:"allowed_capabilities,omitempty"`
+	TaskID              string                 `json:"task_id"`
+	SessionID           string                 `json:"session_id"`
+	HostID              string                 `json:"host_id"`
+	WorldID             string                 `json:"world_id"`
+	ActorID             string                 `json:"actor_id"`
+	ControllerID        string                 `json:"controller_id"`
+	Goal                string                 `json:"goal"`
+	Tags                []string               `json:"tags,omitempty"`
+	AllowedCapabilities []string               `json:"allowed_capabilities,omitempty"`
+	PlanningMode        taskstate.PlanningMode `json:"planning_mode"`
+	PlanID              string                 `json:"plan_id,omitempty"`
+	PlanRevision        uint64                 `json:"plan_revision,omitempty"`
+	CurrentPlanStepID   string                 `json:"current_plan_step_id,omitempty"`
 
 	Status    TaskStatus `json:"status"`
 	PauseCode string     `json:"pause_code,omitempty"`
@@ -283,6 +291,32 @@ func sealTaskSession(task TaskSession) (TaskSession, error) {
 	if err := validateProviderText("goal", task.Goal, 2_000, true); err != nil {
 		return TaskSession{}, err
 	}
+	if task.PlanningMode == "" {
+		task.PlanningMode = taskstate.PlanningDisabled
+	}
+	switch task.PlanningMode {
+	case taskstate.PlanningDisabled, taskstate.PlanningAuto, taskstate.PlanningRequired:
+	default:
+		return TaskSession{}, errors.New("task planning mode is invalid")
+	}
+	if task.PlanID == "" {
+		if task.PlanRevision != 0 || task.CurrentPlanStepID != "" {
+			return TaskSession{}, errors.New("plan revision or step requires plan_id")
+		}
+	} else {
+		if task.PlanningMode == taskstate.PlanningDisabled || task.PlanRevision == 0 {
+			return TaskSession{}, errors.New("task plan reference is invalid")
+		}
+		stepID := task.CurrentPlanStepID
+		if stepID == "" {
+			stepID = "step.terminal"
+		}
+		if err := (host.PlanStepRef{
+			PlanID: task.PlanID, PlanRevision: task.PlanRevision, StepID: stepID,
+		}).Validate("plan_ref"); err != nil {
+			return TaskSession{}, err
+		}
+	}
 	var err error
 	if task.Tags, err = normalizeProviderIDs("tags", task.Tags, 32); err != nil {
 		return TaskSession{}, err
@@ -330,6 +364,11 @@ func sealTaskSession(task TaskSession) (TaskSession, error) {
 		if request.TaskID != task.TaskID || request.ControllerID != task.ControllerID ||
 			request.ActorID != task.ActorID {
 			return TaskSession{}, errors.New("pending action does not belong to the task")
+		}
+		if request.PlanStep != nil && (request.PlanStep.PlanID != task.PlanID ||
+			request.PlanStep.PlanRevision != task.PlanRevision ||
+			request.PlanStep.StepID != task.CurrentPlanStepID) {
+			return TaskSession{}, errors.New("pending action does not match the task plan step")
 		}
 		if !taskAllowsCapability(task, request.Capability.ID) {
 			return TaskSession{}, errors.New("pending action exceeds the task capability scope")
@@ -582,6 +621,10 @@ func taskAllowsCapability(task TaskSession, capabilityID string) bool {
 func cloneTaskActionRequest(request host.ActionRequest) host.ActionRequest {
 	request.Arguments = append([]byte(nil), request.Arguments...)
 	request.Targets = append([]host.HostRef(nil), request.Targets...)
+	if request.PlanStep != nil {
+		planStep := *request.PlanStep
+		request.PlanStep = &planStep
+	}
 	return request
 }
 

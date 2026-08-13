@@ -698,6 +698,10 @@ func cloneAdapterResult(value AdapterResult) AdapterResult {
 func cloneActionRequestV2(value host.ActionRequest) host.ActionRequest {
 	value.Arguments = append(json.RawMessage(nil), value.Arguments...)
 	value.Targets = cloneHostRefs(value.Targets)
+	if value.PlanStep != nil {
+		planStep := *value.PlanStep
+		value.PlanStep = &planStep
+	}
 	return value
 }
 
@@ -706,6 +710,10 @@ func cloneBoundActionV2(value host.BoundAction) host.BoundAction {
 	value.RequestedTargets = cloneHostRefs(value.RequestedTargets)
 	value.ResolvedTargets = cloneHostRefs(value.ResolvedTargets)
 	value.Effects = cloneEffectsV2(value.Effects)
+	if value.PlanStep != nil {
+		planStep := *value.PlanStep
+		value.PlanStep = &planStep
+	}
 	return value
 }
 

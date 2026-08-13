@@ -14,6 +14,7 @@ import (
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/provider"
 	"github.com/sunrioa/rin/provider/openai"
+	"github.com/sunrioa/rin/taskstate"
 )
 
 type Options struct {
@@ -27,6 +28,7 @@ type Options struct {
 	LearnedSkills             cognition.SkillWriter
 	Memory                    cognition.MemoryProvider
 	OutcomesRecordedByControl bool
+	PlanStore                 *taskstate.Store
 }
 
 type Daemon struct {
@@ -140,6 +142,17 @@ func Open(options Options) (*Daemon, error) {
 	runtimePrincipal := host.Principal{
 		ID: config.RuntimePrincipal, GrantedScopes: []string{controlplane.ScopeHostAdmin},
 	}
+	var plans taskstate.PlanClient
+	if options.PlanStore != nil {
+		planControl, planErr := controlplane.NewClientService(options.Control, runtimePrincipal)
+		if planErr != nil {
+			return nil, cleanupStores(planErr)
+		}
+		plans, planErr = taskstate.NewCoordinator(options.PlanStore, planControl)
+		if planErr != nil {
+			return nil, cleanupStores(planErr)
+		}
+	}
 	environment, err := cognition.NewControlEnvironment(options.Control, runtimePrincipal)
 	if err != nil {
 		return nil, cleanupStores(err)
@@ -149,6 +162,7 @@ func Open(options Options) (*Daemon, error) {
 		Persona: personas, Memory: memory, Skills: skills, Model: model, Tasks: tasks,
 		Decisions:                 decisions,
 		Learning:                  learning,
+		Plans:                     plans,
 		OutcomesRecordedByControl: options.OutcomesRecordedByControl,
 		ControllerLeaseMillis:     config.Runtime.ControllerLeaseMillis,
 		RenewBeforeMillis:         config.Runtime.RenewBeforeMillis,

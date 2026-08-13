@@ -6,6 +6,8 @@
 .NET Standard 2.0。当前仓库没有承诺已发布 NuGet 包；请直接引用
 `Rin.Client/Rin.Client.csproj` 或固定源码 Revision。
 
+同一客户端也通过原始 JSON 方法提供固定的 `/plans/v1/*` 任务计划接口。
+
 ```csharp
 using Rin.Client;
 

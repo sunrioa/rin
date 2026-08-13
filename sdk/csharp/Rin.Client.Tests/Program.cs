@@ -21,6 +21,8 @@ static class ControlClientTests
         Require(RinControlClient.ClientVersion == "0.7.0", "client version drifted");
         using var fixture = JsonDocument.Parse(File.ReadAllText(ControlFixturePath()));
         var root = fixture.RootElement;
+        using var planFixture = JsonDocument.Parse(File.ReadAllText(TaskPlanFixturePath()));
+        var plan = planFixture.RootElement;
         Require(
             root.GetProperty("contract_version").GetString() ==
             RinControlClient.ContractVersion,
@@ -56,6 +58,13 @@ static class ControlClientTests
             new RequestCase(() => client.WaitTaskTimelineAsync(root.GetProperty("wait_task_timeline")), HttpMethod.Post, "/control/v2/tasks/timeline/wait", root.GetProperty("wait_task_timeline")),
             new RequestCase(() => client.CancelOperationAsync(operation), HttpMethod.Post, "/control/v2/operations/cancel", operation),
             new RequestCase(() => client.SetEmergencyStopAsync(root.GetProperty("emergency_stop")), HttpMethod.Post, "/control/v2/emergency-stop", root.GetProperty("emergency_stop")),
+            new RequestCase(() => client.CreateTaskPlanAsync(plan.GetProperty("create")), HttpMethod.Post, "/plans/v1/create", plan.GetProperty("create")),
+            new RequestCase(() => client.GetTaskPlanAsync(plan.GetProperty("get")), HttpMethod.Post, "/plans/v1/get", plan.GetProperty("get")),
+            new RequestCase(() => client.WaitTaskPlanAsync(plan.GetProperty("wait")), HttpMethod.Post, "/plans/v1/wait", plan.GetProperty("wait")),
+            new RequestCase(() => client.ReviseTaskPlanAsync(plan.GetProperty("create")), HttpMethod.Post, "/plans/v1/revise", plan.GetProperty("create")),
+            new RequestCase(() => client.SetTaskPlanStatusAsync(plan.GetProperty("status")), HttpMethod.Post, "/plans/v1/status", plan.GetProperty("status")),
+            new RequestCase(() => client.RequestTaskStepTransitionAsync(plan.GetProperty("transition")), HttpMethod.Post, "/plans/v1/transition", plan.GetProperty("transition")),
+            new RequestCase(() => client.SubmitTaskStepActionAsync(root.GetProperty("submit_action")), HttpMethod.Post, "/plans/v1/submit-step-action", root.GetProperty("submit_action")),
         };
 
         foreach (var request in requests)
@@ -214,6 +223,13 @@ static class ControlClientTests
             }
         }
         throw new FileNotFoundException("cannot locate api/control-v2-fixtures.json");
+    }
+
+    private static string TaskPlanFixturePath()
+    {
+        return Path.Combine(
+            Path.GetDirectoryName(ControlFixturePath())!,
+            "task-plan-v1-fixtures.json");
     }
 
     private static void Require(bool condition, string message)

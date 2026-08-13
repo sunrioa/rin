@@ -128,6 +128,27 @@ class RinControlClient:
     def set_emergency_stop(self, payload: Dict[str, Any]) -> Any:
         return self._post("/control/v2/emergency-stop", payload)
 
+    def create_task_plan(self, payload: Dict[str, Any]) -> Any:
+        return self._post("/plans/v1/create", payload)
+
+    def get_task_plan(self, payload: Dict[str, Any]) -> Any:
+        return self._post("/plans/v1/get", payload)
+
+    def wait_task_plan(self, payload: Dict[str, Any]) -> Any:
+        return self._post("/plans/v1/wait", payload)
+
+    def revise_task_plan(self, payload: Dict[str, Any]) -> Any:
+        return self._post("/plans/v1/revise", payload)
+
+    def set_task_plan_status(self, payload: Dict[str, Any]) -> Any:
+        return self._post("/plans/v1/status", payload)
+
+    def request_task_step_transition(self, payload: Dict[str, Any]) -> Any:
+        return self._post("/plans/v1/transition", payload)
+
+    def submit_task_step_action(self, payload: Dict[str, Any]) -> Any:
+        return self._post("/plans/v1/submit-step-action", payload)
+
     def _post(self, path: str, payload: Dict[str, Any]) -> Any:
         return self._request("POST", path, payload)
 
@@ -137,7 +158,11 @@ class RinControlClient:
         path: str,
         payload: Optional[Dict[str, Any]] = None,
     ) -> Any:
-        if not path.startswith("/control/v2/") or "//" in path or ".." in path:
+        if (
+            not path.startswith(("/control/v2/", "/plans/v1/"))
+            or "//" in path
+            or ".." in path
+        ):
             raise RinConfigurationError("invalid_path", "Control request path is invalid")
         body = None
         headers = {

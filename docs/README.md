@@ -15,6 +15,7 @@ contracts. Documentation examples never replace authoritative game-adapter check
 5. [MCP and Control Plane](mcp-control-plane.md): external Agents, the daemon, tools, installation, and updates.
 6. [Internal Agent Runtime](internal-agent-runtime.md): persona, memory, skills, models, and task execution.
 7. [Task timeline](task-timeline.md): inspect public task decisions, policy, delivery, and authoritative outcomes.
+8. [Task plans](task-plans.md): coordinate bounded multi-action work without bypassing the action gateway.
 8. [Host scaffolding](host-scaffolding.md): generate a contract skeleton for a language and engine.
 9. [Integration acceptance](host-integration-validation.md): automated gates and human game testing.
 

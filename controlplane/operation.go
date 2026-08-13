@@ -321,8 +321,17 @@ func operationOutcomeEvidence(
 		HostID: operation.request.HostID, WorldID: operation.request.WorldID,
 		ActorID: request.ActorID, ControllerID: request.ControllerID,
 		Capability: request.Capability, ExpectedEpoch: request.ExpectedEpoch,
-		ObservationSequence: request.ObservationSeq, Outcome: cloneOutcome(outcome),
+		ObservationSequence: request.ObservationSeq, PlanStep: clonePlanStepRef(request.PlanStep),
+		Outcome: cloneOutcome(outcome),
 	}
+}
+
+func clonePlanStepRef(ref *host.PlanStepRef) *host.PlanStepRef {
+	if ref == nil {
+		return nil
+	}
+	cloned := *ref
+	return &cloned
 }
 
 // GetOperation returns one operation to its submitting principal.

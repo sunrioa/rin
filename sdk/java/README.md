@@ -5,6 +5,7 @@
 The source-first Java 17 SDK contains three surfaces:
 
 - `RinControlClient`: asynchronous `rin.control/v2` client;
+- `/plans/v1/*` task-plan methods on the same client using raw JSON maps;
 - `RinAgentClient`: asynchronous internal Agent Task API client;
 - `HostActionContract` and `HostControlSession`: V2 Host adapter helpers.
 

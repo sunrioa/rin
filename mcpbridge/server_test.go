@@ -685,7 +685,15 @@ func callTool(
 		Name: name, Arguments: arguments,
 	})
 	if err != nil || result.IsError {
-		t.Fatalf("CallTool(%s) = %#v, %v", name, result, err)
+		var messages []string
+		if result != nil {
+			for _, content := range result.Content {
+				if text, ok := content.(*mcp.TextContent); ok {
+					messages = append(messages, text.Text)
+				}
+			}
+		}
+		t.Fatalf("CallTool(%s) = %#v, messages=%#v, %v", name, result, messages, err)
 	}
 	decodeStructured(t, result, output)
 }

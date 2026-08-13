@@ -161,6 +161,12 @@ type Effect struct {
 }
 
 // ActionRequest is the only action intent a controller may author.
+type PlanStepRef struct {
+	PlanID       string `json:"plan_id"`
+	PlanRevision uint64 `json:"plan_revision"`
+	StepID       string `json:"step_id"`
+}
+
 type ActionRequest struct {
 	RequestID      string          `json:"request_id"`
 	ControllerID   string          `json:"controller_id"`
@@ -172,6 +178,7 @@ type ActionRequest struct {
 	ExpectedEpoch  Epoch           `json:"expected_epoch"`
 	ObservationSeq uint64          `json:"observation_sequence"`
 	TaskID         string          `json:"task_id,omitempty"`
+	PlanStep       *PlanStepRef    `json:"plan_step_ref,omitempty"`
 	IdempotencyKey string          `json:"idempotency_key"`
 }
 
@@ -206,6 +213,7 @@ type BoundAction struct {
 	ExpectedEpoch       Epoch           `json:"expected_epoch"`
 	ObservationSeq      uint64          `json:"observation_sequence"`
 	TaskID              string          `json:"task_id,omitempty"`
+	PlanStep            *PlanStepRef    `json:"plan_step_ref,omitempty"`
 	IdempotencyKey      string          `json:"idempotency_key"`
 	Effects             []Effect        `json:"effect_preview"`
 	EffectDigest        string          `json:"effect_digest"`

@@ -9,7 +9,7 @@ final class HostActionContractTest {
     private static final String SPEC_DIGEST =
             "eb6781411eb3558d55c01dd710952c06111f0d1c3d0a220eef0824f6b5806f38";
     private static final String REQUEST_DIGEST =
-            "8227d8c696b50aeb5c74323d3bb3c978576c617c516a72628db730d4ee1d69d7";
+            "c7f15c94ca4d4cc7774c2465a2b4188e80bd1b40122a9dbeaccb5c49f4f00db3";
     private static final String EFFECT_DIGEST =
             "de4b9b1f3329993edcf4e9cdd045f1a6a558db48a025b2a0fa9597431f530619";
 
@@ -129,6 +129,10 @@ final class HostActionContractTest {
         request.put("expected_epoch", epoch);
         request.put("observation_sequence", 7L);
         request.put("task_id", "task.reach.dock");
+        request.put("plan_step_ref", Map.of(
+                "plan_id", "plan.reach.dock",
+                "plan_revision", 2L,
+                "step_id", "step.move.dock"));
         request.put("idempotency_key", "request.move.1");
         return request;
     }

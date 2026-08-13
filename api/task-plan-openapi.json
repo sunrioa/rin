@@ -1,0 +1,169 @@
+{
+  "openapi": "3.1.0",
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "info": {
+    "title": "Rin Task Plan API",
+    "version": "0.7.0",
+    "description": "Engine-neutral coarse task progress. Plans never grant gameplay authority."
+  },
+  "x-rin-example-fixtures": "task-plan-v1-fixtures.json",
+  "servers": [{ "url": "http://127.0.0.1:7375" }],
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/plans/v1/create": { "post": { "operationId": "createTaskPlan", "requestBody": { "$ref": "#/components/requestBodies/Create" }, "responses": { "200": { "$ref": "#/components/responses/Plan" } } } },
+    "/plans/v1/get": { "post": { "operationId": "getTaskPlan", "requestBody": { "$ref": "#/components/requestBodies/Get" }, "responses": { "200": { "$ref": "#/components/responses/Plan" } } } },
+    "/plans/v1/wait": { "post": { "operationId": "waitTaskPlan", "requestBody": { "$ref": "#/components/requestBodies/Wait" }, "responses": { "200": { "$ref": "#/components/responses/PlanUpdate" } } } },
+    "/plans/v1/revise": { "post": { "operationId": "reviseTaskPlan", "requestBody": { "$ref": "#/components/requestBodies/Revise" }, "responses": { "200": { "$ref": "#/components/responses/Plan" } } } },
+    "/plans/v1/status": { "post": { "operationId": "setTaskPlanStatus", "requestBody": { "$ref": "#/components/requestBodies/Status" }, "responses": { "200": { "$ref": "#/components/responses/Plan" } } } },
+    "/plans/v1/transition": { "post": { "operationId": "requestTaskStepTransition", "requestBody": { "$ref": "#/components/requestBodies/Transition" }, "responses": { "200": { "$ref": "#/components/responses/Plan" } } } },
+    "/plans/v1/submit-step-action": { "post": { "operationId": "submitTaskStepAction", "requestBody": { "$ref": "#/components/requestBodies/SubmitStepAction" }, "responses": { "200": { "description": "Control V2 OperationView; queued is not completion.", "content": { "application/json": { "schema": { "type": "object" } } } } } } }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer" }
+    },
+    "requestBodies": {
+      "Create": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlanDraft" } } } },
+      "Get": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GetInput" } } } },
+      "Wait": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/WaitInput" } } } },
+      "Revise": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReviseInput" } } } },
+      "Status": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StatusInput" } } } },
+      "Transition": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TransitionInput" } } } },
+      "SubmitStepAction": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SubmitStepActionInput" } } } }
+    },
+    "responses": {
+      "Plan": { "description": "Current plan revision.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlanState" } } } },
+      "PlanUpdate": { "description": "Long-poll result.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlanUpdate" } } } }
+    },
+    "schemas": {
+      "Identifier": { "type": "string", "minLength": 1, "maxLength": 96, "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$" },
+      "JSONSafePositiveInteger": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+      "Epoch": {
+        "type": "object", "additionalProperties": false,
+        "properties": {
+          "session_id": { "$ref": "#/components/schemas/Identifier" },
+          "world_id": { "$ref": "#/components/schemas/Identifier" },
+          "host": { "$ref": "#/components/schemas/JSONSafePositiveInteger" },
+          "world": { "$ref": "#/components/schemas/JSONSafePositiveInteger" },
+          "timeline": { "$ref": "#/components/schemas/JSONSafePositiveInteger" }
+        },
+        "required": ["session_id", "world_id", "host", "world", "timeline"]
+      },
+      "CapabilityRef": {
+        "type": "object", "additionalProperties": false,
+        "properties": {
+          "id": { "$ref": "#/components/schemas/Identifier" },
+          "version": { "type": "string", "minLength": 1, "maxLength": 64 }
+        },
+        "required": ["id", "version"]
+      },
+      "Condition": {
+        "type": "object", "additionalProperties": false,
+        "properties": {
+          "condition_id": { "$ref": "#/components/schemas/Identifier" },
+          "kind": { "type": "string", "enum": ["operation-outcome", "observation-fact", "player-confirmation", "host-condition"] },
+          "summary": { "type": "string", "minLength": 1, "maxLength": 500 }
+        },
+        "required": ["condition_id", "kind", "summary"]
+      },
+      "StepDraft": {
+        "type": "object", "additionalProperties": false,
+        "properties": {
+          "step_id": { "$ref": "#/components/schemas/Identifier" },
+          "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "objective": { "type": "string", "minLength": 1, "maxLength": 1000 },
+          "preconditions": { "type": "array", "maxItems": 8, "items": { "$ref": "#/components/schemas/Condition" } },
+          "success_conditions": { "type": "array", "maxItems": 8, "items": { "$ref": "#/components/schemas/Condition" } },
+          "capability_hints": { "type": "array", "maxItems": 8, "items": { "$ref": "#/components/schemas/CapabilityRef" } },
+          "max_attempts": { "type": "integer", "minimum": 1, "maximum": 16 }
+        },
+        "required": ["step_id", "title", "objective", "success_conditions"]
+      },
+      "PlanDraft": {
+        "type": "object", "additionalProperties": false,
+        "properties": {
+          "plan_id": { "$ref": "#/components/schemas/Identifier" },
+          "task_id": { "$ref": "#/components/schemas/Identifier" },
+          "session_id": { "$ref": "#/components/schemas/Identifier" },
+          "host_id": { "$ref": "#/components/schemas/Identifier" },
+          "world_id": { "$ref": "#/components/schemas/Identifier" },
+          "actor_id": { "$ref": "#/components/schemas/Identifier" },
+          "controller_id": { "$ref": "#/components/schemas/Identifier" },
+          "controller_source": { "type": "string", "enum": ["internal", "external"] },
+          "goal": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "planning_mode": { "type": "string", "enum": ["auto", "required"] },
+          "phase": { "type": "string", "maxLength": 200 },
+          "steps": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "$ref": "#/components/schemas/StepDraft" } },
+          "success_conditions": { "type": "array", "maxItems": 16, "items": { "$ref": "#/components/schemas/Condition" } },
+          "max_replans": { "type": "integer", "minimum": 1, "maximum": 32 },
+          "based_on_epoch": { "$ref": "#/components/schemas/Epoch" },
+          "based_on_observation_sequence": { "$ref": "#/components/schemas/JSONSafePositiveInteger" }
+        },
+        "required": ["plan_id", "task_id", "session_id", "host_id", "world_id", "actor_id", "controller_id", "controller_source", "goal", "planning_mode", "steps", "based_on_epoch", "based_on_observation_sequence"]
+      },
+      "PlanState": {
+        "type": "object",
+        "description": "The complete runtime state. Fields not used to author a draft are owned by Rin.",
+        "properties": {
+          "schema_version": { "const": "rin.task-plan/v1" },
+          "plan_id": { "$ref": "#/components/schemas/Identifier" },
+          "task_id": { "$ref": "#/components/schemas/Identifier" },
+          "status": { "type": "string", "enum": ["planned", "active", "blocked", "paused", "completed", "failed", "cancelled"] },
+          "current_step_id": { "$ref": "#/components/schemas/Identifier" },
+          "revision": { "$ref": "#/components/schemas/JSONSafePositiveInteger" },
+          "steps": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "type": "object" } }
+        },
+        "required": ["schema_version", "plan_id", "task_id", "status", "revision", "steps"]
+      },
+      "GetInput": { "type": "object", "additionalProperties": false, "properties": { "plan_id": { "$ref": "#/components/schemas/Identifier" } }, "required": ["plan_id"] },
+      "WaitInput": {
+        "type": "object", "additionalProperties": false,
+        "properties": {
+          "plan_id": { "$ref": "#/components/schemas/Identifier" },
+          "after_revision": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "wait_millis": { "type": "integer", "minimum": 0, "maximum": 25000 }
+        },
+        "required": ["plan_id", "after_revision", "wait_millis"]
+      },
+      "PlanUpdate": {
+        "type": "object", "additionalProperties": false,
+        "properties": { "plan": { "$ref": "#/components/schemas/PlanState" }, "changed": { "type": "boolean" } },
+        "required": ["plan", "changed"]
+      },
+      "ReviseInput": {
+        "type": "object", "properties": {
+          "plan_id": { "$ref": "#/components/schemas/Identifier" },
+          "expected_revision": { "$ref": "#/components/schemas/JSONSafePositiveInteger" },
+          "reason": { "type": "string" }, "summary": { "type": "string", "maxLength": 500 },
+          "draft": { "$ref": "#/components/schemas/PlanDraft" }
+        }, "required": ["plan_id", "expected_revision", "reason", "summary", "draft"]
+      },
+      "StatusInput": {
+        "type": "object", "additionalProperties": false,
+        "properties": {
+          "plan_id": { "$ref": "#/components/schemas/Identifier" },
+          "expected_revision": { "$ref": "#/components/schemas/JSONSafePositiveInteger" },
+          "status": { "type": "string", "enum": ["active", "paused", "cancelled"] },
+          "summary": { "type": "string", "minLength": 1, "maxLength": 500 }
+        }, "required": ["plan_id", "expected_revision", "status", "summary"]
+      },
+      "TransitionInput": {
+        "type": "object", "additionalProperties": false,
+        "properties": {
+          "plan_id": { "$ref": "#/components/schemas/Identifier" },
+          "expected_revision": { "$ref": "#/components/schemas/JSONSafePositiveInteger" },
+          "condition_id": { "$ref": "#/components/schemas/Identifier" },
+          "kind": { "type": "string", "enum": ["operation-outcome", "observation-fact"] },
+          "evidence_id": { "$ref": "#/components/schemas/Identifier" }
+        }, "required": ["plan_id", "expected_revision", "condition_id", "kind", "evidence_id"]
+      },
+      "SubmitStepActionInput": {
+        "type": "object", "additionalProperties": false,
+        "properties": {
+          "action": { "type": "object", "description": "Control V2 SubmitActionInput carrying the exact plan_step_ref." },
+          "condition_ids": { "type": "array", "maxItems": 8, "uniqueItems": true, "items": { "$ref": "#/components/schemas/Identifier" } }
+        }, "required": ["action"]
+      }
+    }
+  }
+}

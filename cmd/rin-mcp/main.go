@@ -20,6 +20,7 @@ import (
 	"github.com/sunrioa/rin/internal/mcpconfig"
 	"github.com/sunrioa/rin/mcpbridge"
 	"github.com/sunrioa/rin/skillapi"
+	"github.com/sunrioa/rin/taskstate"
 )
 
 const shutdownTimeout = 5 * time.Second
@@ -64,7 +65,13 @@ func run(
 	if err != nil {
 		return err
 	}
-	gateway, err := mcpbridge.NewClientWithSkills(client, skillClient, info.Principal)
+	planClient, err := taskstate.NewHTTPClient(config.controlURL, config.token)
+	if err != nil {
+		return err
+	}
+	gateway, err := mcpbridge.NewClientWithSkillsAndPlans(
+		client, skillClient, planClient, info.Principal,
+	)
 	if err != nil {
 		return err
 	}

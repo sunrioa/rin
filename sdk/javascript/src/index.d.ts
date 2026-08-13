@@ -47,4 +47,11 @@ export class RinControlClient {
   waitTaskTimeline(input: RinObject): Promise<ControlResponse>;
   cancelOperation(input: RinObject): Promise<ControlResponse>;
   setEmergencyStop(input: RinObject): Promise<ControlResponse>;
+  createTaskPlan(input: RinObject): Promise<ControlResponse>;
+  getTaskPlan(input: RinObject): Promise<ControlResponse>;
+  waitTaskPlan(input: RinObject): Promise<ControlResponse>;
+  reviseTaskPlan(input: RinObject): Promise<ControlResponse>;
+  setTaskPlanStatus(input: RinObject): Promise<ControlResponse>;
+  requestTaskStepTransition(input: RinObject): Promise<ControlResponse>;
+  submitTaskStepAction(input: RinObject): Promise<ControlResponse>;
 }

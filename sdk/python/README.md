@@ -4,6 +4,8 @@
 
 A dependency-free `rin.control/v2` client for Python 3.9 and newer.
 
+The same client exposes the fixed `/plans/v1/*` task-plan routes as raw JSON methods.
+
 ```bash
 python3 -m pip install -e ./sdk/python
 ```

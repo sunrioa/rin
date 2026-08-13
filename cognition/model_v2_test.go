@@ -30,7 +30,8 @@ func TestStructuredDecisionProviderReturnsGroundedAction(t *testing.T) {
             "confidence":0.6,
             "importance":0.4,
             "ttl_steps":20
-          }]
+          }],
+          "plan":null
         }`,
 		Model: "test-model", Usage: provider.Usage{TotalTokens: 42},
 	}}}
@@ -152,7 +153,8 @@ func TestStructuredDecisionProviderAllowsOneProgressiveInspection(t *testing.T) 
       "inspect_capabilities":[{"id":"rin.navigation.move-to","version":"2.0.0"}],
       "inspect_skills":[{"skill_id":"skill.follow","version":"v1"}],
       "summary":"Inspect movement constraints.",
-      "memory_candidates":[]
+      "memory_candidates":[],
+      "plan":null
     }`
 	input := modelV2Input(t)
 	generation := &recordingGenerationProvider{responses: []provider.CompletionResponse{{Content: response}}}
@@ -189,7 +191,8 @@ func TestStructuredDecisionProviderRejectsDuplicateInspectionSelectors(t *testin
       ],
       "inspect_skills":[],
       "summary":"Inspect twice.",
-      "memory_candidates":[]
+      "memory_candidates":[],
+      "plan":null
     }`
 	generation := &recordingGenerationProvider{responses: []provider.CompletionResponse{{Content: response}}}
 	if _, err := (cognition.StructuredDecisionProvider{
@@ -357,7 +360,8 @@ func modelActionResponse(capabilityID, version, arguments, targets string) strin
       "inspect_capabilities":[],
       "inspect_skills":[],
       "summary":"Act.",
-      "memory_candidates":[]
+      "memory_candidates":[],
+      "plan":null
     }`
 }
 

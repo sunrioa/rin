@@ -4,6 +4,8 @@
 
 适用于 Python 3.9+ 的零运行时依赖 `rin.control/v2` 客户端。
 
+同一客户端也通过原始 JSON 方法提供固定的 `/plans/v1/*` 任务计划接口。
+
 ```bash
 python3 -m pip install -e ./sdk/python
 ```

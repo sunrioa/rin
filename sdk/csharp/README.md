@@ -6,6 +6,8 @@
 .NET Standard 2.0. This repository does not promise a published NuGet package;
 reference `Rin.Client/Rin.Client.csproj` directly or pin the source revision.
 
+The same client exposes the fixed `/plans/v1/*` task-plan routes as raw JSON methods.
+
 ```csharp
 using Rin.Client;
 

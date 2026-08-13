@@ -13,6 +13,7 @@ import (
 
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/taskstate"
 	"github.com/sunrioa/rin/timeline"
 )
 
@@ -50,6 +51,7 @@ type AgentRuntimeOptions struct {
 	Decisions                 DecisionRecorder
 	Learning                  *SkillLearningOptions
 	OutcomesRecordedByControl bool
+	Plans                     taskstate.PlanClient
 
 	Now                   func() time.Time
 	ControllerLeaseMillis uint32
@@ -60,15 +62,16 @@ type AgentRuntimeOptions struct {
 }
 
 type StartTaskInput struct {
-	TaskID              string     `json:"task_id"`
-	HostID              string     `json:"host_id"`
-	WorldID             string     `json:"world_id"`
-	ActorID             string     `json:"actor_id"`
-	ControllerID        string     `json:"controller_id"`
-	Goal                string     `json:"goal"`
-	Tags                []string   `json:"tags,omitempty"`
-	AllowedCapabilities []string   `json:"allowed_capabilities,omitempty"`
-	Budget              TaskBudget `json:"budget"`
+	TaskID              string                 `json:"task_id"`
+	HostID              string                 `json:"host_id"`
+	WorldID             string                 `json:"world_id"`
+	ActorID             string                 `json:"actor_id"`
+	ControllerID        string                 `json:"controller_id"`
+	Goal                string                 `json:"goal"`
+	Tags                []string               `json:"tags,omitempty"`
+	AllowedCapabilities []string               `json:"allowed_capabilities,omitempty"`
+	PlanningMode        taskstate.PlanningMode `json:"planning_mode,omitempty"`
+	Budget              TaskBudget             `json:"budget"`
 }
 
 type AgentRuntime struct {
@@ -82,6 +85,7 @@ type AgentRuntime struct {
 	tasks                     TaskStore
 	decisions                 DecisionRecorder
 	learning                  *skillLearningRuntime
+	plans                     taskstate.PlanClient
 	outcomesRecordedByControl bool
 
 	now                   func() time.Time
@@ -146,15 +150,16 @@ func NewAgentRuntime(options AgentRuntimeOptions) (*AgentRuntime, error) {
 		principal: options.Principal, control: options.Control, environment: options.Environment,
 		persona: options.Persona, memory: options.Memory, skills: options.Skills,
 		model: options.Model, tasks: options.Tasks, decisions: options.Decisions,
-		learning: learning, outcomesRecordedByControl: options.OutcomesRecordedByControl,
-		now:                   options.Now,
-		controllerLeaseMillis: options.ControllerLeaseMillis,
-		renewBeforeMillis:     options.RenewBeforeMillis,
-		operationWaitMillis:   options.OperationWaitMillis,
-		maxAdvancesPerRun:     options.MaxAdvancesPerRun,
-		memoryBudget:          options.MemoryBudget,
-		taskLocks:             make(map[string]*sync.Mutex),
-		taskChanged:           make(chan struct{}),
+		learning: learning, plans: options.Plans,
+		outcomesRecordedByControl: options.OutcomesRecordedByControl,
+		now:                       options.Now,
+		controllerLeaseMillis:     options.ControllerLeaseMillis,
+		renewBeforeMillis:         options.RenewBeforeMillis,
+		operationWaitMillis:       options.OperationWaitMillis,
+		maxAdvancesPerRun:         options.MaxAdvancesPerRun,
+		memoryBudget:              options.MemoryBudget,
+		taskLocks:                 make(map[string]*sync.Mutex),
+		taskChanged:               make(chan struct{}),
 	}, nil
 }
 
@@ -168,6 +173,9 @@ func (runtime *AgentRuntime) StartTask(
 	sealed, err := sealStartTaskInput(input)
 	if err != nil {
 		return TaskSession{}, err
+	}
+	if sealed.PlanningMode != taskstate.PlanningDisabled && runtime.plans == nil {
+		return TaskSession{}, errors.New("planning mode requires the shared task coordinator")
 	}
 	if _, err := runtime.persona.Load(ctx, PersonaRequest{
 		ActorID: sealed.ActorID, ControllerID: sealed.ControllerID,
@@ -203,6 +211,7 @@ func (runtime *AgentRuntime) StartTask(
 		HostID: sealed.HostID, WorldID: sealed.WorldID, ActorID: sealed.ActorID,
 		ControllerID: sealed.ControllerID, Goal: sealed.Goal, Tags: sealed.Tags,
 		AllowedCapabilities: sealed.AllowedCapabilities,
+		PlanningMode:        sealed.PlanningMode,
 		Status:              TaskActive, Budget: sealed.Budget, ControllerLease: lease,
 		CreatedAtUnixMillis: now, UpdatedAtUnixMillis: now,
 	}
@@ -473,14 +482,19 @@ func (runtime *AgentRuntime) advanceTask(
 	}
 	task.LastObservationID = observation.ObservationID
 	task.LastObservationSeq = observation.Sequence
+	plan, task, err := runtime.loadTaskPlan(ctx, task)
+	if err != nil {
+		paused, pauseErr := runtime.pauseTask(ctx, task, "plan.unavailable", err)
+		return paused, false, pauseErr
+	}
 	input := ModelInput{
 		Task: ModelTaskContext{
 			TaskID: task.TaskID, SessionID: task.SessionID, ActorID: task.ActorID,
 			ControllerID: task.ControllerID, ParentOperationID: task.MacroOperationID,
-			Goal: task.Goal, Tags: task.Tags,
+			Goal: task.Goal, Tags: task.Tags, PlanningMode: task.PlanningMode,
 		},
 		Persona: persona, Observation: observation, Memories: memories,
-		Capabilities: summaries, Skills: skills,
+		Capabilities: summaries, Skills: skills, Plan: plan,
 	}
 	decision, task, err := runtime.callModel(ctx, task, input, warnings)
 	if err != nil {
@@ -615,6 +629,11 @@ func (runtime *AgentRuntime) applyModelDecision(
 		return paused, false, pauseErr
 	}
 	decision = validated
+	plan, task, err := runtime.applyDecisionPlan(ctx, task, observation, decision)
+	if err != nil {
+		paused, pauseErr := runtime.pauseTask(ctx, task, "plan.invalid", err)
+		return paused, false, pauseErr
+	}
 	switch decision.Kind {
 	case ModelDecisionWait:
 		warning, err := runtime.appendModelDecisionMemories(
@@ -634,6 +653,11 @@ func (runtime *AgentRuntime) applyModelDecision(
 		saved, err := runtime.saveTask(ctx, task)
 		return saved, false, err
 	case ModelDecisionComplete:
+		if plan != nil && plan.Status != taskstate.PlanCompleted {
+			err := errors.New("model cannot complete a task before its plan is complete")
+			paused, pauseErr := runtime.pauseTask(ctx, task, "plan.incomplete", err)
+			return paused, false, pauseErr
+		}
 		if task.MacroOperationID != "" {
 			err := errors.New("model cannot complete a task while its macro is running")
 			paused, pauseErr := runtime.pauseTask(ctx, task, "model.invalid", err)
@@ -682,6 +706,16 @@ func (runtime *AgentRuntime) applyModelDecision(
 			ExpectedEpoch: observation.Epoch, ObservationSeq: observation.Sequence,
 			TaskID: task.TaskID, IdempotencyKey: requestID,
 		}
+		if plan != nil {
+			if plan.Status != taskstate.PlanActive || plan.CurrentStepID == "" {
+				err := errors.New("task plan has no active step")
+				paused, pauseErr := runtime.pauseTask(ctx, task, "plan.blocked", err)
+				return paused, false, pauseErr
+			}
+			request.PlanStep = &host.PlanStepRef{
+				PlanID: plan.PlanID, PlanRevision: plan.Revision, StepID: plan.CurrentStepID,
+			}
+		}
 		if err := host.ValidateActionRequest(request); err != nil {
 			paused, pauseErr := runtime.pauseTask(ctx, task, "model.invalid", err)
 			return paused, false, pauseErr
@@ -705,6 +739,115 @@ func (runtime *AgentRuntime) applyModelDecision(
 		paused, pauseErr := runtime.pauseTask(ctx, task, "model.invalid", err)
 		return paused, false, pauseErr
 	}
+}
+
+func (runtime *AgentRuntime) loadTaskPlan(
+	ctx context.Context,
+	task TaskSession,
+) (*taskstate.PlanState, TaskSession, error) {
+	if task.PlanID == "" {
+		return nil, task, nil
+	}
+	if runtime.plans == nil {
+		return nil, task, errors.New("task plan coordinator is unavailable")
+	}
+	plan, err := runtime.plans.GetPlan(ctx, task.PlanID)
+	if err != nil {
+		return nil, task, err
+	}
+	if plan.TaskID != task.TaskID || plan.SessionID != task.SessionID ||
+		plan.HostID != task.HostID || plan.WorldID != task.WorldID ||
+		plan.ActorID != task.ActorID || plan.ControllerID != task.ControllerID ||
+		plan.ControllerSource != taskstate.ControllerInternal {
+		return nil, task, errors.New("task plan ownership does not match the internal task")
+	}
+	task.PlanRevision = plan.Revision
+	task.CurrentPlanStepID = plan.CurrentStepID
+	return &plan, task, nil
+}
+
+func (runtime *AgentRuntime) applyDecisionPlan(
+	ctx context.Context,
+	task TaskSession,
+	observation host.ObservationEnvelope,
+	decision ModelDecision,
+) (*taskstate.PlanState, TaskSession, error) {
+	if decision.PlanDraft == nil {
+		if task.PlanID == "" && task.PlanningMode == taskstate.PlanningRequired {
+			return nil, task, errors.New("required planning mode needs a plan draft")
+		}
+		return runtime.loadTaskPlan(ctx, task)
+	}
+	if task.PlanningMode == taskstate.PlanningDisabled || runtime.plans == nil {
+		return nil, task, errors.New("model returned a plan when planning is unavailable")
+	}
+	draft := *decision.PlanDraft
+	draft.TaskID = task.TaskID
+	draft.SessionID = task.SessionID
+	draft.HostID = task.HostID
+	draft.WorldID = task.WorldID
+	draft.ActorID = task.ActorID
+	draft.ControllerID = task.ControllerID
+	draft.ControllerSource = taskstate.ControllerInternal
+	draft.Goal = task.Goal
+	draft.PlanningMode = task.PlanningMode
+	draft.BasedOnEpoch = observation.Epoch
+	draft.BasedOnObservationSequence = observation.Sequence
+	var plan taskstate.PlanState
+	var err error
+	if task.PlanID == "" {
+		draft.PlanID = "plan." + task.TaskID
+		plan, err = runtime.plans.CreatePlan(ctx, draft)
+	} else {
+		draft.PlanID = task.PlanID
+		plan, err = runtime.plans.RevisePlan(ctx, taskstate.ReviseInput{
+			PlanID: task.PlanID, ExpectedRevision: task.PlanRevision,
+			Reason: decision.ReplanReason, Summary: decision.Summary, Draft: draft,
+		})
+	}
+	if err != nil {
+		return nil, task, err
+	}
+	task.PlanID = plan.PlanID
+	task.PlanRevision = plan.Revision
+	task.CurrentPlanStepID = plan.CurrentStepID
+	kind := "plan.created"
+	if plan.ReplanCount != 0 {
+		kind = "plan.revised"
+	}
+	appendTaskEvent(&task, TaskEvent{
+		Kind: kind, Step: task.Step, Code: string(decision.ReplanReason),
+		Summary: decision.Summary, AtUnixMillis: runtime.now().UnixMilli(),
+		PlanID: plan.PlanID, PlanRevision: plan.Revision, PlanStepID: plan.CurrentStepID,
+	})
+	saved, saveErr := runtime.saveTask(ctx, task)
+	if saveErr != nil {
+		if plan.ReplanCount == 0 {
+			_, _ = runtime.plans.SetPlanStatus(context.Background(), taskstate.StatusInput{
+				PlanID: plan.PlanID, ExpectedRevision: plan.Revision,
+				Status:  taskstate.PlanCancelled,
+				Summary: "The owning task session could not persist the plan reference.",
+			})
+		}
+		return nil, task, saveErr
+	}
+	return &plan, saved, nil
+}
+
+func operationOutcomeConditionIDs(plan taskstate.PlanState) []string {
+	for _, step := range plan.Steps {
+		if step.StepID != plan.CurrentStepID {
+			continue
+		}
+		result := make([]string, 0, len(step.SuccessConditions))
+		for _, condition := range step.SuccessConditions {
+			if condition.Kind == taskstate.EvidenceOperationOutcome {
+				result = append(result, condition.ConditionID)
+			}
+		}
+		return result
+	}
+	return nil
 }
 
 func (runtime *AgentRuntime) advancePendingAction(
@@ -733,10 +876,26 @@ func (runtime *AgentRuntime) advancePendingAction(
 		}
 	}
 	if task.PendingOperationID == "" {
-		view, err := runtime.control.SubmitAction(ctx, runtime.principal, controlplane.SubmitActionInput{
+		action := controlplane.SubmitActionInput{
 			HostID: task.HostID, WorldID: task.WorldID, Request: *task.PendingAction,
 			ParentOperationID: task.MacroOperationID,
-		})
+		}
+		var view controlplane.OperationView
+		var err error
+		if task.PendingAction.PlanStep == nil {
+			view, err = runtime.control.SubmitAction(ctx, runtime.principal, action)
+		} else if runtime.plans == nil {
+			err = errors.New("task plan coordinator is unavailable")
+		} else {
+			plan, planErr := runtime.plans.GetPlan(ctx, task.PendingAction.PlanStep.PlanID)
+			if planErr != nil {
+				err = planErr
+			} else {
+				view, err = runtime.plans.SubmitStepAction(ctx, taskstate.SubmitStepActionInput{
+					Action: action, ConditionIDs: operationOutcomeConditionIDs(plan),
+				})
+			}
+		}
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
 				errors.Is(err, controlplane.ErrUnavailable) || errors.Is(err, controlplane.ErrPersistence) {
@@ -851,6 +1010,19 @@ func (runtime *AgentRuntime) advancePendingAction(
 	task.PauseCode = ""
 	clearPendingTaskAction(&task)
 	task.Step++
+	if task.PlanID != "" {
+		_, task, err = runtime.loadTaskPlan(ctx, task)
+		if err != nil {
+			paused, pauseErr := runtime.pauseTask(ctx, task, "plan.unavailable", err)
+			return paused, false, pauseErr
+		}
+	}
+	if task.Status == TaskCancelled {
+		task, err = runtime.cancelOwnedPlan(ctx, task, "The owning task was cancelled.")
+		if err != nil {
+			return task, false, err
+		}
+	}
 	code := string(view.Status)
 	if view.Outcome != nil {
 		code = string(view.Outcome.Status)
@@ -1002,6 +1174,18 @@ func (runtime *AgentRuntime) advanceMacroOperation(
 	} else {
 		task.Status = TaskActive
 	}
+	if task.PlanID != "" {
+		_, task, err = runtime.loadTaskPlan(ctx, task)
+		if err != nil {
+			return task, false, err
+		}
+	}
+	if cancelling {
+		task, err = runtime.cancelOwnedPlan(ctx, task, "The owning macro task was cancelled.")
+		if err != nil {
+			return task, false, err
+		}
+	}
 	task.PauseCode = ""
 	appendTaskEvent(&task, operationTimelineEvent(
 		task, "macro.terminal", view, runtime.now().UnixMilli(),
@@ -1031,6 +1215,11 @@ func (runtime *AgentRuntime) finishCancelledTask(
 	task TaskSession,
 	code string,
 ) (TaskSession, error) {
+	var err error
+	task, err = runtime.cancelOwnedPlan(ctx, task, "The owning task was cancelled before execution.")
+	if err != nil {
+		return task, err
+	}
 	task.Status = TaskCancelled
 	task.PauseCode = ""
 	clearPendingTaskAction(&task)
@@ -1124,6 +1313,11 @@ func (runtime *AgentRuntime) failTask(
 	if task.MacroOperationID != "" {
 		return runtime.pauseTask(ctx, task, code, cause)
 	}
+	var planErr error
+	task, planErr = runtime.cancelOwnedPlan(ctx, task, "The owning task failed.")
+	if planErr != nil {
+		return task, errors.Join(cause, planErr)
+	}
 	task.Status = TaskFailed
 	task.PauseCode = code
 	clearPendingTaskAction(&task)
@@ -1136,6 +1330,36 @@ func (runtime *AgentRuntime) failTask(
 		runtime.releaseController(saved)
 	}
 	return saved, errors.Join(cause, err)
+}
+
+func (runtime *AgentRuntime) cancelOwnedPlan(
+	ctx context.Context,
+	task TaskSession,
+	summary string,
+) (TaskSession, error) {
+	if task.PlanID == "" {
+		return task, nil
+	}
+	if runtime.plans == nil {
+		return task, errors.New("task plan coordinator is unavailable")
+	}
+	plan, err := runtime.plans.GetPlan(ctx, task.PlanID)
+	if err != nil {
+		return task, err
+	}
+	if plan.Status != taskstate.PlanCompleted && plan.Status != taskstate.PlanCancelled &&
+		plan.Status != taskstate.PlanFailed {
+		plan, err = runtime.plans.SetPlanStatus(ctx, taskstate.StatusInput{
+			PlanID: plan.PlanID, ExpectedRevision: plan.Revision,
+			Status: taskstate.PlanCancelled, Summary: summary,
+		})
+		if err != nil {
+			return task, err
+		}
+	}
+	task.PlanRevision = plan.Revision
+	task.CurrentPlanStepID = plan.CurrentStepID
+	return task, nil
 }
 
 func (runtime *AgentRuntime) saveTask(
@@ -1207,6 +1431,14 @@ func sealStartTaskInput(input StartTaskInput) (StartTaskInput, error) {
 	}
 	if err := validateProviderText("goal", input.Goal, 2_000, true); err != nil {
 		return StartTaskInput{}, err
+	}
+	if input.PlanningMode == "" {
+		input.PlanningMode = taskstate.PlanningDisabled
+	}
+	switch input.PlanningMode {
+	case taskstate.PlanningDisabled, taskstate.PlanningAuto, taskstate.PlanningRequired:
+	default:
+		return StartTaskInput{}, errors.New("planning_mode is invalid")
 	}
 	var err error
 	if input.Tags, err = normalizeProviderIDs("tags", input.Tags, 32); err != nil {

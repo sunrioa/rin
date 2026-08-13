@@ -146,6 +146,27 @@ public sealed class RinControlClient : IDisposable
     public Task<JsonElement> SetEmergencyStopAsync(object input, CancellationToken cancellationToken = default) =>
         PostAsync("/control/v2/emergency-stop", input, cancellationToken);
 
+    public Task<JsonElement> CreateTaskPlanAsync(object input, CancellationToken cancellationToken = default) =>
+        PostAsync("/plans/v1/create", input, cancellationToken);
+
+    public Task<JsonElement> GetTaskPlanAsync(object input, CancellationToken cancellationToken = default) =>
+        PostAsync("/plans/v1/get", input, cancellationToken);
+
+    public Task<JsonElement> WaitTaskPlanAsync(object input, CancellationToken cancellationToken = default) =>
+        PostAsync("/plans/v1/wait", input, cancellationToken);
+
+    public Task<JsonElement> ReviseTaskPlanAsync(object input, CancellationToken cancellationToken = default) =>
+        PostAsync("/plans/v1/revise", input, cancellationToken);
+
+    public Task<JsonElement> SetTaskPlanStatusAsync(object input, CancellationToken cancellationToken = default) =>
+        PostAsync("/plans/v1/status", input, cancellationToken);
+
+    public Task<JsonElement> RequestTaskStepTransitionAsync(object input, CancellationToken cancellationToken = default) =>
+        PostAsync("/plans/v1/transition", input, cancellationToken);
+
+    public Task<JsonElement> SubmitTaskStepActionAsync(object input, CancellationToken cancellationToken = default) =>
+        PostAsync("/plans/v1/submit-step-action", input, cancellationToken);
+
     public void Dispose() => httpClient.Dispose();
 
     private static HttpMessageHandler CreateHandler() => new HttpClientHandler

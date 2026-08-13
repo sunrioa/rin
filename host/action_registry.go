@@ -262,6 +262,7 @@ func (registry *Registry) SealBinding(
 		ExpectedEpoch:       request.ExpectedEpoch,
 		ObservationSeq:      request.ObservationSeq,
 		TaskID:              request.TaskID,
+		PlanStep:            clonePlanStepRef(request.PlanStep),
 		IdempotencyKey:      request.IdempotencyKey,
 		Effects:             normalizedEffects,
 		EffectDigest:        effectDigest,
@@ -407,6 +408,7 @@ func cloneBoundAction(action BoundAction) BoundAction {
 	copyAction.RequestedTargets = cloneRefs(action.RequestedTargets)
 	copyAction.ResolvedTargets = cloneRefs(action.ResolvedTargets)
 	copyAction.Effects = cloneEffects(action.Effects)
+	copyAction.PlanStep = clonePlanStepRef(action.PlanStep)
 	return copyAction
 }
 

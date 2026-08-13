@@ -15,6 +15,10 @@ const fixtures = JSON.parse(readFileSync(
   new URL("../../../api/control-v2-fixtures.json", import.meta.url),
   "utf8",
 ));
+const planFixtures = JSON.parse(readFileSync(
+  new URL("../../../api/task-plan-v1-fixtures.json", import.meta.url),
+  "utf8",
+));
 const token = "control-fixture-token-32-bytes!!";
 
 test("Control client encodes every V2 client route from the shared fixture", async () => {
@@ -51,6 +55,13 @@ test("Control client encodes every V2 client route from the shared fixture", asy
     ["wait_task_timeline", () => client.waitTaskTimeline(fixtures.wait_task_timeline), "POST", "/control/v2/tasks/timeline/wait", fixtures.wait_task_timeline],
     ["cancel", () => client.cancelOperation(fixtures.operation_target), "POST", "/control/v2/operations/cancel", fixtures.operation_target],
     ["emergency_stop", () => client.setEmergencyStop(fixtures.emergency_stop), "POST", "/control/v2/emergency-stop", fixtures.emergency_stop],
+    ["create_plan", () => client.createTaskPlan(planFixtures.create), "POST", "/plans/v1/create", planFixtures.create],
+    ["get_plan", () => client.getTaskPlan(planFixtures.get), "POST", "/plans/v1/get", planFixtures.get],
+    ["wait_plan", () => client.waitTaskPlan(planFixtures.wait), "POST", "/plans/v1/wait", planFixtures.wait],
+    ["revise_plan", () => client.reviseTaskPlan(planFixtures.create), "POST", "/plans/v1/revise", planFixtures.create],
+    ["status_plan", () => client.setTaskPlanStatus(planFixtures.status), "POST", "/plans/v1/status", planFixtures.status],
+    ["transition_plan", () => client.requestTaskStepTransition(planFixtures.transition), "POST", "/plans/v1/transition", planFixtures.transition],
+    ["submit_plan_action", () => client.submitTaskStepAction(fixtures.submit_action), "POST", "/plans/v1/submit-step-action", fixtures.submit_action],
   ];
 
   for (const [, invoke, method, path, body] of cases) {
