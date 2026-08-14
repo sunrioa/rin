@@ -367,6 +367,7 @@ func composeHandlers(
 	additional ...http.Handler,
 ) http.Handler {
 	mux := http.NewServeMux()
+	mux.Handle("/health", controlHandler)
 	mux.Handle("/control/", controlHandler)
 	mux.Handle("/skills/", skillHandler)
 	if len(additional) != 0 && additional[0] != nil {

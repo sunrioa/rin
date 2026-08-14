@@ -3,7 +3,6 @@ package sqlitedsn
 
 import (
 	"net/url"
-	"path/filepath"
 	"strings"
 )
 
@@ -13,7 +12,6 @@ func File(path string) string {
 	if isWindowsDrivePath(path) || strings.HasPrefix(path, `\\`) {
 		normalized = strings.ReplaceAll(path, `\`, "/")
 	}
-	normalized = filepath.ToSlash(normalized)
 	if isWindowsDrivePath(normalized) {
 		normalized = "/" + normalized
 	}

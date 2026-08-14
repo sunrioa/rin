@@ -177,6 +177,7 @@ func TestComposeHandlersKeepsRoutesSeparate(t *testing.T) {
 		path, expected string
 		status         int
 	}{
+		{path: "/health", expected: "control", status: http.StatusNoContent},
 		{path: "/control/v2/info", expected: "control", status: http.StatusNoContent},
 		{path: "/skills/v1/list", expected: "skills", status: http.StatusOK},
 		{path: "/plans/v1/get", expected: "plans", status: http.StatusCreated},
@@ -234,6 +235,7 @@ func TestComposedHandlersKeepTokensAndPrincipalsIsolated(t *testing.T) {
 		path, token string
 		status      int
 	}{
+		{path: "/health", status: http.StatusOK},
 		{path: "/agent/v1/info", token: controlToken, status: http.StatusUnauthorized},
 		{path: "/control/v2/info", token: agentToken, status: http.StatusUnauthorized},
 		{path: "/agent/v1/info", token: agentToken, status: http.StatusOK},

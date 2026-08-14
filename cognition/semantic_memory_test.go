@@ -53,7 +53,6 @@ func TestSemanticMemorySupplementsLocalRecallWithoutBecomingRequired(t *testing.
 	if !trace.SemanticUsed || !trace.RemoteRequested || trace.QueryCacheHit || trace.DegradedCode != "" {
 		t.Fatalf("semantic trace = %#v", trace)
 	}
-	defer local.Close()
 	if len(matches) != 2 || matches[1].Record.MemoryID != "memory.1" ||
 		!slicesContains(matches[1].Reasons, "semantic") {
 		t.Fatalf("hybrid matches = %#v", matches)
@@ -76,6 +75,7 @@ func TestSemanticMemoryFallsBackToLocalAndRejectsPrivateExport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer local.Close()
 	if _, err := cognition.NewSemanticMemoryProvider(local, failingEmbedder{}, cognition.SemanticMemoryConfig{
 		Model: "embed-test", AllowedDomains: []cognition.MemoryDomain{cognition.MemoryControllerPrivate},
 	}); err == nil {

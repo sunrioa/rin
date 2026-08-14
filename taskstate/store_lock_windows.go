@@ -34,6 +34,10 @@ func releaseStoreLock(file *os.File) error {
 		return nil
 	}
 	overlapped := new(syscall.Overlapped)
-	_, _, unlockErr := unlockFileExPlan.Call(file.Fd(), 0, 1, 0, uintptr(unsafe.Pointer(overlapped)))
-	return errors.Join(unlockErr, file.Close())
+	result, _, unlockErr := unlockFileExPlan.Call(file.Fd(), 0, 1, 0, uintptr(unsafe.Pointer(overlapped)))
+	var err error
+	if result == 0 {
+		err = fmt.Errorf("%w: unlock: %v", ErrPersist, unlockErr)
+	}
+	return errors.Join(err, file.Close())
 }
