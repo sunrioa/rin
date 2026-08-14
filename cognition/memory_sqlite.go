@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -19,6 +18,7 @@ import (
 	"github.com/sunrioa/rin/experience"
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/internal/privatefile"
+	"github.com/sunrioa/rin/internal/sqlitedsn"
 	_ "modernc.org/sqlite"
 )
 
@@ -75,7 +75,7 @@ func OpenSQLiteMemoryProvider(
 	if err != nil {
 		return nil, err
 	}
-	dsn := (&url.URL{Scheme: "file", Path: absolute}).String()
+	dsn := sqlitedsn.File(absolute)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		_ = releaseProviderStoreLock(lockFile)

@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -19,6 +18,7 @@ import (
 	"time"
 
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/internal/sqlitedsn"
 	_ "modernc.org/sqlite"
 )
 
@@ -137,7 +137,7 @@ func OpenSQLiteStore(path string, config StoreConfig) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	dsn := (&url.URL{Scheme: "file", Path: absolute}).String()
+	dsn := sqlitedsn.File(absolute)
 	database, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		_ = releaseStoreLock(lockFile)
