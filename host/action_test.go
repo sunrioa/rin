@@ -161,6 +161,15 @@ func TestV2RegistryBindsAndAuthorizesHostEffects(t *testing.T) {
 		epoch,
 		8,
 		principal,
+	); err != nil {
+		t.Fatal("recent observation within the bounded window was rejected")
+	}
+	if err := registry.AuthorizeBoundAction(
+		action,
+		Timepoint{Clock: ClockRealtime, Value: 12_000},
+		epoch,
+		16,
+		principal,
 	); err == nil {
 		t.Fatal("stale observation sequence was authorized")
 	}

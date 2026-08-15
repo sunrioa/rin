@@ -204,7 +204,7 @@ func (service *Service) bindAuthorizeAndQueueAction(
 		return OperationView{}, ErrStale
 	}
 	if result.Snapshot.Epoch != current.actor.Epoch ||
-		!recentObservationGap(result.Snapshot.ObservationSeq, current.actor.ObservationSeq) {
+		!recentObservationGap(current.actor.ObservationSeq, result.Snapshot.ObservationSeq) {
 		service.policyEngine.Finalize(decision.DecisionID, false)
 		return OperationView{}, ErrStale
 	}
@@ -230,7 +230,7 @@ func (service *Service) bindAuthorizeAndQueueAction(
 		Kind:        ControlAction,
 		Binding: &ControlBinding{
 			Epoch:             current.actor.Epoch,
-			ObservationSeq:    current.actor.ObservationSeq,
+			ObservationSeq:    input.Request.ObservationSeq,
 			AuthorityRevision: effectiveAuthority(current.actor).Revision,
 			ControllerLeaseID: current.controller.LeaseID,
 		},
@@ -765,7 +765,7 @@ func validateActionBindingResult(
 		return err
 	}
 	if result.Snapshot.Epoch != actor.Epoch ||
-		!recentObservationGap(result.Snapshot.ObservationSeq, actor.ObservationSeq) {
+		!recentObservationGap(actor.ObservationSeq, result.Snapshot.ObservationSeq) {
 		return errors.New("Host snapshot does not match the published Actor")
 	}
 	action := result.Action

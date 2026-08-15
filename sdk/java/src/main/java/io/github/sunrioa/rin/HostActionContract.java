@@ -271,7 +271,7 @@ public final class HostActionContract {
         if (!requestedTargets.isEmpty()) bound.put("requested_targets", requestedTargets);
         if (!resolvedTargets.isEmpty()) bound.put("resolved_targets", resolvedTargets);
         bound.put("expected_epoch", currentEpoch);
-        bound.put("observation_sequence", currentObservationSequence);
+        bound.put("observation_sequence", actionRequest.get("observation_sequence"));
         if (actionRequest.containsKey("task_id")) {
             bound.put("task_id", actionRequest.get("task_id"));
         }

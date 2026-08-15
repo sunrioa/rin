@@ -128,13 +128,31 @@ func TestActionGatewayAdmitsRecentObservationWindow(t *testing.T) {
 			t.Fatalf("PublishWorld: %v", err)
 		}
 		actionHost.mu.Lock()
-		actionHost.snapshot.ObservationSeq = 3
+		actionHost.snapshot.ObservationSeq = 2
+		actionHost.bindStarted = make(chan struct{})
+		actionHost.releaseBind = make(chan struct{})
 		actionHost.mu.Unlock()
-		input := actionHost.input("request.gap.accepted", "gap.accepted")
-		input.Request.ObservationSeq = 2
-		if _, err := service.SubmitAction(
-			context.Background(), principal, input,
-		); err != nil {
+		done := make(chan error, 1)
+		go func() {
+			_, err := service.SubmitAction(
+				context.Background(), principal,
+				actionHost.input("request.gap.accepted", "gap.accepted"))
+			done <- err
+		}()
+		<-actionHost.bindStarted
+		for seq := uint64(3); seq <= 4; seq++ {
+			publication := v2WorldPublication(actionHost.spec)
+			publication.Sequence = seq
+			publication.Actors[0].ObservationSeq = seq
+			publication.Actors[0].Observation.Sequence = seq
+			if err := service.PublishWorld(
+				"test.host", hostLease.LeaseID, publication,
+			); err != nil {
+				t.Fatalf("PublishWorld %d: %v", seq, err)
+			}
+		}
+		close(actionHost.releaseBind)
+		if err := <-done; err != nil {
 			t.Fatalf("recent observation was rejected: %v", err)
 		}
 	})
@@ -151,13 +169,29 @@ func TestActionGatewayAdmitsRecentObservationWindow(t *testing.T) {
 			t.Fatalf("PublishWorld: %v", err)
 		}
 		actionHost.mu.Lock()
-		actionHost.snapshot.ObservationSeq = 11
+		actionHost.snapshot.ObservationSeq = 2
+		actionHost.bindStarted = make(chan struct{})
+		actionHost.releaseBind = make(chan struct{})
 		actionHost.mu.Unlock()
-		input := actionHost.input("request.gap.rejected", "gap.rejected")
-		input.Request.ObservationSeq = 2
-		if _, err := service.SubmitAction(
-			context.Background(), principal, input,
-		); err == nil {
+		done := make(chan error, 1)
+		go func() {
+			_, err := service.SubmitAction(
+				context.Background(), principal,
+				actionHost.input("request.gap.rejected", "gap.rejected"))
+			done <- err
+		}()
+		<-actionHost.bindStarted
+		stale := v2WorldPublication(actionHost.spec)
+		stale.Sequence = 11
+		stale.Actors[0].ObservationSeq = 11
+		stale.Actors[0].Observation.Sequence = 11
+		if err := service.PublishWorld(
+			"test.host", hostLease.LeaseID, stale,
+		); err != nil {
+			t.Fatalf("PublishWorld 11: %v", err)
+		}
+		close(actionHost.releaseBind)
+		if err := <-done; err == nil {
 			t.Fatal("stale observation was accepted")
 		}
 	})

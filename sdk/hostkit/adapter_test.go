@@ -85,8 +85,8 @@ func TestAdapterCoordinatorRejectsStaleBindingBeforeExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	delivery := adapterDelivery(t, request, bound, "operation.adapter.stale")
-	adapter.snapshot.ObservationSeq++
-	adapter.snapshot.Now.Value++
+	adapter.snapshot.ObservationSeq += 9
+	adapter.snapshot.Now.Value += 9
 	if _, err := coordinator.ExecuteDelivery(
 		context.Background(), delivery,
 	); err == nil || !strings.Contains(err.Error(), "observation") {
