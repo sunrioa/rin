@@ -209,7 +209,10 @@ func TestV2RegistryRejectsInvalidRequestsAndEffects(t *testing.T) {
 	if err := registry.ValidateRequest(request, stale, 7); err == nil {
 		t.Fatal("request from a stale epoch was accepted")
 	}
-	if err := registry.ValidateRequest(request, epoch, 8); err == nil {
+	if err := registry.ValidateRequest(request, epoch, 8); err != nil {
+		t.Fatal("request within the recent observation window was rejected")
+	}
+	if err := registry.ValidateRequest(request, epoch, 16); err == nil {
 		t.Fatal("request from a stale observation was accepted")
 	}
 

@@ -122,6 +122,19 @@ func (registry *Registry) SnapshotSpecs() CapabilitySnapshot {
 	return CapabilitySnapshot{Revision: registry.revision, Specs: specs}
 }
 
+// MaxObservationGap bounds how many newer published observations may sit
+// between a controller's observed sequence and the Host's current observation
+// before a request is treated as stale. Hosts publish frequently in a living
+// world, so exact latest equality turned every submission stage into a race
+// that real controllers could not reliably win; binding revalidation and
+// authoritative execution remain the actual safety checks.
+const MaxObservationGap uint64 = 8
+
+func withinObservationGap(currentObservationSeq, requestObservationSeq uint64) bool {
+	return currentObservationSeq >= requestObservationSeq &&
+		currentObservationSeq-requestObservationSeq <= MaxObservationGap
+}
+
 // ValidateRequest checks controller intent against the active catalog and the
 // current host timeline. It does not produce or authorize effects.
 func (registry *Registry) ValidateRequest(
@@ -152,7 +165,8 @@ func (registry *Registry) validateRequest(
 		return registeredCapabilitySpec{}, nil,
 			invalid("expected_epoch", "request belongs to a stale host epoch")
 	}
-	if request.ObservationSeq != currentObservationSeq {
+	if request.ObservationSeq > currentObservationSeq ||
+		currentObservationSeq-request.ObservationSeq > MaxObservationGap {
 		return registeredCapabilitySpec{}, nil,
 			invalid("observation_sequence", "request does not match the current host observation")
 	}
@@ -302,7 +316,7 @@ func (registry *Registry) AuthorizeBoundAction(
 	if action.ExpectedEpoch != currentEpoch {
 		return invalid("expected_epoch", "bound action belongs to a stale host epoch")
 	}
-	if action.ObservationSeq != currentObservationSeq {
+	if !withinObservationGap(currentObservationSeq, action.ObservationSeq) {
 		return invalid("observation_sequence", "bound action does not match the current host observation")
 	}
 	if err := registry.verifyBoundAction(action); err != nil {

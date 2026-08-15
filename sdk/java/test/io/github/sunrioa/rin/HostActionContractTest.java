@@ -45,9 +45,13 @@ final class HostActionContractTest {
                         Map.of("count", 2L, "target", "dock")),
                 "Java BoundAction did not preserve the shared fixture");
 
+        require(!HostActionContract.sealBinding(
+                spec, request, bindingDraft(epoch, effects, 15_000L),
+                Map.of("clock", "realtime", "value", 10_000L), epoch, 8L).isEmpty(),
+                "recent observation within the bounded window was rejected");
         requireRejected(() -> HostActionContract.sealBinding(
                 spec, request, bindingDraft(epoch, effects, 15_000L),
-                Map.of("clock", "realtime", "value", 10_000L), epoch, 8L));
+                Map.of("clock", "realtime", "value", 10_000L), epoch, 16L));
         requireRejected(() -> HostActionContract.sealBinding(
                 spec, request, bindingDraft(epoch, effects, 20_001L),
                 Map.of("clock", "realtime", "value", 10_000L), epoch, 7L));

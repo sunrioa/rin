@@ -29,6 +29,14 @@ public final class HostActionContract {
     public static final String SCHEMA_DIALECT =
             "https://json-schema.org/draft/2020-12/schema";
     private static final long MAX_JSON_SAFE_INTEGER = 9_007_199_254_740_991L;
+    /**
+     * A request may reference an observation published at most this many
+     * snapshots before the Host's current observation. Hosts publish frequently
+     * in a living world, so exact latest-sequence equality turned submission
+     * into a race; binding revalidation and authoritative execution remain the
+     * actual safety checks.
+     */
+    private static final long MAX_OBSERVATION_GAP = 8L;
     private static final int MAX_SCHEMA_BYTES = 64 << 10;
     private static final int MAX_INSTANCE_BYTES = 1 << 20;
     private static final Pattern IDENTIFIER = Pattern.compile(
@@ -182,10 +190,11 @@ public final class HostActionContract {
         Map<String, Object> spec = sealCapability(sealedSpec);
         Map<String, Object> actionRequest = actionRequest(request);
         Map<String, Object> currentEpoch = epoch(currentEpochValue, "current_epoch");
+        long requestedSequence = whole(actionRequest.get("observation_sequence"),
+                "observation_sequence", 1, MAX_JSON_SAFE_INTEGER);
         if (!JsonValues.equivalent(actionRequest.get("expected_epoch"), currentEpoch)
-                || whole(actionRequest.get("observation_sequence"),
-                "observation_sequence", 1, MAX_JSON_SAFE_INTEGER)
-                != currentObservationSequence) {
+                || currentObservationSequence < requestedSequence
+                || currentObservationSequence - requestedSequence > MAX_OBSERVATION_GAP) {
             throw invalid("action request belongs to a stale Host observation");
         }
         if (!JsonValues.equivalent(actionRequest.get("capability"), spec.get("capability"))

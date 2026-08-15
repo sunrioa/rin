@@ -114,6 +114,55 @@ func TestActionGatewayQueuesOnlyAllowedBoundAction(t *testing.T) {
 	}
 }
 
+func TestActionGatewayAdmitsRecentObservationWindow(t *testing.T) {
+	t.Run("within gap", func(t *testing.T) {
+		service, hostLease, principal, actionHost := actionGatewayTestService(
+			t, host.RiskLow, policy.ProfileOpen)
+		publication := v2WorldPublication(actionHost.spec)
+		publication.Sequence = 2
+		publication.Actors[0].ObservationSeq = 2
+		publication.Actors[0].Observation.Sequence = 2
+		if err := service.PublishWorld(
+			"test.host", hostLease.LeaseID, publication,
+		); err != nil {
+			t.Fatalf("PublishWorld: %v", err)
+		}
+		actionHost.mu.Lock()
+		actionHost.snapshot.ObservationSeq = 3
+		actionHost.mu.Unlock()
+		input := actionHost.input("request.gap.accepted", "gap.accepted")
+		input.Request.ObservationSeq = 2
+		if _, err := service.SubmitAction(
+			context.Background(), principal, input,
+		); err != nil {
+			t.Fatalf("recent observation was rejected: %v", err)
+		}
+	})
+	t.Run("beyond gap", func(t *testing.T) {
+		service, hostLease, principal, actionHost := actionGatewayTestService(
+			t, host.RiskLow, policy.ProfileOpen)
+		publication := v2WorldPublication(actionHost.spec)
+		publication.Sequence = 2
+		publication.Actors[0].ObservationSeq = 2
+		publication.Actors[0].Observation.Sequence = 2
+		if err := service.PublishWorld(
+			"test.host", hostLease.LeaseID, publication,
+		); err != nil {
+			t.Fatalf("PublishWorld: %v", err)
+		}
+		actionHost.mu.Lock()
+		actionHost.snapshot.ObservationSeq = 11
+		actionHost.mu.Unlock()
+		input := actionHost.input("request.gap.rejected", "gap.rejected")
+		input.Request.ObservationSeq = 2
+		if _, err := service.SubmitAction(
+			context.Background(), principal, input,
+		); err == nil {
+			t.Fatal("stale observation was accepted")
+		}
+	})
+}
+
 func TestActionGatewayConfirmationBindsExactEffect(t *testing.T) {
 	service, hostLease, principal, actionHost := actionGatewayTestService(
 		t,

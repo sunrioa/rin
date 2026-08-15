@@ -204,7 +204,7 @@ func (service *Service) bindAuthorizeAndQueueAction(
 		return OperationView{}, ErrStale
 	}
 	if result.Snapshot.Epoch != current.actor.Epoch ||
-		result.Snapshot.ObservationSeq != current.actor.ObservationSeq {
+		!recentObservationGap(result.Snapshot.ObservationSeq, current.actor.ObservationSeq) {
 		service.policyEngine.Finalize(decision.DecisionID, false)
 		return OperationView{}, ErrStale
 	}
@@ -472,7 +472,7 @@ func (service *Service) prepareActionSubmissionLocked(
 		return actionSubmissionSnapshot{}, err
 	}
 	if actor.Epoch != input.Request.ExpectedEpoch ||
-		actor.ObservationSeq != input.Request.ObservationSeq {
+		!recentObservationGap(actor.ObservationSeq, input.Request.ObservationSeq) {
 		return actionSubmissionSnapshot{}, ErrStale
 	}
 	key := actorControlKey{
@@ -765,7 +765,7 @@ func validateActionBindingResult(
 		return err
 	}
 	if result.Snapshot.Epoch != actor.Epoch ||
-		result.Snapshot.ObservationSeq != actor.ObservationSeq {
+		!recentObservationGap(result.Snapshot.ObservationSeq, actor.ObservationSeq) {
 		return errors.New("Host snapshot does not match the published Actor")
 	}
 	action := result.Action
@@ -773,7 +773,7 @@ func validateActionBindingResult(
 		action.ControllerID != request.ControllerID || action.ActorID != request.ActorID ||
 		action.Capability != request.Capability || action.SpecDigest != request.SpecDigest ||
 		action.ExpectedEpoch != request.ExpectedEpoch ||
-		action.ObservationSeq != request.ObservationSeq ||
+		!recentObservationGap(action.ObservationSeq, request.ObservationSeq) ||
 		action.TaskID != request.TaskID || action.IdempotencyKey != request.IdempotencyKey ||
 		!slices.Equal(action.RequestedTargets, request.Targets) {
 		return errors.New("BoundAction does not match ActionRequest")
@@ -799,11 +799,21 @@ func validateActionHostSnapshot(snapshot ActionHostSnapshot) error {
 
 func sameActionSubmissionSnapshot(left, right actionSubmissionSnapshot) bool {
 	return left.actor.Epoch == right.actor.Epoch &&
-		left.actor.ObservationSeq == right.actor.ObservationSeq &&
+		recentObservationGap(right.actor.ObservationSeq, left.actor.ObservationSeq) &&
 		left.actor.OwnerPrincipalID == right.actor.OwnerPrincipalID &&
 		left.controller == right.controller &&
 		left.emergencyStopped == right.emergencyStopped &&
 		left.emergencyRevision == right.emergencyRevision
+}
+
+// recentObservationGap reports whether ahead is the same snapshot as behind or
+// at most host.MaxObservationGap newer publications ahead of it. Hosts publish
+// frequently in a living world, so exact latest-sequence equality turned every
+// stage of submission into a race that real controllers could not reliably
+// win. The Host still revalidates each binding against the referenced snapshot
+// and authoritative execution still verifies current world state.
+func recentObservationGap(ahead, behind uint64) bool {
+	return ahead >= behind && ahead-behind <= host.MaxObservationGap
 }
 
 func actionSubmissionFingerprint(
