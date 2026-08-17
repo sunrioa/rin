@@ -19,6 +19,8 @@ contracts. Documentation examples never replace authoritative game-adapter check
 9. [Signal inbox](signals.md): receive short-lived Host attention hints for internal wake-up or external MCP reads.
 10. [Host scaffolding](host-scaffolding.md): generate a contract skeleton for a language and engine.
 11. [Integration acceptance](host-integration-validation.md): automated gates and human game testing.
+12. [Milestone A validation report](milestone-a-validation.md): current architecture,
+    cross-adapter evidence, performance, and remaining human checks.
 
 Additional material:
 

@@ -18,6 +18,8 @@
 9. [Signal 收件箱](signals.zh-CN.md)：由 Host 发布短期注意提示，供内部唤醒或外部 MCP 读取。
 10. [Host 脚手架](host-scaffolding.zh-CN.md)：生成契约骨架并接入自己的语言与引擎。
 11. [集成验收](host-integration-validation.zh-CN.md)：自动门禁与真人游戏测试。
+12. [里程碑 A 验收报告](milestone-a-validation.zh-CN.md)：当前架构、跨 Adapter 证据、性能与
+    仍需真人确认的项目。
 
 补充资料：
 

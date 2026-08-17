@@ -39,6 +39,10 @@ pin an exact commit or tag for every distribution.
 - SDKs converge on source-first Control V2 clients with OpenAPI as the exact HTTP contract.
 - Host scaffolding generates only a `custom` contract skeleton and no longer
   claims to generate a real engine project.
+- Agent context assembly, task lifecycle, plan/decision orchestration,
+  action/operation coordination, and signal wake scheduling are now focused
+  package-private components without changing model, planner, operation, or
+  task-timeline semantics.
 
 ### Security
 
@@ -64,11 +68,15 @@ pin an exact commit or tag for every distribution.
   independent adapter repositories.
 - Removed documents that described deleted architecture, migration, or
   duplicated workflows.
+- Removed the retired file memory provider and initial `memory.json` migration
+  path. `memory.db` is the only online store in the Rin Memory domain; JSONL is
+  an explicit exchange format only.
 
 ### Acceptance status
 
 - The Rin Go core, race suite, OpenAPI contracts, five language SDKs, and three
   V2 examples have automated gates.
-- A real game adapter must still complete installation, save/load, forced
-  termination, multiplayer authority, emergency stop, UI, long-play, and
-  character-naturalness acceptance.
+- Automated contract and full-process regression passes for the Minecraft and
+  visual-novel adapters. Installation, save/load, forced termination,
+  multiplayer authority, emergency stop, UI, long-play, and character
+  naturalness still require human acceptance.

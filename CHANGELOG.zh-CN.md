@@ -37,6 +37,8 @@ Commit 或 Tag。
   `rin-control` 拥有。
 - SDK 收敛为 source-first Control V2 客户端；HTTP 精确契约由 OpenAPI 提供。
 - Host 脚手架只生成 `custom` 契约骨架，不再声称生成真实引擎工程。
+- `AgentRuntime` 的上下文装配、任务生命周期、计划决策、动作操作协调和 Signal 唤醒已拆为
+  包内组件；拆分不改变模型、Planner、Operation 或任务时间线语义。
 
 ### 安全
 
@@ -57,9 +59,11 @@ Commit 或 Tag。
   Native 示例，以及对应的工具链和伪 Conformance。
 - 删除旧引擎模板；具体游戏接入由独立 Adapter 仓库负责。
 - 删除只描述已移除架构、迁移和重复流程的文档。
+- 删除旧文件记忆后端和 `memory.json` 首次迁移路径；`memory.db` 是 Rin Memory 域唯一在线
+  存储，JSONL 仅用于显式交换。
 
 ### 当前验收状态
 
 - Rin Go 核心、Race、OpenAPI、五语言 SDK 和三个 V2 示例具备自动化门禁。
-- 真实游戏 Adapter 仍必须完成安装、存读档、强制终止、多人权限、急停、UI、
-  长时间游玩和角色自然度的人工验收。
+- Minecraft 与视觉小说两个真实 Adapter 的自动契约与跨进程回归已通过；安装、存读档、
+  强制终止、多人权限、急停、UI、长时间游玩和角色自然度仍需人工验收。
