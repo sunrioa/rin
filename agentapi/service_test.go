@@ -68,6 +68,18 @@ func TestServiceRecoversEligibleTasksAndHonorsWorkerLimit(t *testing.T) {
 	waitFor(t, func() bool { return runtime.startedCount() == 0 }, "recovered task completion")
 }
 
+func TestServiceRechecksActiveMacroWaitingForHostObservation(t *testing.T) {
+	runtime := newFakeTaskRuntime()
+	task := activeTask("task.macro-wait", "macro.started")
+	task.MacroOperationID = "operation.macro-wait"
+	runtime.tasks[task.TaskID] = task
+	service := newTestAgentService(t, runtime, 1)
+	defer service.Close()
+
+	waitFor(t, func() bool { return runtime.runCount(task.TaskID) == 1 },
+		"active macro observation recheck")
+}
+
 func TestServiceCloseCancelsRunningTask(t *testing.T) {
 	runtime := newFakeTaskRuntime()
 	runtime.blockRuns = true

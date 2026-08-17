@@ -390,12 +390,22 @@ func TestAgentRuntimeDrivesMacroThroughAuditedChildOperation(t *testing.T) {
 		{OperationID: "operation.agent.child"},
 	}
 	fixture.control.operationSequences = map[string][]controlplane.OperationView{
-		"operation.agent.macro": {macroAccepted, macroAccepted, macroSucceeded},
+		"operation.agent.macro": {
+			macroAccepted, macroAccepted, macroAccepted, macroSucceeded,
+		},
 		"operation.agent.child": {childSucceeded},
 	}
 	runtime := fixture.runtime(t, 24)
 	started := fixture.start(t, runtime, "task.macro")
 
+	waiting, err := runtime.RunTask(context.Background(), started.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if waiting.MacroOperationID != macroAccepted.OperationID || len(fixture.model.inputs) != 1 {
+		t.Fatalf("macro selected a child before a fresh Host observation: %+v", waiting)
+	}
+	advanceAgentObservation(fixture)
 	completed, err := runtime.RunTask(context.Background(), started.TaskID)
 	if err != nil {
 		t.Fatal(err)
@@ -464,6 +474,7 @@ func TestAgentRuntimeRestoresActiveMacroBeforeSelectingChild(t *testing.T) {
 	}
 	fixture.tasks = restored
 	fixture.model.decisions = []cognition.ModelDecision{agentActionDecision()}
+	advanceAgentObservation(fixture)
 	restarted := fixture.runtime(t, 1)
 	selected, err := restarted.RunTask(context.Background(), started.TaskID)
 	if err != nil {
@@ -506,6 +517,14 @@ func TestAgentRuntimeCancelsMacroChildBeforeParent(t *testing.T) {
 	}
 	runtime := fixture.runtime(t, 5)
 	started := fixture.start(t, runtime, "task.cancel-macro")
+	active, err := runtime.RunTask(context.Background(), started.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active.MacroOperationID != macroRunning.OperationID || active.PendingAction != nil {
+		t.Fatalf("macro did not wait for a fresh child observation: %+v", active)
+	}
+	advanceAgentObservation(fixture)
 	pending, err := runtime.RunTask(context.Background(), started.TaskID)
 	if err != nil {
 		t.Fatal(err)
@@ -687,6 +706,14 @@ func TestAgentRuntimePausesInsteadOfOrphaningMacroAtBudgetLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	active, err := runtime.RunTask(context.Background(), started.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active.MacroOperationID != macroRunning.OperationID || active.Status != cognition.TaskActive {
+		t.Fatalf("budget macro did not wait for a fresh child observation: %+v", active)
+	}
+	advanceAgentObservation(fixture)
 	paused, err := runtime.RunTask(context.Background(), started.TaskID)
 	if !errors.Is(err, cognition.ErrTaskBudgetExceeded) ||
 		paused.Status != cognition.TaskPaused || paused.PauseCode != "budget.actions" ||
@@ -1357,6 +1384,15 @@ func (fixture *agentRuntimeFixture) start(
 		t.Fatal(err)
 	}
 	return task
+}
+
+func advanceAgentObservation(fixture *agentRuntimeFixture) {
+	fixture.environment.observation.Sequence++
+	fixture.environment.observation.ObservationID = fmt.Sprintf(
+		"observation.agent.%d", fixture.environment.observation.Sequence,
+	)
+	fixture.environment.observation.ObservedAt.Value++
+	fixture.control.actor.ObservationSeq = fixture.environment.observation.Sequence
 }
 
 type scriptedModelProvider struct {

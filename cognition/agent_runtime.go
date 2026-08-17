@@ -436,6 +436,12 @@ func (runtime *AgentRuntime) advanceTask(
 		paused, pauseErr := runtime.pauseTask(ctx, task, "observation.invalid", err)
 		return paused, false, pauseErr
 	}
+	// A macro changes the Host-owned plan before its children can be selected.
+	// Wait for that newer publication instead of binding a child to the snapshot
+	// that originally started the macro.
+	if task.MacroOperationID != "" && observation.Sequence <= task.LastObservationSeq {
+		return task, false, nil
+	}
 	target := controlplane.ActorControlTarget{
 		HostID: task.HostID, WorldID: task.WorldID, ActorID: task.ActorID,
 	}

@@ -356,7 +356,8 @@ func taskNeedsAutomaticRun(task cognition.TaskSession) bool {
 	case cognition.TaskCancelling, cognition.TaskWaitingConfirmation:
 		return true
 	case cognition.TaskActive:
-		if task.PendingAction != nil || task.PendingOperationID != "" {
+		if task.PendingAction != nil || task.PendingOperationID != "" ||
+			task.MacroOperationID != "" {
 			return true
 		}
 		for index := len(task.History) - 1; index >= 0; index-- {
