@@ -173,62 +173,6 @@ func TestSQLiteMemoryStoresCanonRefsAndExperienceCorrections(t *testing.T) {
 	}
 }
 
-func TestSQLiteMemoryImportsLegacySnapshotOnce(t *testing.T) {
-	directory := t.TempDir()
-	legacyPath := filepath.Join(directory, "memory.json")
-	legacy, err := cognition.OpenFileMemoryProvider(legacyPath, cognition.LocalMemoryConfig{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	record := sqliteMemory(
-		"memory.legacy", cognition.MemoryActorSemantic, "", "A legacy preference.",
-	)
-	if _, err := legacy.Append(context.Background(), record); err != nil {
-		t.Fatal(err)
-	}
-	if err := legacy.Close(); err != nil {
-		t.Fatal(err)
-	}
-	provider, err := cognition.OpenSQLiteMemoryProvider(
-		filepath.Join(directory, "memory.db"), cognition.LocalMemoryConfig{},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	snapshot, err := provider.Snapshot(context.Background())
-	if err != nil || len(snapshot.Records) != 1 || snapshot.Records[0].MemoryID != record.MemoryID {
-		t.Fatalf("migrated snapshot = %#v, %v", snapshot, err)
-	}
-	if err := provider.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	legacy, err = cognition.OpenFileMemoryProvider(legacyPath, cognition.LocalMemoryConfig{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	second := sqliteMemory(
-		"memory.legacy.later", cognition.MemoryActorSemantic, "", "A later legacy write.",
-	)
-	if _, err := legacy.Append(context.Background(), second); err != nil {
-		t.Fatal(err)
-	}
-	if err := legacy.Close(); err != nil {
-		t.Fatal(err)
-	}
-	provider, err = cognition.OpenSQLiteMemoryProvider(
-		filepath.Join(directory, "memory.db"), cognition.LocalMemoryConfig{},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer provider.Close()
-	snapshot, err = provider.Snapshot(context.Background())
-	if err != nil || len(snapshot.Records) != 1 || snapshot.Records[0].MemoryID != record.MemoryID {
-		t.Fatalf("legacy data was re-imported = %#v, %v", snapshot, err)
-	}
-}
-
 func TestSQLiteMemoryFiltersVisibilityBeforeBoundedRecall(t *testing.T) {
 	provider, err := cognition.OpenSQLiteMemoryProvider(
 		filepath.Join(t.TempDir(), "memory.db"), cognition.LocalMemoryConfig{},

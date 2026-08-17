@@ -136,8 +136,8 @@ FTS5 与近期记忆，不中断游戏任务。Rin 不下载或托管 Embedding 
 Memory ID、事实、权限或删除权。
 
 `rin-control` 独占 `<RIN_CONTROL_DATA_DIR>/agent/memory.db`。SQLite 是 Rin Memory 域
-的在线事实源，使用 WAL、完整同步和 FTS5；`memory.json` 只在首次启动且数据库为空时
-导入，JSONL 仅用于手动交换。无论动作来自内部 Agent、外部 MCP 还是 Macro，只有
+唯一的在线事实源，使用 WAL、完整同步和 FTS5；JSONL 仅用于显式的手动交换，不存在并行的
+JSON 持久化后端。无论动作来自内部 Agent、外部 MCP 还是 Macro，只有
 Control Plane 已提交的 Host Outcome 才会写入共享 `actor-episodic` 记忆，并保存
 Host、World、Epoch、Sequence 与 Digest 的 `canon_ref`。它只是对游戏 Canon 的可检索
 投影，不能反向修改 Canon。

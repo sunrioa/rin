@@ -17,7 +17,6 @@ import (
 
 	"github.com/sunrioa/rin/experience"
 	"github.com/sunrioa/rin/host"
-	"github.com/sunrioa/rin/internal/privatefile"
 	"github.com/sunrioa/rin/internal/sqlitedsn"
 	_ "modernc.org/sqlite"
 )
@@ -95,38 +94,7 @@ func OpenSQLiteMemoryProvider(
 		_ = provider.Close()
 		return nil, fmt.Errorf("%w: protect memory database: %v", ErrMemoryStorePersistence, err)
 	}
-	if err := provider.importLegacySnapshot(context.Background()); err != nil {
-		_ = provider.Close()
-		return nil, err
-	}
 	return provider, nil
-}
-
-func (provider *SQLiteMemoryProvider) importLegacySnapshot(ctx context.Context) error {
-	var count int
-	if err := provider.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM memory_records`).Scan(&count); err != nil {
-		return err
-	}
-	if count != 0 {
-		return nil
-	}
-	legacyPath := filepath.Join(filepath.Dir(provider.path), "memory.json")
-	var snapshot MemorySnapshot
-	if err := privatefile.ReadJSON(legacyPath, maxMemorySnapshotBytes, &snapshot); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return fmt.Errorf("%w: import legacy memory snapshot: %v", ErrMemoryStorePersistence, err)
-	}
-	validated, err := RestoreLocalMemoryProvider(provider.config, snapshot)
-	if err != nil {
-		return fmt.Errorf("%w: validate legacy memory snapshot: %v", ErrMemoryStorePersistence, err)
-	}
-	sealed, err := validated.Snapshot(ctx)
-	if err != nil {
-		return err
-	}
-	return provider.replaceSnapshot(ctx, sealed)
 }
 
 func (provider *SQLiteMemoryProvider) initialize(ctx context.Context) error {

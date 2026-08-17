@@ -155,9 +155,9 @@ memory results. Rin does not download or run an embedding model, and the remote
 provider never owns Memory IDs, facts, permissions, or deletion.
 
 `rin-control` exclusively owns `<RIN_CONTROL_DATA_DIR>/agent/memory.db`.
-SQLite is the online source of truth for the Rin Memory domain and uses WAL,
-full synchronization, and FTS5. `memory.json` is imported only on the first
-empty-database startup; JSONL is a manual interchange format. Actions initiated
+SQLite is the only online source of truth for the Rin Memory domain and uses WAL,
+full synchronization, and FTS5. JSONL is an explicit manual interchange format;
+there is no parallel JSON persistence backend. Actions initiated
 by the internal Agent, external MCP, or a macro all reach the same projection,
 and only a committed Host Outcome can create shared `actor-episodic` memory.
 The `canon_ref` retains Host, World, Epoch, Sequence, and Digest evidence. It is
