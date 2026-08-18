@@ -297,7 +297,7 @@ func TestGatewayV2ActionUsesControllerHostBindingPolicyAndOutcome(t *testing.T) 
 	); err != nil {
 		t.Fatal(err)
 	}
-	if err := environment.service.ReportHostOutcome(
+	if err := environment.service.ReportHostResult(
 		"test.host", environment.lease.LeaseID,
 		host.ActionOutcome{
 			OperationID: submitted.Operation.OperationID,
@@ -305,6 +305,7 @@ func TestGatewayV2ActionUsesControllerHostBindingPolicyAndOutcome(t *testing.T) 
 			Epoch: environment.snapshot.Epoch, WorldSeq: 2,
 			OccurredAt: host.Timepoint{Clock: host.ClockStep, Value: 12},
 		},
+		json.RawMessage(`{"distance":2}`),
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +314,8 @@ func TestGatewayV2ActionUsesControllerHostBindingPolicyAndOutcome(t *testing.T) 
 		"operation_id": submitted.Operation.OperationID,
 	}, &fetched)
 	if !fetched.Operation.ExecutionConfirmed || !fetched.Operation.Terminal ||
-		fetched.Operation.Status != controlplane.OperationSucceeded {
+		fetched.Operation.Status != controlplane.OperationSucceeded ||
+		fmt.Sprint(fetched.Operation.Output["distance"]) != "2" {
 		t.Fatalf("get_operation = %#v", fetched.Operation)
 	}
 	var waited OperationUpdateOutput
@@ -322,7 +324,8 @@ func TestGatewayV2ActionUsesControllerHostBindingPolicyAndOutcome(t *testing.T) 
 		"after_cursor": submitted.Operation.Cursor,
 		"wait_millis":  0,
 	}, &waited)
-	if !waited.Changed || !waited.Operation.ExecutionConfirmed {
+	if !waited.Changed || !waited.Operation.ExecutionConfirmed ||
+		fmt.Sprint(waited.Operation.Output["distance"]) != "2" {
 		t.Fatalf("wait_operation = %#v", waited)
 	}
 	var timelineUpdate TaskTimelineUpdateOutput

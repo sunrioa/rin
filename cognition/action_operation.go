@@ -2,6 +2,7 @@ package cognition
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/sunrioa/rin/controlplane"
@@ -167,6 +168,12 @@ func (runtime *AgentRuntime) advancePendingAction(
 		task.Status = TaskActive
 	}
 	task.PauseCode = ""
+	result, resultErr := operationResult(task, view)
+	if resultErr != nil {
+		paused, pauseErr := runtime.pauseTask(ctx, task, "operation.output-invalid", resultErr)
+		return paused, false, pauseErr
+	}
+	task.LastOperationResult = result
 	clearPendingTaskAction(&task)
 	task.Step++
 	if task.PlanID != "" {
@@ -203,6 +210,41 @@ func (runtime *AgentRuntime) advancePendingAction(
 		runtime.releaseController(saved)
 	}
 	return saved, saveErr == nil, saveErr
+}
+
+func operationResult(
+	task TaskSession,
+	view controlplane.OperationView,
+) (*TaskOperationResult, error) {
+	if task.PendingAction == nil {
+		return nil, errors.New("terminal operation has no pending action")
+	}
+	summary := view.RejectionMessage
+	if view.Outcome != nil {
+		summary = view.Outcome.Summary
+	}
+	if summary == "" {
+		summary = "The Host returned a terminal operation result."
+	}
+	var output json.RawMessage
+	if len(view.Output) != 0 {
+		encoded, err := json.Marshal(view.Output)
+		if err != nil {
+			return nil, err
+		}
+		output = encoded
+	}
+	result, err := sealTaskOperationResult(TaskOperationResult{
+		OperationID: view.OperationID,
+		Capability:  task.PendingAction.Capability,
+		Status:      string(view.Status),
+		Summary:     summary,
+		Output:      output,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 func actionSubmissionRejectionCode(err error) string {

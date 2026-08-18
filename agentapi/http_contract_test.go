@@ -113,6 +113,7 @@ func TestAgentOpenAPISchemaFieldsMatchGoDTOs(t *testing.T) {
 		"TaskBudget":            cognition.TaskBudget{},
 		"TaskDispatch":          agentapi.TaskDispatch{},
 		"TaskSession":           cognition.TaskSession{},
+		"TaskOperationResult":   cognition.TaskOperationResult{},
 		"SkillLearningState":    cognition.SkillLearningState{},
 		"TaskEvent":             cognition.TaskEvent{},
 		"ControllerLease":       controlplane.ControllerLease{},

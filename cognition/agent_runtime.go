@@ -326,6 +326,7 @@ func (runtime *AgentRuntime) advanceTask(
 		},
 		Persona: persona, Observation: observation, Memories: memories,
 		Capabilities: summaries, Skills: skills, Plan: plan,
+		LastOperationResult: task.LastOperationResult,
 	}
 	decision, task, err := runtime.callModel(ctx, task, input, warnings)
 	if err != nil {

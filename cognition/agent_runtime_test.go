@@ -127,6 +127,38 @@ func TestAgentRuntimeCompletesMultiStepTaskThroughControlPlane(t *testing.T) {
 	}
 }
 
+func TestAgentRuntimeFeedsStructuredOutcomeIntoNextDecision(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	fixture.model.decisions = []cognition.ModelDecision{
+		agentActionDecision(),
+		{Kind: cognition.ModelDecisionComplete, Summary: "The dependency is known."},
+	}
+	operation := succeededAgentOperation(fixture.environment.observation)
+	operation.Output = map[string]any{
+		"item_id":       "minecraft:wooden_sword",
+		"station":       "crafting_table_3x3",
+		"missing_count": float64(2),
+	}
+	fixture.control.operationAfterSubmit = operation
+	runtime := fixture.runtime(t, 16)
+	task := fixture.start(t, runtime, "task.recipe-planning")
+
+	completed, err := runtime.RunTask(context.Background(), task.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.Status != cognition.TaskCompleted || len(fixture.model.inputs) != 2 {
+		t.Fatalf("recipe planning task = %#v", completed)
+	}
+	result := fixture.model.inputs[1].LastOperationResult
+	if result == nil || result.OperationID != "operation.agent.1" ||
+		result.Capability.ID != "rin.navigation.move-to" ||
+		!strings.Contains(string(result.Output), "crafting_table_3x3") ||
+		completed.LastOperationResult == nil {
+		t.Fatalf("structured Host result was not available to replanning: %#v", result)
+	}
+}
+
 func TestAgentRuntimeCreatesDraftOnlyAfterVerifiedComplexTask(t *testing.T) {
 	fixture := newAgentRuntimeFixture(t)
 	fixture.model.decisions = []cognition.ModelDecision{

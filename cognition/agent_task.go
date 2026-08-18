@@ -1,9 +1,12 @@
 package cognition
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"sync"
 
@@ -53,6 +56,16 @@ type SkillLearningState struct {
 	SkillID  string              `json:"skill_id,omitempty"`
 	Digest   string              `json:"digest,omitempty"`
 	Code     string              `json:"code,omitempty"`
+}
+
+// TaskOperationResult is the latest authoritative result available to the next
+// decision round. Keeping one bounded result avoids replaying the task log.
+type TaskOperationResult struct {
+	OperationID string             `json:"operation_id"`
+	Capability  host.CapabilityRef `json:"capability"`
+	Status      string             `json:"status"`
+	Summary     string             `json:"summary"`
+	Output      json.RawMessage    `json:"output,omitempty"`
 }
 
 type TaskEvent struct {
@@ -105,13 +118,14 @@ type TaskSession struct {
 	ModelTokens uint64 `json:"model_tokens"`
 	ActionCount uint32 `json:"action_count"`
 
-	ControllerLease    controlplane.ControllerLease `json:"controller_lease"`
-	PendingAction      *host.ActionRequest          `json:"pending_action,omitempty"`
-	PendingActionMacro bool                         `json:"pending_action_is_macro,omitempty"`
-	PendingOperationID string                       `json:"pending_operation_id,omitempty"`
-	MacroOperationID   string                       `json:"macro_operation_id,omitempty"`
-	PendingMemories    []MemoryRecord               `json:"pending_memories,omitempty"`
-	SkillLearning      *SkillLearningState          `json:"skill_learning,omitempty"`
+	ControllerLease     controlplane.ControllerLease `json:"controller_lease"`
+	PendingAction       *host.ActionRequest          `json:"pending_action,omitempty"`
+	PendingActionMacro  bool                         `json:"pending_action_is_macro,omitempty"`
+	PendingOperationID  string                       `json:"pending_operation_id,omitempty"`
+	MacroOperationID    string                       `json:"macro_operation_id,omitempty"`
+	PendingMemories     []MemoryRecord               `json:"pending_memories,omitempty"`
+	SkillLearning       *SkillLearningState          `json:"skill_learning,omitempty"`
+	LastOperationResult *TaskOperationResult         `json:"last_operation_result,omitempty"`
 
 	LastObservationID   string      `json:"last_observation_id,omitempty"`
 	LastObservationSeq  uint64      `json:"last_observation_sequence,omitempty"`
@@ -418,6 +432,13 @@ func sealTaskSession(task TaskSession) (TaskSession, error) {
 		}
 		task.SkillLearning = &learning
 	}
+	if task.LastOperationResult != nil {
+		result, err := sealTaskOperationResult(*task.LastOperationResult)
+		if err != nil {
+			return TaskSession{}, fmt.Errorf("last_operation_result: %w", err)
+		}
+		task.LastOperationResult = &result
+	}
 	task.PendingMemories = append([]MemoryRecord(nil), task.PendingMemories...)
 	for index, record := range task.PendingMemories {
 		sealed, err := sealMemoryRecord(record)
@@ -568,6 +589,11 @@ func cloneTaskSession(task TaskSession) TaskSession {
 		learning := *task.SkillLearning
 		task.SkillLearning = &learning
 	}
+	if task.LastOperationResult != nil {
+		result := *task.LastOperationResult
+		result.Output = append(json.RawMessage(nil), result.Output...)
+		task.LastOperationResult = &result
+	}
 	if task.PendingAction != nil {
 		request := cloneTaskActionRequest(*task.PendingAction)
 		task.PendingAction = &request
@@ -583,6 +609,41 @@ func cloneTaskSession(task TaskSession) TaskSession {
 		task.History[index] = cloneTaskEvent(event)
 	}
 	return task
+}
+
+func sealTaskOperationResult(result TaskOperationResult) (TaskOperationResult, error) {
+	if err := validateProviderID("operation_id", result.OperationID); err != nil {
+		return TaskOperationResult{}, err
+	}
+	if err := result.Capability.Validate("capability"); err != nil {
+		return TaskOperationResult{}, err
+	}
+	if err := validateProviderID("status", result.Status); err != nil {
+		return TaskOperationResult{}, err
+	}
+	if err := validateProviderText("summary", result.Summary, 2_000, true); err != nil {
+		return TaskOperationResult{}, err
+	}
+	if len(result.Output) > 65_536 {
+		return TaskOperationResult{}, errors.New("operation output exceeds 65536 bytes")
+	}
+	if len(result.Output) != 0 {
+		var object map[string]any
+		decoder := json.NewDecoder(bytes.NewReader(result.Output))
+		decoder.UseNumber()
+		if err := decoder.Decode(&object); err != nil || object == nil {
+			return TaskOperationResult{}, errors.New("operation output must be one JSON object")
+		}
+		if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+			return TaskOperationResult{}, errors.New("operation output must contain one JSON value")
+		}
+		canonical, err := json.Marshal(object)
+		if err != nil {
+			return TaskOperationResult{}, errors.New("operation output is not serializable")
+		}
+		result.Output = canonical
+	}
+	return result, nil
 }
 
 func validateSkillLearningState(state SkillLearningState) error {

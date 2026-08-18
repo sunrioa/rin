@@ -994,6 +994,9 @@
           "skill_learning": {
             "$ref": "#/components/schemas/SkillLearningState"
           },
+          "last_operation_result": {
+            "$ref": "#/components/schemas/TaskOperationResult"
+          },
           "last_observation_id": {
             "$ref": "#/components/schemas/Identifier"
           },
@@ -1063,6 +1066,32 @@
           }
         },
         "required": ["status", "attempts"]
+      },
+      "TaskOperationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Latest authoritative Host result exposed to the next internal decision round.",
+        "properties": {
+          "operation_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "capability": {
+            "$ref": "#/components/schemas/CapabilityRef"
+          },
+          "status": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "output": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": ["operation_id", "capability", "status", "summary"]
       },
       "TaskEvent": {
         "type": "object",

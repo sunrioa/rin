@@ -131,6 +131,7 @@ type ModelInput struct {
 	InspectedSkills       []Skill                  `json:"inspected_skills,omitempty"`
 	InspectionRound       uint32                   `json:"inspection_round"`
 	Plan                  *taskstate.PlanState     `json:"plan,omitempty"`
+	LastOperationResult   *TaskOperationResult     `json:"last_operation_result,omitempty"`
 }
 
 type ModelMemoryCandidate struct {
@@ -238,6 +239,7 @@ type modelV2UntrustedContext struct {
 	InspectedCapabilities []host.CapabilitySpec `json:"inspected_capabilities,omitempty"`
 	InspectedSkills       []Skill               `json:"inspected_skills,omitempty"`
 	Plan                  *taskstate.PlanState  `json:"plan,omitempty"`
+	LastOperationResult   *TaskOperationResult  `json:"last_operation_result,omitempty"`
 }
 
 func CapabilitySummaryFromSpec(spec host.CapabilitySpec) CapabilitySummary {
@@ -509,6 +511,14 @@ func sealModelInput(input ModelInput) (ModelInput, ModelObservation, error) {
 			return ModelInput{}, ModelObservation{}, errors.New("plan does not belong to the task")
 		}
 	}
+	if input.LastOperationResult != nil {
+		result, err := sealTaskOperationResult(*input.LastOperationResult)
+		if err != nil {
+			return ModelInput{}, ModelObservation{}, fmt.Errorf(
+				"last_operation_result: %w", err)
+		}
+		input.LastOperationResult = &result
+	}
 	var err error
 	if input.Task.Tags, err = normalizeProviderIDs("task.tags", input.Task.Tags, 32); err != nil {
 		return ModelInput{}, ModelObservation{}, err
@@ -616,7 +626,7 @@ func buildModelV2Packet(input ModelInput, observation ModelObservation) modelV2P
 			Goal: input.Task.Goal, Tags: append([]string(nil), input.Task.Tags...),
 			Observation: observation, Memories: input.Memories,
 			InspectedCapabilities: input.InspectedCapabilities, InspectedSkills: input.InspectedSkills,
-			Plan: input.Plan,
+			Plan: input.Plan, LastOperationResult: input.LastOperationResult,
 		},
 	}
 }
