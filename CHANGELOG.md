@@ -36,6 +36,8 @@ pin an exact commit or tag for every distribution.
   policy, operation, and Host outcome semantics.
 - MCP processes are stateless STDIO proxies. The resident `rin-control` owns the
   port, persistent state, and fixed principal.
+- Hosts can keep an actorless world discoverable to declared read Principals
+  without granting control or execution authority.
 - SDKs converge on source-first Control V2 clients with OpenAPI as the exact HTTP contract.
 - Host scaffolding generates only a `custom` contract skeleton and no longer
   claims to generate a real engine project.

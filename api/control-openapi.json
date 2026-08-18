@@ -1880,6 +1880,14 @@
             "minimum": 1,
             "maximum": 9007199254740991
           },
+          "visible_principal_ids": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            },
+            "maxItems": 4096,
+            "uniqueItems": true
+          },
           "actors": {
             "type": "array",
             "items": {

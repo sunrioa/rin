@@ -12,15 +12,16 @@ import (
 )
 
 const (
-	minLeaseTTLMillis   = 5_000
-	maxLeaseTTLMillis   = 300_000
-	maxWorldsPerHost    = 64
-	maxActorsPerWorld   = 4_096
-	maxCapabilitySpecs  = 512
-	maxActorStateBytes  = 64 << 10
-	maxPublicationBytes = 8 << 20
-	maxOperationOutput  = 64 << 10
-	maxJSONSafeInteger  = 9_007_199_254_740_991
+	minLeaseTTLMillis    = 5_000
+	maxLeaseTTLMillis    = 300_000
+	maxWorldsPerHost     = 64
+	maxActorsPerWorld    = 4_096
+	maxVisiblePrincipals = 4_096
+	maxCapabilitySpecs   = 512
+	maxActorStateBytes   = 64 << 10
+	maxPublicationBytes  = 8 << 20
+	maxOperationOutput   = 64 << 10
+	maxJSONSafeInteger   = 9_007_199_254_740_991
 )
 
 func validateRegistration(value HostRegistration) error {
@@ -56,6 +57,20 @@ func validatePublication(
 	}
 	if value.Sequence == 0 || value.Sequence > maxJSONSafeInteger {
 		return invalid("sequence", "must be a positive JSON-safe integer")
+	}
+	if len(value.VisiblePrincipalIDs) > maxVisiblePrincipals {
+		return invalid("visible_principal_ids", "must contain at most 4096 values")
+	}
+	visiblePrincipals := make(map[string]struct{}, len(value.VisiblePrincipalIDs))
+	for index, principalID := range value.VisiblePrincipalIDs {
+		field := fmt.Sprintf("visible_principal_ids[%d]", index)
+		if err := validateID(field, principalID); err != nil {
+			return err
+		}
+		if _, duplicate := visiblePrincipals[principalID]; duplicate {
+			return invalid("visible_principal_ids", "must not contain duplicate values")
+		}
+		visiblePrincipals[principalID] = struct{}{}
 	}
 	maximumActors := uint32(maxActorsPerWorld)
 	if manifest.MaxConcurrentActors < maximumActors {

@@ -150,10 +150,11 @@ type HostActorSnapshot struct {
 
 // WorldPublication atomically replaces one host's read model for a world.
 type WorldPublication struct {
-	WorldID     string             `json:"world_id"`
-	DisplayName string             `json:"display_name"`
-	Sequence    uint64             `json:"sequence"`
-	Actors      []ActorPublication `json:"actors"`
+	WorldID             string             `json:"world_id"`
+	DisplayName         string             `json:"display_name"`
+	Sequence            uint64             `json:"sequence"`
+	VisiblePrincipalIDs []string           `json:"visible_principal_ids,omitempty"`
+	Actors              []ActorPublication `json:"actors"`
 }
 
 // ActorPublication contains only host-approved, externally visible state.

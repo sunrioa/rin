@@ -50,6 +50,10 @@ export RIN_CONTROL_DATA_DIR="/absolute/path/to/rin-control-data"
 
 Host 发布 Actor 时，`owner_principal_id` 必须与配置的 Principal 一致，否则该
 Actor 对普通 Client 不可见。`host.admin` 可以跨 Owner 读取，默认不应授予。
+当世界暂时没有在线 Actor 时，Host 可以在 World Publication 的
+`visible_principal_ids` 中保留已知 Owner 或外部 Controller，使具有 `actor.read`
+的对应 Principal 仍能通过 `list_worlds` 发现世界。该字段只控制世界发现，不授予
+Actor 控制、执行或管理权限。
 
 ## 一键配置 MCP Client
 

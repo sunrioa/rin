@@ -55,6 +55,10 @@ data-directory path in persistent configurations.
 An Actor's published `owner_principal_id` must match the configured Principal or
 the Actor is hidden from ordinary clients. `host.admin` can read across owners
 and should not be granted by default.
+When a world temporarily has no online Actor, a Host may retain known owners or
+external controllers in the World Publication's `visible_principal_ids`.
+Matching Principals with `actor.read` can still discover the world through
+`list_worlds`; this field grants no actor control, execution, or administration.
 
 ## One-command MCP Client Setup
 

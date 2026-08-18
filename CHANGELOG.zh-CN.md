@@ -35,6 +35,8 @@ Commit 或 Tag。
   Operation 和 Host Outcome 语义。
 - MCP 进程改为无状态 STDIO 代理；端口、持久状态和固定 Principal 由常驻
   `rin-control` 拥有。
+- Host 可让声明过的只读 Principal 在 Actor 暂时为空时继续发现世界，而不会授予
+  控制或执行权限。
 - SDK 收敛为 source-first Control V2 客户端；HTTP 精确契约由 OpenAPI 提供。
 - Host 脚手架只生成 `custom` 契约骨架，不再声称生成真实引擎工程。
 - `AgentRuntime` 的上下文装配、任务生命周期、计划决策、动作操作协调和 Signal 唤醒已拆为

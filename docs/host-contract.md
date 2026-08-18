@@ -40,6 +40,15 @@ step, or realtime Host clock. Actions, bindings, leases, and outcomes use epochs
 to fence stale timelines; clocks express deadlines, execution budgets, and
 confirmation expiry.
 
+## World publication
+
+`WorldPublication` atomically replaces one Host-owned world read model. Its
+`actors` contain only currently online, controllable Actors. Optional
+`visible_principal_ids` keep the world discoverable to matching Principals with
+`actor.read` while no Actor is present. The list creates no authority,
+controller lease, or execution permission; actions are rebound from live state
+after an Actor returns.
+
 ## Observation
 
 An `ObservationEnvelope` is a bounded Host-authored snapshot containing:

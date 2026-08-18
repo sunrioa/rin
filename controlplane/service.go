@@ -523,6 +523,9 @@ func cloneRegistration(value HostRegistration) HostRegistration {
 
 func clonePublication(value WorldPublication) WorldPublication {
 	cloned := value
+	cloned.VisiblePrincipalIDs = append(
+		[]string(nil), value.VisiblePrincipalIDs...,
+	)
 	cloned.Actors = make([]ActorPublication, len(value.Actors))
 	for index, actor := range value.Actors {
 		cloned.Actors[index] = actor
@@ -680,6 +683,16 @@ func (service *Service) fenceSupersededAuthorityLocked(
 }
 
 func publicationVisible(principal host.Principal, world WorldPublication) bool {
+	if hasScope(principal, ScopeHostAdmin) {
+		return true
+	}
+	if hasScope(principal, ScopeActorRead) {
+		for _, principalID := range world.VisiblePrincipalIDs {
+			if principal.ID == principalID {
+				return true
+			}
+		}
+	}
 	for _, actor := range world.Actors {
 		if canAccessActor(principal, actor, ScopeActorRead) {
 			return true

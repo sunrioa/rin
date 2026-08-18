@@ -37,6 +37,13 @@ Generation 不是渲染帧或 Tick。`Timepoint` 才表示 Host 的 event、step
 时钟。Action、Binding、Lease 和 Outcome 使用 Epoch 隔离旧时间线；时钟用于
 Deadline、Execution Budget 和确认过期。
 
+## 世界发布
+
+`WorldPublication` 原子替换 Host 的一个世界读模型。`actors` 只包含当前在线且可被
+控制的 Actor。`visible_principal_ids` 可选声明在 Actor 暂时为空时仍能发现该世界的
+Principal；调用方仍须持有 `actor.read`。该列表不创建 Authority、Controller Lease
+或执行权限，Actor 重新上线后仍按实时发布状态重新绑定动作。
+
 ## Observation
 
 `ObservationEnvelope` 是 Host 编写的有界快照，包含：

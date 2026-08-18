@@ -222,6 +222,34 @@ func TestGatewayDoesNotRevealAnotherPrincipalsWorlds(t *testing.T) {
 	}
 }
 
+func TestGatewayListsDeclaredEmptyWorld(t *testing.T) {
+	environment := newMCPEnvironment(t, host.RiskLow)
+	if err := environment.service.PublishWorld(
+		"test.host",
+		environment.lease.LeaseID,
+		controlplane.WorldPublication{
+			WorldID: "world.one", DisplayName: "Test World", Sequence: 2,
+			VisiblePrincipalIDs: []string{"player.one"},
+		},
+	); err != nil {
+		t.Fatalf("PublishWorld: %v", err)
+	}
+	session := connectClient(t, environment.service, readPrincipal())
+	var worlds ListWorldsOutput
+	callTool(t, session, "list_worlds", map[string]any{}, &worlds)
+	if len(worlds.Worlds) != 1 || worlds.Worlds[0].WorldID != "world.one" ||
+		!worlds.Worlds[0].Online {
+		t.Fatalf("list_worlds = %#v", worlds)
+	}
+	var actors ListActorsOutput
+	callTool(t, session, "list_actors", map[string]any{
+		"host_id": "test.host", "world_id": "world.one",
+	}, &actors)
+	if len(actors.Actors) != 0 {
+		t.Fatalf("list_actors = %#v", actors)
+	}
+}
+
 func TestGatewayV2ActionUsesControllerHostBindingPolicyAndOutcome(t *testing.T) {
 	environment := newMCPEnvironment(t, host.RiskLow)
 	principal := actionPrincipal()

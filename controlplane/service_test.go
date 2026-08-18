@@ -70,6 +70,53 @@ func TestServicePublishesPrincipalFilteredDefensiveViews(t *testing.T) {
 	}
 }
 
+func TestServiceKeepsEmptyWorldVisibleToDeclaredPrincipals(t *testing.T) {
+	service := New(Options{
+		Now:    func() time.Time { return time.UnixMilli(1_000_000) },
+		Random: bytes.NewReader(bytes.Repeat([]byte{21}, 64)),
+	})
+	lease := mustRegister(t, service, registration("instance.empty-world"))
+	publication := worldPublication(1, "ready")
+	publication.VisiblePrincipalIDs = []string{"player.one", "agent.one"}
+	if err := service.PublishWorld("test.host", lease.LeaseID, publication); err != nil {
+		t.Fatalf("initial PublishWorld: %v", err)
+	}
+	publication.Sequence = 2
+	publication.Actors = nil
+	if err := service.PublishWorld("test.host", lease.LeaseID, publication); err != nil {
+		t.Fatalf("empty PublishWorld: %v", err)
+	}
+
+	for _, principalID := range []string{"player.one", "agent.one"} {
+		principal := host.Principal{
+			ID: principalID, GrantedScopes: []string{ScopeActorRead},
+		}
+		worlds, err := service.ListWorlds(principal)
+		if err != nil || len(worlds) != 1 || !worlds[0].Online {
+			t.Fatalf("ListWorlds(%s) = %#v, %v", principalID, worlds, err)
+		}
+		actors, err := service.ListActors(principal, "test.host", "world.one")
+		if err != nil || len(actors) != 0 {
+			t.Fatalf("ListActors(%s) = %#v, %v", principalID, actors, err)
+		}
+	}
+	for _, principal := range []host.Principal{
+		{ID: "other.one", GrantedScopes: []string{ScopeActorRead}},
+		{ID: "player.one"},
+	} {
+		worlds, err := service.ListWorlds(principal)
+		if err != nil || len(worlds) != 0 {
+			t.Fatalf("hidden ListWorlds(%s) = %#v, %v", principal.ID, worlds, err)
+		}
+	}
+	adminWorlds, err := service.ListWorlds(host.Principal{
+		ID: "admin.one", GrantedScopes: []string{ScopeHostAdmin},
+	})
+	if err != nil || len(adminWorlds) != 1 {
+		t.Fatalf("admin ListWorlds = %#v, %v", adminWorlds, err)
+	}
+}
+
 func TestServiceLeaseConflictExpiryAndTakeover(t *testing.T) {
 	now := time.UnixMilli(1_000_000)
 	service := New(Options{
@@ -289,6 +336,14 @@ func TestServiceRejectsAmbiguousOrUnboundPublication(t *testing.T) {
 		"test.host", lease.LeaseID, duplicateActor,
 	); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("duplicate actor error = %v", err)
+	}
+
+	duplicatePrincipal := worldPublication(1, "ready")
+	duplicatePrincipal.VisiblePrincipalIDs = []string{"player.one", "player.one"}
+	if err := service.PublishWorld(
+		"test.host", lease.LeaseID, duplicatePrincipal,
+	); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("duplicate visible principal error = %v", err)
 	}
 }
 
