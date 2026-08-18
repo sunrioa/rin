@@ -105,6 +105,15 @@ rejected. For an unauthenticated local OpenAI-compatible service, set
 `authentication` to `none` and leave `RIN_AGENT_API_KEY` unset. Startup validates
 configuration without sending a model probe request.
 
+For providers such as DeepSeek that support JSON objects but not JSON Schema as
+a response format, set `response_format` to `json_object`. Rin includes the
+schema in the stable system message and still validates the returned object
+locally. `thinking_mode` is optional; set it to `enabled` or `disabled` only
+when the selected OpenAI-compatible provider implements that request field.
+For DeepSeek V4 Flash, use `base_url: https://api.deepseek.com`,
+`model: deepseek-v4-flash`, `response_format: json_object`, and
+`thinking_mode: disabled` for low-latency action decisions.
+
 ## Persona, memory, and skills
 
 `PersonaProfile` describes identity and presentation only: identity, traits,

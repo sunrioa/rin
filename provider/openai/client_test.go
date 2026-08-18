@@ -69,6 +69,48 @@ func TestCompleteSendsSchemaAndDecodesFixture(t *testing.T) {
 	}
 }
 
+func TestCompleteJSONObjectInjectsSchemaAndOptionalThinkingMode(t *testing.T) {
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		var body struct {
+			Messages       []provider.Message `json:"messages"`
+			ResponseFormat map[string]any     `json:"response_format"`
+			Thinking       map[string]any     `json:"thinking"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body.ResponseFormat["type"] != "json_object" || body.Thinking["type"] != "disabled" {
+			t.Fatalf("unexpected provider options: %+v", body)
+		}
+		if len(body.Messages) != 2 || !strings.Contains(body.Messages[0].Content, `"required":["kind"]`) {
+			t.Fatalf("schema was not injected into the stable system message: %+v", body.Messages)
+		}
+		return response(http.StatusOK, []byte(`{
+          "model":"fixture-model",
+          "choices":[{"message":{"content":"{\"kind\":\"wait\"}"},"finish_reason":"stop"}],
+          "usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}
+        }`), nil), nil
+	})
+	client, err := New(Config{
+		BaseURL: "https://models.example/v1", Model: "fixture-model",
+		ResponseFormat: "json_object", ThinkingMode: "disabled",
+		HTTPClient: &http.Client{Transport: transport},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Complete(context.Background(), provider.CompletionRequest{
+		Messages: []provider.Message{{Role: "system", Content: "Return JSON."}, {Role: "user", Content: "wait"}},
+		Schema: &provider.ResponseSchema{
+			Name: "decision", Strict: true,
+			Schema: json.RawMessage(`{"type":"object","required":["kind"]}`),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCompleteMapsCompatibleCacheUsageAliases(t *testing.T) {
 	payload := []byte(`{
       "model":"fixture-model",
@@ -362,6 +404,7 @@ func TestConfigValidationAndRetryAfterDate(t *testing.T) {
 		{BaseURL: "https://user@example.com/v1", Model: "x"},
 		{BaseURL: "https://example.com/v1"},
 		{BaseURL: "https://example.com/v1", Model: "x", ResponseFormat: "yaml"},
+		{BaseURL: "https://example.com/v1", Model: "x", ThinkingMode: "sometimes"},
 		{BaseURL: "https://example.com/v1?target=other", Model: "x"},
 	}
 	client, err := New(Config{BaseURL: "https://example.com/v1", Model: "x"})

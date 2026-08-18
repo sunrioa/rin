@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/sunrioa/rin/agentapi"
 	"github.com/sunrioa/rin/cognition"
+	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/internal/privatefile"
 )
@@ -30,6 +32,21 @@ func TestLoadConfigAppliesTaskOnlyDefaults(t *testing.T) {
 	if config.Model.Provider != ProviderOpenAICompatible ||
 		config.Model.ResponseFormat != "json_schema" {
 		t.Fatalf("model defaults = %#v", config.Model)
+	}
+}
+
+func TestRuntimePrincipalCarriesHostAndActionScopes(t *testing.T) {
+	principal := buildRuntimePrincipal("rin.internal")
+	for _, required := range []string{
+		controlplane.ScopeHostAdmin,
+		controlplane.ScopeActorRead,
+		controlplane.ScopeActorControl,
+		controlplane.ScopeActorExecute,
+		controlplane.ScopeOperationCancel,
+	} {
+		if !slices.Contains(principal.GrantedScopes, required) {
+			t.Fatalf("runtime principal is missing %q: %#v", required, principal)
+		}
 	}
 }
 

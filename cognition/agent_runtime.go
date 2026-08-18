@@ -369,8 +369,36 @@ func (runtime *AgentRuntime) advanceTask(
 			paused, pauseErr := runtime.pauseTask(ctx, task, "model.invalid", err)
 			return paused, false, pauseErr
 		}
+	} else if actionArgumentsNeedSchemaRetry(decision, specs) {
+		inspectedCapabilities, inspectErr := selectInspectedCapabilities(
+			specs, []host.CapabilityRef{decision.Capability},
+		)
+		if inspectErr != nil {
+			paused, pauseErr := runtime.pauseTask(ctx, task, "capabilities.stale", inspectErr)
+			return paused, false, pauseErr
+		}
+		appendTaskEvent(&task, TaskEvent{
+			Kind: "model.retry", Step: task.Step, Code: "arguments.schema",
+			Summary:      "The selected capability arguments did not match its schema; retrying with the full capability contract.",
+			AtUnixMillis: runtime.now().UnixMilli(),
+		})
+		task, err = runtime.saveTask(ctx, task)
+		if err != nil {
+			return task, false, err
+		}
+		input.InspectionRound = 1
+		input.InspectedCapabilities = inspectedCapabilities
+		decision, task, err = runtime.callModel(ctx, task, input, nil)
+		if err != nil {
+			return task, false, err
+		}
+		if decision.Kind == ModelDecisionInspect {
+			err := errors.New("model requested more than one inspection round")
+			paused, pauseErr := runtime.pauseTask(ctx, task, "model.invalid", err)
+			return paused, false, pauseErr
+		}
 	}
-	return runtime.applyModelDecision(ctx, task, observation, summaries, decision)
+	return runtime.applyModelDecision(ctx, task, observation, specs, summaries, decision)
 }
 
 func (runtime *AgentRuntime) finishCancelledTask(

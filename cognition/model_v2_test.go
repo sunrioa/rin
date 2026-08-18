@@ -312,6 +312,20 @@ func TestStructuredDecisionProviderRejectsMalformedStructuredOutput(t *testing.T
 	}
 }
 
+func TestStructuredDecisionProviderAcceptsEmptyJSONObjectForNonAction(t *testing.T) {
+	response := `{"kind":"complete","capability_id":"","capability_version":"","arguments_json":"{}","target_handles":[],"inspect_capabilities":[],"inspect_skills":[],"summary":"Done.","memory_candidates":[],"plan":null}`
+	generation := &recordingGenerationProvider{responses: []provider.CompletionResponse{{Content: response}}}
+	decision, err := (cognition.StructuredDecisionProvider{
+		GenerationProvider: generation,
+	}).Decide(context.Background(), modelV2Input(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Kind != cognition.ModelDecisionComplete || len(decision.Arguments) != 0 {
+		t.Fatalf("decision = %#v", decision)
+	}
+}
+
 func TestStructuredDecisionProviderRejectsNegativeCacheUsage(t *testing.T) {
 	negative := -1
 	generation := &recordingGenerationProvider{responses: []provider.CompletionResponse{{

@@ -127,6 +127,39 @@ func TestAgentRuntimeCompletesMultiStepTaskThroughControlPlane(t *testing.T) {
 	}
 }
 
+func TestAgentRuntimeRetriesGuessedArgumentsWithCapabilitySchema(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	invalid := agentActionDecision()
+	invalid.Arguments = json.RawMessage(`{"line":"guessed field"}`)
+	fixture.model.decisions = []cognition.ModelDecision{
+		invalid,
+		agentActionDecision(),
+		{Kind: cognition.ModelDecisionComplete, Summary: "The player has been reached."},
+	}
+	fixture.control.operationAfterSubmit = succeededAgentOperation(fixture.environment.observation)
+	runtime := fixture.runtime(t, 16)
+	task := fixture.start(t, runtime, "task.arguments-retry")
+
+	completed, err := runtime.RunTask(context.Background(), task.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.Status != cognition.TaskCompleted || completed.ActionCount != 1 ||
+		completed.ModelCalls != 3 || len(fixture.control.submissions) != 1 {
+		t.Fatalf("completed task = %#v, submissions = %d", completed, len(fixture.control.submissions))
+	}
+	if len(fixture.model.inputs) != 3 || fixture.model.inputs[1].InspectionRound != 1 ||
+		len(fixture.model.inputs[1].InspectedCapabilities) != 1 ||
+		fixture.model.inputs[1].InspectedCapabilities[0].Capability.ID != "rin.navigation.move-to" {
+		t.Fatalf("model retry inputs = %#v", fixture.model.inputs)
+	}
+	if !slices.ContainsFunc(completed.History, func(event cognition.TaskEvent) bool {
+		return event.Kind == "model.retry" && event.Code == "arguments.schema"
+	}) {
+		t.Fatalf("retry event missing: %#v", completed.History)
+	}
+}
+
 func TestAgentRuntimeFeedsStructuredOutcomeIntoNextDecision(t *testing.T) {
 	fixture := newAgentRuntimeFixture(t)
 	fixture.model.decisions = []cognition.ModelDecision{

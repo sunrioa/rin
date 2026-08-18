@@ -11,6 +11,7 @@ import (
 
 	"github.com/sunrioa/rin/agentapi"
 	"github.com/sunrioa/rin/cognition"
+	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/internal/privatefile"
 	"github.com/sunrioa/rin/provider"
@@ -45,6 +46,7 @@ type ModelConfig struct {
 	BaseURL              string           `json:"base_url"`
 	Model                string           `json:"model"`
 	ResponseFormat       string           `json:"response_format,omitempty"`
+	ThinkingMode         string           `json:"thinking_mode,omitempty"`
 	Authentication       string           `json:"authentication,omitempty"`
 	MaxContextCharacters uint32           `json:"max_context_characters,omitempty"`
 	MaxOutputTokens      int              `json:"max_output_tokens,omitempty"`
@@ -156,9 +158,7 @@ func normalizeConfig(config Config) (Config, error) {
 	if config.RuntimePrincipal == "" {
 		config.RuntimePrincipal = "rin.internal"
 	}
-	if err := host.ValidatePrincipal(host.Principal{
-		ID: config.RuntimePrincipal, GrantedScopes: []string{"host.admin"},
-	}); err != nil {
+	if err := host.ValidatePrincipal(buildRuntimePrincipal(config.RuntimePrincipal)); err != nil {
 		return Config{}, fmt.Errorf("runtime_principal_id: %w", err)
 	}
 
@@ -192,6 +192,16 @@ func normalizeConfig(config Config) (Config, error) {
 		return Config{}, err
 	}
 	return config, nil
+}
+
+func buildRuntimePrincipal(id string) host.Principal {
+	return host.Principal{ID: id, GrantedScopes: []string{
+		controlplane.ScopeHostAdmin,
+		controlplane.ScopeActorRead,
+		controlplane.ScopeActorControl,
+		controlplane.ScopeActorExecute,
+		controlplane.ScopeOperationCancel,
+	}}
 }
 
 func normalizeSemanticEmbeddingConfig(config *SemanticEmbeddingConfig) error {
@@ -304,6 +314,7 @@ func normalizeModelConfig(config *ModelConfig) error {
 	}
 	config.BaseURL = strings.TrimSpace(config.BaseURL)
 	config.Model = strings.TrimSpace(config.Model)
+	config.ThinkingMode = strings.TrimSpace(config.ThinkingMode)
 	if config.ResponseFormat == "" {
 		config.ResponseFormat = "json_schema"
 	}
@@ -318,6 +329,7 @@ func normalizeModelConfig(config *ModelConfig) error {
 	}
 	client, err := openai.New(openai.Config{
 		BaseURL: config.BaseURL, Model: config.Model, ResponseFormat: config.ResponseFormat,
+		ThinkingMode: config.ThinkingMode,
 	})
 	if err != nil {
 		return fmt.Errorf("model: %w", err)

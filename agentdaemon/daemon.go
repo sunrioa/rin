@@ -12,7 +12,6 @@ import (
 	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/experience"
-	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/provider"
 	"github.com/sunrioa/rin/provider/openai"
 	"github.com/sunrioa/rin/signalbox"
@@ -192,9 +191,7 @@ func Open(options Options) (*Daemon, error) {
 		}
 		return errors.Join(base, decisions.Close(), tasks.Close(), memoryErr)
 	}
-	runtimePrincipal := host.Principal{
-		ID: config.RuntimePrincipal, GrantedScopes: []string{controlplane.ScopeHostAdmin},
-	}
+	runtimePrincipal := buildRuntimePrincipal(config.RuntimePrincipal)
 	var plans taskstate.PlanClient
 	if options.PlanStore != nil {
 		planControl, planErr := controlplane.NewClientService(options.Control, runtimePrincipal)
@@ -281,7 +278,7 @@ func buildGenerationProvider(
 		}
 		client, err := openai.New(openai.Config{
 			BaseURL: config.BaseURL, APIKey: apiKey, Model: config.Model,
-			ResponseFormat: config.ResponseFormat,
+			ResponseFormat: config.ResponseFormat, ThinkingMode: config.ThinkingMode,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("create generation provider: %w", err)

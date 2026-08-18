@@ -152,10 +152,10 @@ func capabilitySpecs() ([]host.CapabilitySpec, error) {
 		}
 	}
 	specs := []host.CapabilitySpec{
-		base(CapabilitySpeak, "Speak one character-authored line in the current scene.", speakInput, speakOutput, speakEffects),
-		base(CapabilityWait, "Start a cancellable quiet moment.", waitInput, waitOutput, waitEffects),
-		base(CapabilityChangeTopic, "Change the current conversation topic.", topicInput, topicOutput, topicEffects),
-		base(CapabilityAcceptTask, "Accept one available story task.", taskInput, taskOutput, taskEffects),
+		base(CapabilitySpeak, "Speak one character-authored line in the current scene. Return no target handles; the Host binds the current character.", speakInput, speakOutput, speakEffects),
+		base(CapabilityWait, "Start a cancellable quiet moment. Return no target handles; the Host binds the current scene.", waitInput, waitOutput, waitEffects),
+		base(CapabilityChangeTopic, "Change the current conversation topic. Return no target handles; the Host binds the current scene.", topicInput, topicOutput, topicEffects),
+		base(CapabilityAcceptTask, "Accept one available story task. Return no target handles; the Host binds the current character.", taskInput, taskOutput, taskEffects),
 	}
 	specs[1].Execution = host.ExecutionLongRunning
 	specs[1].Cancellation = host.CancellationCooperative

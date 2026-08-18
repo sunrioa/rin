@@ -97,6 +97,14 @@ API Key 不是配置字段；在 JSON 中加入 `api_key` 会被拒绝。连接�
 OpenAI-compatible 服务时，把 `authentication` 设为 `none` 并确保
 `RIN_AGENT_API_KEY` 未设置。启动只校验配置，不向模型服务发送探测请求。
 
+对于 DeepSeek 这类支持 JSON Object、但不支持 JSON Schema 响应格式的服务，将
+`response_format` 设为 `json_object`。Rin 会把 Schema 放入稳定系统消息，并继续在
+本地严格校验返回对象。`thinking_mode` 是可选字段；只有所选 OpenAI-compatible
+服务实现了该请求字段时，才配置为 `enabled` 或 `disabled`。
+DeepSeek V4 Flash 的低延迟动作决策配置为：`base_url: https://api.deepseek.com`、
+`model: deepseek-v4-flash`、`response_format: json_object`、
+`thinking_mode: disabled`。
+
 ## Persona、Memory 与 Skill
 
 `PersonaProfile` 只描述身份与表现：Identity、Traits、Values、Voice、Boundary、

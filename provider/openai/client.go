@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +27,7 @@ type Config struct {
 	APIKey           string
 	Model            string
 	ResponseFormat   string
+	ThinkingMode     string
 	HTTPClient       *http.Client
 	MaxResponseBytes int64
 }
@@ -35,6 +37,7 @@ type Client struct {
 	apiKey           string
 	model            string
 	responseFormat   string
+	thinkingMode     string
 	httpClient       *http.Client
 	maxResponseBytes int64
 }
@@ -53,6 +56,10 @@ func New(config Config) (*Client, error) {
 	}
 	if format != "json_schema" && format != "json_object" && format != "none" {
 		return nil, errors.New("response format must be json_schema, json_object, or none")
+	}
+	thinkingMode := strings.TrimSpace(config.ThinkingMode)
+	if thinkingMode != "" && thinkingMode != "enabled" && thinkingMode != "disabled" {
+		return nil, errors.New("thinking mode must be enabled, disabled, or empty")
 	}
 	client := config.HTTPClient
 	if client == nil {
@@ -73,6 +80,7 @@ func New(config Config) (*Client, error) {
 		apiKey:           config.APIKey,
 		model:            config.Model,
 		responseFormat:   format,
+		thinkingMode:     thinkingMode,
 		httpClient:       client,
 		maxResponseBytes: maximum,
 	}, nil
@@ -84,6 +92,11 @@ type requestBody struct {
 	Temperature    float64            `json:"temperature"`
 	MaxTokens      int                `json:"max_tokens,omitempty"`
 	ResponseFormat any                `json:"response_format,omitempty"`
+	Thinking       *thinkingConfig    `json:"thinking,omitempty"`
+}
+
+type thinkingConfig struct {
+	Type string `json:"type"`
 }
 
 type responseBody struct {
@@ -140,9 +153,12 @@ func (c *Client) Complete(ctx context.Context, request provider.CompletionReques
 	}
 	body := requestBody{
 		Model:       c.model,
-		Messages:    request.Messages,
+		Messages:    slices.Clone(request.Messages),
 		Temperature: request.Temperature,
 		MaxTokens:   request.MaxTokens,
+	}
+	if c.thinkingMode != "" {
+		body.Thinking = &thinkingConfig{Type: c.thinkingMode}
 	}
 	if request.Schema != nil {
 		switch c.responseFormat {
@@ -161,6 +177,11 @@ func (c *Client) Complete(ctx context.Context, request provider.CompletionReques
 			}
 		case "json_object":
 			body.ResponseFormat = map[string]string{"type": "json_object"}
+			messages, schemaErr := messagesWithJSONSchema(body.Messages, request.Schema)
+			if schemaErr != nil {
+				return provider.CompletionResponse{}, &provider.Error{Kind: "invalid_schema", Cause: schemaErr}
+			}
+			body.Messages = messages
 		}
 	}
 	payload, err := json.Marshal(body)
@@ -226,6 +247,21 @@ func (c *Client) Complete(ctx context.Context, request provider.CompletionReques
 		FinishReason: decoded.Choices[0].FinishReason,
 		Usage:        decoded.Usage.providerUsage(),
 	}, nil
+}
+
+func messagesWithJSONSchema(messages []provider.Message, schema *provider.ResponseSchema) ([]provider.Message, error) {
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, schema.Schema); err != nil {
+		return nil, err
+	}
+	instruction := "\n\nReturn exactly one JSON object matching this JSON Schema:\n" + compact.String()
+	for index := range messages {
+		if messages[index].Role == "system" {
+			messages[index].Content += instruction
+			return messages, nil
+		}
+	}
+	return append([]provider.Message{{Role: "system", Content: strings.TrimSpace(instruction)}}, messages...), nil
 }
 
 func responseError(response *http.Response, payload []byte) error {

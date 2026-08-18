@@ -90,6 +90,7 @@ func (runtime *AgentRuntime) applyModelDecision(
 	ctx context.Context,
 	task TaskSession,
 	observation host.ObservationEnvelope,
+	specs []host.CapabilitySpec,
 	capabilities []CapabilitySummary,
 	decision ModelDecision,
 ) (TaskSession, bool, error) {
@@ -153,6 +154,10 @@ func (runtime *AgentRuntime) applyModelDecision(
 		}
 		return saved, false, err
 	case ModelDecisionAction:
+		if err := actionArgumentsSchemaError(decision, specs); err != nil {
+			paused, pauseErr := runtime.pauseTask(ctx, task, "model.invalid", err)
+			return paused, false, pauseErr
+		}
 		if task.ActionCount >= task.Budget.MaxActions {
 			failed, err := runtime.failTask(ctx, task, "budget.actions", ErrTaskBudgetExceeded)
 			return failed, false, err
@@ -209,6 +214,36 @@ func (runtime *AgentRuntime) applyModelDecision(
 		paused, pauseErr := runtime.pauseTask(ctx, task, "model.invalid", err)
 		return paused, false, pauseErr
 	}
+}
+
+func actionArgumentsSchemaError(
+	decision ModelDecision,
+	specs []host.CapabilitySpec,
+) error {
+	if decision.Kind != ModelDecisionAction {
+		return nil
+	}
+	for _, spec := range specs {
+		if spec.Capability == decision.Capability {
+			return spec.Input.ValidateInstance(decision.Arguments)
+		}
+	}
+	return errors.New("model action capability is no longer available")
+}
+
+func actionArgumentsNeedSchemaRetry(
+	decision ModelDecision,
+	specs []host.CapabilitySpec,
+) bool {
+	if decision.Kind != ModelDecisionAction {
+		return false
+	}
+	for _, spec := range specs {
+		if spec.Capability == decision.Capability {
+			return spec.Input.ValidateInstance(decision.Arguments) != nil
+		}
+	}
+	return false
 }
 
 func (runtime *AgentRuntime) loadTaskPlan(
