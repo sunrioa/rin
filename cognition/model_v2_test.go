@@ -93,6 +93,54 @@ func TestStructuredDecisionProviderReturnsGroundedAction(t *testing.T) {
 	}
 }
 
+func TestStructuredDecisionProviderRecordsPreparedWireContext(t *testing.T) {
+	response := provider.CompletionResponse{
+		Content: modelActionResponse("rin.navigation.move-to", "2.0.0", `{}`, `["target.0"]`),
+	}
+	plain := &recordingGenerationProvider{responses: []provider.CompletionResponse{response}}
+	plainDecision, err := (cognition.StructuredDecisionProvider{
+		GenerationProvider: plain,
+	}).Decide(context.Background(), modelV2Input(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	preparedBase := &recordingGenerationProvider{responses: []provider.CompletionResponse{response}}
+	prepared := &preparingGenerationProvider{recordingGenerationProvider: preparedBase}
+	preparedDecision, err := (cognition.StructuredDecisionProvider{
+		GenerationProvider: prepared,
+	}).Decide(context.Background(), modelV2Input(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := preparedBase.lastRequest(t)
+	if !strings.Contains(request.Messages[0].Content, "prepared-provider-contract") {
+		t.Fatalf("provider received unprepared messages: %#v", request.Messages)
+	}
+	if preparedDecision.ProviderRequestDigest == plainDecision.ProviderRequestDigest ||
+		preparedDecision.StablePrefixDigest == plainDecision.StablePrefixDigest {
+		t.Fatal("recorded digests ignored provider request preparation")
+	}
+}
+
+func TestStructuredDecisionProviderRejectsInvalidPreparedRequest(t *testing.T) {
+	base := &recordingGenerationProvider{responses: []provider.CompletionResponse{{
+		Content: modelActionResponse("rin.navigation.move-to", "2.0.0", `{}`, `["target.0"]`),
+	}}}
+	generation := &preparingGenerationProvider{
+		recordingGenerationProvider: base,
+		dropMessages:                true,
+	}
+	_, err := (cognition.StructuredDecisionProvider{
+		GenerationProvider: generation,
+	}).Decide(context.Background(), modelV2Input(t))
+	if err == nil || !strings.Contains(err.Error(), "invalid prepared request") {
+		t.Fatalf("invalid prepared request error = %v", err)
+	}
+	if base.calls != 0 {
+		t.Fatal("invalid prepared request reached the provider")
+	}
+}
+
 func TestStructuredDecisionProviderKeepsStaticPrefixStable(t *testing.T) {
 	response := provider.CompletionResponse{
 		Content: modelActionResponse("rin.navigation.move-to", "2.0.0", `{}`, `["target.0"]`),
@@ -371,6 +419,23 @@ type recordingGenerationProvider struct {
 	err       error
 	requests  []provider.CompletionRequest
 	calls     int
+}
+
+type preparingGenerationProvider struct {
+	*recordingGenerationProvider
+	dropMessages bool
+}
+
+func (generation *preparingGenerationProvider) PrepareCompletionRequest(
+	request provider.CompletionRequest,
+) (provider.CompletionRequest, error) {
+	if generation.dropMessages {
+		request.Messages = nil
+		return request, nil
+	}
+	request.Messages = append([]provider.Message(nil), request.Messages...)
+	request.Messages[0].Content += "\nprepared-provider-contract"
+	return request, nil
 }
 
 func (generation *recordingGenerationProvider) Complete(

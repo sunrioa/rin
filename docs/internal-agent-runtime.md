@@ -112,7 +112,9 @@ locally. `thinking_mode` is optional; set it to `enabled` or `disabled` only
 when the selected OpenAI-compatible provider implements that request field.
 For DeepSeek V4 Flash, use `base_url: https://api.deepseek.com`,
 `model: deepseek-v4-flash`, `response_format: json_object`, and
-`thinking_mode: disabled` for low-latency action decisions.
+`thinking_mode: disabled` for low-latency action decisions. This is only an
+adapter configuration example; Persona, Memory, Skill, the Agent Loop, Control
+Plane, and Host contracts do not depend on that provider or model name.
 
 ## Persona, memory, and skills
 
@@ -213,6 +215,12 @@ tokens, including common compatible aliases, into `provider.Usage`; the task
 timeline records only those measured values. Missing fields remain unknown, not
 zero. Rin does not cache ActionRequest, Observation, Policy decisions, or world
 outcomes and sends no provider-specific cache parameter by default.
+
+When a provider must translate the generic response schema into prompt text,
+it returns the final messages through the optional request-preparation
+interface. Rin then checks context size and computes request and stable-prefix
+digests. Providers that need no transformation implement nothing, while the
+resilience wrapper only delegates the preparation contract.
 
 One model response is exactly `action`, `wait`, `complete`, or `inspect`:
 

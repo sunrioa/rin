@@ -151,37 +151,36 @@ func (c *Client) Complete(ctx context.Context, request provider.CompletionReques
 	if ctx == nil {
 		return provider.CompletionResponse{}, errors.New("provider context is required")
 	}
+	prepared, err := c.PrepareCompletionRequest(request)
+	if err != nil {
+		return provider.CompletionResponse{}, err
+	}
 	body := requestBody{
 		Model:       c.model,
-		Messages:    slices.Clone(request.Messages),
-		Temperature: request.Temperature,
-		MaxTokens:   request.MaxTokens,
+		Messages:    slices.Clone(prepared.Messages),
+		Temperature: prepared.Temperature,
+		MaxTokens:   prepared.MaxTokens,
 	}
 	if c.thinkingMode != "" {
 		body.Thinking = &thinkingConfig{Type: c.thinkingMode}
 	}
-	if request.Schema != nil {
+	if prepared.Schema != nil {
 		switch c.responseFormat {
 		case "json_schema":
 			var schema any
-			if err := json.Unmarshal(request.Schema.Schema, &schema); err != nil {
+			if err := json.Unmarshal(prepared.Schema.Schema, &schema); err != nil {
 				return provider.CompletionResponse{}, &provider.Error{Kind: "invalid_schema", Cause: err}
 			}
 			body.ResponseFormat = map[string]any{
 				"type": "json_schema",
 				"json_schema": map[string]any{
-					"name":   request.Schema.Name,
-					"strict": request.Schema.Strict,
+					"name":   prepared.Schema.Name,
+					"strict": prepared.Schema.Strict,
 					"schema": schema,
 				},
 			}
 		case "json_object":
 			body.ResponseFormat = map[string]string{"type": "json_object"}
-			messages, schemaErr := messagesWithJSONSchema(body.Messages, request.Schema)
-			if schemaErr != nil {
-				return provider.CompletionResponse{}, &provider.Error{Kind: "invalid_schema", Cause: schemaErr}
-			}
-			body.Messages = messages
 		}
 	}
 	payload, err := json.Marshal(body)
@@ -249,6 +248,21 @@ func (c *Client) Complete(ctx context.Context, request provider.CompletionReques
 	}, nil
 }
 
+func (c *Client) PrepareCompletionRequest(
+	request provider.CompletionRequest,
+) (provider.CompletionRequest, error) {
+	request.Messages = slices.Clone(request.Messages)
+	if request.Schema == nil || c.responseFormat != "json_object" {
+		return request, nil
+	}
+	messages, err := messagesWithJSONSchema(request.Messages, request.Schema)
+	if err != nil {
+		return provider.CompletionRequest{}, &provider.Error{Kind: "invalid_schema", Cause: err}
+	}
+	request.Messages = messages
+	return request, nil
+}
+
 func messagesWithJSONSchema(messages []provider.Message, schema *provider.ResponseSchema) ([]provider.Message, error) {
 	var compact bytes.Buffer
 	if err := json.Compact(&compact, schema.Schema); err != nil {
@@ -257,6 +271,9 @@ func messagesWithJSONSchema(messages []provider.Message, schema *provider.Respon
 	instruction := "\n\nReturn exactly one JSON object matching this JSON Schema:\n" + compact.String()
 	for index := range messages {
 		if messages[index].Role == "system" {
+			if strings.HasSuffix(messages[index].Content, instruction) {
+				return messages, nil
+			}
 			messages[index].Content += instruction
 			return messages, nil
 		}

@@ -51,6 +51,24 @@ type StructuredGenerationProvider interface {
 	Complete(ctx context.Context, request CompletionRequest) (CompletionResponse, error)
 }
 
+// CompletionRequestPreparer lets an adapter expose deterministic request
+// transformations, such as prompted JSON Schema output, before Rin records
+// context size and request digests. The transformation must be deterministic
+// and idempotent. Providers that do not need it do not have to implement it.
+type CompletionRequestPreparer interface {
+	PrepareCompletionRequest(CompletionRequest) (CompletionRequest, error)
+}
+
+func PrepareCompletionRequest(
+	generation StructuredGenerationProvider,
+	request CompletionRequest,
+) (CompletionRequest, error) {
+	if preparer, ok := generation.(CompletionRequestPreparer); ok {
+		return preparer.PrepareCompletionRequest(request)
+	}
+	return request, nil
+}
+
 type EmbeddingRequest struct {
 	Inputs []string
 }

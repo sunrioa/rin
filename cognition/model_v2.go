@@ -278,11 +278,6 @@ func (decisionProvider StructuredDecisionProvider) Decide(
 	if err != nil {
 		return ModelDecision{}, fmt.Errorf("encode model context: %w", err)
 	}
-	contextLimit := decisionProvider.contextLimit()
-	if utf8.RuneCountInString(modelV2SystemPrompt)+utf8.RuneCount(stablePayload)+
-		utf8.RuneCount(dynamicPayload) > int(contextLimit) {
-		return ModelDecision{}, ErrProviderCapacity
-	}
 	maxTokens := decisionProvider.outputTokenLimit()
 	completionRequest := provider.CompletionRequest{
 		Messages: []provider.Message{
@@ -295,6 +290,22 @@ func (decisionProvider StructuredDecisionProvider) Decide(
 		},
 		Temperature: decisionProvider.Temperature,
 		MaxTokens:   maxTokens,
+	}
+	completionRequest, err = provider.PrepareCompletionRequest(
+		decisionProvider.GenerationProvider, completionRequest,
+	)
+	if err != nil {
+		return ModelDecision{}, err
+	}
+	if len(completionRequest.Messages) < 2 {
+		return ModelDecision{}, errors.New("generation provider returned an invalid prepared request")
+	}
+	contextCharacters := 0
+	for _, message := range completionRequest.Messages {
+		contextCharacters += utf8.RuneCountInString(message.Content)
+	}
+	if contextCharacters > int(decisionProvider.contextLimit()) {
+		return ModelDecision{}, ErrProviderCapacity
 	}
 	requestDigest := digestJSON(completionRequest)
 	stablePrefixDigest := digestJSON(completionRequest.Messages[:2])

@@ -183,6 +183,12 @@ func (r *Resilient) Complete(ctx context.Context, request CompletionRequest) (Co
 	return CompletionResponse{}, lastError
 }
 
+func (r *Resilient) PrepareCompletionRequest(
+	request CompletionRequest,
+) (CompletionRequest, error) {
+	return PrepareCompletionRequest(r.client, request)
+}
+
 func retryable(err error) bool {
 	if IsRetryable(err) {
 		return true

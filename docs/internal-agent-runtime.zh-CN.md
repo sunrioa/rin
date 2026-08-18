@@ -103,7 +103,8 @@ OpenAI-compatible 服务时，把 `authentication` 设为 `none` 并确保
 服务实现了该请求字段时，才配置为 `enabled` 或 `disabled`。
 DeepSeek V4 Flash 的低延迟动作决策配置为：`base_url: https://api.deepseek.com`、
 `model: deepseek-v4-flash`、`response_format: json_object`、
-`thinking_mode: disabled`。
+`thinking_mode: disabled`。这只是 Adapter 配置示例；Persona、Memory、Skill、Agent Loop、
+Control Plane 与 Host 契约均不依赖该供应商或模型名。
 
 ## Persona、Memory 与 Skill
 
@@ -182,6 +183,10 @@ OpenAI-compatible Adapter 会把供应商实际返回的缓存命中、未命中
 别名）映射到 `provider.Usage`；任务时间线只记录这些实测值。供应商未返回的字段保持“未知”，
 不会伪装为零。Rin 不缓存 ActionRequest、Observation、PolicyDecision 或游戏 Outcome，也不
 默认发送供应商专属缓存参数。
+
+若 Provider 需要把通用响应 Schema 转成提示词，它通过可选的请求预处理接口返回最终消息；
+Rin 随后才检查上下文并计算请求摘要和稳定前缀。无需转换的 Provider 不实现该接口即可，
+Resilient 只透明转发，不在核心引入供应商分支。
 
 一次模型输出只能是 `action`、`wait`、`complete` 或 `inspect`：
 

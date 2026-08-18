@@ -14,6 +14,18 @@ type fakeClient struct {
 	fn    func(context.Context, CompletionRequest, int) (CompletionResponse, error)
 }
 
+type preparingFakeClient struct {
+	*fakeClient
+}
+
+func (c *preparingFakeClient) PrepareCompletionRequest(
+	request CompletionRequest,
+) (CompletionRequest, error) {
+	request.Messages = append([]Message(nil), request.Messages...)
+	request.Messages = append(request.Messages, Message{Role: "system", Content: "prepared"})
+	return request, nil
+}
+
 func (c *fakeClient) Complete(ctx context.Context, request CompletionRequest) (CompletionResponse, error) {
 	c.mu.Lock()
 	c.calls++
@@ -67,6 +79,26 @@ func TestResilientRetriesThenSucceeds(t *testing.T) {
 	result, err := resilient.Complete(context.Background(), CompletionRequest{})
 	if err != nil || result.Content != "ok" || client.callCount() != 3 {
 		t.Fatalf("result=%+v calls=%d err=%v", result, client.callCount(), err)
+	}
+}
+
+func TestResilientExposesWrappedRequestPreparation(t *testing.T) {
+	client := &preparingFakeClient{fakeClient: &fakeClient{fn: func(
+		_ context.Context,
+		_ CompletionRequest,
+		_ int,
+	) (CompletionResponse, error) {
+		return CompletionResponse{Content: "ok"}, nil
+	}}}
+	resilient := newTestResilient(t, client, ResilienceConfig{})
+	prepared, err := PrepareCompletionRequest(resilient, CompletionRequest{
+		Messages: []Message{{Role: "user", Content: "input"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prepared.Messages) != 2 || prepared.Messages[1].Content != "prepared" {
+		t.Fatalf("prepared request = %#v", prepared)
 	}
 }
 

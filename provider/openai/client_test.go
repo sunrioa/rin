@@ -111,6 +111,67 @@ func TestCompleteJSONObjectInjectsSchemaAndOptionalThinkingMode(t *testing.T) {
 	}
 }
 
+func TestCompleteOmitsOptionalProviderExtensionsByDefault(t *testing.T) {
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		var body map[string]json.RawMessage
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if _, exists := body["thinking"]; exists {
+			t.Fatalf("default request sent a provider extension: %s", body["thinking"])
+		}
+		return response(http.StatusOK, []byte(`{
+          "model":"fixture-model",
+          "choices":[{"message":{"content":"{}"},"finish_reason":"stop"}],
+          "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
+        }`), nil), nil
+	})
+	client, err := New(Config{
+		BaseURL: "https://models.example/v1", Model: "fixture-model",
+		ResponseFormat: "none", HTTPClient: &http.Client{Transport: transport},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Complete(context.Background(), provider.CompletionRequest{
+		Messages: []provider.Message{{Role: "user", Content: "test"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPrepareCompletionRequestIsIdempotent(t *testing.T) {
+	client, err := New(Config{
+		BaseURL: "https://models.example/v1", Model: "fixture-model",
+		ResponseFormat: "json_object",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := provider.CompletionRequest{
+		Messages: []provider.Message{{Role: "system", Content: "Return JSON."}},
+		Schema: &provider.ResponseSchema{
+			Name: "decision", Strict: true,
+			Schema: json.RawMessage(`{"type":"object","required":["kind"]}`),
+		},
+	}
+	first, err := client.PrepareCompletionRequest(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.PrepareCompletionRequest(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Messages[0].Content != second.Messages[0].Content ||
+		strings.Count(second.Messages[0].Content, "Return exactly one JSON object") != 1 {
+		t.Fatalf("preparation was not idempotent: %#v", second.Messages)
+	}
+	if request.Messages[0].Content != "Return JSON." {
+		t.Fatal("preparation mutated the caller request")
+	}
+}
+
 func TestCompleteMapsCompatibleCacheUsageAliases(t *testing.T) {
 	payload := []byte(`{
       "model":"fixture-model",
