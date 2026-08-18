@@ -159,6 +159,74 @@ func TestAgentRuntimeFeedsStructuredOutcomeIntoNextDecision(t *testing.T) {
 	}
 }
 
+func TestAgentRuntimeCarriesLatestOutcomeAcrossMultipleDecisionRounds(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	fixture.model.decisions = []cognition.ModelDecision{
+		agentActionDecision(),
+		agentActionDecision(),
+		agentActionDecision(),
+		{Kind: cognition.ModelDecisionComplete, Summary: "The workstation is ready."},
+	}
+	results := []controlplane.OperationView{
+		succeededAgentOperationWithID(
+			fixture.environment.observation,
+			"operation.recipe.target",
+			"The target recipe requires a crafting table."),
+		succeededAgentOperationWithID(
+			fixture.environment.observation,
+			"operation.recipe.workstation",
+			"The crafting table recipe requires planks."),
+		succeededAgentOperationWithID(
+			fixture.environment.observation,
+			"operation.recipe.prepared",
+			"The crafting table was crafted and placed."),
+	}
+	results[0].Output = map[string]any{
+		"item_id": "minecraft:wooden_sword", "station_available": false,
+	}
+	results[1].Output = map[string]any{
+		"item_id": "minecraft:crafting_table", "missing_item": "minecraft:oak_planks",
+	}
+	results[2].Output = map[string]any{
+		"item_id": "minecraft:crafting_table", "station_available": true,
+	}
+	fixture.control.submissionResults = results
+	fixture.control.operationSequences = map[string][]controlplane.OperationView{}
+	for _, result := range results {
+		fixture.control.operationSequences[result.OperationID] = []controlplane.OperationView{result}
+	}
+
+	runtime := fixture.runtime(t, 32)
+	task := fixture.start(t, runtime, "task.recipe-multi-round")
+	completed, err := runtime.RunTask(context.Background(), task.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.Status != cognition.TaskCompleted || len(fixture.model.inputs) != 4 ||
+		len(fixture.control.submissions) != 3 {
+		t.Fatalf("multi-round recipe task = %#v", completed)
+	}
+	expected := []struct {
+		operationID string
+		output      string
+	}{
+		{"operation.recipe.target", `"station_available":false`},
+		{"operation.recipe.workstation", `"missing_item":"minecraft:oak_planks"`},
+		{"operation.recipe.prepared", `"station_available":true`},
+	}
+	for index, want := range expected {
+		result := fixture.model.inputs[index+1].LastOperationResult
+		if result == nil || result.OperationID != want.operationID ||
+			!strings.Contains(string(result.Output), want.output) {
+			t.Fatalf("decision round %d result = %#v", index+2, result)
+		}
+	}
+	if completed.LastOperationResult == nil ||
+		completed.LastOperationResult.OperationID != "operation.recipe.prepared" {
+		t.Fatalf("completed task retained the wrong result: %#v", completed.LastOperationResult)
+	}
+}
+
 func TestAgentRuntimeCreatesDraftOnlyAfterVerifiedComplexTask(t *testing.T) {
 	fixture := newAgentRuntimeFixture(t)
 	fixture.model.decisions = []cognition.ModelDecision{
