@@ -61,9 +61,22 @@ func (runtime *AgentRuntime) assembleOptionalModelContext(
 		for _, summary := range capabilities {
 			availableCapabilities = append(availableCapabilities, summary.Capability.ID)
 		}
+		skillTags := append([]string(nil), task.Tags...)
+		if task.CurrentPlanStepID != "" {
+			found := false
+			for _, tag := range skillTags {
+				if tag == task.CurrentPlanStepID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				skillTags = append(skillTags, task.CurrentPlanStepID)
+			}
+		}
 		var err error
 		assembled.skills, err = runtime.skills.ListSkills(ctx, SkillQuery{
-			Tags: task.Tags, AvailableCapabilities: availableCapabilities, Limit: 64,
+			Tags: skillTags, AvailableCapabilities: availableCapabilities, Limit: 64,
 		})
 		if err != nil {
 			if ctx.Err() != nil {
