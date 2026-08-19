@@ -16,12 +16,16 @@ tab closes.
 ## Views
 
 - **Overview**: Control health, Hosts, worlds, actors, authority source, and faults.
-- **Actors**: every actor published by every Adapter; selecting one pre-fills a long goal.
-- **Tasks**: start `auto` or `required` goals, run, resume, or cancel them, and read the timeline.
+- **Actors**: every actor published by every Adapter; acquire, renew, or release its controller lease,
+  use emergency stop, and pre-fill a long goal.
+- **Tasks**: start `auto` or `required` goals, run, resume, or cancel them, and page through the complete public timeline.
 - **Memory**: search, add, edit, pin, and forget common memory cards.
-- **Persona**: edit the default Persona inherited by actors without a specific binding.
+- **Persona**: edit the default Persona inherited by actors without a specific binding,
+  including initiative, triggers, relationships, boundaries, and exact bindings.
 - **Skills**: inspect generic and Adapter-specific entries; create, edit, import,
-  or remove learned Skills.
+  or remove one exact learned Skill version. Multiple versions of one Skill ID may coexist.
+- **Operations**: combine Host, World, Actor, Task, and status filters over authoritative
+  Operations, then confirm or cancel eligible work.
 - **Connections**: inspect the shared Control/MCP/Adapter topology and local commands.
 - **Settings**: save the internal model and optional remote embedding configuration,
   and manage the generic gameplay policy. Provider keys use a separate private file
@@ -38,6 +42,9 @@ The default Persona is the fallback for every Internal Agent attached to one Rin
 instance. Exact actor or controller bindings still override it. On first storage
 creation only, a configured actor Persona without a global binding is also made
 the shared default. Existing stores are never silently rewritten.
+The `* :: *` binding shown by Console is the shared fallback. Persona changes
+presentation, initiative, and decision preferences; it never grants capabilities,
+scopes, or gameplay authority.
 
 Common cards use the `common-semantic` domain and may be retrieved by Internal
 Agents in the same Rin instance. The following never become common memory

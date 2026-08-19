@@ -60,9 +60,25 @@ Observe, harvest, and verify the authoritative outcome.
 	if err := learned.Save(context.Background(), skill); err != nil {
 		t.Fatal(err)
 	}
+	v2 := skill
+	v2.Version = "v2"
+	v2.Digest = ""
+	v2.Instructions = "Observe, harvest, verify, and record the recovery path."
+	if err := learned.Save(context.Background(), v2); err != nil {
+		t.Fatal(err)
+	}
 	saved, err := learned.DescribeSkill(context.Background(), "collect-resources", "v1")
 	if err != nil || saved.Digest != skill.Digest || saved.Source != "learned" {
 		t.Fatalf("saved skill = %#v, %v", saved, err)
+	}
+	if savedV2, err := learned.DescribeSkill(context.Background(), "collect-resources", "v2"); err != nil || savedV2.Instructions != v2.Instructions {
+		t.Fatalf("saved v2 skill = %#v, %v", savedV2, err)
+	}
+	if err := learned.Remove(context.Background(), "collect-resources", "v1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := learned.DescribeSkill(context.Background(), "collect-resources", "v2"); err != nil {
+		t.Fatalf("removing v1 removed v2: %v", err)
 	}
 }
 
@@ -126,7 +142,7 @@ func TestDirectorySkillProviderRefusesRemovalWithUnmanagedFiles(t *testing.T) {
 	if err := provider.Save(context.Background(), skill); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "owned-skill", "notes.txt"), []byte("keep"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "owned-skill", "v1", "notes.txt"), []byte("keep"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := provider.Remove(context.Background(), "owned-skill", "v1"); err == nil {

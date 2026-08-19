@@ -2,6 +2,7 @@ package managementapi
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -41,6 +42,17 @@ func TestHTTPHandlerProtectsAndReturnsPersonaSnapshot(t *testing.T) {
 	handler.ServeHTTP(authorized, request)
 	if authorized.Code != http.StatusOK {
 		t.Fatalf("authorized status = %d body=%s", authorized.Code, authorized.Body.String())
+	}
+}
+
+func TestDecodeJSONRejectsBodiesLargerThanLimit(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/", io.LimitReader(
+		strings.NewReader(`{"value":"`+strings.Repeat("x", int(maxRequestBytes))+`"}`),
+		maxRequestBytes+128,
+	))
+	var target map[string]string
+	if err := decodeJSON(request, &target); err == nil || !strings.Contains(err.Error(), "exceeds 1 MiB") {
+		t.Fatalf("decodeJSON error = %v", err)
 	}
 }
 

@@ -81,3 +81,36 @@ test("Console starts long goals with installed Skill trigger tags", () => {
   assert.match(html, /id="taskSkillTrigger"/);
   assert.match(html, /id="taskTags"/);
 });
+
+test("Console manages complete persona data without mixing it with authority", () => {
+  assert.match(html, /id="personaInitiativeEnabled"/);
+  assert.match(html, /id="personaBoundaries"/);
+  assert.match(html, /id="personaRelationships"/);
+  assert.match(html, /id="personaBindings"/);
+  assert.match(app, /initiative_policy/);
+  assert.match(app, /relationship_stances/);
+  assert.match(app, /人格只影响表达与决策偏好|默认绑定/);
+});
+
+test("Console paginates task timelines and filters full operation context", () => {
+  assert.match(app, /after_cursor/);
+  assert.match(app, /loadMoreTaskEvents/);
+  assert.match(app, /mergeTimelineEvents/);
+  assert.match(html, /id="operationHost"/);
+  assert.match(html, /id="operationWorld"/);
+  assert.match(html, /id="operationTask"/);
+  assert.match(app, /host_id: \$\("#operationHost"\)/);
+  assert.match(app, /task_id: \$\("#operationTask"\)/);
+});
+
+test("Console discards stale page and search responses", () => {
+  assert.match(app, /function beginRequest/);
+  assert.match(app, /function isCurrentRequest/);
+  assert.match(app, /beginRequest\("memories"\)/);
+  assert.match(app, /beginRequest\("skills"\)/);
+});
+
+test("Console renews actor control leases", () => {
+  assert.match(app, /data-actor-action="renew"/);
+  assert.match(app, /lease_ttl_millis/);
+});

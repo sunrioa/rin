@@ -10,7 +10,8 @@ import (
 )
 
 type fakeTaskManager struct {
-	task cognition.TaskSession
+	task          cognition.TaskSession
+	timelineQuery timeline.Query
 }
 
 func (manager *fakeTaskManager) StartTask(
@@ -35,10 +36,12 @@ func (manager *fakeTaskManager) GetTask(context.Context, string) (cognition.Task
 	return manager.task, nil
 }
 
-func (manager *fakeTaskManager) GetTaskTimeline(context.Context, timeline.Query) (timeline.Page, error) {
+func (manager *fakeTaskManager) GetTaskTimeline(_ context.Context, query timeline.Query) (timeline.Page, error) {
+	manager.timelineQuery = query
 	return timeline.Page{
 		ContractVersion: timeline.ContractVersion, TaskID: manager.task.TaskID,
-		Events: []timeline.Event{{TaskID: manager.task.TaskID, PublicSummary: "Observed outcome."}},
+		Events:     []timeline.Event{{TaskID: manager.task.TaskID, PublicSummary: "Observed outcome."}},
+		NextCursor: query.AfterCursor, More: true,
 	}, nil
 }
 
@@ -79,9 +82,15 @@ func TestTaskManagementReturnsSafeSummaryAndPublicTimeline(t *testing.T) {
 	if err != nil || len(list.Tasks) != 1 || list.Tasks[0].Goal != manager.task.Goal {
 		t.Fatalf("task list = %#v, %v", list, err)
 	}
-	detail, err := service.GetTask(context.Background(), TaskGetInput{TaskID: manager.task.TaskID})
+	detail, err := service.GetTask(context.Background(), TaskGetInput{
+		TaskID: manager.task.TaskID, AfterCursor: "cursor-24", Limit: 80,
+	})
 	if err != nil || len(detail.Timeline.Events) != 1 || detail.Task.PauseCode != "host.offline" {
 		t.Fatalf("task detail = %#v, %v", detail, err)
+	}
+	if manager.timelineQuery.TaskID != manager.task.TaskID ||
+		manager.timelineQuery.AfterCursor != "cursor-24" || manager.timelineQuery.Limit != 80 {
+		t.Fatalf("timeline query = %#v", manager.timelineQuery)
 	}
 	cancelled, err := service.ControlTask(context.Background(), TaskControlInput{
 		TaskID: manager.task.TaskID, Action: "cancel",

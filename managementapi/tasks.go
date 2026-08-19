@@ -70,7 +70,9 @@ type TaskListOutput struct {
 }
 
 type TaskGetInput struct {
-	TaskID string `json:"task_id"`
+	TaskID      string `json:"task_id"`
+	AfterCursor string `json:"after_cursor,omitempty"`
+	Limit       uint32 `json:"limit,omitempty"`
 }
 
 type TaskDetail struct {
@@ -181,7 +183,9 @@ func (service *Service) GetTask(
 	if err != nil {
 		return TaskDetail{}, err
 	}
-	page, err := service.tasks.GetTaskTimeline(ctx, timeline.Query{TaskID: task.TaskID, Limit: 256})
+	page, err := service.tasks.GetTaskTimeline(ctx, timeline.Query{
+		TaskID: task.TaskID, AfterCursor: strings.TrimSpace(input.AfterCursor), Limit: input.Limit,
+	})
 	if err != nil {
 		return TaskDetail{}, err
 	}

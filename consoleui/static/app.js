@@ -9,11 +9,13 @@ const state = {
   memories: [],
   skills: [],
   selectedSkill: null,
+  selectedTask: null,
   operations: [],
   diagnostics: null,
   memoryScope: "common",
   selectedActorId: "",
-  refreshing: false,
+  viewEpoch: 0,
+  requestVersions: new Map(),
 };
 
 const titles = {
@@ -86,7 +88,9 @@ function bindForms() {
   onAsync($("#skillForm"), "submit", saveSkill);
   $("#cancelSkill").addEventListener("click", () => $("#skillDialog").close());
   onAsync($("#operationStatus"), "change", loadOperations);
-  $("#operationActor").addEventListener("input", debounce(loadOperations, 220));
+  ["operationHost", "operationWorld", "operationActor", "operationTask"].forEach((id) => {
+    $("#" + id).addEventListener("input", debounce(loadOperations, 220));
+  });
   onAsync($("#refreshDiagnosticsButton"), "click", loadHealth);
   $$("[data-memory-scope]").forEach((button) => button.addEventListener("click", () => {
     state.memoryScope = button.dataset.memoryScope;
@@ -97,6 +101,7 @@ function bindForms() {
 
 function selectView(view) {
   state.view = view;
+  state.viewEpoch += 1;
   clearViewError();
   $$(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.view === view));
   $$(".view").forEach((item) => item.classList.toggle("active", item.id === view));
@@ -106,40 +111,56 @@ function selectView(view) {
 }
 
 async function refreshCurrent() {
-  if (!state.token || state.refreshing) return;
+  if (!state.token) return;
   const loaders = {
     overview: loadOverview, actors: loadActors, tasks: loadTasks, operations: loadOperations,
     memory: loadMemories,
     persona: loadPersona, skills: loadSkills, connections: loadHealth, settings: loadSettings,
   };
-  state.refreshing = true;
+  const view = state.view;
+  const epoch = state.viewEpoch;
   try {
-    await loaders[state.view]();
+    await loaders[view]();
+    if (view !== state.view || epoch !== state.viewEpoch) return;
     clearViewError();
     $("#lastUpdated").textContent = new Date().toLocaleTimeString();
   } catch (error) {
+    if (view !== state.view || epoch !== state.viewEpoch) return;
     if (error.offline || error.status === 401) setService(false);
     showViewError(error.message);
     toast(error.message, true);
-  } finally {
-    state.refreshing = false;
   }
 }
 
+function beginRequest(key) {
+  const version = (state.requestVersions.get(key) || 0) + 1;
+  state.requestVersions.set(key, version);
+  return { key, version, viewEpoch: state.viewEpoch };
+}
+
+function isCurrentRequest(request) {
+  return state.requestVersions.get(request.key) === request.version &&
+    request.viewEpoch === state.viewEpoch;
+}
+
 async function loadHealth() {
+  const request = beginRequest("diagnostics");
   const diagnostics = await api("/management/v1/diagnostics", { method: "GET" });
+  if (!isCurrentRequest(request)) return;
   state.diagnostics = diagnostics;
   renderDiagnostics(diagnostics);
   setService((diagnostics.connections || []).some((item) => item.id === "control-plane" && item.status === "ok"));
 }
 
 async function loadSettings() {
+  const request = beginRequest("settings");
   $("#settingsToken").value = state.token;
   const [diagnostics, agentConfig, policyConfig] = await Promise.all([
     api("/management/v1/diagnostics", { method: "GET" }),
     api("/management/v1/agent/config", { method: "GET" }),
     api("/management/v1/policy/config", { method: "GET" }),
   ]);
+  if (!isCurrentRequest(request)) return;
   state.diagnostics = diagnostics;
   renderConfig(diagnostics);
   renderAgentConfig(agentConfig);
@@ -325,11 +346,13 @@ async function saveAgentConfig(event) {
 }
 
 async function loadOverview() {
+  const request = beginRequest("overview");
   const [health, info, runtime] = await Promise.all([
     api("/control/v2/health", { method: "GET" }),
     api("/control/v2/info", { method: "GET" }),
     api("/management/v1/runtime", { method: "GET" }),
   ]);
+  if (!isCurrentRequest(request)) return;
   state.worlds = runtime.worlds || [];
   state.actors = runtime.actors || [];
   setService(health.status === "ok");
@@ -343,7 +366,9 @@ async function loadOverview() {
 }
 
 async function loadActors() {
+  const request = beginRequest("actors");
   const runtime = await api("/management/v1/runtime", { method: "GET" });
+  if (!isCurrentRequest(request)) return;
   state.worlds = runtime.worlds || [];
   state.actors = runtime.actors || [];
   $("#actorTable").innerHTML = actorTable(state.actors);
@@ -352,9 +377,11 @@ async function loadActors() {
 }
 
 async function loadMemories() {
+  const request = beginRequest("memories");
   const result = await api("/management/v1/memories/list", {
     body: { scope: state.memoryScope, search: $("#memorySearch").value.trim(), limit: 200 },
   });
+  if (!isCurrentRequest(request)) return;
   state.memories = result.records || [];
   renderMemories();
   setService(true);
@@ -412,7 +439,10 @@ async function forgetMemory(memoryId) {
 }
 
 async function loadPersona() {
-  state.persona = await api("/management/v1/personas", { method: "GET" });
+  const request = beginRequest("persona");
+  const snapshot = await api("/management/v1/personas", { method: "GET" });
+  if (!isCurrentRequest(request)) return;
+  state.persona = snapshot;
   const defaultBinding = (state.persona.bindings || []).find((binding) => !binding.actor_id && !binding.controller_id);
   const profile = (state.persona.profiles || []).find((item) => item.persona_id === defaultBinding?.persona_id && item.version === defaultBinding?.version) || state.persona.profiles?.[0];
   if (!profile) throw new Error("没有可编辑的默认人格");
@@ -422,25 +452,59 @@ async function loadPersona() {
   $("#personaTraits").value = (profile.traits || []).join("\n");
   $("#personaValues").value = (profile.values || []).join("\n");
   $("#personaRules").value = (profile.presentation_rules || []).join("\n");
+  $("#personaInitiativeEnabled").checked = Boolean(profile.initiative_policy?.enabled);
+  setNumberField("personaInitiativeCooldown", profile.initiative_policy?.cooldown_millis);
+  setNumberField("personaInitiativeMaxActions", profile.initiative_policy?.max_consecutive_actions);
+  $("#personaInitiativeTriggers").value = (profile.initiative_policy?.triggers || []).join(", ");
+  $("#personaBoundaries").value = (profile.boundaries || [])
+    .map((item) => [item.boundary_id, item.rule, item.response].join(" :: ")).join("\n");
+  $("#personaRelationships").value = (profile.relationship_stances || [])
+    .map((item) => [item.role, item.stance].join(" :: ")).join("\n");
+  $("#personaBindings").value = (state.persona.bindings || [])
+    .map((item) => [item.actor_id || "*", item.controller_id || "*", item.persona_id, item.version].join(" :: "))
+    .join("\n");
   state.persona.defaultProfile = profile;
 }
 
 async function savePersona(event) {
   event.preventDefault();
   const profile = state.persona.defaultProfile;
-  Object.assign(profile, {
+  const edited = { ...profile,
     identity: $("#personaIdentity").value.trim(), voice: $("#personaVoice").value.trim(),
     traits: splitLines($("#personaTraits").value), values: splitLines($("#personaValues").value),
     presentation_rules: splitLines($("#personaRules").value),
-  });
-  const payload = { revision: state.persona.revision, profiles: state.persona.profiles, bindings: state.persona.bindings };
+    initiative_policy: {
+      enabled: $("#personaInitiativeEnabled").checked,
+      cooldown_millis: numberField("personaInitiativeCooldown", true),
+      max_consecutive_actions: numberField("personaInitiativeMaxActions", true),
+      triggers: splitValues($("#personaInitiativeTriggers").value),
+    },
+    boundaries: parseStructuredLines("personaBoundaries", 3, ([boundary_id, rule, response]) => ({
+      boundary_id, rule, response,
+    })),
+    relationship_stances: parseStructuredLines("personaRelationships", 2, ([role, stance]) => ({ role, stance })),
+  };
+  const bindings = parseStructuredLines("personaBindings", 4, ([actor_id, controller_id, persona_id, version]) => ({
+    actor_id: actor_id === "*" ? "" : actor_id,
+    controller_id: controller_id === "*" ? "" : controller_id,
+    persona_id,
+    version,
+  }));
+  if (!bindings.some((binding) => !binding.actor_id && !binding.controller_id)) {
+    throw new Error("人格绑定必须保留一条 * :: * 默认绑定");
+  }
+  const profiles = state.persona.profiles.map((item) =>
+    item.persona_id === profile.persona_id && item.version === profile.version ? edited : item);
+  const payload = { revision: state.persona.revision, profiles, bindings };
   state.persona = await api("/management/v1/personas", { method: "PUT", body: payload });
   toast("默认人格已更新");
   await loadPersona();
 }
 
 async function loadSkills() {
+  const request = beginRequest("skills");
   const result = await api("/management/v1/skills/list", { body: { limit: 128 } });
+  if (!isCurrentRequest(request)) return;
   state.skills = result.skills || [];
   renderSkills();
   if (state.selectedSkill && !state.skills.some((skill) =>
@@ -600,11 +664,16 @@ function diagnosticStateClass(status) { return status === "ok" ? "good" : status
 function diagnosticStateLabel(status) { return { ok: "正常", warning: "需检查", offline: "离线", disabled: "未启用", error: "异常" }[status] || status || "未知"; }
 
 async function loadOperations() {
+  const request = beginRequest("operations");
   const result = await api("/management/v1/operations/list", { body: {
     status: $("#operationStatus").value || undefined,
+    host_id: $("#operationHost").value.trim() || undefined,
+    world_id: $("#operationWorld").value.trim() || undefined,
     actor_id: $("#operationActor").value.trim() || undefined,
+    task_id: $("#operationTask").value.trim() || undefined,
     limit: 200,
   }});
+  if (!isCurrentRequest(request)) return;
   state.operations = result.operations || [];
   $("#operationTable").innerHTML = state.operations.length ? `<table><thead><tr><th>Operation</th><th>Capability</th><th>角色</th><th>状态</th><th>确认</th><th>更新</th></tr></thead><tbody>${state.operations.map((operation) => `<tr tabindex="0" data-operation-id="${escapeHTML(operation.operation_id)}"><td><code>${escapeHTML(operation.operation_id)}</code></td><td>${escapeHTML(operation.action_request?.capability?.id || operation.kind || "-")}</td><td>${escapeHTML(operation.actor_id)}</td><td><span class="state ${operationStateClass(operation)}">${escapeHTML(operation.status)}</span></td><td>${operation.execution_confirmed ? "是" : "否"}</td><td>${formatMillis(operation.updated_at_unix_millis)}</td></tr>`).join("")}</tbody></table>` : '<div class="detail-surface empty-state">没有匹配的 Operation。</div>';
   $$('[data-operation-id]').forEach((row) => {
@@ -645,12 +714,15 @@ function showOperation(operationId) {
 }
 
 async function loadTasks() {
+  const request = beginRequest("tasks");
   try {
     const result = await api("/management/v1/tasks/list", { body: { limit: 100 } });
+    if (!isCurrentRequest(request)) return;
     const tasks = result.tasks || [];
     $("#taskTable").innerHTML = tasks.length ? `<table><thead><tr><th>目标</th><th>状态</th><th>阶段</th><th>动作 / 模型</th><th>更新</th></tr></thead><tbody>${tasks.map((task) => `<tr data-task-row="${escapeHTML(task.task_id)}"><td><strong>${escapeHTML(task.goal)}</strong><br><code>${escapeHTML(task.task_id)}</code>${tagList(task.tags)}</td><td><span class="state ${task.status === "completed" ? "good" : task.status === "failed" ? "bad" : "warn"}">${escapeHTML(task.status)}</span></td><td>${escapeHTML(task.current_plan_step_id || task.plan_id || "-")}</td><td>${task.action_count} / ${task.model_calls}</td><td>${new Date(task.updated_at_unix_millis).toLocaleString()}</td></tr>`).join("")}</tbody></table>` : '<div class="detail-surface empty-state">内部 Agent 当前没有任务。</div>';
     $$('[data-task-row]').forEach((row) => onAsync(row, "click", () => showTask(row.dataset.taskRow)));
   } catch (error) {
+    if (!isCurrentRequest(request)) return;
     if (error.message.includes("not enabled")) {
       $("#taskTable").innerHTML = '<div class="detail-surface empty-state">内部 Agent Runtime 未启用；外部 MCP 任务仍可在 Operation 时间线中查看。</div>';
       return;
@@ -709,8 +781,24 @@ async function lookupTask(event) {
   await showTask(taskId);
 }
 
-async function showTask(taskId) {
-  const result = await api("/management/v1/tasks/get", { body: { task_id: taskId } });
+async function showTask(taskId, append = false) {
+  const current = state.selectedTask?.taskId === taskId ? state.selectedTask : null;
+  const afterCursor = append ? current?.nextCursor : "";
+  if (append && (!current?.more || !afterCursor)) return;
+  const request = beginRequest("task-detail");
+  const result = await api("/management/v1/tasks/get", { body: {
+    task_id: taskId, after_cursor: afterCursor || undefined, limit: 100,
+  } });
+  if (!isCurrentRequest(request)) return;
+  const timeline = result.timeline || {};
+  const events = append
+    ? mergeTimelineEvents(current.events, timeline.events || [])
+    : (timeline.events || []);
+  state.selectedTask = {
+    taskId, task: result.task, events,
+    nextCursor: timeline.next_cursor || afterCursor || "",
+    more: Boolean(timeline.more), truncated: Boolean(timeline.truncated),
+  };
   const status = result.task.status;
   const controls = [
     status === "active" ? '<button class="button secondary" data-task-action="run">继续</button>' : "",
@@ -718,12 +806,25 @@ async function showTask(taskId) {
     ["active", "paused", "waiting-confirmation"].includes(status) ? '<button class="button danger" data-task-action="cancel">取消</button>' : "",
   ].filter(Boolean).join("");
   $("#taskDetail").classList.remove("empty-state");
-  $("#taskDetail").innerHTML = `<div class="section-heading"><div><h2>${escapeHTML(result.task.goal)}</h2><p>${escapeHTML(result.task.task_id)} · ${escapeHTML(status)}</p>${tagList(result.task.tags)}</div><div class="toolbar">${controls}</div></div>${taskTimeline(result.timeline.events || [])}`;
+  const truncated = state.selectedTask.truncated
+    ? '<div class="form-notice">更早的时间线事件已按保留策略清理。</div>' : "";
+  const loadMore = state.selectedTask.more
+    ? '<div class="form-actions"><button id="loadMoreTaskEvents" class="button secondary">加载更多事件</button></div>' : "";
+  $("#taskDetail").innerHTML = `<div class="section-heading"><div><h2>${escapeHTML(result.task.goal)}</h2><p>${escapeHTML(result.task.task_id)} · ${escapeHTML(status)}</p>${tagList(result.task.tags)}</div><div class="toolbar">${controls}</div></div>${truncated}${taskTimeline(events)}${loadMore}`;
+  if (state.selectedTask.more) {
+    onAsync($("#loadMoreTaskEvents"), "click", () => showTask(taskId, true));
+  }
   $$('[data-task-action]').forEach((button) => onAsync(button, "click", async () => {
     await api("/management/v1/tasks/control", { body: { task_id: taskId, action: button.dataset.taskAction } });
     toast("任务状态已更新");
     await Promise.all([loadTasks(), showTask(taskId)]);
   }));
+}
+
+function mergeTimelineEvents(existing = [], incoming = []) {
+  const merged = new Map();
+  [...existing, ...incoming].forEach((event) => merged.set(event.cursor || event.event_id, event));
+  return [...merged.values()];
 }
 
 function tagList(tags) {
@@ -765,12 +866,16 @@ function showActor(actorId) {
   const lease = actor.controller_lease;
   const action = actor.emergency_stopped ? "clear-emergency-stop" : "emergency-stop";
   $("#actorDetail").classList.remove("empty-state");
-  $("#actorDetail").innerHTML = `<div class="section-heading compact"><div><h2>${escapeHTML(actor.display_name || actor.actor_id)}</h2><p><code>${escapeHTML(actor.actor_id)}</code></p></div><div class="toolbar">${lease ? '<button class="button secondary" data-actor-action="release">释放控制</button>' : '<button class="button primary" data-actor-action="acquire">获取控制</button>'}<button class="button ${actor.emergency_stopped ? "secondary" : "danger"}" data-actor-action="${action}">${actor.emergency_stopped ? "解除急停" : "立即急停"}</button></div></div><div class="detail-grid"><dl><dt>Host</dt><dd>${escapeHTML(actor.host_id)}</dd><dt>世界</dt><dd>${escapeHTML(actor.world_id)}</dd><dt>在线</dt><dd>${actor.online ? "是" : "否"}</dd></dl><dl><dt>决策来源</dt><dd>${escapeHTML(actor.decision_authority?.source || "-")}</dd><dt>人格模式</dt><dd>${escapeHTML(actor.decision_authority?.persona_mode || "-")}</dd><dt>Lease</dt><dd>${escapeHTML(lease?.lease_id || "无")}</dd></dl></div>`;
+  const leaseActions = lease
+    ? '<button class="button secondary" data-actor-action="renew">续期</button><button class="button secondary" data-actor-action="release">释放控制</button>'
+    : '<button class="button primary" data-actor-action="acquire">获取控制</button>';
+  $("#actorDetail").innerHTML = `<div class="section-heading compact"><div><h2>${escapeHTML(actor.display_name || actor.actor_id)}</h2><p><code>${escapeHTML(actor.actor_id)}</code></p></div><div class="toolbar">${leaseActions}<button class="button ${actor.emergency_stopped ? "secondary" : "danger"}" data-actor-action="${action}">${actor.emergency_stopped ? "解除急停" : "立即急停"}</button></div></div><div class="detail-grid"><dl><dt>Host</dt><dd>${escapeHTML(actor.host_id)}</dd><dt>世界</dt><dd>${escapeHTML(actor.world_id)}</dd><dt>在线</dt><dd>${actor.online ? "是" : "否"}</dd></dl><dl><dt>决策来源</dt><dd>${escapeHTML(actor.decision_authority?.source || "-")}</dd><dt>人格模式</dt><dd>${escapeHTML(actor.decision_authority?.persona_mode || "-")}</dd><dt>Lease</dt><dd>${escapeHTML(lease?.lease_id || "无")}</dd><dt>到期时间</dt><dd>${lease?.expires_at_unix_millis ? escapeHTML(new Date(lease.expires_at_unix_millis).toLocaleString()) : "-"}</dd></dl></div>`;
   $$('[data-actor-action]').forEach((button) => button.addEventListener("click", async () => {
     try {
       await api("/management/v1/actors/control", { body: {
         host_id: actor.host_id, world_id: actor.world_id, actor_id: actor.actor_id,
         action: button.dataset.actorAction, lease_id: lease?.lease_id || undefined,
+        lease_ttl_millis: button.dataset.actorAction === "renew" ? 300000 : undefined,
       }});
       toast("角色控制状态已更新");
       await loadActors();
@@ -900,6 +1005,15 @@ function operationStateClass(operation) {
 
 function splitValues(value) { return [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))]; }
 function splitLines(value) { return [...new Set(value.split("\n").map((item) => item.trim()).filter(Boolean))]; }
+function parseStructuredLines(id, columns, mapRow) {
+  return splitLines($("#" + id).value).map((line, index) => {
+    const parts = line.split("::").map((item) => item.trim());
+    if (parts.length !== columns || parts.some((item) => !item)) {
+      throw new Error(`${$("#" + id).previousElementSibling?.textContent || id} 第 ${index + 1} 行格式不正确`);
+    }
+    return mapRow(parts);
+  });
+}
 function escapeHTML(value) { return String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char])); }
 function reportActionError(error) {
   const message = error?.message || "操作失败";

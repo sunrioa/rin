@@ -49,8 +49,17 @@ func TestServiceManagesLearnedSkillsIndependentlyOfControlScopes(t *testing.T) {
 	if err != nil || created.Skill.Source != "learned" {
 		t.Fatalf("created = %#v, %v", created, err)
 	}
+	createdV2, err := service.SaveSkill(context.Background(), SkillSaveInput{
+		SkillID: "learned.collect", Version: "v2",
+		Description:  "Collect observed resources with recovery.",
+		Instructions: "Use current targets, verify the outcome, and recover from failure.",
+		Adapters:     []string{"minecraft"}, Capabilities: []string{"resource.harvest"},
+	})
+	if err != nil || createdV2.Skill.Version != "v2" {
+		t.Fatalf("created v2 = %#v, %v", createdV2, err)
+	}
 	listed, err := service.ListSkills(context.Background(), SkillListInput{Limit: 128})
-	if err != nil || len(listed.Skills) != 2 {
+	if err != nil || len(listed.Skills) != 3 {
 		t.Fatalf("listed = %#v, %v", listed, err)
 	}
 	if _, err := service.SaveSkill(context.Background(), SkillSaveInput{

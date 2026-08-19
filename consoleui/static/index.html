@@ -77,7 +77,10 @@
         <div class="section-heading"><div><h2>执行记录</h2><p>内部 Agent 与外部 MCP 共用的权威 Operation 状态。</p></div></div>
         <div class="filterbar operation-filters">
           <select id="operationStatus" aria-label="执行状态"><option value="">全部状态</option><option value="queued">queued</option><option value="awaiting-confirmation">awaiting-confirmation</option><option value="delivered">delivered</option><option value="accepted">accepted</option><option value="running">running</option><option value="succeeded">succeeded</option><option value="failed">failed</option><option value="cancelled">cancelled</option><option value="interrupted">interrupted</option><option value="stale">stale</option><option value="outcome-unknown">outcome-unknown</option><option value="rejected">rejected</option></select>
+          <input id="operationHost" class="search" placeholder="Host ID">
+          <input id="operationWorld" class="search" placeholder="World ID">
           <input id="operationActor" class="search" placeholder="按 Actor ID 筛选">
+          <input id="operationTask" class="search" placeholder="Task ID">
         </div>
         <div id="operationTable" class="table-wrap"></div>
         <div id="operationDetail" class="detail-surface empty-state">选择一条 Operation 查看投递、策略与 Outcome。</div>
@@ -107,6 +110,19 @@
             <label><span>价值取向</span><textarea id="personaValues" rows="4" placeholder="每行一个"></textarea></label>
             <label><span>呈现规则</span><textarea id="personaRules" rows="4" placeholder="每行一个"></textarea></label>
           </div>
+          <details class="advanced-fields">
+            <summary>主动性、关系与边界</summary>
+            <div class="field-grid">
+              <label class="check-row"><input id="personaInitiativeEnabled" type="checkbox"><span>允许内部 Agent 主动发起行动</span></label>
+              <label><span>主动冷却（毫秒）</span><input id="personaInitiativeCooldown" type="number" min="0" max="86400000"></label>
+              <label><span>最多连续行动</span><input id="personaInitiativeMaxActions" type="number" min="0" max="64"></label>
+              <label><span>主动触发器</span><input id="personaInitiativeTriggers" placeholder="signal.player_hurt, topic.unfinished"></label>
+              <label class="wide"><span>边界</span><textarea id="personaBoundaries" rows="5" placeholder="每行：boundary_id :: 规则 :: 越界时回应"></textarea></label>
+              <label class="wide"><span>关系立场</span><textarea id="personaRelationships" rows="4" placeholder="每行：role_id :: 对该关系的态度"></textarea></label>
+              <label class="wide"><span>人格绑定</span><textarea id="personaBindings" rows="5" placeholder="每行：actor_id 或 * :: controller_id 或 * :: persona_id :: version"></textarea></label>
+            </div>
+            <p class="form-hint">使用 <code>*</code> 表示默认角色或默认控制器。人格只影响表达与决策偏好，不会授予游戏权限。</p>
+          </details>
           <div class="form-actions"><button class="button primary" type="submit">保存人格</button></div>
         </form>
       </section>

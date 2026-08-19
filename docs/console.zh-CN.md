@@ -14,11 +14,12 @@ Control API 相同的 Bearer Token；Token 只保存在当前浏览器标签页�
 ## 页面
 
 - **概览**：Control 健康、Host、世界、角色、控制来源和待处理故障。
-- **角色**：查看所有 Adapter 发布的角色；选择角色后可在任务页自动带入 Host、World 和 Actor。
-- **任务**：创建 `auto` 或 `required` 长目标，继续、恢复或取消任务，并查看人类可读时间线。
+- **角色**：查看所有 Adapter 发布的角色；获取、续期或释放控制 Lease，执行急停，并在任务页自动带入 Host、World 和 Actor。
+- **任务**：创建 `auto` 或 `required` 长目标，继续、恢复或取消任务，并按游标分页查看完整的人类可读时间线。
 - **记忆**：搜索、新增、编辑、置顶和遗忘公共记忆卡片。
-- **人格**：编辑所有未专门绑定角色共同继承的默认 Persona。
-- **技能**：查看通用和 Adapter 专属 Skill；新增、编辑、导入或删除 learned Skill。
+- **人格**：编辑所有未专门绑定角色共同继承的默认 Persona，包括主动性、触发器、关系、边界和精确绑定。
+- **技能**：查看通用和 Adapter 专属 Skill；新增、编辑、导入或精确删除 learned Skill 的一个版本。同一 Skill ID 可同时保留多个版本。
+- **执行**：按 Host、World、Actor、Task 和状态组合过滤权威 Operation，并确认或取消允许的操作。
 - **连接**：查看统一 Control/MCP/Adapter 拓扑和本机安装、诊断命令。
 - **设置**：保存内部模型与可选远程 Embedding 配置，管理通用游戏权限策略；Provider Key
   只进入独立私有文件且不会回显。
@@ -31,6 +32,8 @@ Control API 相同的 Bearer Token；Token 只保存在当前浏览器标签页�
 默认 Persona 是同一 Rin 实例中所有 Internal Agent 的回退人格。角色或 Controller 的精确
 binding 仍可覆盖它。首次配置只有一个角色 Persona、但没有全局 binding 时，Rin 会在首次
 创建 Persona 存储时把该 Persona 设为共享默认；已有存储不会被静默改写。
+Console 中的 `* :: *` binding 表示共享默认；Persona 只影响表达、主动性和决策偏好，不能授予
+Capability、Scope 或游戏权限。
 
 公共记忆卡片进入 `common-semantic` 域，可被同一 Rin 下的 Internal Agent 检索。以下内容
 不会自动成为公共记忆：

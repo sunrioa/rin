@@ -1,6 +1,7 @@
 package managementapi
 
 import (
+	"bytes"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -254,7 +255,14 @@ func secure(token string, next http.HandlerFunc) http.HandlerFunc {
 
 func decodeJSON(request *http.Request, target any) error {
 	defer request.Body.Close()
-	decoder := json.NewDecoder(io.LimitReader(request.Body, maxRequestBytes+1))
+	payload, err := io.ReadAll(io.LimitReader(request.Body, maxRequestBytes+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(payload)) > maxRequestBytes {
+		return errors.New("request body exceeds 1 MiB")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		return err

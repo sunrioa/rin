@@ -150,6 +150,20 @@ func (service *Service) ControlActor(
 			return ActorControlOutput{}, err
 		}
 		return ActorControlOutput{Action: input.Action, Lease: &lease}, err
+	case "renew":
+		if input.LeaseTTLMillis == 0 {
+			input.LeaseTTLMillis = 300_000
+		}
+		lease, err := service.control.RenewController(
+			service.controlPrincipal,
+			input.ActorControlTarget,
+			strings.TrimSpace(input.LeaseID),
+			input.LeaseTTLMillis,
+		)
+		if err != nil {
+			return ActorControlOutput{}, err
+		}
+		return ActorControlOutput{Action: input.Action, Lease: &lease}, nil
 	case "release":
 		err := service.control.ReleaseController(
 			service.controlPrincipal, input.ActorControlTarget,
@@ -167,7 +181,7 @@ func (service *Service) ControlActor(
 		return ActorControlOutput{Action: input.Action, EmergencyStop: &stop}, err
 	default:
 		return ActorControlOutput{}, errors.New(
-			"actor action must be acquire, release, emergency-stop, or clear-emergency-stop",
+			"actor action must be acquire, renew, release, emergency-stop, or clear-emergency-stop",
 		)
 	}
 }
