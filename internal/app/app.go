@@ -36,15 +36,18 @@ const shutdownTimeout = 5 * time.Second
 const maxPolicyBytes int64 = 1 << 20
 
 type configuration struct {
-	address              string
-	dataDir              string
-	token                string
-	principal            host.Principal
-	policy               string
-	agentConfig          string
-	agentToken           string
-	agentAPIKey          string
-	agentEmbeddingAPIKey string
+	address                    string
+	dataDir                    string
+	token                      string
+	principal                  host.Principal
+	policy                     string
+	agentConfig                string
+	agentToken                 string
+	agentAPIKey                string
+	agentEmbeddingAPIKey       string
+	agentTokenEnvSet           bool
+	agentAPIKeyEnvSet          bool
+	agentEmbeddingAPIKeyEnvSet bool
 }
 
 // Run parses the Control Daemon configuration, starts the local service, and
@@ -59,15 +62,22 @@ func Run(
 	if err != nil {
 		return err
 	}
+	agentStore, err := openAgentConfigStore(config.dataDir, config.agentConfig)
+	if err != nil {
+		return fmt.Errorf("open Console Agent configuration: %w", err)
+	}
 	policyEngine, err := loadPolicyEngine(config.policy)
 	if err != nil {
 		return err
 	}
 	var agentConfig agentdaemon.Config
 	if config.agentConfig != "" {
-		agentConfig, err = agentdaemon.LoadConfig(config.agentConfig)
-		if err != nil {
+		if err := agentStore.loadEffectiveCredentials(&config); err != nil {
 			return err
+		}
+		agentConfig = agentStore.configForRuntime()
+		if _, err := agentdaemon.ValidateConfig(agentConfig); err != nil {
+			return fmt.Errorf("validate Agent configuration: %w", err)
 		}
 	}
 	memory, err := cognition.OpenSQLiteMemoryProvider(
@@ -215,6 +225,9 @@ func Run(
 		return err
 	}
 	if err := managementService.ConfigureSkills(catalog, learnedSkills); err != nil {
+		return err
+	}
+	if err := managementService.ConfigureAgentConfig(agentStore); err != nil {
 		return err
 	}
 	if err := managementService.ConfigureControl(
@@ -384,7 +397,17 @@ func parseConfiguration(
 			"RIN_CONTROL_SCOPES requires at least one Control Plane scope",
 		)
 	}
-	agentConfig := strings.TrimSpace(*agentConfigPath)
+	explicitAgentConfigPath := strings.TrimSpace(*agentConfigPath)
+	explicitAgentConfig := explicitAgentConfigPath != ""
+	agentConfig := explicitAgentConfigPath
+	if agentConfig == "" {
+		candidate := managedAgentConfigPath(*dataDirectory)
+		if _, statErr := os.Stat(candidate); statErr == nil {
+			agentConfig = candidate
+		} else if !errors.Is(statErr, os.ErrNotExist) {
+			return configuration{}, fmt.Errorf("inspect saved Agent configuration: %w", statErr)
+		}
+	}
 	agentToken, agentTokenSet := lookupEnv("RIN_AGENT_TOKEN")
 	agentAPIKey, agentAPIKeySet := lookupEnv("RIN_AGENT_API_KEY")
 	agentEmbeddingAPIKey, agentEmbeddingAPIKeySet := lookupEnv("RIN_AGENT_EMBEDDING_API_KEY")
@@ -394,7 +417,9 @@ func parseConfiguration(
 				"RIN_AGENT_TOKEN, RIN_AGENT_API_KEY, and RIN_AGENT_EMBEDDING_API_KEY require --agent-config",
 			)
 		}
-	} else if len(agentToken) < 32 {
+	} else if explicitAgentConfig && !agentTokenSet {
+		return configuration{}, errors.New("RIN_AGENT_TOKEN is required when --agent-config is explicit")
+	} else if agentTokenSet && len(agentToken) < 32 {
 		return configuration{}, errors.New(
 			"RIN_AGENT_TOKEN must contain at least 32 bytes when Agent Runtime is enabled",
 		)
@@ -416,7 +441,8 @@ func parseConfiguration(
 		address: *address, dataDir: *dataDirectory, token: token,
 		principal: principal, policy: strings.TrimSpace(*policyPath),
 		agentConfig: agentConfig, agentToken: agentToken, agentAPIKey: agentAPIKey,
-		agentEmbeddingAPIKey: agentEmbeddingAPIKey,
+		agentEmbeddingAPIKey: agentEmbeddingAPIKey, agentTokenEnvSet: agentTokenSet,
+		agentAPIKeyEnvSet: agentAPIKeySet, agentEmbeddingAPIKeyEnvSet: agentEmbeddingAPIKeySet,
 	}, nil
 }
 

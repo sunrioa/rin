@@ -34,6 +34,9 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 		if service.diagnostics != nil {
 			features = append(features, "diagnostics", "configuration", "mcp-install")
 		}
+		if service.agentConfig != nil {
+			features = append(features, "agent-config")
+		}
 		writeJSON(response, http.StatusOK, map[string]any{
 			"contract_version": "rin.management/v1",
 			"features":         features,
@@ -158,6 +161,19 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 		result, err := service.Diagnostics(request.Context())
 		writeResult(response, result, err)
 	}))
+	mux.HandleFunc("GET /management/v1/agent/config", secure(options.Token, func(response http.ResponseWriter, request *http.Request) {
+		result, err := service.AgentConfig(request.Context())
+		writeResult(response, result, err)
+	}))
+	mux.HandleFunc("PUT /management/v1/agent/config", secure(options.Token, func(response http.ResponseWriter, request *http.Request) {
+		var input AgentConfigSaveRequest
+		if err := decodeJSON(request, &input); err != nil {
+			writeError(response, http.StatusBadRequest, err)
+			return
+		}
+		result, err := service.SaveAgentConfig(request.Context(), input)
+		writeResult(response, result, err)
+	}))
 	mux.HandleFunc("POST /management/v1/operations/list", secure(options.Token, func(response http.ResponseWriter, request *http.Request) {
 		var input controlplane.ListOperationsInput
 		if err := decodeJSON(request, &input); err != nil {
@@ -241,6 +257,10 @@ func writeResult(response http.ResponseWriter, value any, err error) {
 		status = http.StatusServiceUnavailable
 	} else if errors.Is(err, ErrDiagnosticsUnavailable) {
 		status = http.StatusServiceUnavailable
+	} else if errors.Is(err, ErrAgentConfigUnavailable) {
+		status = http.StatusServiceUnavailable
+	} else if errors.Is(err, ErrInvalidAgentConfig) {
+		status = http.StatusBadRequest
 	} else if errors.Is(err, controlplane.ErrForbidden) {
 		status = http.StatusForbidden
 	} else if errors.Is(err, controlplane.ErrNotFound) {

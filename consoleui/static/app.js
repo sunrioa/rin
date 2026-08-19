@@ -61,6 +61,9 @@ function bindForms() {
     toast("连接凭据已更新");
     selectView("overview");
   });
+  $("#agentConfigForm").addEventListener("submit", saveAgentConfig);
+  $("#clearAgentAPIKey").addEventListener("change", syncAgentCredentialInputs);
+  $("#agentAPIKey").addEventListener("input", syncAgentCredentialInputs);
   $("#taskLookupForm").addEventListener("submit", lookupTask);
   $("#newTaskButton").addEventListener("click", openTaskDialog);
   $("#taskForm").addEventListener("submit", startTask);
@@ -125,10 +128,96 @@ async function loadHealth() {
 
 async function loadSettings() {
   $("#settingsToken").value = state.token;
-  const diagnostics = await api("/management/v1/diagnostics", { method: "GET" });
+  const [diagnostics, agentConfig] = await Promise.all([
+    api("/management/v1/diagnostics", { method: "GET" }),
+    api("/management/v1/agent/config", { method: "GET" }),
+  ]);
   state.diagnostics = diagnostics;
   renderConfig(diagnostics);
+  renderAgentConfig(agentConfig);
   setService((diagnostics.connections || []).some((item) => item.id === "control-plane" && item.status === "ok"));
+}
+
+function renderAgentConfig(snapshot) {
+  const model = snapshot.model || {};
+  const resilience = model.resilience || {};
+  $("#agentProvider").value = model.provider || "openai-compatible";
+  $("#agentAuthentication").value = model.authentication || "bearer-env";
+  $("#agentBaseURL").value = model.base_url || "";
+  $("#agentModel").value = model.model || "";
+  $("#agentResponseFormat").value = model.response_format || "json_schema";
+  $("#agentThinkingMode").value = model.thinking_mode || "";
+  setNumberField("agentTemperature", model.temperature);
+  setNumberField("agentMaxContextCharacters", model.max_context_characters);
+  setNumberField("agentMaxOutputTokens", model.max_output_tokens);
+  setNumberField("agentMaxAttempts", resilience.max_attempts);
+  setNumberField("agentAttemptTimeoutMillis", resilience.attempt_timeout_millis);
+  setNumberField("agentTotalTimeoutMillis", resilience.total_timeout_millis);
+  setNumberField("agentInitialBackoffMillis", resilience.initial_backoff_millis);
+  setNumberField("agentMaxBackoffMillis", resilience.max_backoff_millis);
+  setNumberField("agentFailureThreshold", resilience.failure_threshold);
+  setNumberField("agentOpenDurationMillis", resilience.open_duration_millis);
+  $("#agentAPIKey").value = "";
+  $("#clearAgentAPIKey").checked = false;
+  syncAgentCredentialInputs();
+  $("#agentConfigNotice").hidden = true;
+}
+
+function setNumberField(id, value) {
+  $("#" + id).value = value === undefined || value === null || value === 0 ? "" : String(value);
+}
+
+function numberField(id, integer = false) {
+  const value = $("#" + id).value.trim();
+  if (value === "") return 0;
+  return integer ? Number.parseInt(value, 10) : Number.parseFloat(value);
+}
+
+function syncAgentCredentialInputs(event) {
+  const clear = $("#clearAgentAPIKey");
+  const input = $("#agentAPIKey");
+  if (event?.target === clear && clear.checked) input.value = "";
+  if (input.value) clear.checked = false;
+  input.disabled = clear.checked;
+}
+
+async function saveAgentConfig(event) {
+  event.preventDefault();
+  const apiKey = $("#agentAPIKey").value;
+  const body = {
+    model: {
+      provider: $("#agentProvider").value,
+      base_url: $("#agentBaseURL").value.trim(),
+      model: $("#agentModel").value.trim(),
+      response_format: $("#agentResponseFormat").value.trim(),
+      thinking_mode: $("#agentThinkingMode").value.trim(),
+      authentication: $("#agentAuthentication").value,
+      max_context_characters: numberField("agentMaxContextCharacters", true),
+      max_output_tokens: numberField("agentMaxOutputTokens", true),
+      temperature: numberField("agentTemperature"),
+      resilience: {
+        max_attempts: numberField("agentMaxAttempts", true),
+        attempt_timeout_millis: numberField("agentAttemptTimeoutMillis", true),
+        total_timeout_millis: numberField("agentTotalTimeoutMillis", true),
+        initial_backoff_millis: numberField("agentInitialBackoffMillis", true),
+        max_backoff_millis: numberField("agentMaxBackoffMillis", true),
+        failure_threshold: numberField("agentFailureThreshold", true),
+        open_duration_millis: numberField("agentOpenDurationMillis", true),
+      },
+    },
+  };
+  if (apiKey) body.api_key = apiKey;
+  if ($("#clearAgentAPIKey").checked) body.clear_api_key = true;
+  try {
+    const result = await api("/management/v1/agent/config", { method: "PUT", body });
+    renderAgentConfig(result);
+    $("#agentConfigNotice").textContent = "已保存。请重启 Rin 使模型配置生效。";
+    $("#agentConfigNotice").hidden = false;
+    toast(result.requires_restart ? "模型配置已保存，等待重启生效" : "模型配置已保存");
+  } catch (error) {
+    showViewError(error.message);
+    toast(error.message, true);
+  }
 }
 
 async function loadOverview() {

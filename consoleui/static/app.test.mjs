@@ -27,6 +27,18 @@ test("Console keeps MCP actions as copy-only commands", () => {
 test("Console displays credential presence without a credential field", () => {
   assert.match(app, /credential_configured/);
   assert.match(app, /正文隐藏/);
-  assert.doesNotMatch(app, /api_key\s*:/);
-  assert.doesNotMatch(html, /API Key|apikey|api_key/i);
+  assert.match(app, /clear_api_key/);
+  assert.doesNotMatch(app, /result\.api_key|snapshot\.api_key/);
+  assert.match(html, /id="agentAPIKey"/);
+  assert.match(html, /id="clearAgentAPIKey"/);
+});
+
+test("Console edits the complete internal Agent model contract", () => {
+  assert.match(app, /\/management\/v1\/agent\/config/);
+  assert.match(app, /max_context_characters/);
+  assert.match(app, /max_output_tokens/);
+  assert.match(app, /temperature/);
+  assert.match(html, /id="agentBaseURL"/);
+  assert.match(html, /id="agentThinkingMode"/);
+  assert.match(html, /重启 Rin/);
 });

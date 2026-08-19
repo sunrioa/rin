@@ -1,0 +1,206 @@
+package app
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/sunrioa/rin/agentdaemon"
+	"github.com/sunrioa/rin/internal/privatefile"
+	"github.com/sunrioa/rin/managementapi"
+)
+
+func TestAgentConfigStoreWritesValidatedAtomicPrivateFiles(t *testing.T) {
+	dataDir := t.TempDir()
+	store, err := openAgentConfigStore(dataDir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := validConsoleAgentConfig()
+	key := "provider-secret-that-must-not-enter-config"
+	response, err := store.SaveAgentConfig(context.Background(), managementapi.AgentConfigSaveRequest{
+		Model: config.Model, APIKey: &key,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !response.RequiresRestart || !response.CredentialConfigured {
+		t.Fatalf("save response = %#v", response)
+	}
+	configPath := managedAgentConfigPath(dataDir)
+	secretPath := managedAgentSecretsPath(dataDir)
+	configBytes, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(configBytes, []byte(key)) {
+		t.Fatal("API key was written into Agent configuration")
+	}
+	if _, err := agentdaemon.LoadConfig(configPath); err != nil {
+		t.Fatalf("saved configuration cannot be reopened: %v", err)
+	}
+	for _, path := range []string{configPath, secretPath} {
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			t.Fatal(statErr)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("%s mode = %o, want 600", path, info.Mode().Perm())
+		}
+	}
+	var secrets agentSecrets
+	if err := privatefile.ReadJSON(secretPath, maxAgentSecretBytes, &secrets); err != nil {
+		t.Fatal(err)
+	}
+	if secrets.APIKey != key {
+		t.Fatalf("saved secret = %q", secrets.APIKey)
+	}
+	before := append([]byte(nil), configBytes...)
+	invalid := config.Model
+	invalid.BaseURL = "http://remote.example.test/v1"
+	if _, err := store.SaveAgentConfig(context.Background(), managementapi.AgentConfigSaveRequest{Model: invalid}); err == nil {
+		t.Fatal("invalid remote plaintext model URL was accepted")
+	}
+	after, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("invalid save replaced the previous configuration")
+	}
+	cleared, err := store.SaveAgentConfig(context.Background(), managementapi.AgentConfigSaveRequest{
+		Model: config.Model, ClearAPIKey: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.CredentialConfigured {
+		t.Fatal("cleared API key still reported as configured")
+	}
+	secrets = agentSecrets{}
+	if err := privatefile.ReadJSON(secretPath, maxAgentSecretBytes, &secrets); err != nil {
+		t.Fatal(err)
+	}
+	if secrets.APIKey != "" {
+		t.Fatal("API key was not cleared from private secret file")
+	}
+}
+
+func TestParseConfigurationAutoUsesSavedAgentConfig(t *testing.T) {
+	dataDir := t.TempDir()
+	path := managedAgentConfigPath(dataDir)
+	if err := privatefile.WriteJSON(path, validConsoleAgentConfig()); err != nil {
+		t.Fatal(err)
+	}
+	config, err := parseConfiguration(nil, testEnvironment(map[string]string{
+		"RIN_CONTROL_TOKEN":     "0123456789abcdef0123456789abcdef",
+		"RIN_CONTROL_PRINCIPAL": "player.one",
+		"RIN_CONTROL_DATA_DIR":  dataDir,
+	}), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.agentConfig != path || config.agentToken != "" {
+		t.Fatalf("auto configuration = %#v", config)
+	}
+	store, err := openAgentConfigStore(dataDir, config.agentConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.loadEffectiveCredentials(&config); err != nil {
+		t.Fatal(err)
+	}
+	if len(config.agentToken) < 32 {
+		t.Fatalf("generated Agent token is too short: %d", len(config.agentToken))
+	}
+	if _, err := os.Stat(managedAgentSecretsPath(dataDir)); err != nil {
+		t.Fatalf("generated secrets file is missing: %v", err)
+	}
+}
+
+func TestAgentConfigEnvironmentKeyOverridesLocalSecret(t *testing.T) {
+	dataDir := t.TempDir()
+	store, err := openAgentConfigStore(dataDir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := validConsoleAgentConfig()
+	localKey := "local-key"
+	if _, err := store.SaveAgentConfig(context.Background(), managementapi.AgentConfigSaveRequest{
+		Model: config.Model, APIKey: &localKey,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runtimeConfig := configuration{
+		agentConfig: managedAgentConfigPath(dataDir), token: "control-token",
+		agentAPIKey: "environment-key", agentAPIKeyEnvSet: true,
+	}
+	if err := store.loadEffectiveCredentials(&runtimeConfig); err != nil {
+		t.Fatal(err)
+	}
+	if runtimeConfig.agentAPIKey != "environment-key" || !store.credentialConfigured {
+		t.Fatalf("environment override was not used: config=%#v store=%#v", runtimeConfig, store)
+	}
+}
+
+func validConsoleAgentConfig() agentdaemon.Config {
+	config := defaultAgentConfig()
+	config.Model.BaseURL = "http://127.0.0.1:1/v1"
+	config.Model.Model = "test-model"
+	return config
+}
+
+func TestAgentConfigStoreRejectsAmbiguousCredentialMutation(t *testing.T) {
+	store, err := openAgentConfigStore(t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := "secret"
+	_, err = store.SaveAgentConfig(context.Background(), managementapi.AgentConfigSaveRequest{
+		Model: validConsoleAgentConfig().Model, APIKey: &key, ClearAPIKey: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "api_key and clear_api_key") {
+		t.Fatalf("ambiguous credential mutation result = %v", err)
+	}
+	if !errors.Is(err, managementapi.ErrInvalidAgentConfig) {
+		t.Fatalf("ambiguous credential mutation classification = %v", err)
+	}
+}
+
+func TestAgentConfigJSONDoesNotContainSecretFieldInSnapshot(t *testing.T) {
+	store, err := openAgentConfigStore(t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := "secret-not-for-response"
+	response, err := store.SaveAgentConfig(context.Background(), managementapi.AgentConfigSaveRequest{
+		Model: validConsoleAgentConfig().Model, APIKey: &key,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(body, []byte(key)) || bytes.Contains(body, []byte(`"api_key"`)) {
+		t.Fatalf("snapshot leaked secret: %s", body)
+	}
+}
+
+func TestAgentConfigStoreUsesExpectedPaths(t *testing.T) {
+	dataDir := t.TempDir()
+	store, err := openAgentConfigStore(dataDir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(store.configPath) != filepath.Join(dataDir, "agent") ||
+		filepath.Dir(store.secretsPath) != filepath.Join(dataDir, "agent") {
+		t.Fatalf("store paths = %#v", store)
+	}
+}

@@ -131,6 +131,39 @@
           <label><span>Control Token</span><input id="settingsToken" type="password" autocomplete="off"></label>
           <div class="form-actions"><button class="button primary" type="submit">更新连接</button></div>
         </form>
+        <div class="section-heading"><div><h2>内部 Agent 模型</h2><p>保存后重启 Rin 才会创建或重载内部 Agent；当前运行中的 Agent 不会被热替换。</p></div></div>
+        <form id="agentConfigForm" class="editor-form">
+          <div class="field-grid">
+            <label><span>Provider</span><select id="agentProvider"><option value="openai-compatible">openai-compatible</option></select></label>
+            <label><span>认证方式</span><select id="agentAuthentication"><option value="bearer-env">API Key</option><option value="none">无认证</option></select></label>
+            <label class="wide"><span>Base URL</span><input id="agentBaseURL" required placeholder="https://api.example.com/v1"></label>
+            <label><span>模型</span><input id="agentModel" required placeholder="deepseek-chat"></label>
+            <label><span>响应格式</span><input id="agentResponseFormat" placeholder="json_schema"></label>
+            <label><span>Thinking mode</span><input id="agentThinkingMode" placeholder="可留空"></label>
+            <label><span>Temperature</span><input id="agentTemperature" type="number" min="0" max="2" step="0.01" placeholder="默认"></label>
+            <label><span>最大上下文字符</span><input id="agentMaxContextCharacters" type="number" min="0" placeholder="默认"></label>
+            <label><span>最大输出 Token</span><input id="agentMaxOutputTokens" type="number" min="0" placeholder="默认"></label>
+          </div>
+          <details class="advanced-fields">
+            <summary>重试与超时（可选）</summary>
+            <div class="field-grid">
+              <label><span>最大尝试次数</span><input id="agentMaxAttempts" type="number" min="0"></label>
+              <label><span>单次超时（毫秒）</span><input id="agentAttemptTimeoutMillis" type="number" min="0"></label>
+              <label><span>总超时（毫秒）</span><input id="agentTotalTimeoutMillis" type="number" min="0"></label>
+              <label><span>初始退避（毫秒）</span><input id="agentInitialBackoffMillis" type="number" min="0"></label>
+              <label><span>最大退避（毫秒）</span><input id="agentMaxBackoffMillis" type="number" min="0"></label>
+              <label><span>熔断失败次数</span><input id="agentFailureThreshold" type="number" min="0"></label>
+              <label><span>熔断恢复（毫秒）</span><input id="agentOpenDurationMillis" type="number" min="0"></label>
+            </div>
+          </details>
+          <div class="secret-editor">
+            <label><span>API Key</span><input id="agentAPIKey" type="password" autocomplete="new-password" placeholder="留空表示保持现有值"></label>
+            <label class="check-row"><input id="clearAgentAPIKey" type="checkbox"><span>清除本地保存的 API Key</span></label>
+            <p class="form-hint">环境变量 <code>RIN_AGENT_API_KEY</code> 会覆盖这里的本地值；网页和接口都不会回显密钥。</p>
+          </div>
+          <div id="agentConfigNotice" class="view-error" role="status" hidden></div>
+          <div class="form-actions"><button class="button primary" type="submit">保存模型配置</button></div>
+        </form>
         <div class="section-heading"><div><h2>运行配置</h2><p>只显示元数据和凭据是否存在。修改模型、Policy 或权限后请重启 Rin。</p></div></div>
         <div id="configSummary" class="config-grid"></div>
       </section>

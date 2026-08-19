@@ -117,11 +117,18 @@ func LoadConfig(path string) (Config, error) {
 	if err := privatefile.ReadJSON(path, maxConfigBytes, &config); err != nil {
 		return Config{}, fmt.Errorf("load Agent configuration: %w", err)
 	}
-	sealed, err := normalizeConfig(config)
+	sealed, err := ValidateConfig(config)
 	if err != nil {
 		return Config{}, fmt.Errorf("validate Agent configuration: %w", err)
 	}
 	return sealed, nil
+}
+
+// ValidateConfig applies the same defaults and strict bounds used when the
+// daemon loads a private Agent configuration. Callers that edit configuration
+// must validate before persisting it.
+func ValidateConfig(config Config) (Config, error) {
+	return normalizeConfig(config)
 }
 
 func normalizeConfig(config Config) (Config, error) {

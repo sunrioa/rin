@@ -29,6 +29,7 @@ type Service struct {
 	skillStore       SkillStore
 	control          *controlplane.Service
 	controlPrincipal host.Principal
+	agentConfig      AgentConfigEditor
 	diagnostics      DiagnosticsProvider
 	now              func() time.Time
 	newID            func() (string, error)
