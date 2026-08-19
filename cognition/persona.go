@@ -65,6 +65,16 @@ type PersonaProvider interface {
 	Health(context.Context) ProviderHealth
 }
 
+var ErrPersonaConflict = errors.New("persona snapshot revision conflict")
+
+// PersonaStore adds one revision-checked mutation to PersonaProvider. Callers
+// edit a snapshot as a whole so profile and binding changes become visible
+// atomically and can never leave a binding pointing at a missing profile.
+type PersonaStore interface {
+	PersonaProvider
+	CompareAndSwap(context.Context, PersonaSnapshot) (PersonaSnapshot, error)
+}
+
 type LocalPersonaProvider struct {
 	mu       sync.RWMutex
 	revision uint64
@@ -105,6 +115,18 @@ func NewLocalPersonaProvider(
 		}
 		provider.bindings[key] = binding
 	}
+	return provider, nil
+}
+
+func RestoreLocalPersonaProvider(snapshot PersonaSnapshot) (*LocalPersonaProvider, error) {
+	if snapshot.Revision == 0 {
+		return nil, errors.New("persona snapshot revision must be positive")
+	}
+	provider, err := NewLocalPersonaProvider(snapshot.Profiles, snapshot.Bindings)
+	if err != nil {
+		return nil, err
+	}
+	provider.revision = snapshot.Revision
 	return provider, nil
 }
 
@@ -150,6 +172,42 @@ func (provider *LocalPersonaProvider) Snapshot(
 	}
 	provider.mu.RLock()
 	defer provider.mu.RUnlock()
+	return provider.snapshotLocked(), nil
+}
+
+func (provider *LocalPersonaProvider) CompareAndSwap(
+	ctx context.Context,
+	snapshot PersonaSnapshot,
+) (PersonaSnapshot, error) {
+	if err := requireContext(ctx); err != nil {
+		return PersonaSnapshot{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return PersonaSnapshot{}, err
+	}
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	if snapshot.Revision != provider.revision {
+		return PersonaSnapshot{}, ErrPersonaConflict
+	}
+	replacement, err := NewLocalPersonaProvider(snapshot.Profiles, snapshot.Bindings)
+	if err != nil {
+		return PersonaSnapshot{}, err
+	}
+	provider.profiles = replacement.profiles
+	provider.bindings = replacement.bindings
+	provider.revision++
+	return provider.snapshotLocked(), nil
+}
+
+func (provider *LocalPersonaProvider) Health(ctx context.Context) ProviderHealth {
+	if ctx == nil || ctx.Err() != nil {
+		return ProviderHealth{Code: "context_unavailable"}
+	}
+	return ProviderHealth{Available: true}
+}
+
+func (provider *LocalPersonaProvider) snapshotLocked() PersonaSnapshot {
 	snapshot := PersonaSnapshot{
 		Revision: provider.revision,
 		Profiles: make([]PersonaProfile, 0, len(provider.profiles)),
@@ -173,14 +231,7 @@ func (provider *LocalPersonaProvider) Snapshot(
 		}
 		return compareString(left.ControllerID, right.ControllerID)
 	})
-	return snapshot, nil
-}
-
-func (provider *LocalPersonaProvider) Health(ctx context.Context) ProviderHealth {
-	if ctx == nil || ctx.Err() != nil {
-		return ProviderHealth{Code: "context_unavailable"}
-	}
-	return ProviderHealth{Available: true}
+	return snapshot
 }
 
 func SealPersonaProfile(profile PersonaProfile) (PersonaProfile, error) {

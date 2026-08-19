@@ -172,7 +172,15 @@ func TestComposeHandlersKeepsRoutesSeparate(t *testing.T) {
 		response.Header().Set("X-Handler", "signals")
 		response.WriteHeader(http.StatusPartialContent)
 	})
-	handler := composeHandlers(control, skills, agent, plans, signals)
+	management := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("X-Handler", "management")
+		response.WriteHeader(http.StatusOK)
+	})
+	console := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("X-Handler", "console")
+		response.WriteHeader(http.StatusOK)
+	})
+	handler := composeHandlers(control, skills, agent, plans, signals, management, console)
 	for _, test := range []struct {
 		path, expected string
 		status         int
@@ -182,6 +190,8 @@ func TestComposeHandlersKeepsRoutesSeparate(t *testing.T) {
 		{path: "/skills/v1/list", expected: "skills", status: http.StatusOK},
 		{path: "/plans/v1/get", expected: "plans", status: http.StatusCreated},
 		{path: "/signals/v1/list", expected: "signals", status: http.StatusPartialContent},
+		{path: "/management/v1/info", expected: "management", status: http.StatusOK},
+		{path: "/console/", expected: "console", status: http.StatusOK},
 		{path: "/agent/v1/info", expected: "agent", status: http.StatusAccepted},
 	} {
 		response := httptest.NewRecorder()

@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rin Console</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">R</span>
+        <div><strong>Rin</strong><small>Console</small></div>
+      </div>
+      <nav aria-label="主导航">
+        <button class="nav-item active" data-view="overview">概览</button>
+        <button class="nav-item" data-view="actors">角色</button>
+        <button class="nav-item" data-view="tasks">任务</button>
+        <button class="nav-item" data-view="memory">记忆</button>
+        <button class="nav-item" data-view="persona">人格</button>
+        <button class="nav-item" data-view="skills">技能</button>
+        <button class="nav-item" data-view="connections">连接</button>
+        <button class="nav-item" data-view="settings">设置</button>
+      </nav>
+      <div class="sidebar-foot">
+        <span id="serviceDot" class="status-dot"></span>
+        <span id="serviceLabel">尚未连接</span>
+      </div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <div>
+          <p id="eyebrow">运行状态</p>
+          <h1 id="pageTitle">概览</h1>
+        </div>
+        <div class="toolbar">
+          <span id="lastUpdated" class="muted">未刷新</span>
+          <button id="refreshButton" class="button secondary">刷新</button>
+          <button id="lockButton" class="button secondary">锁定</button>
+        </div>
+      </header>
+
+      <section id="overview" class="view active">
+        <div class="metric-grid">
+          <article class="metric"><span>服务</span><strong id="metricService">未知</strong><small id="metricVersion">Rin</small></article>
+          <article class="metric"><span>世界</span><strong id="metricWorlds">0</strong><small>已发布世界</small></article>
+          <article class="metric"><span>角色</span><strong id="metricActors">0</strong><small>当前可见角色</small></article>
+          <article class="metric"><span>控制源</span><strong id="metricControl">-</strong><small>内部 / 外部</small></article>
+        </div>
+        <div class="section-heading"><div><h2>连接状态</h2><p>Rin、游戏 Host 与 Agent 的当前关系。</p></div></div>
+        <div id="overviewTable" class="table-wrap"></div>
+        <div class="section-heading"><div><h2>需要处理</h2><p>离线、授权和执行失败会集中显示在这里。</p></div></div>
+        <div id="attentionList" class="notice-list"></div>
+      </section>
+
+      <section id="actors" class="view">
+        <div class="section-heading"><div><h2>角色</h2><p>所有 Adapter 发布给同一 Rin 的角色。</p></div></div>
+        <div id="actorTable" class="table-wrap"></div>
+      </section>
+
+      <section id="tasks" class="view">
+        <div class="section-heading"><div><h2>任务检查</h2><p>按 Task ID 查看阶段、步骤和公开执行时间线。</p></div></div>
+        <form id="taskLookupForm" class="inline-form">
+          <label><span>Task ID</span><input id="taskId" autocomplete="off" placeholder="task.example"></label>
+          <button class="button primary" type="submit">查看任务</button>
+        </form>
+        <div id="taskTable" class="table-wrap"></div>
+        <div id="taskDetail" class="detail-surface empty-state">输入 Task ID 后查看任务。</div>
+      </section>
+
+      <section id="memory" class="view">
+        <div class="section-heading">
+          <div><h2>记忆卡片</h2><p>公共卡片会被所有 Adapter 的内部 Agent 使用；角色记忆仍留在各自世界。</p></div>
+          <button id="newMemoryButton" class="button primary">新增记忆</button>
+        </div>
+        <div class="filterbar">
+          <div class="segmented" role="tablist" aria-label="记忆范围">
+            <button class="active" data-memory-scope="common">公共</button>
+          </div>
+          <input id="memorySearch" class="search" type="search" placeholder="搜索记忆内容">
+        </div>
+        <div id="memoryList" class="memory-grid"></div>
+      </section>
+
+      <section id="persona" class="view">
+        <div class="section-heading"><div><h2>默认人格</h2><p>未绑定专属人格的角色会继承这里的设置。</p></div><span id="personaRevision" class="revision">revision -</span></div>
+        <form id="personaForm" class="editor-form">
+          <div class="field-grid">
+            <label class="wide"><span>身份设定</span><textarea id="personaIdentity" rows="5"></textarea></label>
+            <label><span>表达语气</span><textarea id="personaVoice" rows="4"></textarea></label>
+            <label><span>性格特征</span><textarea id="personaTraits" rows="4" placeholder="每行一个"></textarea></label>
+            <label><span>价值取向</span><textarea id="personaValues" rows="4" placeholder="每行一个"></textarea></label>
+            <label><span>呈现规则</span><textarea id="personaRules" rows="4" placeholder="每行一个"></textarea></label>
+          </div>
+          <div class="form-actions"><button class="button primary" type="submit">保存人格</button></div>
+        </form>
+      </section>
+
+      <section id="skills" class="view">
+        <div class="section-heading"><div><h2>技能目录</h2><p>通用攻略与 Adapter 专属流程只在相关任务中加载。</p></div></div>
+        <div id="skillTable" class="table-wrap"></div>
+      </section>
+
+      <section id="connections" class="view">
+        <div class="section-heading"><div><h2>连接</h2><p>一个常驻 Rin 服务可同时服务多个游戏和外部 Agent。</p></div></div>
+        <div class="connection-list">
+          <div class="connection-row"><div><strong>Control API</strong><small>游戏 Host 与统一动作入口</small></div><code>http://127.0.0.1:7375/control/v2</code><span class="state good">本地</span></div>
+          <div class="connection-row"><div><strong>MCP</strong><small>Codex、Claude Code、OpenClaw</small></div><code>rin mcp</code><button class="button secondary copy" data-copy="rin mcp install">复制安装命令</button></div>
+          <div class="connection-row"><div><strong>Adapter</strong><small>Minecraft、视觉小说与未来游戏</small></div><code>rin doctor</code><button class="button secondary copy" data-copy="rin doctor">复制诊断命令</button></div>
+        </div>
+      </section>
+
+      <section id="settings" class="view">
+        <div class="section-heading"><div><h2>本地设置</h2><p>凭据只保存在当前浏览器会话，不写入页面或日志。</p></div></div>
+        <form id="settingsForm" class="editor-form narrow">
+          <label><span>Control Token</span><input id="settingsToken" type="password" autocomplete="off"></label>
+          <div class="form-actions"><button class="button primary" type="submit">更新连接</button></div>
+        </form>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="authDialog" class="dialog" aria-labelledby="authTitle">
+    <form id="authForm" method="dialog">
+      <h2 id="authTitle">连接本地 Rin</h2>
+      <p>输入启动 `rin-control` 时使用的 Control Token。</p>
+      <label><span>Control Token</span><input id="authToken" type="password" autocomplete="off" required></label>
+      <div class="form-actions"><button class="button primary" value="default">连接</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="memoryDialog" class="dialog wide-dialog" aria-labelledby="memoryDialogTitle">
+    <form id="memoryForm" method="dialog">
+      <h2 id="memoryDialogTitle">新增公共记忆</h2>
+      <input id="memoryId" type="hidden">
+      <label><span>内容</span><textarea id="memoryContent" rows="7" required></textarea></label>
+      <label><span>标签</span><input id="memoryTags" placeholder="persona, preference"></label>
+      <label class="check-row"><input id="memoryPinned" type="checkbox"><span>置顶，优先进入相关上下文</span></label>
+      <div class="form-actions"><button type="button" id="cancelMemory" class="button secondary">取消</button><button class="button primary" value="default">保存</button></div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="app.js" defer></script>
+</body>
+</html>

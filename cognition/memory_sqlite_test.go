@@ -79,6 +79,38 @@ func TestSQLiteMemoryPersistsFTSRecallAndPrivateVisibility(t *testing.T) {
 	}
 }
 
+func TestSQLiteMemoryRetrievesCommonContextAcrossActorNamespaces(t *testing.T) {
+	provider, err := cognition.OpenSQLiteMemoryProvider(
+		filepath.Join(t.TempDir(), "memory.db"), cognition.LocalMemoryConfig{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer provider.Close()
+	record := sqliteMemory(
+		"memory.common", cognition.MemoryCommonSemantic, "",
+		"A common persona note about concise replies.",
+	)
+	record.Namespace = cognition.CommonMemoryNamespace()
+	record.Provenance = cognition.MemoryProvenance{
+		Source: cognition.MemorySourcePlayer, SourceID: "console.memory.common",
+	}
+	if _, err := provider.Append(context.Background(), record); err != nil {
+		t.Fatal(err)
+	}
+	matches, err := provider.Retrieve(context.Background(), cognition.MemoryQuery{
+		SessionID: "session.other", ActorID: "actor.other", Terms: []string{"concise"},
+		Now:    host.Timepoint{Clock: host.ClockRealtime, Value: time.Now().UnixMilli()},
+		Budget: cognition.MemoryBudget{MaxRecords: 8, MaxCharacters: 2_000},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 || matches[0].Record.MemoryID != record.MemoryID {
+		t.Fatalf("common matches = %#v", matches)
+	}
+}
+
 func TestSQLiteMemoryConsolidateForgetAndJSONLRoundTrip(t *testing.T) {
 	provider, err := cognition.OpenSQLiteMemoryProvider(
 		filepath.Join(t.TempDir(), "memory.db"), cognition.LocalMemoryConfig{},

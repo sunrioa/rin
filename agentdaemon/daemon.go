@@ -16,6 +16,7 @@ import (
 	"github.com/sunrioa/rin/provider/openai"
 	"github.com/sunrioa/rin/signalbox"
 	"github.com/sunrioa/rin/taskstate"
+	"github.com/sunrioa/rin/timeline"
 )
 
 type Options struct {
@@ -29,6 +30,7 @@ type Options struct {
 	EmbeddingProvider         provider.EmbeddingProvider
 	Skills                    cognition.SkillProvider
 	LearnedSkills             cognition.SkillWriter
+	Personas                  cognition.PersonaProvider
 	Memory                    cognition.MemoryProvider
 	OutcomesRecordedByControl bool
 	PlanStore                 *taskstate.Store
@@ -38,6 +40,7 @@ type Options struct {
 type Daemon struct {
 	handler      http.Handler
 	service      *agentapi.Service
+	taskClient   *agentapi.ClientService
 	tasks        *cognition.FileTaskStore
 	memory       cognition.MemoryProvider
 	memoryCloser interface{ Close() error }
@@ -91,9 +94,12 @@ func Open(options Options) (*Daemon, error) {
 			return nil, err
 		}
 	}
-	personas, err := cognition.NewLocalPersonaProvider(config.Personas, config.PersonaBindings)
-	if err != nil {
-		return nil, err
+	personas := options.Personas
+	if personas == nil {
+		personas, err = cognition.NewLocalPersonaProvider(config.Personas, config.PersonaBindings)
+		if err != nil {
+			return nil, err
+		}
 	}
 	skills := options.Skills
 	learnedSkills := options.LearnedSkills
@@ -235,6 +241,11 @@ func Open(options Options) (*Daemon, error) {
 	if err != nil {
 		return nil, cleanupStores(err)
 	}
+	taskClient, err := agentapi.NewClientService(service, config.ClientPrincipal)
+	if err != nil {
+		service.Close()
+		return nil, cleanupStores(err)
+	}
 	handler, err := agentapi.NewHTTPHandler(service, agentapi.HTTPOptions{
 		Token: options.HTTPToken, ClientPrincipal: config.ClientPrincipal,
 	})
@@ -243,7 +254,7 @@ func Open(options Options) (*Daemon, error) {
 		return nil, cleanupStores(err)
 	}
 	daemon := &Daemon{
-		handler: handler, service: service, tasks: tasks, memory: memory,
+		handler: handler, service: service, taskClient: taskClient, tasks: tasks, memory: memory,
 		memoryCloser: memoryCloser, decisions: decisions,
 	}
 	if options.Signals != nil {
@@ -367,6 +378,33 @@ func (function closeFunc) Close() error { return function() }
 
 func (daemon *Daemon) Handler() http.Handler {
 	return daemon.handler
+}
+
+func (daemon *Daemon) SnapshotTasks(ctx context.Context) (cognition.TaskSnapshot, error) {
+	return daemon.tasks.Snapshot(ctx)
+}
+
+func (daemon *Daemon) GetTask(ctx context.Context, taskID string) (cognition.TaskSession, error) {
+	return daemon.taskClient.GetTask(ctx, taskID)
+}
+
+func (daemon *Daemon) GetTaskTimeline(ctx context.Context, query timeline.Query) (timeline.Page, error) {
+	return daemon.taskClient.GetTaskTimeline(ctx, query)
+}
+
+func (daemon *Daemon) RunTask(ctx context.Context, taskID string) (cognition.TaskSession, error) {
+	dispatch, err := daemon.taskClient.RunTask(ctx, taskID)
+	return dispatch.Task, err
+}
+
+func (daemon *Daemon) ResumeTask(ctx context.Context, taskID string) (cognition.TaskSession, error) {
+	dispatch, err := daemon.taskClient.ResumeTask(ctx, taskID)
+	return dispatch.Task, err
+}
+
+func (daemon *Daemon) CancelTask(ctx context.Context, taskID string) (cognition.TaskSession, error) {
+	dispatch, err := daemon.taskClient.CancelTask(ctx, taskID)
+	return dispatch.Task, err
 }
 
 // Close stops task workers before releasing persistent task and memory locks.

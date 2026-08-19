@@ -349,6 +349,7 @@ func (provider *SQLiteMemoryProvider) Retrieve(
 		}
 		matches = append(matches, MemoryMatch{Record: record, Score: score, Reasons: reasons})
 	}
+	matches = removeSupersededMemoryMatches(matches)
 	slices.SortFunc(matches, compareMemoryMatches)
 	selected := make([]MemoryMatch, 0, min(len(matches), int(sealed.Budget.MaxRecords)))
 	characters := 0
@@ -1062,13 +1063,14 @@ func mergeRecallCandidate(
 
 func memoryCandidatePredicate(alias string, query MemoryQuery) (string, []any) {
 	parts := make([]string, 0, 5)
-	arguments := []any{query.SessionID, query.ActorID}
+	arguments := make([]any, 0, 4*5+2)
 	for _, namespace := range memoryQueryNamespaces(query) {
-		parts = append(parts, "("+alias+".controller_id = ? AND "+alias+".domain = ?)")
-		arguments = append(arguments, namespace.ControllerID, string(namespace.Domain))
+		parts = append(parts, "("+alias+".session_id = ? AND "+alias+".actor_id = ? AND "+
+			alias+".controller_id = ? AND "+alias+".domain = ?)")
+		arguments = append(arguments, namespace.SessionID, namespace.ActorID,
+			namespace.ControllerID, string(namespace.Domain))
 	}
-	predicate := alias + ".session_id = ? AND " + alias + ".actor_id = ?" +
-		" AND " + alias + ".forgotten = 0 AND (" + strings.Join(parts, " OR ") + ")" +
+	predicate := alias + ".forgotten = 0 AND (" + strings.Join(parts, " OR ") + ")" +
 		" AND (" + alias + ".expires_clock IS NULL OR " + alias + ".expires_clock != ?" +
 		" OR " + alias + ".expires_value > ?)"
 	arguments = append(arguments, string(query.Now.Clock), query.Now.Value)

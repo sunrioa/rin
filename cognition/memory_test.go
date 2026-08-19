@@ -50,6 +50,59 @@ func TestMemoryProviderSeparatesSharedAndControllerPrivateMemory(t *testing.T) {
 	}
 }
 
+func TestMemoryProviderSharesOnlyExplicitCommonContextAcrossActors(t *testing.T) {
+	provider := newMemoryProvider(t)
+	common := memoryRecord(
+		"memory.common", cognition.CommonMemoryNamespace(),
+		"The companion speaks concise natural Chinese.", cognition.MemorySourcePlayer, false, 1,
+	)
+	common.Tags = []string{"persona"}
+	appendMemory(t, provider, common)
+	appendMemory(t, provider, memoryRecord(
+		"memory.world", actorMemoryNamespace(), "The first actor found a village.",
+		cognition.MemorySourceHostOutcome, true, 2,
+	))
+
+	otherActor := retrieveMemory(t, provider, cognition.MemoryQuery{
+		SessionID: "session.other", ActorID: "actor.other", Terms: []string{"companion"},
+		Now: eventTime(5), Budget: cognition.MemoryBudget{MaxRecords: 10, MaxCharacters: 1_000},
+	})
+	if ids := memoryMatchIDs(otherActor); !reflect.DeepEqual(ids, []string{"memory.common"}) {
+		t.Fatalf("unexpected cross-actor visibility: %v", ids)
+	}
+
+	modelCommon := common
+	modelCommon.MemoryID = "memory.common-model"
+	modelCommon.Provenance = cognition.MemoryProvenance{
+		Source: cognition.MemorySourceModel, SourceID: "decision.common",
+	}
+	if _, err := provider.Append(context.Background(), modelCommon); err == nil {
+		t.Fatal("model inference entered common semantic memory")
+	}
+}
+
+func TestMemoryProviderHidesSupersededActiveRecords(t *testing.T) {
+	provider := newMemoryProvider(t)
+	first := memoryRecord(
+		"memory.card.one", cognition.CommonMemoryNamespace(), "Old public context.",
+		cognition.MemorySourcePlayer, false, 1,
+	)
+	second := memoryRecord(
+		"memory.card.two", cognition.CommonMemoryNamespace(), "Updated public context.",
+		cognition.MemorySourcePlayer, false, 2,
+	)
+	second.Supersedes = []string{first.MemoryID}
+	appendMemory(t, provider, first)
+	appendMemory(t, provider, second)
+	matches := retrieveMemory(t, provider, cognition.MemoryQuery{
+		SessionID: "session.any", ActorID: "actor.any", Now: eventTime(5),
+		Budget: cognition.MemoryBudget{MaxRecords: 10, MaxCharacters: 1_000},
+	})
+	if ids := memoryMatchIDs(matches); !reflect.DeepEqual(ids, []string{second.MemoryID}) {
+		t.Fatalf("superseded matches = %v", ids)
+	}
+}
+
 func TestMemoryProviderDoesNotPromoteModelInferenceToSharedFact(t *testing.T) {
 	provider := newMemoryProvider(t)
 	modelFact := memoryRecord(

@@ -15,12 +15,31 @@ import (
 type MemoryDomain string
 
 const (
+	// MemoryCommonSemantic contains user-maintained context that is intentionally
+	// shared by every actor and adapter connected to one Rin instance.
+	MemoryCommonSemantic    MemoryDomain = "common-semantic"
 	MemoryActorEpisodic     MemoryDomain = "actor-episodic"
 	MemoryActorSemantic     MemoryDomain = "actor-semantic"
 	MemoryControllerWorking MemoryDomain = "controller-working"
 	MemoryControllerPrivate MemoryDomain = "controller-private"
 	MemoryControllerBelief  MemoryDomain = "controller-belief"
 )
+
+const (
+	commonMemorySessionID = "session.rin-common"
+	commonMemoryActorID   = "actor.rin-common"
+)
+
+// CommonMemoryNamespace is the only namespace accepted for common semantic
+// memories. Keeping the reserved identity behind this helper avoids callers
+// accidentally turning a world or actor record into cross-adapter context.
+func CommonMemoryNamespace() MemoryNamespace {
+	return MemoryNamespace{
+		SessionID: commonMemorySessionID,
+		ActorID:   commonMemoryActorID,
+		Domain:    MemoryCommonSemantic,
+	}
+}
 
 type MemorySource string
 
@@ -299,6 +318,7 @@ func (provider *LocalMemoryProvider) Retrieve(
 			})
 		}
 	}
+	candidates = removeSupersededMemoryMatches(candidates)
 	slices.SortFunc(candidates, compareMemoryMatches)
 	selected := make([]MemoryMatch, 0, min(len(candidates), int(sealed.Budget.MaxRecords)))
 	usedCharacters := 0
@@ -326,6 +346,19 @@ func (provider *LocalMemoryProvider) Retrieve(
 		provider.revision++
 	}
 	return selected, nil
+}
+
+func removeSupersededMemoryMatches(matches []MemoryMatch) []MemoryMatch {
+	superseded := make(map[string]struct{})
+	for _, match := range matches {
+		for _, memoryID := range match.Record.Supersedes {
+			superseded[memoryNamespaceKey(match.Record.Namespace)+"\x00"+memoryID] = struct{}{}
+		}
+	}
+	return slices.DeleteFunc(matches, func(match MemoryMatch) bool {
+		_, hidden := superseded[memoryRecordKey(match.Record)]
+		return hidden
+	})
 }
 
 func (provider *LocalMemoryProvider) Consolidate(
@@ -634,6 +667,12 @@ func sealMemoryQuery(query MemoryQuery) (MemoryQuery, error) {
 }
 
 func validateMemoryNamespace(namespace MemoryNamespace) error {
+	if namespace.Domain == MemoryCommonSemantic {
+		if namespace != CommonMemoryNamespace() {
+			return errors.New("common semantic memory must use the reserved common namespace")
+		}
+		return nil
+	}
 	if err := validateMemoryOpaqueID("session_id", namespace.SessionID); err != nil {
 		return err
 	}
@@ -670,6 +709,12 @@ func validateMemoryProvenance(provenance MemoryProvenance, namespace MemoryNames
 	}
 	if provenance.Source == MemorySourceModel && !privateMemoryDomain(namespace.Domain) {
 		return errors.New("model-generated memory must remain controller-private")
+	}
+	if namespace.Domain == MemoryCommonSemantic {
+		if provenance.Authoritative ||
+			(provenance.Source != MemorySourcePlayer && provenance.Source != MemorySourceSystem) {
+			return errors.New("common semantic memory must be non-authoritative player or system context")
+		}
 	}
 	return nil
 }
@@ -720,6 +765,10 @@ func sealMemoryTombstone(tombstone MemoryTombstone) (MemoryTombstone, error) {
 }
 
 func memoryVisibleToQuery(record MemoryRecord, query MemoryQuery) bool {
+	if record.Namespace.Domain == MemoryCommonSemantic {
+		return record.Namespace == CommonMemoryNamespace() &&
+			(len(query.Domains) == 0 || slices.Contains(query.Domains, MemoryCommonSemantic))
+	}
 	if record.Namespace.SessionID != query.SessionID || record.Namespace.ActorID != query.ActorID {
 		return false
 	}
@@ -732,7 +781,9 @@ func memoryVisibleToQuery(record MemoryRecord, query MemoryQuery) bool {
 func memoryQueryNamespaces(query MemoryQuery) []MemoryNamespace {
 	domains := query.Domains
 	if len(domains) == 0 {
-		domains = []MemoryDomain{MemoryActorEpisodic, MemoryActorSemantic}
+		domains = []MemoryDomain{
+			MemoryCommonSemantic, MemoryActorEpisodic, MemoryActorSemantic,
+		}
 		if query.ControllerID != "" {
 			domains = append(domains,
 				MemoryControllerWorking, MemoryControllerPrivate, MemoryControllerBelief,
@@ -741,6 +792,10 @@ func memoryQueryNamespaces(query MemoryQuery) []MemoryNamespace {
 	}
 	result := make([]MemoryNamespace, 0, len(domains))
 	for _, domain := range domains {
+		if domain == MemoryCommonSemantic {
+			result = append(result, CommonMemoryNamespace())
+			continue
+		}
 		namespace := MemoryNamespace{
 			SessionID: query.SessionID, ActorID: query.ActorID, Domain: domain,
 		}
@@ -872,7 +927,7 @@ func validateMemoryOpaqueID(field, value string) error {
 
 func validMemoryDomain(domain MemoryDomain) bool {
 	switch domain {
-	case MemoryActorEpisodic, MemoryActorSemantic, MemoryControllerWorking,
+	case MemoryCommonSemantic, MemoryActorEpisodic, MemoryActorSemantic, MemoryControllerWorking,
 		MemoryControllerPrivate, MemoryControllerBelief:
 		return true
 	default:

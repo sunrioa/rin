@@ -19,9 +19,11 @@ import (
 
 	"github.com/sunrioa/rin/agentdaemon"
 	"github.com/sunrioa/rin/cognition"
+	"github.com/sunrioa/rin/consoleui"
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/internal/jsonwire"
+	"github.com/sunrioa/rin/managementapi"
 	"github.com/sunrioa/rin/policy"
 	"github.com/sunrioa/rin/signalbox"
 	"github.com/sunrioa/rin/skillapi"
@@ -97,6 +99,18 @@ func run(
 			result = errors.Join(result, semanticCloser.Close())
 		}()
 	}
+	personas, err := cognition.OpenFilePersonaStore(
+		filepath.Join(config.dataDir, "agent", "personas.json"),
+		cognition.PersonaSnapshot{
+			Revision: 1, Profiles: agentConfig.Personas, Bindings: agentConfig.PersonaBindings,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("open shared personas: %w", err)
+	}
+	defer func() {
+		result = errors.Join(result, personas.Close())
+	}()
 	outcomeSink, err := cognition.NewOutcomeMemorySink(sharedMemory)
 	if err != nil {
 		return fmt.Errorf("create Outcome memory projection: %w", err)
@@ -188,7 +202,7 @@ func run(
 		internalAgent, err = agentdaemon.Open(agentdaemon.Options{
 			Config: agentConfig, DataDir: config.dataDir, Control: service,
 			HTTPToken: config.agentToken, APIKey: config.agentAPIKey,
-			Skills: catalog, LearnedSkills: learnedSkills,
+			Skills: catalog, LearnedSkills: learnedSkills, Personas: personas,
 			Memory: sharedMemory, OutcomesRecordedByControl: true,
 			PlanStore: planStore, Signals: signals,
 		})
@@ -200,7 +214,24 @@ func run(
 		}()
 		agentHandler = internalAgent.Handler()
 	}
-	rootHandler := composeHandlers(handler, skillHandler, agentHandler, planHandler, signalHandler)
+	var taskManagers []managementapi.TaskManager
+	if internalAgent != nil {
+		taskManagers = append(taskManagers, internalAgent)
+	}
+	managementService, err := managementapi.New(personas, sharedMemory, taskManagers...)
+	if err != nil {
+		return err
+	}
+	managementHandler, err := managementapi.NewHTTPHandler(
+		managementService, managementapi.HTTPOptions{Token: config.token},
+	)
+	if err != nil {
+		return err
+	}
+	rootHandler := composeHandlers(
+		handler, skillHandler, agentHandler, planHandler, signalHandler, managementHandler,
+		consoleui.NewHandler(),
+	)
 	listener, err := net.Listen("tcp", config.address)
 	if err != nil {
 		return fmt.Errorf("listen for Host Control: %w", err)
@@ -375,6 +406,13 @@ func composeHandlers(
 	}
 	if len(additional) > 1 && additional[1] != nil {
 		mux.Handle("/signals/", additional[1])
+	}
+	if len(additional) > 2 && additional[2] != nil {
+		mux.Handle("/management/", additional[2])
+	}
+	if len(additional) > 3 && additional[3] != nil {
+		mux.Handle("/console", additional[3])
+		mux.Handle("/console/", additional[3])
 	}
 	if agentHandler != nil {
 		mux.Handle("/agent/", agentHandler)
