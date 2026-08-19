@@ -260,7 +260,7 @@ func TestAgentRuntimeCarriesLatestOutcomeAcrossMultipleDecisionRounds(t *testing
 	}
 }
 
-func TestAgentRuntimeCompletesSurvivalBootstrapAcrossCoarsePlanPhases(t *testing.T) {
+func TestAgentRuntimeCompletesLongGameGoalAcrossCoarsePlanPhases(t *testing.T) {
 	fixture := newAgentRuntimeFixture(t)
 	capabilityIDs := []string{
 		"resource.harvest",
@@ -271,6 +271,22 @@ func TestAgentRuntimeCompletesSurvivalBootstrapAcrossCoarsePlanPhases(t *testing
 		"crafting.craft",
 		"smelting.smelt",
 		"survival.eat",
+		"resource.harvest",
+		"crafting.craft",
+		"building.place_blueprint",
+		"world.activate_portal",
+		"navigation.dimension_transfer",
+		"navigation.search_landmark",
+		"combat.attack",
+		"inventory.pickup",
+		"navigation.dimension_transfer",
+		"navigation.throw_ender_eye",
+		"navigation.travel_heading",
+		"terrain.stair_down",
+		"navigation.search_landmark",
+		"world.insert_ender_eye",
+		"navigation.dimension_transfer",
+		"combat.ender_dragon",
 	}
 	fixture.environment.catalog.Specs = make([]host.CapabilitySpec, 0, len(capabilityIDs))
 	seenCapabilities := make(map[string]struct{}, len(capabilityIDs))
@@ -294,35 +310,95 @@ func TestAgentRuntimeCompletesSurvivalBootstrapAcrossCoarsePlanPhases(t *testing
 		}
 		if index == 0 {
 			decision.PlanDraft = &taskstate.Draft{
-				Phase: "Bootstrap", MaxReplans: 2,
+				Phase: "Survival", MaxReplans: 3,
 				Steps: []taskstate.StepDraft{
 					{
-						StepID: "step.workstation", Title: "Establish workstation",
-						Objective: "Gather wood and establish basic crafting.", MaxAttempts: 3,
+						StepID: "step.survival", Title: "Survival and basic tools",
+						Objective: "Establish crafting, stone tools and cooked food.", MaxAttempts: 3,
 						CapabilityHints: []host.CapabilityRef{
 							{ID: "resource.harvest", Version: "2.0.0"},
 							{ID: "crafting.craft", Version: "2.0.0"},
 							{ID: "inventory.place", Version: "2.0.0"},
 						},
 						SuccessConditions: []taskstate.PlanCondition{{
-							ConditionID: "condition.workstation-ready",
+							ConditionID: "condition.survival-ready",
 							Kind:        taskstate.EvidenceOperationOutcome,
-							Summary:     "The Host confirms the workstation and first tool are ready.",
+							Summary:     "The Host confirms basic tools and cooked food are ready.",
 						}},
 					},
 					{
-						StepID: "step.cooked-food", Title: "Prepare cooked food",
-						Objective: "Gather stone and food, then cook and eat it.", MaxAttempts: 3,
+						StepID: "step.expedition", Title: "Prepare expedition supplies",
+						Objective: "Gather and craft the bounded expedition loadout.", MaxAttempts: 3,
 						CapabilityHints: []host.CapabilityRef{
 							{ID: "resource.harvest", Version: "2.0.0"},
 							{ID: "crafting.craft", Version: "2.0.0"},
-							{ID: "smelting.smelt", Version: "2.0.0"},
-							{ID: "survival.eat", Version: "2.0.0"},
 						},
 						SuccessConditions: []taskstate.PlanCondition{{
-							ConditionID: "condition.cooked-food-consumed",
+							ConditionID: "condition.expedition-ready",
 							Kind:        taskstate.EvidenceOperationOutcome,
-							Summary:     "The Host confirms cooked food was consumed.",
+							Summary:     "The Host confirms the expedition supplies are ready.",
+						}},
+					},
+					{
+						StepID: "step.nether", Title: "Reach a Nether fortress",
+						Objective:   "Build and activate a portal, enter the Nether and locate a fortress.",
+						MaxAttempts: 3,
+						CapabilityHints: []host.CapabilityRef{
+							{ID: "building.place_blueprint", Version: "2.0.0"},
+							{ID: "world.activate_portal", Version: "2.0.0"},
+							{ID: "navigation.dimension_transfer", Version: "2.0.0"},
+							{ID: "navigation.search_landmark", Version: "2.0.0"},
+						},
+						SuccessConditions: []taskstate.PlanCondition{{
+							ConditionID: "condition.nether-fortress-found",
+							Kind:        taskstate.EvidenceOperationOutcome,
+							Summary:     "The Host confirms the actor reached a Nether fortress.",
+						}},
+					},
+					{
+						StepID: "step.blaze-pearls", Title: "Collect blaze rods and pearls",
+						Objective:   "Collect the bounded blaze rod and Ender Pearl supplies.",
+						MaxAttempts: 3,
+						CapabilityHints: []host.CapabilityRef{
+							{ID: "combat.attack", Version: "2.0.0"},
+							{ID: "inventory.pickup", Version: "2.0.0"},
+							{ID: "navigation.dimension_transfer", Version: "2.0.0"},
+						},
+						SuccessConditions: []taskstate.PlanCondition{{
+							ConditionID: "condition.blaze-pearls-ready",
+							Kind:        taskstate.EvidenceOperationOutcome,
+							Summary:     "The Host confirms the required drops were collected and returned.",
+						}},
+					},
+					{
+						StepID: "step.stronghold", Title: "Open the End portal",
+						Objective:   "Triangulate, excavate, locate and activate the End portal.",
+						MaxAttempts: 3,
+						CapabilityHints: []host.CapabilityRef{
+							{ID: "navigation.throw_ender_eye", Version: "2.0.0"},
+							{ID: "navigation.travel_heading", Version: "2.0.0"},
+							{ID: "terrain.stair_down", Version: "2.0.0"},
+							{ID: "navigation.search_landmark", Version: "2.0.0"},
+							{ID: "world.insert_ender_eye", Version: "2.0.0"},
+							{ID: "navigation.dimension_transfer", Version: "2.0.0"},
+						},
+						SuccessConditions: []taskstate.PlanCondition{{
+							ConditionID: "condition.end-entered",
+							Kind:        taskstate.EvidenceOperationOutcome,
+							Summary:     "The Host confirms the actor entered the End.",
+						}},
+					},
+					{
+						StepID: "step.dragon", Title: "Defeat the Ender Dragon",
+						Objective:   "Destroy crystals and defeat the observed Ender Dragon.",
+						MaxAttempts: 3,
+						CapabilityHints: []host.CapabilityRef{{
+							ID: "combat.ender_dragon", Version: "2.0.0",
+						}},
+						SuccessConditions: []taskstate.PlanCondition{{
+							ConditionID: "condition.dragon-defeated",
+							Kind:        taskstate.EvidenceOperationOutcome,
+							Summary:     "The Host confirms dragon_defeated=true.",
 						}},
 					},
 				},
@@ -332,7 +408,7 @@ func TestAgentRuntimeCompletesSurvivalBootstrapAcrossCoarsePlanPhases(t *testing
 	}
 	decisions = append(decisions, cognition.ModelDecision{
 		Kind:    cognition.ModelDecisionComplete,
-		Summary: "The empty-hand survival bootstrap is complete.",
+		Summary: "The long game goal is complete.",
 	})
 	fixture.model.decisions = decisions
 
@@ -355,15 +431,15 @@ func TestAgentRuntimeCompletesSurvivalBootstrapAcrossCoarsePlanPhases(t *testing
 	fixture.control.submissionResults = results
 	plans := &runtimePlanStub{
 		control: fixture.control, principal: fixture.principal,
-		advanceAfter: []int{4, 8},
+		advanceAfter: []int{8, 10, 14, 17, 23, 24},
 	}
 	fixture.plans = plans
-	runtime := fixture.runtime(t, 64)
+	runtime := fixture.runtime(t, 96)
 	started, err := runtime.StartTask(context.Background(), cognition.StartTaskInput{
-		TaskID: "task.survival-bootstrap", HostID: "host.test", WorldID: "world.test",
+		TaskID: "task.ender-dragon", HostID: "host.test", WorldID: "world.test",
 		ActorID: "actor.mira", ControllerID: "controller.internal",
-		Goal:         "Start empty-handed, establish basic tools, cook food, and eat it.",
-		Tags:         []string{"minecraft.survival", "bootstrap"},
+		Goal:         "Start empty-handed and defeat the Ender Dragon.",
+		Tags:         []string{"minecraft.ender-dragon"},
 		PlanningMode: taskstate.PlanningRequired,
 	})
 	if err != nil {
@@ -373,14 +449,14 @@ func TestAgentRuntimeCompletesSurvivalBootstrapAcrossCoarsePlanPhases(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if completed.Status != cognition.TaskCompleted || completed.ActionCount != 8 ||
-		completed.ModelCalls != 9 || plans.plan.Status != taskstate.PlanCompleted {
-		t.Fatalf("survival bootstrap task = %#v, plan = %#v", completed, plans.plan)
+	if completed.Status != cognition.TaskCompleted || completed.ActionCount != 24 ||
+		completed.ModelCalls != 25 || plans.plan.Status != taskstate.PlanCompleted {
+		t.Fatalf("long game task = %#v, plan = %#v", completed, plans.plan)
 	}
-	if len(fixture.control.submissions) != 8 || len(plans.submissions) != 8 ||
-		plans.advancedSteps != 2 {
+	if len(fixture.control.submissions) != 24 || len(plans.submissions) != 24 ||
+		plans.advancedSteps != 6 {
 		t.Fatalf(
-			"survival submissions = %d, planned = %d, advanced phases = %d",
+			"long game submissions = %d, planned = %d, advanced phases = %d",
 			len(fixture.control.submissions), len(plans.submissions), plans.advancedSteps,
 		)
 	}
@@ -395,12 +471,21 @@ func TestAgentRuntimeCompletesSurvivalBootstrapAcrossCoarsePlanPhases(t *testing
 			}
 		}
 	}
+	phaseInputs := map[int]string{
+		8: "step.expedition", 10: "step.nether", 14: "step.blaze-pearls",
+		17: "step.stronghold", 23: "step.dragon",
+	}
+	for inputIndex, stepID := range phaseInputs {
+		plan := fixture.model.inputs[inputIndex].Plan
+		if plan == nil || plan.CurrentStepID != stepID {
+			t.Fatalf("model input %d plan step = %#v, want %q", inputIndex, plan, stepID)
+		}
+	}
 	if fixture.model.inputs[0].Plan != nil ||
-		fixture.model.inputs[4].Plan == nil ||
-		fixture.model.inputs[4].Plan.CurrentStepID != "step.cooked-food" ||
-		fixture.model.inputs[8].Plan == nil ||
-		fixture.model.inputs[8].Plan.Status != taskstate.PlanCompleted {
-		t.Fatalf("survival plan was not reused across coarse phases: %#v", fixture.model.inputs)
+		fixture.model.inputs[24].Plan == nil ||
+		fixture.model.inputs[24].Plan.Status != taskstate.PlanCompleted ||
+		plans.plan.ReplanCount != 0 {
+		t.Fatalf("long game plan was not reused across coarse phases: %#v", fixture.model.inputs)
 	}
 }
 

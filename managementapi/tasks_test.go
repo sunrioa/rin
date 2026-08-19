@@ -2,6 +2,7 @@ package managementapi
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/sunrioa/rin/cognition"
@@ -19,6 +20,7 @@ func (manager *fakeTaskManager) StartTask(
 	manager.task = cognition.TaskSession{
 		TaskID: input.TaskID, HostID: input.HostID, WorldID: input.WorldID,
 		ActorID: input.ActorID, ControllerID: input.ControllerID, Goal: input.Goal,
+		Tags:         append([]string(nil), input.Tags...),
 		PlanningMode: input.PlanningMode, Status: cognition.TaskActive,
 		Budget: input.Budget,
 	}
@@ -90,9 +92,13 @@ func TestTaskManagementReturnsSafeSummaryAndPublicTimeline(t *testing.T) {
 	started, err := service.StartTask(context.Background(), TaskStartInput{
 		TaskID: "task.console-start", HostID: "host.one", WorldID: "world.one",
 		ActorID: "actor.one", Goal: "Reach the End and defeat the dragon.",
+		Tags: []string{"minecraft.ender-dragon", "long-goal"},
 	})
 	if err != nil || started.PlanningMode != "required" || started.Status != "active" ||
-		manager.task.ControllerID != "controller.rin-console" || manager.task.Budget.MaxActions != 512 {
+		manager.task.ControllerID != "controller.rin-console" || manager.task.Budget.MaxActions != 512 ||
+		!slices.Equal(manager.task.Tags,
+			[]string{"console", "long-goal", "minecraft.ender-dragon"}) ||
+		!slices.Equal(started.Tags, manager.task.Tags) {
 		t.Fatalf("started task = %#v, stored = %#v, %v", started, manager.task, err)
 	}
 }

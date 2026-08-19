@@ -73,3 +73,11 @@ test("Console imports and removes learned SKILL.md documents", () => {
   assert.match(app, /function clearSkillDetail/);
   assert.match(app, /state\.selectedSkill && !state\.skills\.some/);
 });
+
+test("Console starts long goals with installed Skill trigger tags", () => {
+  assert.match(app, /taskSkillTrigger/);
+  assert.match(app, /skill\.triggers/);
+  assert.match(app, /tags,/);
+  assert.match(html, /id="taskSkillTrigger"/);
+  assert.match(html, /id="taskTags"/);
+});

@@ -241,6 +241,8 @@
         <label><span>World ID</span><input id="taskWorldId" required placeholder="world.example"></label>
         <label><span>Actor ID</span><input id="taskActorId" required placeholder="companion.example"></label>
         <label><span>规划方式</span><select id="taskPlanningMode"><option value="required">先生成阶段计划</option><option value="auto">按复杂度自动决定</option></select></label>
+        <label><span>流程攻略</span><select id="taskSkillTrigger"><option value="">不指定</option></select></label>
+        <label><span>其他标签</span><input id="taskTags" placeholder="例如 survival, exploration"></label>
         <label class="wide"><span>目标</span><textarea id="taskGoal" rows="5" required placeholder="例如：从当前状态准备物资并击败末影龙"></textarea></label>
       </div>
       <div class="form-actions"><button type="button" id="cancelTask" class="button secondary">取消</button><button class="button primary" value="default">开始任务</button></div>

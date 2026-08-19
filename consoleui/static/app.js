@@ -70,7 +70,7 @@ function bindForms() {
   $("#clearEmbeddingAPIKey").addEventListener("change", syncEmbeddingCredentialInputs);
   $("#embeddingAPIKey").addEventListener("input", syncEmbeddingCredentialInputs);
   onAsync($("#taskLookupForm"), "submit", lookupTask);
-  $("#newTaskButton").addEventListener("click", openTaskDialog);
+  onAsync($("#newTaskButton"), "click", openTaskDialog);
   onAsync($("#taskForm"), "submit", startTask);
   $("#cancelTask").addEventListener("click", () => $("#taskDialog").close());
   onAsync($("#personaForm"), "submit", savePersona);
@@ -648,7 +648,7 @@ async function loadTasks() {
   try {
     const result = await api("/management/v1/tasks/list", { body: { limit: 100 } });
     const tasks = result.tasks || [];
-    $("#taskTable").innerHTML = tasks.length ? `<table><thead><tr><th>目标</th><th>状态</th><th>阶段</th><th>动作 / 模型</th><th>更新</th></tr></thead><tbody>${tasks.map((task) => `<tr data-task-row="${escapeHTML(task.task_id)}"><td><strong>${escapeHTML(task.goal)}</strong><br><code>${escapeHTML(task.task_id)}</code></td><td><span class="state ${task.status === "completed" ? "good" : task.status === "failed" ? "bad" : "warn"}">${escapeHTML(task.status)}</span></td><td>${escapeHTML(task.current_plan_step_id || task.plan_id || "-")}</td><td>${task.action_count} / ${task.model_calls}</td><td>${new Date(task.updated_at_unix_millis).toLocaleString()}</td></tr>`).join("")}</tbody></table>` : '<div class="detail-surface empty-state">内部 Agent 当前没有任务。</div>';
+    $("#taskTable").innerHTML = tasks.length ? `<table><thead><tr><th>目标</th><th>状态</th><th>阶段</th><th>动作 / 模型</th><th>更新</th></tr></thead><tbody>${tasks.map((task) => `<tr data-task-row="${escapeHTML(task.task_id)}"><td><strong>${escapeHTML(task.goal)}</strong><br><code>${escapeHTML(task.task_id)}</code>${tagList(task.tags)}</td><td><span class="state ${task.status === "completed" ? "good" : task.status === "failed" ? "bad" : "warn"}">${escapeHTML(task.status)}</span></td><td>${escapeHTML(task.current_plan_step_id || task.plan_id || "-")}</td><td>${task.action_count} / ${task.model_calls}</td><td>${new Date(task.updated_at_unix_millis).toLocaleString()}</td></tr>`).join("")}</tbody></table>` : '<div class="detail-surface empty-state">内部 Agent 当前没有任务。</div>';
     $$('[data-task-row]').forEach((row) => onAsync(row, "click", () => showTask(row.dataset.taskRow)));
   } catch (error) {
     if (error.message.includes("not enabled")) {
@@ -659,24 +659,41 @@ async function loadTasks() {
   }
 }
 
-function openTaskDialog() {
+async function openTaskDialog() {
   const selected = state.actors.find((actor) => actor.actor_id === state.selectedActorId);
   if (selected) {
     $("#taskHostId").value = selected.host_id || "";
     $("#taskWorldId").value = selected.world_id || "";
     $("#taskActorId").value = selected.actor_id || "";
   }
+  if (!state.skills.length) {
+    const result = await api("/management/v1/skills/list", { body: { limit: 128 } });
+    state.skills = result.skills || [];
+  }
+  const triggers = new Map();
+  state.skills.forEach((skill) => (skill.triggers || []).forEach((trigger) => {
+    const labels = triggers.get(trigger) || [];
+    labels.push(skill.summary || skill.skill_id);
+    triggers.set(trigger, labels);
+  }));
+  $("#taskSkillTrigger").innerHTML = '<option value="">不指定</option>' +
+    [...triggers.entries()].sort(([left], [right]) => left.localeCompare(right))
+      .map(([trigger, labels]) => `<option value="${escapeHTML(trigger)}">${escapeHTML(trigger)} · ${escapeHTML(labels[0])}</option>`)
+      .join("");
   $("#taskDialog").showModal();
 }
 
 async function startTask(event) {
   event.preventDefault();
+  const selectedTrigger = $("#taskSkillTrigger").value;
+  const tags = [...new Set([selectedTrigger, ...splitValues($("#taskTags").value)].filter(Boolean))];
   const task = await api("/management/v1/tasks/start", { body: {
     host_id: $("#taskHostId").value.trim(),
     world_id: $("#taskWorldId").value.trim(),
     actor_id: $("#taskActorId").value.trim(),
     goal: $("#taskGoal").value.trim(),
     planning_mode: $("#taskPlanningMode").value,
+    tags,
   } });
   $("#taskDialog").close();
   $("#taskForm").reset();
@@ -701,12 +718,18 @@ async function showTask(taskId) {
     ["active", "paused", "waiting-confirmation"].includes(status) ? '<button class="button danger" data-task-action="cancel">取消</button>' : "",
   ].filter(Boolean).join("");
   $("#taskDetail").classList.remove("empty-state");
-  $("#taskDetail").innerHTML = `<div class="section-heading"><div><h2>${escapeHTML(result.task.goal)}</h2><p>${escapeHTML(result.task.task_id)} · ${escapeHTML(status)}</p></div><div class="toolbar">${controls}</div></div>${taskTimeline(result.timeline.events || [])}`;
+  $("#taskDetail").innerHTML = `<div class="section-heading"><div><h2>${escapeHTML(result.task.goal)}</h2><p>${escapeHTML(result.task.task_id)} · ${escapeHTML(status)}</p>${tagList(result.task.tags)}</div><div class="toolbar">${controls}</div></div>${taskTimeline(result.timeline.events || [])}`;
   $$('[data-task-action]').forEach((button) => onAsync(button, "click", async () => {
     await api("/management/v1/tasks/control", { body: { task_id: taskId, action: button.dataset.taskAction } });
     toast("任务状态已更新");
     await Promise.all([loadTasks(), showTask(taskId)]);
   }));
+}
+
+function tagList(tags) {
+  return Array.isArray(tags) && tags.length
+    ? `<div class="tags">${tags.map((tag) => `<span class="tag">${escapeHTML(tag)}</span>`).join("")}</div>`
+    : "";
 }
 
 function worldTable(worlds) {

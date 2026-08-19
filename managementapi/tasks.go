@@ -32,6 +32,7 @@ type TaskStartInput struct {
 	ActorID             string   `json:"actor_id"`
 	Goal                string   `json:"goal"`
 	PlanningMode        string   `json:"planning_mode,omitempty"`
+	Tags                []string `json:"tags,omitempty"`
 	AllowedCapabilities []string `json:"allowed_capabilities,omitempty"`
 }
 
@@ -41,25 +42,26 @@ type TaskListInput struct {
 }
 
 type TaskSummary struct {
-	TaskID              string `json:"task_id"`
-	HostID              string `json:"host_id"`
-	WorldID             string `json:"world_id"`
-	ActorID             string `json:"actor_id"`
-	Goal                string `json:"goal"`
-	Status              string `json:"status"`
-	PauseCode           string `json:"pause_code,omitempty"`
-	PlanningMode        string `json:"planning_mode"`
-	PlanID              string `json:"plan_id,omitempty"`
-	PlanRevision        uint64 `json:"plan_revision,omitempty"`
-	CurrentPlanStepID   string `json:"current_plan_step_id,omitempty"`
-	Step                uint32 `json:"step"`
-	MaxSteps            uint32 `json:"max_steps"`
-	ModelCalls          uint32 `json:"model_calls"`
-	ModelTokens         uint64 `json:"model_tokens"`
-	ActionCount         uint32 `json:"action_count"`
-	PendingOperationID  string `json:"pending_operation_id,omitempty"`
-	CreatedAtUnixMillis int64  `json:"created_at_unix_millis"`
-	UpdatedAtUnixMillis int64  `json:"updated_at_unix_millis"`
+	TaskID              string   `json:"task_id"`
+	HostID              string   `json:"host_id"`
+	WorldID             string   `json:"world_id"`
+	ActorID             string   `json:"actor_id"`
+	Goal                string   `json:"goal"`
+	Tags                []string `json:"tags,omitempty"`
+	Status              string   `json:"status"`
+	PauseCode           string   `json:"pause_code,omitempty"`
+	PlanningMode        string   `json:"planning_mode"`
+	PlanID              string   `json:"plan_id,omitempty"`
+	PlanRevision        uint64   `json:"plan_revision,omitempty"`
+	CurrentPlanStepID   string   `json:"current_plan_step_id,omitempty"`
+	Step                uint32   `json:"step"`
+	MaxSteps            uint32   `json:"max_steps"`
+	ModelCalls          uint32   `json:"model_calls"`
+	ModelTokens         uint64   `json:"model_tokens"`
+	ActionCount         uint32   `json:"action_count"`
+	PendingOperationID  string   `json:"pending_operation_id,omitempty"`
+	CreatedAtUnixMillis int64    `json:"created_at_unix_millis"`
+	UpdatedAtUnixMillis int64    `json:"updated_at_unix_millis"`
 }
 
 type TaskListOutput struct {
@@ -103,11 +105,18 @@ func (service *Service) StartTask(
 	if mode != taskstate.PlanningAuto && mode != taskstate.PlanningRequired {
 		return TaskSummary{}, errors.New("Console task planning_mode must be auto or required")
 	}
+	tags := []string{"console", "long-goal"}
+	for _, tag := range input.Tags {
+		tag = strings.TrimSpace(tag)
+		if tag != "" && !slices.Contains(tags, tag) {
+			tags = append(tags, tag)
+		}
+	}
 	task, err := service.tasks.StartTask(ctx, cognition.StartTaskInput{
 		TaskID: input.TaskID, HostID: strings.TrimSpace(input.HostID),
 		WorldID: strings.TrimSpace(input.WorldID), ActorID: strings.TrimSpace(input.ActorID),
 		ControllerID: "controller.rin-console", Goal: strings.TrimSpace(input.Goal),
-		Tags:                []string{"console", "long-goal"},
+		Tags:                tags,
 		AllowedCapabilities: append([]string(nil), input.AllowedCapabilities...),
 		PlanningMode:        mode,
 		Budget: cognition.TaskBudget{
@@ -208,7 +217,8 @@ func (service *Service) ControlTask(
 func taskSummary(task cognition.TaskSession) TaskSummary {
 	return TaskSummary{
 		TaskID: task.TaskID, HostID: task.HostID, WorldID: task.WorldID, ActorID: task.ActorID,
-		Goal: task.Goal, Status: string(task.Status), PauseCode: task.PauseCode,
+		Goal: task.Goal, Tags: append([]string(nil), task.Tags...),
+		Status: string(task.Status), PauseCode: task.PauseCode,
 		PlanningMode: string(task.PlanningMode), PlanID: task.PlanID,
 		PlanRevision: task.PlanRevision, CurrentPlanStepID: task.CurrentPlanStepID,
 		Step: task.Step, MaxSteps: task.Budget.MaxSteps, ModelCalls: task.ModelCalls,
