@@ -61,7 +61,7 @@
       </section>
 
       <section id="tasks" class="view">
-        <div class="section-heading"><div><h2>任务检查</h2><p>按 Task ID 查看阶段、步骤和公开执行时间线。</p></div></div>
+        <div class="section-heading"><div><h2>长目标</h2><p>创建目标后由现有 PlanState 与 Agent Loop 持续推进。</p></div><button id="newTaskButton" class="button primary">新建长目标</button></div>
         <form id="taskLookupForm" class="inline-form">
           <label><span>Task ID</span><input id="taskId" autocomplete="off" placeholder="task.example"></label>
           <button class="button primary" type="submit">查看任务</button>
@@ -139,6 +139,20 @@
       <label><span>标签</span><input id="memoryTags" placeholder="persona, preference"></label>
       <label class="check-row"><input id="memoryPinned" type="checkbox"><span>置顶，优先进入相关上下文</span></label>
       <div class="form-actions"><button type="button" id="cancelMemory" class="button secondary">取消</button><button class="button primary" value="default">保存</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="taskDialog" class="dialog wide-dialog" aria-labelledby="taskDialogTitle">
+    <form id="taskForm" method="dialog">
+      <h2 id="taskDialogTitle">新建长目标</h2>
+      <div class="field-grid">
+        <label><span>Host ID</span><input id="taskHostId" required placeholder="host.minecraft"></label>
+        <label><span>World ID</span><input id="taskWorldId" required placeholder="world.example"></label>
+        <label><span>Actor ID</span><input id="taskActorId" required placeholder="companion.example"></label>
+        <label><span>规划方式</span><select id="taskPlanningMode"><option value="required">先生成阶段计划</option><option value="auto">按复杂度自动决定</option></select></label>
+        <label class="wide"><span>目标</span><textarea id="taskGoal" rows="5" required placeholder="例如：从当前状态准备物资并击败末影龙"></textarea></label>
+      </div>
+      <div class="form-actions"><button type="button" id="cancelTask" class="button secondary">取消</button><button class="button primary" value="default">开始任务</button></div>
     </form>
   </dialog>
 

@@ -2,21 +2,23 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"errors"
+	"flag"
 	"os"
 	"os/signal"
 
 	"github.com/sunrioa/rin/internal/app"
 )
 
-func main() {
+func runServe(arguments []string) error {
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
 		shutdownSignals()...,
 	)
 	defer stop()
-	if err := app.Run(ctx, os.Args[1:], os.LookupEnv, os.Stderr); err != nil {
-		fmt.Fprintln(os.Stderr, "rin-control:", err)
-		os.Exit(1)
+	err := app.Run(ctx, arguments, os.LookupEnv, os.Stderr)
+	if errors.Is(err, flag.ErrHelp) {
+		return nil
 	}
+	return err
 }

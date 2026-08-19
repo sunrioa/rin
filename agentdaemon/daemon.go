@@ -384,6 +384,14 @@ func (daemon *Daemon) SnapshotTasks(ctx context.Context) (cognition.TaskSnapshot
 	return daemon.tasks.Snapshot(ctx)
 }
 
+func (daemon *Daemon) StartTask(
+	ctx context.Context,
+	input cognition.StartTaskInput,
+) (cognition.TaskSession, error) {
+	dispatch, err := daemon.taskClient.StartTask(ctx, input)
+	return dispatch.Task, err
+}
+
 func (daemon *Daemon) GetTask(ctx context.Context, taskID string) (cognition.TaskSession, error) {
 	return daemon.taskClient.GetTask(ctx, taskID)
 }

@@ -12,6 +12,19 @@ type fakeTaskManager struct {
 	task cognition.TaskSession
 }
 
+func (manager *fakeTaskManager) StartTask(
+	_ context.Context,
+	input cognition.StartTaskInput,
+) (cognition.TaskSession, error) {
+	manager.task = cognition.TaskSession{
+		TaskID: input.TaskID, HostID: input.HostID, WorldID: input.WorldID,
+		ActorID: input.ActorID, ControllerID: input.ControllerID, Goal: input.Goal,
+		PlanningMode: input.PlanningMode, Status: cognition.TaskActive,
+		Budget: input.Budget,
+	}
+	return manager.task, nil
+}
+
 func (manager *fakeTaskManager) SnapshotTasks(context.Context) (cognition.TaskSnapshot, error) {
 	return cognition.TaskSnapshot{Revision: 2, Tasks: []cognition.TaskSession{manager.task}}, nil
 }
@@ -73,5 +86,13 @@ func TestTaskManagementReturnsSafeSummaryAndPublicTimeline(t *testing.T) {
 	})
 	if err != nil || cancelled.Status != string(cognition.TaskCancelling) {
 		t.Fatalf("cancelled task = %#v, %v", cancelled, err)
+	}
+	started, err := service.StartTask(context.Background(), TaskStartInput{
+		TaskID: "task.console-start", HostID: "host.one", WorldID: "world.one",
+		ActorID: "actor.one", Goal: "Reach the End and defeat the dragon.",
+	})
+	if err != nil || started.PlanningMode != "required" || started.Status != "active" ||
+		manager.task.ControllerID != "controller.rin-console" || manager.task.Budget.MaxActions != 512 {
+		t.Fatalf("started task = %#v, stored = %#v, %v", started, manager.task, err)
 	}
 }

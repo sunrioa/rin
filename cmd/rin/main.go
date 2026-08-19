@@ -29,6 +29,10 @@ func run(arguments []string) error {
 		}
 		_, err := fmt.Fprintln(os.Stdout, version)
 		return err
+	case "serve":
+		return runServe(arguments[1:])
+	case "console":
+		return runConsole(arguments[1:], os.Stdout, os.Stderr, os.LookupEnv)
 	case "init":
 		return runInit(arguments[1:], os.Stdout)
 	case "add":
@@ -56,6 +60,8 @@ func run(arguments []string) error {
 
 func writeRootHelp(output *os.File) error {
 	_, err := fmt.Fprint(output, `Usage:
+  rin serve [options]
+  rin console [options]
   rin init host [options]
   rin add skill [options]
   rin conformance host [options]

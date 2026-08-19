@@ -47,6 +47,9 @@ function bindForms() {
     selectView("overview");
   });
   $("#taskLookupForm").addEventListener("submit", lookupTask);
+	$("#newTaskButton").addEventListener("click", openTaskDialog);
+	$("#taskForm").addEventListener("submit", startTask);
+	$("#cancelTask").addEventListener("click", () => $("#taskDialog").close());
   $("#personaForm").addEventListener("submit", savePersona);
   $("#newMemoryButton").addEventListener("click", () => openMemoryDialog());
   $("#memoryForm").addEventListener("submit", saveMemory);
@@ -234,6 +237,32 @@ async function loadTasks() {
     }
     throw error;
   }
+}
+
+function openTaskDialog() {
+	const selected = $("#actorTable [data-actor-row].selected");
+	if (selected) {
+		$("#taskHostId").value = selected.dataset.hostId || "";
+		$("#taskWorldId").value = selected.dataset.worldId || "";
+		$("#taskActorId").value = selected.dataset.actorId || "";
+	}
+	$("#taskDialog").showModal();
+}
+
+async function startTask(event) {
+	event.preventDefault();
+	const task = await api("/management/v1/tasks/start", { body: {
+		host_id: $("#taskHostId").value.trim(),
+		world_id: $("#taskWorldId").value.trim(),
+		actor_id: $("#taskActorId").value.trim(),
+		goal: $("#taskGoal").value.trim(),
+		planning_mode: $("#taskPlanningMode").value,
+	} });
+	$("#taskDialog").close();
+	$("#taskForm").reset();
+	toast("长目标已创建并进入执行队列");
+	await loadTasks();
+	await showTask(task.task_id);
 }
 
 async function lookupTask(event) {
