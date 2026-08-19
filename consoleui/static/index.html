@@ -17,6 +17,7 @@
         <button class="nav-item active" data-view="overview">概览</button>
         <button class="nav-item" data-view="actors">角色</button>
         <button class="nav-item" data-view="tasks">任务</button>
+        <button class="nav-item" data-view="operations">执行</button>
         <button class="nav-item" data-view="memory">记忆</button>
         <button class="nav-item" data-view="persona">人格</button>
         <button class="nav-item" data-view="skills">技能</button>
@@ -41,6 +42,7 @@
           <button id="lockButton" class="button secondary">锁定</button>
         </div>
       </header>
+      <div id="viewError" class="view-error" role="alert" hidden></div>
 
       <section id="overview" class="view active">
         <div class="metric-grid">
@@ -58,6 +60,7 @@
       <section id="actors" class="view">
         <div class="section-heading"><div><h2>角色</h2><p>所有 Adapter 发布给同一 Rin 的角色。</p></div></div>
         <div id="actorTable" class="table-wrap"></div>
+        <div id="actorDetail" class="detail-surface empty-state">选择角色后管理控制权与急停状态。</div>
       </section>
 
       <section id="tasks" class="view">
@@ -68,6 +71,16 @@
         </form>
         <div id="taskTable" class="table-wrap"></div>
         <div id="taskDetail" class="detail-surface empty-state">输入 Task ID 后查看任务。</div>
+      </section>
+
+      <section id="operations" class="view">
+        <div class="section-heading"><div><h2>执行记录</h2><p>内部 Agent 与外部 MCP 共用的权威 Operation 状态。</p></div></div>
+        <div class="filterbar operation-filters">
+          <select id="operationStatus" aria-label="执行状态"><option value="">全部状态</option><option value="queued">queued</option><option value="awaiting-confirmation">awaiting-confirmation</option><option value="delivered">delivered</option><option value="accepted">accepted</option><option value="running">running</option><option value="succeeded">succeeded</option><option value="failed">failed</option><option value="cancelled">cancelled</option><option value="interrupted">interrupted</option><option value="stale">stale</option><option value="outcome-unknown">outcome-unknown</option><option value="rejected">rejected</option></select>
+          <input id="operationActor" class="search" placeholder="按 Actor ID 筛选">
+        </div>
+        <div id="operationTable" class="table-wrap"></div>
+        <div id="operationDetail" class="detail-surface empty-state">选择一条 Operation 查看投递、策略与 Outcome。</div>
       </section>
 
       <section id="memory" class="view">
@@ -131,6 +144,12 @@
       <label><span>Control Token</span><input id="authToken" type="password" autocomplete="off" required></label>
       <div class="form-actions"><button class="button primary" value="default">连接</button></div>
     </form>
+  </dialog>
+
+  <dialog id="launchDialog" class="dialog" aria-labelledby="launchTitle">
+    <h2 id="launchTitle">需要连接 Rin 服务</h2>
+    <p>静态文件不能访问本地 API。请启动 Rin 后运行：</p>
+    <code class="command-block">rin console</code>
   </dialog>
 
   <dialog id="memoryDialog" class="dialog wide-dialog" aria-labelledby="memoryDialogTitle">

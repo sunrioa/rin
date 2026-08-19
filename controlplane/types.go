@@ -335,6 +335,17 @@ type OperationView struct {
 	UpdatedAt             int64               `json:"updated_at_unix_millis"`
 }
 
+// ListOperationsInput filters the bounded principal-visible operation history.
+// Empty fields match every visible operation.
+type ListOperationsInput struct {
+	HostID  string          `json:"host_id,omitempty"`
+	WorldID string          `json:"world_id,omitempty"`
+	ActorID string          `json:"actor_id,omitempty"`
+	TaskID  string          `json:"task_id,omitempty"`
+	Status  OperationStatus `json:"status,omitempty"`
+	Limit   uint32          `json:"limit,omitempty"`
+}
+
 // WaitOperationInput identifies the last operation revision observed by a
 // client. Cursor is opaque and must be copied from OperationView unchanged.
 type WaitOperationInput struct {

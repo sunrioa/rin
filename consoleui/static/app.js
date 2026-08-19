@@ -8,6 +8,7 @@ const state = {
   persona: null,
   memories: [],
   skills: [],
+  operations: [],
   memoryScope: "common",
   selectedActorId: "",
   refreshing: false,
@@ -15,6 +16,7 @@ const state = {
 
 const titles = {
   overview: ["运行状态", "概览"], actors: ["游戏实体", "角色"], tasks: ["长目标", "任务"],
+  operations: ["权威结果", "执行"],
   memory: ["认知上下文", "记忆"], persona: ["角色基线", "人格"], skills: ["流程知识", "技能"],
   connections: ["接入管理", "连接"], settings: ["本地偏好", "设置"],
 };
@@ -23,6 +25,10 @@ const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 
 document.addEventListener("DOMContentLoaded", () => {
+  if (window.location.protocol === "file:") {
+    $("#launchDialog").showModal();
+    return;
+  }
   bindNavigation();
   bindForms();
   $("#refreshButton").addEventListener("click", refreshCurrent);
@@ -31,7 +37,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!state.token) $("#authDialog").showModal();
   else refreshCurrent();
   window.setInterval(() => {
-    if (!document.hidden && ["overview", "actors", "tasks"].includes(state.view)) {
+    if (!document.hidden && ["overview", "actors", "tasks", "operations"].includes(state.view)) {
       refreshCurrent();
     }
   }, 5000);
@@ -68,6 +74,8 @@ function bindForms() {
   $("#reloadSkillsButton").addEventListener("click", reloadSkills);
   $("#skillForm").addEventListener("submit", saveSkill);
   $("#cancelSkill").addEventListener("click", () => $("#skillDialog").close());
+  $("#operationStatus").addEventListener("change", loadOperations);
+  $("#operationActor").addEventListener("input", debounce(loadOperations, 220));
   $$("[data-memory-scope]").forEach((button) => button.addEventListener("click", () => {
     state.memoryScope = button.dataset.memoryScope;
     $$("[data-memory-scope]").forEach((item) => item.classList.toggle("active", item === button));
@@ -77,6 +85,7 @@ function bindForms() {
 
 function selectView(view) {
   state.view = view;
+  clearViewError();
   $$(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.view === view));
   $$(".view").forEach((item) => item.classList.toggle("active", item.id === view));
   $("#eyebrow").textContent = titles[view][0];
@@ -87,7 +96,8 @@ function selectView(view) {
 async function refreshCurrent() {
   if (!state.token || state.refreshing) return;
   const loaders = {
-    overview: loadOverview, actors: loadActors, tasks: loadTasks, memory: loadMemories,
+    overview: loadOverview, actors: loadActors, tasks: loadTasks, operations: loadOperations,
+    memory: loadMemories,
     persona: loadPersona, skills: loadSkills, connections: loadHealth, settings: () => {
       $("#settingsToken").value = state.token;
     },
@@ -95,9 +105,11 @@ async function refreshCurrent() {
   state.refreshing = true;
   try {
     await loaders[state.view]();
+    clearViewError();
     $("#lastUpdated").textContent = new Date().toLocaleTimeString();
   } catch (error) {
-    setService(false);
+    if (error.offline || error.status === 401) setService(false);
+    showViewError(error.message);
     toast(error.message, true);
   } finally {
     state.refreshing = false;
@@ -110,13 +122,13 @@ async function loadHealth() {
 }
 
 async function loadOverview() {
-  const [health, info, worlds] = await Promise.all([
+  const [health, info, runtime] = await Promise.all([
     api("/control/v2/health", { method: "GET" }),
     api("/control/v2/info", { method: "GET" }),
-    api("/control/v2/worlds", { body: {} }),
+    api("/management/v1/runtime", { method: "GET" }),
   ]);
-  state.worlds = Array.isArray(worlds) ? worlds : [];
-  state.actors = await fetchActors(state.worlds);
+  state.worlds = runtime.worlds || [];
+  state.actors = runtime.actors || [];
   setService(health.status === "ok");
   $("#metricService").textContent = health.status === "ok" ? "运行中" : "异常";
   $("#metricVersion").textContent = info.contract_version || "rin.control/v2";
@@ -128,22 +140,12 @@ async function loadOverview() {
 }
 
 async function loadActors() {
-  if (!state.worlds.length) state.worlds = await api("/control/v2/worlds", { body: {} });
-  state.actors = await fetchActors(state.worlds);
+  const runtime = await api("/management/v1/runtime", { method: "GET" });
+  state.worlds = runtime.worlds || [];
+  state.actors = runtime.actors || [];
   $("#actorTable").innerHTML = actorTable(state.actors);
   bindActorRows();
   setService(true);
-}
-
-async function fetchActors(worlds) {
-  const groups = await Promise.all(worlds.map(async (world) => {
-    const hostId = world.host_id || world.host?.host_id;
-    const worldId = world.world_id || world.id;
-    if (!hostId || !worldId) return [];
-    const actors = await api("/control/v2/actors", { body: { host_id: hostId, world_id: worldId } });
-    return actors.map((actor) => ({ ...actor, host_id: hostId, world_id: worldId }));
-  }));
-  return groups.flat();
 }
 
 async function loadMemories() {
@@ -296,6 +298,51 @@ async function reloadSkills() {
   await loadSkills();
 }
 
+async function loadOperations() {
+  const result = await api("/management/v1/operations/list", { body: {
+    status: $("#operationStatus").value || undefined,
+    actor_id: $("#operationActor").value.trim() || undefined,
+    limit: 200,
+  }});
+  state.operations = result.operations || [];
+  $("#operationTable").innerHTML = state.operations.length ? `<table><thead><tr><th>Operation</th><th>Capability</th><th>角色</th><th>状态</th><th>确认</th><th>更新</th></tr></thead><tbody>${state.operations.map((operation) => `<tr tabindex="0" data-operation-id="${escapeHTML(operation.operation_id)}"><td><code>${escapeHTML(operation.operation_id)}</code></td><td>${escapeHTML(operation.action_request?.capability?.id || operation.kind || "-")}</td><td>${escapeHTML(operation.actor_id)}</td><td><span class="state ${operationStateClass(operation)}">${escapeHTML(operation.status)}</span></td><td>${operation.execution_confirmed ? "是" : "否"}</td><td>${formatMillis(operation.updated_at_unix_millis)}</td></tr>`).join("")}</tbody></table>` : '<div class="detail-surface empty-state">没有匹配的 Operation。</div>';
+  $$('[data-operation-id]').forEach((row) => {
+    const select = () => showOperation(row.dataset.operationId);
+    row.addEventListener("click", select);
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(); }
+    });
+  });
+  setService(true);
+}
+
+function showOperation(operationId) {
+  const operation = state.operations.find((item) => item.operation_id === operationId);
+  if (!operation) return;
+  const capability = operation.action_request?.capability;
+  const outcome = operation.outcome || {};
+  const policy = operation.policy_decision || {};
+  const controls = [
+    operation.status === "awaiting-confirmation" ? '<button class="button primary" data-operation-action="confirm">确认</button>' : "",
+    !operation.terminal ? '<button class="button danger" data-operation-action="cancel">取消</button>' : "",
+  ].filter(Boolean).join("");
+  $("#operationDetail").classList.remove("empty-state");
+  $("#operationDetail").innerHTML = `<div class="section-heading compact"><div><h2>${escapeHTML(capability?.id || operation.kind)} <span class="revision">${escapeHTML(capability?.version || "")}</span></h2><p><code>${escapeHTML(operation.operation_id)}</code></p></div><div class="toolbar">${controls}</div></div><div class="detail-grid"><dl><dt>状态</dt><dd>${escapeHTML(operation.status)}</dd><dt>执行确认</dt><dd>${operation.execution_confirmed ? "是" : "否"}</dd><dt>投递次数</dt><dd>${operation.delivery_attempts || 0}</dd><dt>角色</dt><dd>${escapeHTML(operation.actor_id)}</dd></dl><dl><dt>策略</dt><dd>${escapeHTML(policy.result || policy.disposition || "-")}</dd><dt>Outcome</dt><dd>${escapeHTML(outcome.status || "-")}</dd><dt>结果</dt><dd>${escapeHTML(outcome.summary || operation.rejection_message || "-")}</dd><dt>更新时间</dt><dd>${formatMillis(operation.updated_at_unix_millis)}</dd></dl></div>${operation.output ? `<pre class="skill-instructions">${escapeHTML(JSON.stringify(operation.output, null, 2))}</pre>` : ""}`;
+  $$('[data-operation-action]').forEach((button) => button.addEventListener("click", async () => {
+    try {
+      await api("/management/v1/operations/control", { body: {
+        operation_id: operationId, action: button.dataset.operationAction,
+      }});
+      toast(button.dataset.operationAction === "cancel" ? "已请求取消" : "已确认执行");
+      await loadOperations();
+      showOperation(operationId);
+    } catch (error) {
+      showViewError(error.message);
+      toast(error.message, true);
+    }
+  }));
+}
+
 async function loadTasks() {
   try {
     const result = await api("/management/v1/tasks/list", { body: { limit: 100 } });
@@ -362,7 +409,7 @@ function worldTable(worlds) {
 
 function actorTable(actors) {
   if (!actors.length) return '<div class="detail-surface empty-state">当前世界没有在线或可恢复角色。</div>';
-  return `<table><thead><tr><th>角色</th><th>世界</th><th>状态</th><th>任务</th><th>控制源</th></tr></thead><tbody>${actors.map((actor) => `<tr tabindex="0" data-actor-row data-actor-id="${escapeHTML(actor.actor_id)}" class="${actor.actor_id === state.selectedActorId ? "selected" : ""}"><td><strong>${escapeHTML(actor.display_name || actor.name || actor.actor_id)}</strong><br><code>${escapeHTML(actor.actor_id)}</code></td><td>${escapeHTML(actor.world_id)}</td><td><span class="state ${actor.online === false ? "bad" : "good"}">${actor.online === false ? "离线" : "在线"}</span></td><td>${escapeHTML(actor.state?.active_task?.status || actor.state?.status || "-")}</td><td>${escapeHTML(actor.controller?.source || actor.decision_authority?.source || "-")}</td></tr>`).join("")}</tbody></table>`;
+  return `<table><thead><tr><th>角色</th><th>世界</th><th>状态</th><th>急停</th><th>控制源</th></tr></thead><tbody>${actors.map((actor) => `<tr tabindex="0" data-actor-row data-actor-id="${escapeHTML(actor.actor_id)}" class="${actor.actor_id === state.selectedActorId ? "selected" : ""}"><td><strong>${escapeHTML(actor.display_name || actor.name || actor.actor_id)}</strong><br><code>${escapeHTML(actor.actor_id)}</code></td><td>${escapeHTML(actor.world_id)}</td><td><span class="state ${actor.online === false ? "bad" : "good"}">${actor.online === false ? "离线" : "在线"}</span></td><td>${actor.emergency_stopped ? '<span class="state bad">已急停</span>' : "-"}</td><td>${escapeHTML(actor.controller_lease?.source || actor.decision_authority?.source || "-")}</td></tr>`).join("")}</tbody></table>`;
 }
 
 function bindActorRows() {
@@ -370,6 +417,7 @@ function bindActorRows() {
     const select = () => {
       state.selectedActorId = row.dataset.actorId;
       $$('[data-actor-row]').forEach((candidate) => candidate.classList.toggle("selected", candidate === row));
+      showActor(row.dataset.actorId);
     };
     row.addEventListener("click", select);
     row.addEventListener("keydown", (event) => {
@@ -379,6 +427,29 @@ function bindActorRows() {
       }
     });
   });
+}
+
+function showActor(actorId) {
+  const actor = state.actors.find((item) => item.actor_id === actorId);
+  if (!actor) return;
+  const lease = actor.controller_lease;
+  const action = actor.emergency_stopped ? "clear-emergency-stop" : "emergency-stop";
+  $("#actorDetail").classList.remove("empty-state");
+  $("#actorDetail").innerHTML = `<div class="section-heading compact"><div><h2>${escapeHTML(actor.display_name || actor.actor_id)}</h2><p><code>${escapeHTML(actor.actor_id)}</code></p></div><div class="toolbar">${lease ? '<button class="button secondary" data-actor-action="release">释放控制</button>' : '<button class="button primary" data-actor-action="acquire">获取控制</button>'}<button class="button ${actor.emergency_stopped ? "secondary" : "danger"}" data-actor-action="${action}">${actor.emergency_stopped ? "解除急停" : "立即急停"}</button></div></div><div class="detail-grid"><dl><dt>Host</dt><dd>${escapeHTML(actor.host_id)}</dd><dt>世界</dt><dd>${escapeHTML(actor.world_id)}</dd><dt>在线</dt><dd>${actor.online ? "是" : "否"}</dd></dl><dl><dt>决策来源</dt><dd>${escapeHTML(actor.decision_authority?.source || "-")}</dd><dt>人格模式</dt><dd>${escapeHTML(actor.decision_authority?.persona_mode || "-")}</dd><dt>Lease</dt><dd>${escapeHTML(lease?.lease_id || "无")}</dd></dl></div>`;
+  $$('[data-actor-action]').forEach((button) => button.addEventListener("click", async () => {
+    try {
+      await api("/management/v1/actors/control", { body: {
+        host_id: actor.host_id, world_id: actor.world_id, actor_id: actor.actor_id,
+        action: button.dataset.actorAction, lease_id: lease?.lease_id || undefined,
+      }});
+      toast("角色控制状态已更新");
+      await loadActors();
+      showActor(actorId);
+    } catch (error) {
+      showViewError(error.message);
+      toast(error.message, true);
+    }
+  }));
 }
 
 function taskTimeline(events) {
@@ -417,17 +488,27 @@ function attentionList(worlds, actors) {
 
 async function api(path, options = {}) {
   const method = options.method || "POST";
-  const response = await fetch(path, {
-    method,
-    headers: { "Authorization": `Bearer ${state.token}`, ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}) },
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
-  });
+  let response;
+  try {
+    response = await fetch(path, {
+      method,
+      headers: { "Authorization": `Bearer ${state.token}`, ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}) },
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    });
+  } catch {
+    const error = new Error("无法连接本地 Rin 服务");
+    error.offline = true;
+    throw error;
+  }
   const text = await response.text();
   let payload = {};
   try { payload = text ? JSON.parse(text) : {}; } catch { payload = { error: text }; }
   if (!response.ok) {
     if (response.status === 401) lockConsole();
-    throw new Error(payload.error?.message || payload.error || `请求失败 (${response.status})`);
+    const detail = payload.error?.message || payload.error?.code || payload.error;
+    const error = new Error(typeof detail === "string" ? detail : `请求失败 (${response.status})`);
+    error.status = response.status;
+    throw error;
   }
   return payload;
 }
@@ -451,8 +532,20 @@ function setService(healthy) {
   $("#serviceLabel").textContent = healthy ? "本地服务正常" : "尚未连接";
 }
 
+function showViewError(message) {
+  const element = $("#viewError");
+  element.textContent = message;
+  element.hidden = false;
+}
+
+function clearViewError() {
+  const element = $("#viewError");
+  element.textContent = "";
+  element.hidden = true;
+}
+
 function summarizeControl(actors) {
-  const sources = new Set(actors.map((actor) => actor.controller?.source || actor.decision_authority?.source).filter(Boolean));
+  const sources = new Set(actors.map((actor) => actor.controller_lease?.source || actor.decision_authority?.source).filter(Boolean));
   if (!sources.size) return "-";
   if (sources.size > 1) return "混合";
   return [...sources][0] === "external" ? "外部" : "内部";
@@ -466,6 +559,13 @@ function formatEpoch(epoch) {
 function formatTime(point) {
   if (!point || point.clock !== "realtime") return point?.value ?? "-";
   return new Date(point.value).toLocaleString();
+}
+
+function formatMillis(value) { return value ? new Date(value).toLocaleString() : "-"; }
+function operationStateClass(operation) {
+  if (operation.execution_confirmed) return "good";
+  if (["failed", "rejected", "stale", "outcome-unknown"].includes(operation.status)) return "bad";
+  return operation.terminal ? "warn" : "";
 }
 
 function splitValues(value) { return [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))]; }

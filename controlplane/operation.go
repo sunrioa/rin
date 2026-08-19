@@ -8,6 +8,7 @@ import (
 	"math"
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -348,6 +349,79 @@ func (service *Service) GetOperation(
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	return service.getOperationLocked(principal, operationID)
+}
+
+// ListOperations returns recent operations visible to one principal. It is a
+// read projection over the existing Operation Store, not a second event log.
+func (service *Service) ListOperations(
+	principal host.Principal,
+	input ListOperationsInput,
+) ([]OperationView, error) {
+	if err := host.ValidatePrincipal(principal); err != nil {
+		return nil, fmt.Errorf("%w: principal: %v", ErrInvalid, err)
+	}
+	for _, value := range []struct {
+		field string
+		value string
+	}{
+		{"host_id", input.HostID}, {"world_id", input.WorldID},
+		{"actor_id", input.ActorID}, {"task_id", input.TaskID},
+	} {
+		if value.value != "" {
+			if err := validateID(value.field, value.value); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if input.Status != "" && !validOperationStatus(input.Status) {
+		return nil, invalid("status", "is not a known operation status")
+	}
+	if input.Limit == 0 {
+		input.Limit = 100
+	}
+	if input.Limit > 500 {
+		return nil, invalid("limit", "must not exceed 500")
+	}
+
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	result := make([]OperationView, 0, min(len(service.operations), int(input.Limit)))
+	for _, operation := range service.operations {
+		if !hasScope(principal, ScopeHostAdmin) &&
+			principal.ID != operation.request.Principal.ID {
+			continue
+		}
+		service.refreshOperationHostLocked(operation)
+		request := operation.request
+		taskID := ""
+		if request.ActionRequest != nil {
+			taskID = request.ActionRequest.TaskID
+		}
+		if input.HostID != "" && request.HostID != input.HostID ||
+			input.WorldID != "" && request.WorldID != input.WorldID ||
+			input.ActorID != "" && request.ActorID != input.ActorID ||
+			input.TaskID != "" && taskID != input.TaskID ||
+			input.Status != "" && operation.status != input.Status {
+			continue
+		}
+		result = append(result, operationView(operation))
+	}
+	if err := service.persistOperationsLocked(); err != nil {
+		return nil, err
+	}
+	slices.SortFunc(result, func(left, right OperationView) int {
+		if left.UpdatedAt != right.UpdatedAt {
+			if left.UpdatedAt > right.UpdatedAt {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(left.OperationID, right.OperationID)
+	})
+	if len(result) > int(input.Limit) {
+		result = result[:input.Limit]
+	}
+	return result, nil
 }
 
 // WaitOperation waits for a newer operation cursor or a settled terminal

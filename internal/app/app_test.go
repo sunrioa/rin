@@ -40,6 +40,31 @@ func TestParseConfigurationUsesBoundedReadPrincipal(t *testing.T) {
 	}
 }
 
+func TestManagementPrincipalKeepsIdentityAndAddsLocalConsoleScopes(t *testing.T) {
+	principal := managementPrincipal(host.Principal{
+		ID: "player.one", GrantedScopes: []string{controlplane.ScopeActorRead},
+	})
+	if principal.ID != "player.one" {
+		t.Fatalf("principal = %#v", principal)
+	}
+	want := []string{
+		controlplane.ScopeActorRead,
+		controlplane.ScopeActorControl,
+		controlplane.ScopeOperationCancel,
+		controlplane.ScopeHostAdmin,
+		"rin.policy.confirm",
+	}
+	for _, scope := range want {
+		found := false
+		for _, actual := range principal.GrantedScopes {
+			found = found || actual == scope
+		}
+		if !found {
+			t.Fatalf("management principal is missing %q: %#v", scope, principal)
+		}
+	}
+}
+
 func TestParseConfigurationAcceptsActorControlOnlyPrincipal(t *testing.T) {
 	config, err := parseConfiguration(
 		nil,

@@ -15,7 +15,8 @@ func TestHandlerServesEmbeddedConsoleWithLocalCSP(t *testing.T) {
 		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
 	}
 	if !strings.Contains(response.Body.String(), "新增技能") ||
-		!strings.Contains(response.Body.String(), "skillDetail") {
+		!strings.Contains(response.Body.String(), "skillDetail") ||
+		!strings.Contains(response.Body.String(), "operationDetail") {
 		t.Fatal("embedded Console is missing Skill management controls")
 	}
 	if csp := response.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "connect-src 'self'") {

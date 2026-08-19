@@ -215,6 +215,11 @@ func Run(
 	if err := managementService.ConfigureSkills(catalog, learnedSkills); err != nil {
 		return err
 	}
+	if err := managementService.ConfigureControl(
+		service, managementPrincipal(config.principal),
+	); err != nil {
+		return err
+	}
 	managementHandler, err := managementapi.NewHTTPHandler(
 		managementService, managementapi.HTTPOptions{Token: config.token},
 	)
@@ -273,6 +278,26 @@ func Run(
 		}
 	}
 	return result
+}
+
+func managementPrincipal(principal host.Principal) host.Principal {
+	seen := make(map[string]struct{}, len(principal.GrantedScopes)+5)
+	scopes := make([]string, 0, len(principal.GrantedScopes)+5)
+	for _, scope := range append(
+		append([]string(nil), principal.GrantedScopes...),
+		controlplane.ScopeActorRead,
+		controlplane.ScopeActorControl,
+		controlplane.ScopeOperationCancel,
+		controlplane.ScopeHostAdmin,
+		"rin.policy.confirm",
+	) {
+		if _, exists := seen[scope]; exists {
+			continue
+		}
+		seen[scope] = struct{}{}
+		scopes = append(scopes, scope)
+	}
+	return host.Principal{ID: principal.ID, GrantedScopes: scopes}
 }
 
 func parseConfiguration(

@@ -342,6 +342,34 @@ func TestHostPollWakesWhenActionArrives(t *testing.T) {
 	}
 }
 
+func TestListOperationsFiltersPrincipalVisibleHistory(t *testing.T) {
+	service, _, _, principal, actionHost := actionOperationTestHarness(t, Options{})
+	input := actionHost.input("request.operation.list", "action.operation.list")
+	input.Request.TaskID = "task.operation.list"
+	operation, err := service.SubmitAction(context.Background(), principal, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := service.ListOperations(principal, ListOperationsInput{
+		TaskID: input.Request.TaskID, Status: OperationQueued, Limit: 10,
+	})
+	if err != nil || len(listed) != 1 || listed[0].OperationID != operation.OperationID {
+		t.Fatalf("listed = %#v, %v", listed, err)
+	}
+	outsider := operationPrincipal(ScopeActorRead)
+	outsider.ID = "player.other"
+	listed, err = service.ListOperations(outsider, ListOperationsInput{Limit: 10})
+	if err != nil || len(listed) != 0 {
+		t.Fatalf("outsider listed = %#v, %v", listed, err)
+	}
+	admin := operationPrincipal(ScopeHostAdmin)
+	admin.ID = "rin.console"
+	listed, err = service.ListOperations(admin, ListOperationsInput{ActorID: "actor.one"})
+	if err != nil || len(listed) != 1 {
+		t.Fatalf("admin listed = %#v, %v", listed, err)
+	}
+}
+
 func actionOperationTestHarness(
 	t *testing.T,
 	options Options,

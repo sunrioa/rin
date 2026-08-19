@@ -12,21 +12,25 @@ import (
 	"time"
 
 	"github.com/sunrioa/rin/cognition"
+	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
 )
 
 const MemoryScopeCommon = "common"
 
 var ErrSkillsUnavailable = errors.New("skill management is not enabled")
+var ErrControlUnavailable = errors.New("control management is not enabled")
 
 type Service struct {
-	personas   cognition.PersonaStore
-	memory     cognition.MemoryProvider
-	tasks      TaskManager
-	skills     cognition.SkillProvider
-	skillStore SkillStore
-	now        func() time.Time
-	newID      func() (string, error)
+	personas         cognition.PersonaStore
+	memory           cognition.MemoryProvider
+	tasks            TaskManager
+	skills           cognition.SkillProvider
+	skillStore       SkillStore
+	control          *controlplane.Service
+	controlPrincipal host.Principal
+	now              func() time.Time
+	newID            func() (string, error)
 }
 
 type MemoryListRequest struct {

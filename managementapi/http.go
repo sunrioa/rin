@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/sunrioa/rin/cognition"
+	"github.com/sunrioa/rin/controlplane"
 )
 
 const maxRequestBytes int64 = 1 << 20
@@ -26,6 +27,9 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 		features := []string{"personas", "memory-cards", "long-goals"}
 		if service.skills != nil {
 			features = append(features, "skills")
+		}
+		if service.control != nil {
+			features = append(features, "runtime", "operations", "actor-control")
 		}
 		writeJSON(response, http.StatusOK, map[string]any{
 			"contract_version": "rin.management/v1",
@@ -143,6 +147,37 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 		result, err := service.ReloadSkills(request.Context())
 		writeResult(response, result, err)
 	}))
+	mux.HandleFunc("GET /management/v1/runtime", secure(options.Token, func(response http.ResponseWriter, request *http.Request) {
+		result, err := service.RuntimeSnapshot(request.Context())
+		writeResult(response, result, err)
+	}))
+	mux.HandleFunc("POST /management/v1/operations/list", secure(options.Token, func(response http.ResponseWriter, request *http.Request) {
+		var input controlplane.ListOperationsInput
+		if err := decodeJSON(request, &input); err != nil {
+			writeError(response, http.StatusBadRequest, err)
+			return
+		}
+		result, err := service.ListOperations(request.Context(), input)
+		writeResult(response, result, err)
+	}))
+	mux.HandleFunc("POST /management/v1/operations/control", secure(options.Token, func(response http.ResponseWriter, request *http.Request) {
+		var input OperationControlInput
+		if err := decodeJSON(request, &input); err != nil {
+			writeError(response, http.StatusBadRequest, err)
+			return
+		}
+		result, err := service.ControlOperation(request.Context(), input)
+		writeResult(response, result, err)
+	}))
+	mux.HandleFunc("POST /management/v1/actors/control", secure(options.Token, func(response http.ResponseWriter, request *http.Request) {
+		var input ActorControlInput
+		if err := decodeJSON(request, &input); err != nil {
+			writeError(response, http.StatusBadRequest, err)
+			return
+		}
+		result, err := service.ControlActor(request.Context(), input)
+		writeResult(response, result, err)
+	}))
 	return mux, nil
 }
 
@@ -196,6 +231,17 @@ func writeResult(response http.ResponseWriter, value any, err error) {
 	} else if errors.Is(err, cognition.ErrProviderNotFound) {
 		status = http.StatusNotFound
 	} else if errors.Is(err, ErrTasksUnavailable) || errors.Is(err, ErrSkillsUnavailable) {
+		status = http.StatusServiceUnavailable
+	} else if errors.Is(err, controlplane.ErrForbidden) {
+		status = http.StatusForbidden
+	} else if errors.Is(err, controlplane.ErrNotFound) {
+		status = http.StatusNotFound
+	} else if errors.Is(err, controlplane.ErrConflict) ||
+		errors.Is(err, controlplane.ErrLeaseConflict) ||
+		errors.Is(err, controlplane.ErrLeaseExpired) {
+		status = http.StatusConflict
+	} else if errors.Is(err, controlplane.ErrUnavailable) ||
+		errors.Is(err, ErrControlUnavailable) {
 		status = http.StatusServiceUnavailable
 	}
 	writeError(response, status, err)
