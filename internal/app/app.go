@@ -23,8 +23,10 @@ import (
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/internal/jsonwire"
+	"github.com/sunrioa/rin/internal/mcpinstall"
 	"github.com/sunrioa/rin/managementapi"
 	"github.com/sunrioa/rin/policy"
+	"github.com/sunrioa/rin/release"
 	"github.com/sunrioa/rin/signalbox"
 	"github.com/sunrioa/rin/skillapi"
 	"github.com/sunrioa/rin/taskstate"
@@ -218,6 +220,13 @@ func Run(
 	if err := managementService.ConfigureControl(
 		service, managementPrincipal(config.principal),
 	); err != nil {
+		return err
+	}
+	mcpManager, mcpManagerErr := mcpinstall.New(mcpinstall.Options{Version: release.Version})
+	if err := managementService.ConfigureDiagnostics(newDiagnosticsProvider(diagnosticsDependencies{
+		Control: service, Policy: policyEngine, Config: config, AgentConfig: agentConfig,
+		InternalAgent: internalAgent, MCP: mcpManager, MCPError: mcpManagerErr,
+	})); err != nil {
 		return err
 	}
 	managementHandler, err := managementapi.NewHTTPHandler(

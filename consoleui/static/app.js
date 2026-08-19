@@ -9,6 +9,7 @@ const state = {
   memories: [],
   skills: [],
   operations: [],
+  diagnostics: null,
   memoryScope: "common",
   selectedActorId: "",
   refreshing: false,
@@ -76,6 +77,7 @@ function bindForms() {
   $("#cancelSkill").addEventListener("click", () => $("#skillDialog").close());
   $("#operationStatus").addEventListener("change", loadOperations);
   $("#operationActor").addEventListener("input", debounce(loadOperations, 220));
+  $("#refreshDiagnosticsButton").addEventListener("click", loadHealth);
   $$("[data-memory-scope]").forEach((button) => button.addEventListener("click", () => {
     state.memoryScope = button.dataset.memoryScope;
     $$("[data-memory-scope]").forEach((item) => item.classList.toggle("active", item === button));
@@ -98,9 +100,7 @@ async function refreshCurrent() {
   const loaders = {
     overview: loadOverview, actors: loadActors, tasks: loadTasks, operations: loadOperations,
     memory: loadMemories,
-    persona: loadPersona, skills: loadSkills, connections: loadHealth, settings: () => {
-      $("#settingsToken").value = state.token;
-    },
+    persona: loadPersona, skills: loadSkills, connections: loadHealth, settings: loadSettings,
   };
   state.refreshing = true;
   try {
@@ -117,8 +117,18 @@ async function refreshCurrent() {
 }
 
 async function loadHealth() {
-  await api("/control/v2/health", { method: "GET" });
-  setService(true);
+  const diagnostics = await api("/management/v1/diagnostics", { method: "GET" });
+  state.diagnostics = diagnostics;
+  renderDiagnostics(diagnostics);
+  setService((diagnostics.connections || []).some((item) => item.id === "control-plane" && item.status === "ok"));
+}
+
+async function loadSettings() {
+  $("#settingsToken").value = state.token;
+  const diagnostics = await api("/management/v1/diagnostics", { method: "GET" });
+  state.diagnostics = diagnostics;
+  renderConfig(diagnostics);
+  setService((diagnostics.connections || []).some((item) => item.id === "control-plane" && item.status === "ok"));
 }
 
 async function loadOverview() {
@@ -297,6 +307,66 @@ async function reloadSkills() {
   toast("Skill 目录已重新加载");
   await loadSkills();
 }
+
+function renderDiagnostics(diagnostics) {
+  const connections = diagnostics.connections || [];
+  $("#diagnosticList").innerHTML = connections.length ? connections.map((item) => {
+    const endpoint = item.endpoint ? `<code>${escapeHTML(item.endpoint)}</code>` : "";
+    const metrics = [
+      item.latency_millis ? `${item.latency_millis} ms` : "",
+      item.worlds ? `${item.worlds} 个世界` : "",
+      item.actors ? `${item.actors} 个角色` : "",
+    ].filter(Boolean).join(" · ");
+    return `<div class="connection-row"><div><strong>${escapeHTML(item.kind)} · ${escapeHTML(item.id)}</strong><small>${escapeHTML(item.detail || "")}</small></div><div>${endpoint}${metrics ? `<small class="diagnostic-metrics">${escapeHTML(metrics)}</small>` : ""}</div><span class="state ${diagnosticStateClass(item.status)}">${escapeHTML(diagnosticStateLabel(item.status))}</span></div>`;
+  }).join("") : '<div class="detail-surface empty-state">暂时没有可诊断的连接。</div>';
+  const mcp = diagnostics.mcp || {};
+  $("#mcpCommandList").innerHTML = mcpStatusSummary(mcp) + (mcp.commands || []).map((item) => `<div class="command-row"><div><strong>${escapeHTML(item.label)}</strong><small>${escapeHTML(item.id)}</small></div><code>${escapeHTML(item.command)}</code><button class="button secondary copy-command" data-copy="${escapeHTML(item.command)}">复制</button></div>`).join("");
+  $$(".copy-command").forEach((button) => button.addEventListener("click", () => copyText(button.dataset.copy)));
+}
+
+function renderConfig(diagnostics) {
+  const model = diagnostics.model || {};
+  const memory = diagnostics.memory || {};
+  const policy = diagnostics.policy || {};
+  const permissions = diagnostics.permissions || {};
+  const agent = diagnostics.internal_agent || {};
+  $("#configSummary").innerHTML = [
+    configPanel("模型", [
+      ["状态", model.enabled ? "已启用" : "未启用"], ["供应商", model.provider || "-"],
+      ["端点", model.endpoint || "-"], ["模型", model.model || "-"],
+      ["凭据", model.credential_configured ? "已配置（正文隐藏）" : "未配置"],
+    ]),
+    configPanel("记忆", [
+      ["存储", memory.backend || "-"], ["语义检索", memory.semantic_embedding_enabled ? "已启用" : "本地检索"],
+      ["Embedding", memory.semantic_model || "-"], ["凭据", memory.semantic_credential_configured ? "已配置（正文隐藏）" : "未配置"],
+    ]),
+    configPanel("Policy", [
+      ["Profile", policy.profile || "-"], ["Revision", policy.revision || "-"],
+      ["规则", policy.rule_count ?? 0], ["预算", policy.budget_count ?? 0],
+      ["确认权限", (policy.confirmation_scopes || []).join(", ") || "-"],
+    ]),
+    configPanel("权限", [
+      ["Principal", permissions.principal_id || "-"], ["Control scopes", (permissions.control_scopes || []).join(", ") || "-"],
+      ["Console scopes", (permissions.console_scopes || []).join(", ") || "-"],
+      ["内部 Agent", agent.status === "ok" ? "运行中" : "未启用"],
+    ]),
+  ].join("");
+}
+
+function configPanel(title, rows) {
+  return `<section class="config-panel"><h3>${escapeHTML(title)}</h3><dl>${rows.map(([label, value]) => `<dt>${escapeHTML(label)}</dt><dd>${escapeHTML(value)}</dd>`).join("")}</dl></section>`;
+}
+
+function mcpStatusSummary(mcp) {
+  const ready = mcp.installed && mcp.binary_present && mcp.binary_current && mcp.config_valid;
+  const stateName = mcp.error ? "error" : (ready ? "ok" : "warning");
+  const detail = mcp.error || (mcp.installed ? `已安装 · ${ready ? "配置和版本有效" : "需要检查配置或版本"}` : "尚未安装");
+  const agents = (mcp.agents || []).map((agent) => `${agent.name}: ${agent.registered ? "已注册" : agent.available ? "可安装" : "未检测到"}`).join(" · ");
+  return `<div class="command-summary"><div><strong>MCP 当前状态</strong><small>${escapeHTML(detail)}${agents ? ` · ${escapeHTML(agents)}` : ""}</small></div><span class="state ${diagnosticStateClass(stateName)}">${escapeHTML(diagnosticStateLabel(stateName))}</span></div>`;
+}
+
+function diagnosticStateClass(status) { return status === "ok" ? "good" : status === "error" || status === "offline" ? "bad" : "warn"; }
+function diagnosticStateLabel(status) { return { ok: "正常", warning: "需检查", offline: "离线", disabled: "未启用", error: "异常" }[status] || status || "未知"; }
 
 async function loadOperations() {
   const result = await api("/management/v1/operations/list", { body: {

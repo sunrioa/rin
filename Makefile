@@ -7,12 +7,12 @@ JAVA ?= java
 LUA ?= lua
 VERSION ?= 0.7.0
 
-.PHONY: fmt test verify contract-check test-go test-sdks test-sdk-python test-sdk-javascript test-sdk-csharp test-sdk-java test-sdk-lua test-terminal-story race vet build
+.PHONY: fmt test verify contract-check test-go test-console test-sdks test-sdk-python test-sdk-javascript test-sdk-csharp test-sdk-java test-sdk-lua test-terminal-story race vet build
 
 fmt:
 	$(GO) fmt ./...
 
-test: test-go test-terminal-story
+test: test-go test-console test-terminal-story
 
 verify: contract-check vet race test-sdks test-terminal-story
 
@@ -21,6 +21,9 @@ contract-check:
 
 test-go:
 	$(GO) test ./...
+
+test-console:
+	$(NODE) --test consoleui/static/app.test.mjs
 
 test-sdks: test-sdk-python test-sdk-javascript test-sdk-csharp test-sdk-java test-sdk-lua
 

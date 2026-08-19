@@ -119,20 +119,20 @@
       </section>
 
       <section id="connections" class="view">
-        <div class="section-heading"><div><h2>连接</h2><p>一个常驻 Rin 服务可同时服务多个游戏和外部 Agent。</p></div></div>
-        <div class="connection-list">
-          <div class="connection-row"><div><strong>Control API</strong><small>游戏 Host 与统一动作入口</small></div><code>http://127.0.0.1:7375/control/v2</code><span class="state good">本地</span></div>
-          <div class="connection-row"><div><strong>MCP</strong><small>Codex、Claude Code、OpenClaw</small></div><code>rin mcp</code><button class="button secondary copy" data-copy="rin mcp install">复制安装命令</button></div>
-          <div class="connection-row"><div><strong>Adapter</strong><small>Minecraft、视觉小说与未来游戏</small></div><code>rin doctor</code><button class="button secondary copy" data-copy="rin doctor">复制诊断命令</button></div>
-        </div>
+        <div class="section-heading"><div><h2>连接诊断</h2><p>每次刷新都会读取 Control、Host 和本机 MCP 客户端的真实状态。</p></div><button id="refreshDiagnosticsButton" class="button secondary">重新检测</button></div>
+        <div id="diagnosticList" class="connection-list"></div>
+        <div class="section-heading"><div><h2>MCP 命令</h2><p>复用现有安装器；网页只展示命令，不直接执行本机程序。</p></div></div>
+        <div id="mcpCommandList" class="command-list"></div>
       </section>
 
       <section id="settings" class="view">
-        <div class="section-heading"><div><h2>本地设置</h2><p>凭据只保存在当前浏览器会话，不写入页面或日志。</p></div></div>
+        <div class="section-heading"><div><h2>本地设置</h2><p>凭据只保存在当前浏览器会话；模型与权限配置来自 Rin 启动配置。</p></div></div>
         <form id="settingsForm" class="editor-form narrow">
           <label><span>Control Token</span><input id="settingsToken" type="password" autocomplete="off"></label>
           <div class="form-actions"><button class="button primary" type="submit">更新连接</button></div>
         </form>
+        <div class="section-heading"><div><h2>运行配置</h2><p>只显示元数据和凭据是否存在。修改模型、Policy 或权限后请重启 Rin。</p></div></div>
+        <div id="configSummary" class="config-grid"></div>
       </section>
     </main>
   </div>

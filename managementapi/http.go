@@ -31,6 +31,9 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 		if service.control != nil {
 			features = append(features, "runtime", "operations", "actor-control")
 		}
+		if service.diagnostics != nil {
+			features = append(features, "diagnostics", "configuration", "mcp-install")
+		}
 		writeJSON(response, http.StatusOK, map[string]any{
 			"contract_version": "rin.management/v1",
 			"features":         features,
@@ -151,6 +154,10 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 		result, err := service.RuntimeSnapshot(request.Context())
 		writeResult(response, result, err)
 	}))
+	mux.HandleFunc("GET /management/v1/diagnostics", secure(options.Token, func(response http.ResponseWriter, request *http.Request) {
+		result, err := service.Diagnostics(request.Context())
+		writeResult(response, result, err)
+	}))
 	mux.HandleFunc("POST /management/v1/operations/list", secure(options.Token, func(response http.ResponseWriter, request *http.Request) {
 		var input controlplane.ListOperationsInput
 		if err := decodeJSON(request, &input); err != nil {
@@ -231,6 +238,8 @@ func writeResult(response http.ResponseWriter, value any, err error) {
 	} else if errors.Is(err, cognition.ErrProviderNotFound) {
 		status = http.StatusNotFound
 	} else if errors.Is(err, ErrTasksUnavailable) || errors.Is(err, ErrSkillsUnavailable) {
+		status = http.StatusServiceUnavailable
+	} else if errors.Is(err, ErrDiagnosticsUnavailable) {
 		status = http.StatusServiceUnavailable
 	} else if errors.Is(err, controlplane.ErrForbidden) {
 		status = http.StatusForbidden

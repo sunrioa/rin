@@ -1,6 +1,7 @@
 package managementapi
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -160,5 +161,50 @@ func TestHTTPHandlerListsSkillsWithoutExternalSkillScope(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"skills"`) {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestHTTPHandlerExposesMetadataOnlyDiagnostics(t *testing.T) {
+	personas, err := cognition.RestoreLocalPersonaProvider(cognition.DefaultPersonaSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	memory, err := cognition.NewLocalMemoryProvider(cognition.LocalMemoryConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := New(personas, memory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ConfigureDiagnostics(func(context.Context) (DiagnosticsSnapshot, error) {
+		return DiagnosticsSnapshot{
+			CheckedAt: 123,
+			Model: ModelConfigMetadata{
+				Enabled: true, Provider: "openai-compatible", Endpoint: "https://model.example/v1",
+				Model: "test-model", CredentialConfigured: true,
+			},
+			Policy:      PolicyConfigMetadata{Revision: 4, Profile: "survival", RuleCount: 2},
+			Permissions: PermissionMetadata{PrincipalID: "player.one", ControlScopes: []string{"actor.read"}},
+			MCP:         MCPConfigMetadata{Commands: []MCPCommand{{ID: "install", Command: "rin mcp install"}}},
+		}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewHTTPHandler(service, HTTPOptions{Token: "test-management-token"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/management/v1/diagnostics", nil)
+	request.Header.Set("Authorization", "Bearer test-management-token")
+	handler.ServeHTTP(response, request)
+	body := response.Body.String()
+	if response.Code != http.StatusOK || !strings.Contains(body, `"credential_configured":true`) ||
+		!strings.Contains(body, `"profile":"survival"`) || !strings.Contains(body, `rin mcp install`) {
+		t.Fatalf("status=%d body=%s", response.Code, body)
+	}
+	if strings.Contains(body, "sk-secret") || strings.Contains(body, "api_key") {
+		t.Fatalf("diagnostics exposed secret material: %s", body)
 	}
 }

@@ -124,6 +124,18 @@ tr[data-operation-id]:hover td, tr[data-operation-id]:focus td { background: #f1
 .connection-row { min-height: 70px; display: grid; grid-template-columns: minmax(190px, 1fr) minmax(220px, 1fr) auto; align-items: center; gap: 14px; padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--surface); }
 .connection-row strong, .connection-row small { display: block; }
 .connection-row small { margin-top: 4px; color: var(--muted); }
+.diagnostic-metrics { display: block; margin-top: 6px; }
+.command-list { display: grid; border-top: 1px solid var(--line); }
+.command-row, .command-summary { min-height: 62px; display: grid; grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) auto; align-items: center; gap: 14px; padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.command-row strong, .command-row small, .command-summary strong, .command-summary small { display: block; }
+.command-row small, .command-summary small { margin-top: 4px; color: var(--muted); }
+.command-summary { grid-template-columns: minmax(0, 1fr) auto; background: #f8f9f7; }
+.config-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.config-panel { padding: 16px; border: 1px solid var(--line); background: var(--surface); }
+.config-panel h3 { margin: 0 0 13px; font-size: 15px; }
+.config-panel dl { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px 12px; margin: 0; font-size: 13px; }
+.config-panel dt { color: var(--muted); }
+.config-panel dd { margin: 0; overflow-wrap: anywhere; }
 .dialog { width: min(460px, calc(100vw - 28px)); border: 1px solid var(--line); border-radius: 7px; padding: 22px; box-shadow: var(--shadow); }
 .wide-dialog { width: min(620px, calc(100vw - 28px)); }
 .dialog::backdrop { background: rgba(25,31,28,.45); }
@@ -162,4 +174,6 @@ tr[data-operation-id]:hover td, tr[data-operation-id]:focus td { background: #f1
   .filterbar, .section-heading { align-items: stretch; flex-direction: column; }
   .search { max-width: none; }
   .connection-row { grid-template-columns: 1fr; }
+  .command-row, .command-summary { grid-template-columns: 1fr; }
+  .config-grid { grid-template-columns: 1fr; }
 }
