@@ -260,6 +260,150 @@ func TestAgentRuntimeCarriesLatestOutcomeAcrossMultipleDecisionRounds(t *testing
 	}
 }
 
+func TestAgentRuntimeCompletesSurvivalBootstrapAcrossCoarsePlanPhases(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	capabilityIDs := []string{
+		"resource.harvest",
+		"crafting.craft",
+		"inventory.place",
+		"crafting.craft",
+		"resource.harvest",
+		"crafting.craft",
+		"smelting.smelt",
+		"survival.eat",
+	}
+	fixture.environment.catalog.Specs = make([]host.CapabilitySpec, 0, len(capabilityIDs))
+	seenCapabilities := make(map[string]struct{}, len(capabilityIDs))
+	for _, capabilityID := range capabilityIDs {
+		if _, seen := seenCapabilities[capabilityID]; seen {
+			continue
+		}
+		seenCapabilities[capabilityID] = struct{}{}
+		fixture.environment.catalog.Specs = append(
+			fixture.environment.catalog.Specs,
+			agentFixtureCapabilitySpec(t, host.CapabilityRef{ID: capabilityID, Version: "2.0.0"}),
+		)
+	}
+	decisions := make([]cognition.ModelDecision, 0, len(capabilityIDs)+1)
+	for index, capabilityID := range capabilityIDs {
+		ref := host.CapabilityRef{ID: capabilityID, Version: "2.0.0"}
+		decision := cognition.ModelDecision{
+			Kind: cognition.ModelDecisionAction, Capability: ref,
+			Arguments: json.RawMessage(`{}`),
+			Summary:   fmt.Sprintf("Advance survival bootstrap step %d.", index+1),
+		}
+		if index == 0 {
+			decision.PlanDraft = &taskstate.Draft{
+				Phase: "Bootstrap", MaxReplans: 2,
+				Steps: []taskstate.StepDraft{
+					{
+						StepID: "step.workstation", Title: "Establish workstation",
+						Objective: "Gather wood and establish basic crafting.", MaxAttempts: 3,
+						CapabilityHints: []host.CapabilityRef{
+							{ID: "resource.harvest", Version: "2.0.0"},
+							{ID: "crafting.craft", Version: "2.0.0"},
+							{ID: "inventory.place", Version: "2.0.0"},
+						},
+						SuccessConditions: []taskstate.PlanCondition{{
+							ConditionID: "condition.workstation-ready",
+							Kind:        taskstate.EvidenceOperationOutcome,
+							Summary:     "The Host confirms the workstation and first tool are ready.",
+						}},
+					},
+					{
+						StepID: "step.cooked-food", Title: "Prepare cooked food",
+						Objective: "Gather stone and food, then cook and eat it.", MaxAttempts: 3,
+						CapabilityHints: []host.CapabilityRef{
+							{ID: "resource.harvest", Version: "2.0.0"},
+							{ID: "crafting.craft", Version: "2.0.0"},
+							{ID: "smelting.smelt", Version: "2.0.0"},
+							{ID: "survival.eat", Version: "2.0.0"},
+						},
+						SuccessConditions: []taskstate.PlanCondition{{
+							ConditionID: "condition.cooked-food-consumed",
+							Kind:        taskstate.EvidenceOperationOutcome,
+							Summary:     "The Host confirms cooked food was consumed.",
+						}},
+					},
+				},
+			}
+		}
+		decisions = append(decisions, decision)
+	}
+	decisions = append(decisions, cognition.ModelDecision{
+		Kind:    cognition.ModelDecisionComplete,
+		Summary: "The empty-hand survival bootstrap is complete.",
+	})
+	fixture.model.decisions = decisions
+
+	results := make([]controlplane.OperationView, 0, len(capabilityIDs))
+	fixture.control.operationSequences = make(map[string][]controlplane.OperationView)
+	for index, capabilityID := range capabilityIDs {
+		operationID := fmt.Sprintf("operation.survival.%d", index+1)
+		result := succeededAgentOperationWithID(
+			fixture.environment.observation,
+			operationID,
+			fmt.Sprintf("The Host confirmed %s.", capabilityID),
+		)
+		result.Output = map[string]any{
+			"capability_id": capabilityID,
+			"step":          float64(index + 1),
+		}
+		results = append(results, result)
+		fixture.control.operationSequences[operationID] = []controlplane.OperationView{result}
+	}
+	fixture.control.submissionResults = results
+	plans := &runtimePlanStub{
+		control: fixture.control, principal: fixture.principal,
+		advanceAfter: []int{4, 8},
+	}
+	fixture.plans = plans
+	runtime := fixture.runtime(t, 64)
+	started, err := runtime.StartTask(context.Background(), cognition.StartTaskInput{
+		TaskID: "task.survival-bootstrap", HostID: "host.test", WorldID: "world.test",
+		ActorID: "actor.mira", ControllerID: "controller.internal",
+		Goal:         "Start empty-handed, establish basic tools, cook food, and eat it.",
+		Tags:         []string{"minecraft.survival", "bootstrap"},
+		PlanningMode: taskstate.PlanningRequired,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed, err := runtime.RunTask(context.Background(), started.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.Status != cognition.TaskCompleted || completed.ActionCount != 8 ||
+		completed.ModelCalls != 9 || plans.plan.Status != taskstate.PlanCompleted {
+		t.Fatalf("survival bootstrap task = %#v, plan = %#v", completed, plans.plan)
+	}
+	if len(fixture.control.submissions) != 8 || len(plans.submissions) != 8 ||
+		plans.advancedSteps != 2 {
+		t.Fatalf(
+			"survival submissions = %d, planned = %d, advanced phases = %d",
+			len(fixture.control.submissions), len(plans.submissions), plans.advancedSteps,
+		)
+	}
+	for index, capabilityID := range capabilityIDs {
+		if got := fixture.control.submissions[index].Request.Capability.ID; got != capabilityID {
+			t.Fatalf("survival action %d capability = %q, want %q", index+1, got, capabilityID)
+		}
+		if index > 0 {
+			last := fixture.model.inputs[index].LastOperationResult
+			if last == nil || last.OperationID != results[index-1].OperationID {
+				t.Fatalf("survival decision %d did not receive the previous outcome: %#v", index+1, last)
+			}
+		}
+	}
+	if fixture.model.inputs[0].Plan != nil ||
+		fixture.model.inputs[4].Plan == nil ||
+		fixture.model.inputs[4].Plan.CurrentStepID != "step.cooked-food" ||
+		fixture.model.inputs[8].Plan == nil ||
+		fixture.model.inputs[8].Plan.Status != taskstate.PlanCompleted {
+		t.Fatalf("survival plan was not reused across coarse phases: %#v", fixture.model.inputs)
+	}
+}
+
 func TestAgentRuntimeCreatesDraftOnlyAfterVerifiedComplexTask(t *testing.T) {
 	fixture := newAgentRuntimeFixture(t)
 	fixture.model.decisions = []cognition.ModelDecision{
@@ -1346,6 +1490,8 @@ type runtimePlanStub struct {
 	plan          taskstate.PlanState
 	submissions   []taskstate.SubmitStepActionInput
 	advanced      bool
+	advanceAfter  []int
+	advancedSteps int
 	statusUpdates int
 }
 
@@ -1356,12 +1502,29 @@ func (client *runtimePlanStub) CreatePlan(_ context.Context, input taskstate.Dra
 }
 
 func (client *runtimePlanStub) GetPlan(context.Context, string) (taskstate.PlanState, error) {
-	if len(client.submissions) != 0 && !client.advanced {
+	for client.advancedSteps < len(client.plan.Steps) {
+		threshold := 1
+		if len(client.advanceAfter) != 0 {
+			if client.advancedSteps >= len(client.advanceAfter) {
+				break
+			}
+			threshold = client.advanceAfter[client.advancedSteps]
+		}
+		if len(client.submissions) < threshold {
+			break
+		}
+		step := client.plan.Steps[client.advancedSteps]
+		if len(step.SuccessConditions) == 0 {
+			break
+		}
 		evidence := taskstate.PlanEvidence{
-			EvidenceID: "evidence.arrived", ConditionID: "condition.arrived",
-			Kind: taskstate.EvidenceOperationOutcome, OperationID: "operation.agent.1",
-			Epoch: client.plan.BasedOnEpoch, ObservationSequence: 2,
-			Digest: strings.Repeat("a", 64), RecordedAtUnixMillis: 2_001,
+			EvidenceID:  fmt.Sprintf("evidence.step.%d", client.advancedSteps+1),
+			ConditionID: step.SuccessConditions[0].ConditionID,
+			Kind:        taskstate.EvidenceOperationOutcome,
+			OperationID: fmt.Sprintf("operation.plan-step.%d", client.advancedSteps+1),
+			Epoch:       client.plan.BasedOnEpoch, ObservationSequence: 2,
+			Digest:               strings.Repeat("a", 64),
+			RecordedAtUnixMillis: int64(2_001 + client.advancedSteps),
 		}
 		plan, _, err := taskstate.ApplyEvidence(client.plan, evidence, 2_001)
 		if err != nil {
@@ -1369,6 +1532,7 @@ func (client *runtimePlanStub) GetPlan(context.Context, string) (taskstate.PlanS
 		}
 		client.plan = plan
 		client.advanced = true
+		client.advancedSteps++
 	}
 	return client.plan, nil
 }
@@ -1894,6 +2058,51 @@ func agentCapabilitySpec(t *testing.T) host.CapabilitySpec {
 		Capability:  host.CapabilityRef{ID: "rin.navigation.move-to", Version: "2.0.0"},
 		Description: "Move toward one observed target.", Input: input, Output: output,
 		EffectSchema: effects, Kind: host.CapabilityAtomic, Execution: host.ExecutionLongRunning,
+		Cancellation: host.CancellationCooperative, RiskFloor: host.RiskLow,
+		RequiredDurability: host.DurabilityAdvisory,
+		ExecutionBudget:    host.Duration{Clock: host.ClockStep, Value: 20},
+		MaxInputBytes:      1_024, MaxOutputBytes: 1_024, MaxEffects: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return spec
+}
+
+func agentFixtureCapabilitySpec(t *testing.T, ref host.CapabilityRef) host.CapabilitySpec {
+	t.Helper()
+	input, err := host.NewSchema([]byte(`{
+      "$schema":"https://json-schema.org/draft/2020-12/schema",
+      "type":"object",
+      "additionalProperties":false
+    }`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := host.NewSchema([]byte(`{
+      "$schema":"https://json-schema.org/draft/2020-12/schema",
+      "type":"object",
+      "properties":{"state":{"type":"string"}},
+      "required":["state"],
+      "additionalProperties":false
+    }`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	effects, err := host.NewSchema([]byte(`{
+      "$schema":"https://json-schema.org/draft/2020-12/schema",
+      "type":"object",
+      "properties":{"changed":{"type":"boolean"}},
+      "required":["changed"],
+      "additionalProperties":false
+    }`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := host.SealCapabilitySpec(host.CapabilitySpec{
+		Capability: ref, Description: "Test fixture capability for a survival sequence.",
+		Input: input, Output: output, EffectSchema: effects,
+		Kind: host.CapabilityAtomic, Execution: host.ExecutionLongRunning,
 		Cancellation: host.CancellationCooperative, RiskFloor: host.RiskLow,
 		RequiredDurability: host.DurabilityAdvisory,
 		ExecutionBudget:    host.Duration{Clock: host.ClockStep, Value: 20},
