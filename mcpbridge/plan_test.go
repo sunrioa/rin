@@ -50,10 +50,14 @@ func TestGatewayExposesSharedTaskPlansByScope(t *testing.T) {
 		"goal": "Collect material and return home.", "planning_mode": "auto",
 		"steps": []map[string]any{{
 			"step_id": "step.collect", "title": "Collect", "objective": "Collect material.",
-			"max_attempts": 3,
+			"max_attempts":     3,
+			"capability_hints": []map[string]any{{"id": "resource.harvest", "version": "1.0.0"}},
 			"success_conditions": []map[string]any{{
 				"condition_id": "condition.collected", "kind": "operation-outcome",
-				"summary": "Host confirms collection.",
+				"summary":         "Host confirms collection.",
+				"capability":      map[string]any{"id": "resource.harvest", "version": "1.0.0"},
+				"fact_id":         "",
+				"fact_value_json": "",
 			}},
 		}},
 		"based_on_epoch": epoch, "based_on_observation_sequence": 1,

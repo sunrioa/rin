@@ -295,6 +295,18 @@ func (runtime *AgentRuntime) advanceTask(
 			return paused, false, pauseErr
 		}
 	}
+	task.LastObservationID = observation.ObservationID
+	task.LastObservationSeq = observation.Sequence
+	plan, task, err := runtime.loadTaskPlan(ctx, task)
+	if err != nil {
+		paused, pauseErr := runtime.pauseTask(ctx, task, "plan.unavailable", err)
+		return paused, false, pauseErr
+	}
+	plan, task, err = runtime.applyObservedPlanFacts(ctx, task, plan, observation)
+	if err != nil {
+		paused, pauseErr := runtime.pauseTask(ctx, task, "plan.evidence-unavailable", err)
+		return paused, false, pauseErr
+	}
 	persona, err := runtime.persona.Load(ctx, PersonaRequest{
 		ActorID: task.ActorID, ControllerID: task.ControllerID,
 	})
@@ -311,13 +323,6 @@ func (runtime *AgentRuntime) advanceTask(
 	warnings := assembled.warnings
 	memories := assembled.memories
 	skills := assembled.skills
-	task.LastObservationID = observation.ObservationID
-	task.LastObservationSeq = observation.Sequence
-	plan, task, err := runtime.loadTaskPlan(ctx, task)
-	if err != nil {
-		paused, pauseErr := runtime.pauseTask(ctx, task, "plan.unavailable", err)
-		return paused, false, pauseErr
-	}
 	input := ModelInput{
 		Task: ModelTaskContext{
 			TaskID: task.TaskID, SessionID: task.SessionID, ActorID: task.ActorID,
@@ -326,6 +331,7 @@ func (runtime *AgentRuntime) advanceTask(
 		},
 		Persona: persona, Observation: observation, Memories: memories,
 		Capabilities: summaries, Skills: skills, Plan: plan,
+		AllowedReplanReason: allowedPlanRevisionReason(plan, observation.Epoch, summaries),
 		LastOperationResult: task.LastOperationResult,
 	}
 	decision, task, err := runtime.callModel(ctx, task, input, warnings)
@@ -398,6 +404,10 @@ func (runtime *AgentRuntime) advanceTask(
 			return paused, false, pauseErr
 		}
 	}
+	if err := validateRequiredPlanRevision(input, decision); err != nil {
+		paused, pauseErr := runtime.pauseTask(ctx, task, "plan.revision-required", err)
+		return paused, false, pauseErr
+	}
 	return runtime.applyModelDecision(ctx, task, observation, specs, summaries, decision)
 }
 
@@ -465,6 +475,9 @@ func (runtime *AgentRuntime) ensureController(
 		})
 	}
 	if err != nil {
+		if errors.Is(err, controlplane.ErrLeaseConflict) || errors.Is(err, controlplane.ErrForbidden) {
+			return runtime.pauseTask(ctx, task, "controller.contended", err)
+		}
 		return runtime.pauseTask(ctx, task, "controller.unavailable", err)
 	}
 	if lease.Source != controlplane.DecisionInternal {

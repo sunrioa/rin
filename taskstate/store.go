@@ -283,6 +283,42 @@ func (store *Store) Get(ctx context.Context, planID string) (PlanState, error) {
 	return loadPlan(ctx, store.db, planID)
 }
 
+// List returns the durable plan projection for local management surfaces.
+// Execution and authorization still flow through Coordinator; listing cannot
+// mutate a plan or grant controller authority.
+func (store *Store) List(ctx context.Context) ([]PlanState, error) {
+	if err := requireContext(ctx); err != nil {
+		return nil, err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if err := store.ready(); err != nil {
+		return nil, err
+	}
+	rows, err := store.db.QueryContext(ctx, `SELECT state_json FROM task_plans
+		ORDER BY updated_at DESC, plan_id ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	plans := make([]PlanState, 0)
+	for rows.Next() {
+		var payload string
+		if err := rows.Scan(&payload); err != nil {
+			return nil, err
+		}
+		state, err := decodeStoredPlan(payload)
+		if err != nil {
+			return nil, err
+		}
+		plans = append(plans, state)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return plans, nil
+}
+
 func (store *Store) Revise(ctx context.Context, input ReviseInput) (PlanState, error) {
 	if err := requireContext(ctx); err != nil {
 		return PlanState{}, err
@@ -494,7 +530,7 @@ func (store *Store) LinkOperation(ctx context.Context, link OperationLink) error
 	return tx.Commit()
 }
 
-func (store *Store) ApplyTrustedEvidence(
+func (store *Store) applyTrustedEvidence(
 	ctx context.Context,
 	planID string,
 	expectedRevision uint64,
@@ -658,11 +694,7 @@ func (store *Store) ApplyOperationResult(ctx context.Context, result OperationRe
 	now := store.config.Now().UnixMilli()
 	if applicable {
 		if result.Outcome.Status == host.ActionSucceeded {
-			conditionIDs := link.ConditionIDs
-			if len(conditionIDs) == 0 {
-				conditionIDs = operationConditionIDs(state)
-			}
-			for _, conditionID := range conditionIDs {
+			for _, conditionID := range link.ConditionIDs {
 				evidence := PlanEvidence{
 					EvidenceID:  result.OperationID + "." + conditionID,
 					ConditionID: conditionID, Kind: EvidenceOperationOutcome,
@@ -901,6 +933,10 @@ func loadPlan(ctx context.Context, query planQuerier, planID string) (PlanState,
 	} else if err != nil {
 		return PlanState{}, err
 	}
+	return decodeStoredPlan(payload)
+}
+
+func decodeStoredPlan(payload string) (PlanState, error) {
 	decoder := json.NewDecoder(bytes.NewBufferString(payload))
 	decoder.DisallowUnknownFields()
 	var state PlanState
@@ -959,7 +995,7 @@ func validateOperationLink(link OperationLink) error {
 			return err
 		}
 	}
-	if link.PlanRevision == 0 || link.PlanRevision > maxWireInteger || len(link.ConditionIDs) > 16 {
+	if link.PlanRevision == 0 || link.PlanRevision > maxWireInteger || len(link.ConditionIDs) > 24 {
 		return ErrInvalid
 	}
 	link.ConditionIDs = append([]string(nil), link.ConditionIDs...)
@@ -989,20 +1025,6 @@ func validateLinkConditions(state PlanState, link OperationLink) error {
 	return nil
 }
 
-func operationConditionIDs(state PlanState) []string {
-	index := currentStepIndex(state)
-	if index < 0 {
-		return nil
-	}
-	result := make([]string, 0, len(state.Steps[index].SuccessConditions))
-	for _, condition := range state.Steps[index].SuccessConditions {
-		if condition.Kind == EvidenceOperationOutcome {
-			result = append(result, condition.ConditionID)
-		}
-	}
-	return result
-}
-
 func operationLinksEqual(left, right OperationLink) bool {
 	return left.OperationID == right.OperationID && left.PlanID == right.PlanID &&
 		left.PlanRevision == right.PlanRevision && left.StepID == right.StepID &&
@@ -1024,8 +1046,8 @@ func terminalPlanStatus(status PlanStatus) bool {
 
 func validReplanReason(reason ReplanReason) bool {
 	switch reason {
-	case ReplanGoalChanged, ReplanPreconditionInvalidated, ReplanRequiredCapabilityMissing,
-		ReplanFailureThresholdReached, ReplanMacroUnrecoverable, ReplanEpochInvalidated,
+	case ReplanGoalChanged, ReplanRequiredCapabilityMissing,
+		ReplanFailureThresholdReached, ReplanEpochInvalidated,
 		ReplanManualAuthorized:
 		return true
 	default:

@@ -339,18 +339,138 @@ func (runtime *AgentRuntime) applyDecisionPlan(
 	return &plan, saved, nil
 }
 
-func operationOutcomeConditionIDs(plan taskstate.PlanState) []string {
+func allowedPlanRevisionReason(
+	plan *taskstate.PlanState,
+	epoch host.Epoch,
+	capabilities []CapabilitySummary,
+) taskstate.ReplanReason {
+	if plan == nil {
+		return ""
+	}
+	if plan.BasedOnEpoch != epoch {
+		return taskstate.ReplanEpochInvalidated
+	}
+	available := make(map[host.CapabilityRef]struct{}, len(capabilities))
+	for _, capability := range capabilities {
+		available[capability.Capability] = struct{}{}
+	}
 	for _, step := range plan.Steps {
 		if step.StepID != plan.CurrentStepID {
 			continue
 		}
-		result := make([]string, 0, len(step.SuccessConditions))
-		for _, condition := range step.SuccessConditions {
-			if condition.Kind == taskstate.EvidenceOperationOutcome {
-				result = append(result, condition.ConditionID)
+		for _, capability := range step.CapabilityHints {
+			if _, exists := available[capability]; !exists {
+				return taskstate.ReplanRequiredCapabilityMissing
 			}
 		}
-		return result
+		break
+	}
+	if taskstate.ShouldReplan(
+		taskstate.ReplanPolicy{FailureThreshold: 3, MaxReplans: plan.MaxReplans},
+		taskstate.ReplanInput{
+			Reason:              taskstate.ReplanFailureThresholdReached,
+			ConsecutiveFailures: plan.ConsecutiveFailures,
+			ReplanCount:         plan.ReplanCount, HasAuthoritativeProof: true,
+		},
+	) {
+		return taskstate.ReplanFailureThresholdReached
+	}
+	return ""
+}
+
+func (runtime *AgentRuntime) applyObservedPlanFacts(
+	ctx context.Context,
+	task TaskSession,
+	plan *taskstate.PlanState,
+	observation host.ObservationEnvelope,
+) (*taskstate.PlanState, TaskSession, error) {
+	if plan == nil || runtime.plans == nil {
+		return plan, task, nil
+	}
+	for applied := 0; applied < 32; applied++ {
+		condition, fact, found := nextObservedPlanFact(*plan, observation.Facts)
+		if !found {
+			return plan, task, nil
+		}
+		evidenceStepID := plan.CurrentStepID
+		if evidenceStepID == "" {
+			evidenceStepID = "plan.final"
+		}
+		updated, err := runtime.plans.RequestTransition(ctx, taskstate.TransitionInput{
+			PlanID: plan.PlanID, ExpectedRevision: plan.Revision,
+			ConditionID: condition.ConditionID, Kind: taskstate.EvidenceObservationFact,
+			EvidenceID: fact.FactID,
+		})
+		if err != nil {
+			return plan, task, err
+		}
+		plan = &updated
+		task.PlanRevision = updated.Revision
+		task.CurrentPlanStepID = updated.CurrentStepID
+		appendTaskEvent(&task, TaskEvent{
+			Kind: "plan.evidence", Step: task.Step, Code: fact.FactID,
+			Summary: condition.Summary, AtUnixMillis: runtime.now().UnixMilli(),
+			ObservationID:       observation.ObservationID,
+			ObservationSequence: observation.Sequence, Epoch: &observation.Epoch,
+			PlanID: updated.PlanID, PlanRevision: updated.Revision,
+			PlanStepID: evidenceStepID,
+		})
+		var saveErr error
+		task, saveErr = runtime.saveTask(ctx, task)
+		if saveErr != nil {
+			return plan, task, saveErr
+		}
+	}
+	return plan, task, errors.New("observation satisfied too many plan conditions in one advance")
+}
+
+func nextObservedPlanFact(
+	plan taskstate.PlanState,
+	facts []host.ObservationFact,
+) (taskstate.PlanCondition, host.ObservationFact, bool) {
+	conditions := append([]taskstate.PlanCondition(nil), plan.SuccessConditions...)
+	for _, step := range plan.Steps {
+		if step.StepID == plan.CurrentStepID {
+			current := append([]taskstate.PlanCondition(nil), step.SuccessConditions...)
+			conditions = append(current, conditions...)
+			break
+		}
+	}
+	for _, condition := range conditions {
+		if planConditionHasEvidence(plan, condition.ConditionID) {
+			continue
+		}
+		for _, fact := range facts {
+			if taskstate.ObservationConditionMatches(condition, fact) {
+				return condition, fact, true
+			}
+		}
+	}
+	return taskstate.PlanCondition{}, host.ObservationFact{}, false
+}
+
+func planConditionHasEvidence(plan taskstate.PlanState, conditionID string) bool {
+	for _, evidence := range plan.Evidence {
+		if evidence.ConditionID == conditionID {
+			return true
+		}
+	}
+	for _, step := range plan.Steps {
+		for _, evidence := range step.Evidence {
+			if evidence.ConditionID == conditionID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func validateRequiredPlanRevision(input ModelInput, decision ModelDecision) error {
+	if decision.Kind == ModelDecisionInspect || input.AllowedReplanReason == "" {
+		return nil
+	}
+	if decision.PlanDraft == nil || decision.ReplanReason != input.AllowedReplanReason {
+		return errors.New("the current plan must be revised with the allowed replan reason")
 	}
 	return nil
 }

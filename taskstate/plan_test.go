@@ -1,6 +1,7 @@
 package taskstate_test
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -54,6 +55,26 @@ func TestPlanReducerBlocksAfterBoundedFailures(t *testing.T) {
 	}
 }
 
+func TestObservationConditionMatchesExactScalarValue(t *testing.T) {
+	condition := taskstate.PlanCondition{
+		ConditionID: "condition.alive", Kind: taskstate.EvidenceObservationFact,
+		Summary: "The Host reports the actor is alive.",
+		FactID:  "fact.actor.alive", FactValueJSON: "true",
+	}
+	if !taskstate.ObservationConditionMatches(condition, host.ObservationFact{
+		FactID: "fact.actor.alive", Kind: "actor.alive", Value: json.RawMessage(`true`),
+	}) {
+		t.Fatal("exact fact did not match")
+	}
+	if taskstate.ObservationConditionMatches(condition, host.ObservationFact{
+		FactID: "fact.actor.alive", Kind: "actor.alive", Value: json.RawMessage(`false`),
+	}) || taskstate.ObservationConditionMatches(condition, host.ObservationFact{
+		FactID: "fact.actor.online", Kind: "actor.online", Value: json.RawMessage(`true`),
+	}) {
+		t.Fatal("mismatched fact identity or value was accepted")
+	}
+}
+
 func TestReplanPolicyIsDeterministicAndBounded(t *testing.T) {
 	policy := taskstate.ReplanPolicy{FailureThreshold: 3, MaxReplans: 2}
 	if taskstate.ShouldReplan(policy, taskstate.ReplanInput{
@@ -93,16 +114,20 @@ func testPlan(t *testing.T) taskstate.PlanState {
 		Steps: []taskstate.StepDraft{
 			{
 				StepID: "step.one", Title: "Collect", Objective: "Collect the material.",
-				MaxAttempts: 3, SuccessConditions: []taskstate.PlanCondition{{
+				CapabilityHints: []host.CapabilityRef{{ID: "resource.harvest", Version: "1.0.0"}},
+				MaxAttempts:     3, SuccessConditions: []taskstate.PlanCondition{{
 					ConditionID: "condition.collected", Kind: taskstate.EvidenceOperationOutcome,
-					Summary: "The Host confirms the collection.",
+					Summary:    "The Host confirms the collection.",
+					Capability: &host.CapabilityRef{ID: "resource.harvest", Version: "1.0.0"},
 				}},
 			},
 			{
 				StepID: "step.two", Title: "Return", Objective: "Return to the starting area.",
-				MaxAttempts: 3, SuccessConditions: []taskstate.PlanCondition{{
+				CapabilityHints: []host.CapabilityRef{{ID: "navigation.return_home", Version: "1.0.0"}},
+				MaxAttempts:     3, SuccessConditions: []taskstate.PlanCondition{{
 					ConditionID: "condition.returned", Kind: taskstate.EvidenceOperationOutcome,
-					Summary: "The Host confirms the return.",
+					Summary:    "The Host confirms the return.",
+					Capability: &host.CapabilityRef{ID: "navigation.return_home", Version: "1.0.0"},
 				}},
 			},
 		},

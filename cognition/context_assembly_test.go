@@ -46,6 +46,7 @@ func TestAssembleOptionalModelContextBuildsStableProviderQueries(t *testing.T) {
 	}
 	task := TaskSession{
 		TaskID: "task.context", SessionID: "session.context", ActorID: "actor.context",
+		AdapterID:    "adapter.context",
 		ControllerID: "controller.context", Goal: "Collect oak logs near the shelter.",
 		Tags: []string{"task.collect"}, CurrentPlanStepID: "step.gather-wood",
 		PlanningMode: taskstate.PlanningRequired,
@@ -71,6 +72,7 @@ func TestAssembleOptionalModelContextBuildsStableProviderQueries(t *testing.T) {
 	}
 	if !reflect.DeepEqual(skills.query.Tags,
 		[]string{"task.collect", "step.gather-wood"}) ||
+		skills.query.Adapter != task.AdapterID ||
 		!reflect.DeepEqual(skills.query.AvailableCapabilities,
 			[]string{"rin.navigation.move-to", "rin.resource.collect"}) ||
 		skills.query.Limit != 64 {

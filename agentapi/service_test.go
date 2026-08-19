@@ -80,6 +80,42 @@ func TestServiceRechecksActiveMacroWaitingForHostObservation(t *testing.T) {
 		"active macro observation recheck")
 }
 
+func TestServiceAutomaticallyResumesOnlyTemporaryPauses(t *testing.T) {
+	runtime := newFakeTaskRuntime()
+	temporary := activeTask("task.temporary-pause", "task.paused")
+	temporary.Status = cognition.TaskPaused
+	temporary.PauseCode = "host.unavailable"
+	temporary.UpdatedAtUnixMillis = 0
+	manual := activeTask("task.manual-pause", "task.paused")
+	manual.Status = cognition.TaskPaused
+	manual.PauseCode = "user.paused"
+	manual.UpdatedAtUnixMillis = 0
+	contended := activeTask("task.contended-controller", "task.paused")
+	contended.Status = cognition.TaskPaused
+	contended.PauseCode = "controller.contended"
+	contended.UpdatedAtUnixMillis = 0
+	runtime.tasks[temporary.TaskID] = temporary
+	runtime.tasks[manual.TaskID] = manual
+	runtime.tasks[contended.TaskID] = contended
+	service := newTestAgentService(t, runtime, 1)
+	defer service.Close()
+
+	waitFor(t, func() bool { return runtime.runCount(temporary.TaskID) == 1 },
+		"temporary pause recovery")
+	time.Sleep(120 * time.Millisecond)
+	if count := runtime.runCount(manual.TaskID); count != 0 {
+		t.Fatalf("manual pause was automatically resumed %d times", count)
+	}
+	if count := runtime.runCount(contended.TaskID); count != 0 {
+		t.Fatalf("contended controller was automatically retried %d times", count)
+	}
+	recovered, err := runtime.GetTask(context.Background(), temporary.TaskID)
+	if err != nil || recovered.Status != cognition.TaskActive ||
+		!taskHistoryHasKind(recovered.History, "task.resumed") {
+		t.Fatalf("temporary pause was not resumed: task=%+v err=%v", recovered, err)
+	}
+}
+
 func TestServiceCloseCancelsRunningTask(t *testing.T) {
 	runtime := newFakeTaskRuntime()
 	runtime.blockRuns = true
@@ -378,4 +414,13 @@ func waitFor(t *testing.T, condition func() bool, label string) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %s", label)
+}
+
+func taskHistoryHasKind(history []cognition.TaskEvent, kind string) bool {
+	for _, event := range history {
+		if event.Kind == kind {
+			return true
+		}
+	}
+	return false
 }

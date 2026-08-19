@@ -3006,6 +3006,9 @@
           "host_id": {
             "$ref": "#/components/schemas/Identifier"
           },
+          "adapter_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
           "world_id": {
             "$ref": "#/components/schemas/Identifier"
           },
@@ -3052,6 +3055,7 @@
         },
         "required": [
           "host_id",
+          "adapter_id",
           "world_id",
           "actor_id",
           "owner_principal_id",

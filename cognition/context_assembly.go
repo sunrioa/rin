@@ -76,7 +76,8 @@ func (runtime *AgentRuntime) assembleOptionalModelContext(
 		}
 		var err error
 		assembled.skills, err = runtime.skills.ListSkills(ctx, SkillQuery{
-			Tags: skillTags, AvailableCapabilities: availableCapabilities, Limit: 64,
+			Tags: skillTags, Adapter: task.AdapterID,
+			AvailableCapabilities: availableCapabilities, Limit: 64,
 		})
 		if err != nil {
 			if ctx.Err() != nil {

@@ -29,6 +29,10 @@ func TestSQLiteStorePersistsCASAndSingleActiveActorPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	plans, err := store.List(context.Background())
+	if err != nil || len(plans) != 1 || plans[0].PlanID != created.PlanID {
+		t.Fatalf("listed plans = %#v, %v", plans, err)
+	}
 	if _, err := store.Create(context.Background(), testDraft("plan.two", "task.two")); !errors.Is(err, taskstate.ErrConflict) {
 		t.Fatalf("second active actor plan error = %v", err)
 	}
@@ -146,7 +150,7 @@ func TestSQLiteStoreWaitAndRevisionRefuseUnfinishedOperation(t *testing.T) {
 	revision.Goal = "Collect safer material and return home."
 	if _, err := store.Revise(context.Background(), taskstate.ReviseInput{
 		PlanID: plan.PlanID, ExpectedRevision: plan.Revision,
-		Reason:  taskstate.ReplanPreconditionInvalidated,
+		Reason:  taskstate.ReplanRequiredCapabilityMissing,
 		Summary: "The running operation still owns the current step.", Draft: revision,
 	}); !errors.Is(err, taskstate.ErrConflict) {
 		t.Fatalf("revision with unfinished operation error = %v", err)
@@ -285,16 +289,20 @@ func testDraft(planID, taskID string) taskstate.Draft {
 		Steps: []taskstate.StepDraft{
 			{
 				StepID: "step.collect", Title: "Collect", Objective: "Collect nearby material.",
-				MaxAttempts: 3, SuccessConditions: []taskstate.PlanCondition{{
+				CapabilityHints: []host.CapabilityRef{{ID: "resource.harvest", Version: "1.0.0"}},
+				MaxAttempts:     3, SuccessConditions: []taskstate.PlanCondition{{
 					ConditionID: "condition.collected", Kind: taskstate.EvidenceOperationOutcome,
-					Summary: "The Host confirms collection.",
+					Summary:    "The Host confirms collection.",
+					Capability: &host.CapabilityRef{ID: "resource.harvest", Version: "1.0.0"},
 				}},
 			},
 			{
 				StepID: "step.return", Title: "Return", Objective: "Return home.",
-				MaxAttempts: 3, SuccessConditions: []taskstate.PlanCondition{{
+				CapabilityHints: []host.CapabilityRef{{ID: "navigation.return_home", Version: "1.0.0"}},
+				MaxAttempts:     3, SuccessConditions: []taskstate.PlanCondition{{
 					ConditionID: "condition.returned", Kind: taskstate.EvidenceOperationOutcome,
-					Summary: "The Host confirms return.",
+					Summary:    "The Host confirms return.",
+					Capability: &host.CapabilityRef{ID: "navigation.return_home", Version: "1.0.0"},
 				}},
 			},
 		},

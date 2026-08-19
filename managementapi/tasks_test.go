@@ -6,8 +6,22 @@ import (
 	"testing"
 
 	"github.com/sunrioa/rin/cognition"
+	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/taskstate"
 	"github.com/sunrioa/rin/timeline"
 )
+
+type fakePlanReader struct {
+	plan taskstate.PlanState
+}
+
+func (reader fakePlanReader) Get(context.Context, string) (taskstate.PlanState, error) {
+	return reader.plan, nil
+}
+
+func (reader fakePlanReader) List(context.Context) ([]taskstate.PlanState, error) {
+	return []taskstate.PlanState{reader.plan}, nil
+}
 
 type fakeTaskManager struct {
 	task          cognition.TaskSession
@@ -72,10 +86,34 @@ func TestTaskManagementReturnsSafeSummaryAndPublicTimeline(t *testing.T) {
 	manager := &fakeTaskManager{task: cognition.TaskSession{
 		TaskID: "task.console", HostID: "host.one", WorldID: "world.one", ActorID: "actor.one",
 		Goal: "Collect supplies.", Status: cognition.TaskPaused, PauseCode: "host.offline",
+		PlanID: "plan.console", PlanRevision: 2, CurrentPlanStepID: "step.collect",
 		Budget: cognition.TaskBudget{MaxSteps: 48}, UpdatedAtUnixMillis: 100,
 	}}
 	service, err := New(personas, memory, manager)
 	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := taskstate.NewPlan(taskstate.Draft{
+		PlanID: "plan.console", TaskID: manager.task.TaskID, SessionID: manager.task.TaskID,
+		HostID: manager.task.HostID, WorldID: manager.task.WorldID, ActorID: manager.task.ActorID,
+		ControllerID: "controller.rin-console", ControllerSource: taskstate.ControllerInternal,
+		Goal: manager.task.Goal, PlanningMode: taskstate.PlanningRequired,
+		BasedOnEpoch:               host.Epoch{SessionID: "session.one", WorldID: "world.one", Host: 1, World: 1, Timeline: 1},
+		BasedOnObservationSequence: 1,
+		Steps: []taskstate.StepDraft{{
+			StepID: "step.collect", Title: "Collect", Objective: "Collect supplies.",
+			CapabilityHints: []host.CapabilityRef{{ID: "resource.harvest", Version: "1.0.0"}},
+			SuccessConditions: []taskstate.PlanCondition{{
+				ConditionID: "condition.collect", Kind: taskstate.EvidenceOperationOutcome,
+				Summary:    "Supplies were collected.",
+				Capability: &host.CapabilityRef{ID: "resource.harvest", Version: "1.0.0"},
+			}},
+		}},
+	}, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ConfigurePlans(fakePlanReader{plan: plan}); err != nil {
 		t.Fatal(err)
 	}
 	list, err := service.ListTasks(context.Background(), TaskListInput{})
@@ -85,7 +123,8 @@ func TestTaskManagementReturnsSafeSummaryAndPublicTimeline(t *testing.T) {
 	detail, err := service.GetTask(context.Background(), TaskGetInput{
 		TaskID: manager.task.TaskID, AfterCursor: "cursor-24", Limit: 80,
 	})
-	if err != nil || len(detail.Timeline.Events) != 1 || detail.Task.PauseCode != "host.offline" {
+	if err != nil || len(detail.Timeline.Events) != 1 || detail.Task.PauseCode != "host.offline" ||
+		detail.Plan == nil || detail.Plan.CurrentStepID != "step.collect" {
 		t.Fatalf("task detail = %#v, %v", detail, err)
 	}
 	if manager.timelineQuery.TaskID != manager.task.TaskID ||
@@ -109,5 +148,55 @@ func TestTaskManagementReturnsSafeSummaryAndPublicTimeline(t *testing.T) {
 			[]string{"console", "long-goal", "minecraft.ender-dragon"}) ||
 		!slices.Equal(started.Tags, manager.task.Tags) {
 		t.Fatalf("started task = %#v, stored = %#v, %v", started, manager.task, err)
+	}
+}
+
+func TestTaskManagementListsExternalMCPPlansWithoutInternalRuntime(t *testing.T) {
+	personas, err := cognition.RestoreLocalPersonaProvider(cognition.DefaultPersonaSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	memory, err := cognition.NewLocalMemoryProvider(cognition.LocalMemoryConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := New(personas, memory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := taskstate.NewPlan(taskstate.Draft{
+		PlanID: "plan.external", TaskID: "task.external", SessionID: "session.external",
+		HostID: "host.one", WorldID: "world.one", ActorID: "actor.one",
+		ControllerID: "controller.mcp", ControllerSource: taskstate.ControllerExternal,
+		Goal: "Collect supplies without the internal runtime.", PlanningMode: taskstate.PlanningRequired,
+		BasedOnEpoch: host.Epoch{
+			SessionID: "session.external", WorldID: "world.one", Host: 1, World: 1, Timeline: 1,
+		},
+		BasedOnObservationSequence: 1,
+		Steps: []taskstate.StepDraft{{
+			StepID: "step.collect", Title: "Collect", Objective: "Collect supplies.",
+			CapabilityHints: []host.CapabilityRef{{ID: "resource.harvest", Version: "1.0.0"}},
+			SuccessConditions: []taskstate.PlanCondition{{
+				ConditionID: "condition.collect", Kind: taskstate.EvidenceOperationOutcome,
+				Summary:    "The Host confirms collection.",
+				Capability: &host.CapabilityRef{ID: "resource.harvest", Version: "1.0.0"},
+			}},
+		}},
+	}, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ConfigurePlans(fakePlanReader{plan: plan}); err != nil {
+		t.Fatal(err)
+	}
+	list, err := service.ListTasks(context.Background(), TaskListInput{})
+	if err != nil || len(list.Tasks) != 1 || list.Tasks[0].TaskControlAvailable ||
+		list.Tasks[0].ControllerSource != "external" || list.Tasks[0].PlanID != plan.PlanID {
+		t.Fatalf("external plan list = %#v, %v", list, err)
+	}
+	detail, err := service.GetTask(context.Background(), TaskGetInput{TaskID: plan.PlanID})
+	if err != nil || detail.Plan == nil || detail.Plan.PlanID != plan.PlanID ||
+		detail.Task.TaskControlAvailable || detail.Timeline.ContractVersion != timeline.ContractVersion {
+		t.Fatalf("external plan detail = %#v, %v", detail, err)
 	}
 }

@@ -328,7 +328,8 @@ func (service *Service) ListActors(
 	for _, actor := range world.Actors {
 		if canAccessActor(principal, actor, ScopeActorRead) {
 			result = append(result, service.actorViewLocked(
-				hostID, worldID, current.lease, online, actor,
+				hostID, current.registration.Manifest.AdapterID, worldID,
+				current.lease, online, actor,
 			))
 		}
 	}
@@ -440,7 +441,10 @@ func (service *Service) getActorLocked(
 			return ActorView{}, ErrForbidden
 		}
 		online := current.lease.ExpiresAtUnixMillis > service.now().UnixMilli()
-		return service.actorViewLocked(hostID, worldID, current.lease, online, actor), nil
+		return service.actorViewLocked(
+			hostID, current.registration.Manifest.AdapterID, worldID,
+			current.lease, online, actor,
+		), nil
 	}
 	return ActorView{}, ErrNotFound
 }
@@ -600,7 +604,7 @@ func cloneCapabilitySnapshot(value host.CapabilitySnapshot) host.CapabilitySnaps
 }
 
 func (service *Service) actorViewLocked(
-	hostID, worldID string,
+	hostID, adapterID, worldID string,
 	lease HostLease,
 	online bool,
 	actor ActorPublication,
@@ -615,6 +619,7 @@ func (service *Service) actorViewLocked(
 	stop := service.emergencyStops[key]
 	return ActorView{
 		HostID:                hostID,
+		AdapterID:             adapterID,
 		WorldID:               worldID,
 		ActorID:               actor.ActorID,
 		OwnerPrincipalID:      actor.OwnerPrincipalID,

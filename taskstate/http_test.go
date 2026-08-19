@@ -108,9 +108,11 @@ func httpTestDraft() Draft {
 		Goal: "Collect material.", PlanningMode: PlanningAuto,
 		Steps: []StepDraft{{
 			StepID: "step.collect", Title: "Collect", Objective: "Collect material.",
+			CapabilityHints: []host.CapabilityRef{{ID: "resource.harvest", Version: "1.0.0"}},
 			SuccessConditions: []PlanCondition{{
 				ConditionID: "condition.collected", Kind: EvidenceOperationOutcome,
-				Summary: "The Host confirms collection.",
+				Summary:    "The Host confirms collection.",
+				Capability: &host.CapabilityRef{ID: "resource.harvest", Version: "1.0.0"},
 			}},
 		}},
 		BasedOnEpoch: epoch, BasedOnObservationSequence: 1,

@@ -82,6 +82,12 @@ test("Console starts long goals with installed Skill trigger tags", () => {
   assert.match(html, /id="taskTags"/);
 });
 
+test("Console renders machine-bound Plan condition evidence", () => {
+  assert.match(app, /condition\.capability/);
+  assert.match(app, /condition\.fact_id/);
+  assert.match(app, /未绑定/);
+});
+
 test("Console manages complete persona data without mixing it with authority", () => {
   assert.match(html, /id="personaInitiativeEnabled"/);
   assert.match(html, /id="personaBoundaries"/);
@@ -108,9 +114,20 @@ test("Console discards stale page and search responses", () => {
   assert.match(app, /function isCurrentRequest/);
   assert.match(app, /beginRequest\("memories"\)/);
   assert.match(app, /beginRequest\("skills"\)/);
+  assert.match(app, /adapter: selected\?\.adapter_id \|\| undefined/);
+  assert.match(app, /taskPlan\(result\.plan\)/);
+  assert.match(app, /暂停原因/);
+  assert.match(app, /step\.evidence_refs/);
 });
 
 test("Console renews actor control leases", () => {
   assert.match(app, /data-actor-action="renew"/);
   assert.match(app, /lease_ttl_millis/);
+});
+
+test("Console lists external MCP plans without internal task controls", () => {
+  assert.match(app, /task_control_available/);
+  assert.match(app, /外部计划/);
+  assert.match(app, /controller_source/);
+  assert.match(app, /当前没有内部任务或外部 MCP 计划/);
 });

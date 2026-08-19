@@ -3,10 +3,13 @@
 package taskstate
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 	"unicode/utf8"
@@ -76,28 +79,27 @@ const (
 type EvidenceKind string
 
 const (
-	EvidenceOperationOutcome   EvidenceKind = "operation-outcome"
-	EvidenceObservationFact    EvidenceKind = "observation-fact"
-	EvidencePlayerConfirmation EvidenceKind = "player-confirmation"
-	EvidenceHostCondition      EvidenceKind = "host-condition"
+	EvidenceOperationOutcome EvidenceKind = "operation-outcome"
+	EvidenceObservationFact  EvidenceKind = "observation-fact"
 )
 
 type ReplanReason string
 
 const (
 	ReplanGoalChanged               ReplanReason = "goal-changed"
-	ReplanPreconditionInvalidated   ReplanReason = "precondition-invalidated"
 	ReplanRequiredCapabilityMissing ReplanReason = "required-capability-missing"
 	ReplanFailureThresholdReached   ReplanReason = "failure-threshold-reached"
-	ReplanMacroUnrecoverable        ReplanReason = "macro-unrecoverable"
 	ReplanEpochInvalidated          ReplanReason = "epoch-invalidated"
 	ReplanManualAuthorized          ReplanReason = "manual-authorized"
 )
 
 type PlanCondition struct {
-	ConditionID string       `json:"condition_id"`
-	Kind        EvidenceKind `json:"kind"`
-	Summary     string       `json:"summary"`
+	ConditionID   string              `json:"condition_id"`
+	Kind          EvidenceKind        `json:"kind"`
+	Summary       string              `json:"summary"`
+	Capability    *host.CapabilityRef `json:"capability"`
+	FactID        string              `json:"fact_id"`
+	FactValueJSON string              `json:"fact_value_json"`
 }
 
 type PlanEvidence struct {
@@ -116,7 +118,6 @@ type PlanStep struct {
 	Title             string               `json:"title"`
 	Objective         string               `json:"objective"`
 	Status            StepStatus           `json:"status"`
-	Preconditions     []PlanCondition      `json:"preconditions,omitempty"`
 	SuccessConditions []PlanCondition      `json:"success_conditions,omitempty"`
 	CapabilityHints   []host.CapabilityRef `json:"capability_hints,omitempty"`
 	Attempt           uint32               `json:"attempt"`
@@ -131,7 +132,6 @@ type StepDraft struct {
 	StepID            string               `json:"step_id"`
 	Title             string               `json:"title"`
 	Objective         string               `json:"objective"`
-	Preconditions     []PlanCondition      `json:"preconditions,omitempty"`
 	SuccessConditions []PlanCondition      `json:"success_conditions,omitempty"`
 	CapabilityHints   []host.CapabilityRef `json:"capability_hints,omitempty"`
 	MaxAttempts       uint32               `json:"max_attempts,omitempty"`
@@ -362,8 +362,7 @@ func ShouldReplan(policy ReplanPolicy, input ReplanInput) bool {
 		return input.PlayerAuthorized
 	case ReplanFailureThresholdReached:
 		return input.HasAuthoritativeProof && input.ConsecutiveFailures >= threshold
-	case ReplanPreconditionInvalidated, ReplanRequiredCapabilityMissing,
-		ReplanMacroUnrecoverable, ReplanEpochInvalidated:
+	case ReplanRequiredCapabilityMissing, ReplanEpochInvalidated:
 		return input.HasAuthoritativeProof
 	default:
 		return false
@@ -465,15 +464,12 @@ func validateStep(step PlanStep, conditionIDs map[string]EvidenceKind) error {
 		return err
 	}
 	if !validStepStatus(step.Status) || step.MaxAttempts == 0 || step.MaxAttempts > 32 ||
-		step.Attempt > step.MaxAttempts || len(step.Preconditions) > maxStepConditions ||
-		len(step.SuccessConditions) == 0 || len(step.SuccessConditions) > maxStepConditions ||
+		step.Attempt > step.MaxAttempts || len(step.SuccessConditions) == 0 ||
+		len(step.SuccessConditions) > maxStepConditions ||
 		len(step.CapabilityHints) > 32 || len(step.Evidence) > maxEvidence {
 		return invalid("step", "status, bounds, or attempts are invalid")
 	}
 	if err := validateText("blocked_reason", step.BlockedReason, 500, false); err != nil {
-		return err
-	}
-	if err := validateConditions(step.Preconditions, conditionIDs); err != nil {
 		return err
 	}
 	if err := validateConditions(step.SuccessConditions, conditionIDs); err != nil {
@@ -489,6 +485,14 @@ func validateStep(step PlanStep, conditionIDs map[string]EvidenceKind) error {
 		}
 		seenCapabilities[ref] = struct{}{}
 	}
+	for _, condition := range step.SuccessConditions {
+		if condition.Capability == nil {
+			continue
+		}
+		if _, exists := seenCapabilities[*condition.Capability]; !exists {
+			return invalid("condition.capability", "must also appear in capability_hints")
+		}
+	}
 	return nil
 }
 
@@ -502,6 +506,21 @@ func validateConditions(conditions []PlanCondition, all map[string]EvidenceKind)
 		}
 		if err := validateText("condition.summary", condition.Summary, 500, true); err != nil {
 			return err
+		}
+		switch condition.Kind {
+		case EvidenceOperationOutcome:
+			if condition.Capability == nil || condition.FactID != "" || condition.FactValueJSON != "" {
+				return invalid("condition", "operation outcomes require one capability selector")
+			}
+			if err := condition.Capability.Validate("condition.capability"); err != nil {
+				return err
+			}
+		case EvidenceObservationFact:
+			if condition.Capability != nil ||
+				validateText("condition.fact_id", condition.FactID, 128, true) != nil ||
+				validateScalarJSON(condition.FactValueJSON) != nil {
+				return invalid("condition", "observation facts require one fact_id and scalar value selector")
+			}
 		}
 		if _, duplicate := all[condition.ConditionID]; duplicate {
 			return invalid("conditions", "contain duplicate IDs")
@@ -594,7 +613,6 @@ func cloneSteps(steps []PlanStep) []PlanStep {
 	result := make([]PlanStep, len(steps))
 	for index := range steps {
 		result[index] = steps[index]
-		result[index].Preconditions = cloneConditions(steps[index].Preconditions)
 		result[index].SuccessConditions = cloneConditions(steps[index].SuccessConditions)
 		result[index].CapabilityHints = append([]host.CapabilityRef(nil), steps[index].CapabilityHints...)
 		result[index].Evidence = append([]PlanEvidence(nil), steps[index].Evidence...)
@@ -608,7 +626,6 @@ func draftSteps(steps []StepDraft) []PlanStep {
 		result[index] = PlanStep{
 			StepID: steps[index].StepID, Title: steps[index].Title,
 			Objective:         steps[index].Objective,
-			Preconditions:     cloneConditions(steps[index].Preconditions),
 			SuccessConditions: cloneConditions(steps[index].SuccessConditions),
 			CapabilityHints:   append([]host.CapabilityRef(nil), steps[index].CapabilityHints...),
 			MaxAttempts:       steps[index].MaxAttempts,
@@ -618,7 +635,54 @@ func draftSteps(steps []StepDraft) []PlanStep {
 }
 
 func cloneConditions(items []PlanCondition) []PlanCondition {
-	return append([]PlanCondition(nil), items...)
+	result := append([]PlanCondition(nil), items...)
+	for index := range result {
+		if result[index].Capability != nil {
+			capability := *result[index].Capability
+			result[index].Capability = &capability
+		}
+	}
+	return result
+}
+
+// OperationConditionIDs returns only current-step conditions whose declared
+// capability can be proven by the selected Host action.
+func OperationConditionIDs(state PlanState, capability host.CapabilityRef) []string {
+	index := currentStepIndex(state)
+	if index < 0 {
+		return nil
+	}
+	result := make([]string, 0, len(state.Steps[index].SuccessConditions))
+	for _, condition := range state.Steps[index].SuccessConditions {
+		if condition.Kind == EvidenceOperationOutcome && condition.Capability != nil &&
+			*condition.Capability == capability {
+			result = append(result, condition.ConditionID)
+		}
+	}
+	for _, condition := range state.SuccessConditions {
+		if condition.Kind == EvidenceOperationOutcome && condition.Capability != nil &&
+			*condition.Capability == capability {
+			result = append(result, condition.ConditionID)
+		}
+	}
+	return result
+}
+
+// ObservationConditionMatches verifies both the Host fact identity and its
+// exact scalar value before it can become plan evidence.
+func ObservationConditionMatches(condition PlanCondition, fact host.ObservationFact) bool {
+	if condition.Kind != EvidenceObservationFact || condition.FactID != fact.FactID {
+		return false
+	}
+	var expected bytes.Buffer
+	if json.Compact(&expected, []byte(condition.FactValueJSON)) != nil {
+		return false
+	}
+	var actual bytes.Buffer
+	if json.Compact(&actual, fact.Value) != nil {
+		return false
+	}
+	return bytes.Equal(expected.Bytes(), actual.Bytes())
 }
 
 func digestText(value string) string {
@@ -636,6 +700,27 @@ func validateText(field, value string, maximum int, required bool) error {
 
 func invalid(field, message string) error {
 	return fmt.Errorf("%w: %s %s", ErrInvalid, field, message)
+}
+
+func validateScalarJSON(value string) error {
+	if len(value) == 0 || len(value) > 1_024 || !utf8.ValidString(value) {
+		return ErrInvalid
+	}
+	decoder := json.NewDecoder(strings.NewReader(value))
+	decoder.UseNumber()
+	var decoded any
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	if decoder.Decode(&struct{}{}) != io.EOF {
+		return ErrInvalid
+	}
+	switch decoded.(type) {
+	case nil, bool, string, json.Number:
+		return nil
+	default:
+		return ErrInvalid
+	}
 }
 
 func validPlanningMode(value PlanningMode) bool {
@@ -666,7 +751,7 @@ func validStepStatus(value StepStatus) bool {
 
 func validEvidenceKind(value EvidenceKind) bool {
 	switch value {
-	case EvidenceOperationOutcome, EvidenceObservationFact, EvidencePlayerConfirmation, EvidenceHostCondition:
+	case EvidenceOperationOutcome, EvidenceObservationFact:
 		return true
 	default:
 		return false

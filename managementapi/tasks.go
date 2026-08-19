@@ -42,26 +42,29 @@ type TaskListInput struct {
 }
 
 type TaskSummary struct {
-	TaskID              string   `json:"task_id"`
-	HostID              string   `json:"host_id"`
-	WorldID             string   `json:"world_id"`
-	ActorID             string   `json:"actor_id"`
-	Goal                string   `json:"goal"`
-	Tags                []string `json:"tags,omitempty"`
-	Status              string   `json:"status"`
-	PauseCode           string   `json:"pause_code,omitempty"`
-	PlanningMode        string   `json:"planning_mode"`
-	PlanID              string   `json:"plan_id,omitempty"`
-	PlanRevision        uint64   `json:"plan_revision,omitempty"`
-	CurrentPlanStepID   string   `json:"current_plan_step_id,omitempty"`
-	Step                uint32   `json:"step"`
-	MaxSteps            uint32   `json:"max_steps"`
-	ModelCalls          uint32   `json:"model_calls"`
-	ModelTokens         uint64   `json:"model_tokens"`
-	ActionCount         uint32   `json:"action_count"`
-	PendingOperationID  string   `json:"pending_operation_id,omitempty"`
-	CreatedAtUnixMillis int64    `json:"created_at_unix_millis"`
-	UpdatedAtUnixMillis int64    `json:"updated_at_unix_millis"`
+	TaskID               string   `json:"task_id"`
+	HostID               string   `json:"host_id"`
+	AdapterID            string   `json:"adapter_id,omitempty"`
+	WorldID              string   `json:"world_id"`
+	ActorID              string   `json:"actor_id"`
+	Goal                 string   `json:"goal"`
+	Tags                 []string `json:"tags,omitempty"`
+	Status               string   `json:"status"`
+	PauseCode            string   `json:"pause_code,omitempty"`
+	PlanningMode         string   `json:"planning_mode"`
+	ControllerSource     string   `json:"controller_source,omitempty"`
+	TaskControlAvailable bool     `json:"task_control_available"`
+	PlanID               string   `json:"plan_id,omitempty"`
+	PlanRevision         uint64   `json:"plan_revision,omitempty"`
+	CurrentPlanStepID    string   `json:"current_plan_step_id,omitempty"`
+	Step                 uint32   `json:"step"`
+	MaxSteps             uint32   `json:"max_steps"`
+	ModelCalls           uint32   `json:"model_calls"`
+	ModelTokens          uint64   `json:"model_tokens"`
+	ActionCount          uint32   `json:"action_count"`
+	PendingOperationID   string   `json:"pending_operation_id,omitempty"`
+	CreatedAtUnixMillis  int64    `json:"created_at_unix_millis"`
+	UpdatedAtUnixMillis  int64    `json:"updated_at_unix_millis"`
 }
 
 type TaskListOutput struct {
@@ -76,8 +79,9 @@ type TaskGetInput struct {
 }
 
 type TaskDetail struct {
-	Task     TaskSummary   `json:"task"`
-	Timeline timeline.Page `json:"timeline"`
+	Task     TaskSummary          `json:"task"`
+	Plan     *taskstate.PlanState `json:"plan,omitempty"`
+	Timeline timeline.Page        `json:"timeline"`
 }
 
 type TaskControlInput struct {
@@ -136,7 +140,7 @@ func (service *Service) ListTasks(
 	ctx context.Context,
 	input TaskListInput,
 ) (TaskListOutput, error) {
-	if service.tasks == nil {
+	if service.tasks == nil && service.plans == nil {
 		return TaskListOutput{}, ErrTasksUnavailable
 	}
 	input.Status = strings.TrimSpace(input.Status)
@@ -146,16 +150,41 @@ func (service *Service) ListTasks(
 	if input.Limit > 500 {
 		return TaskListOutput{}, errors.New("task list limit exceeds 500")
 	}
-	snapshot, err := service.tasks.SnapshotTasks(ctx)
-	if err != nil {
-		return TaskListOutput{}, err
+	snapshot := cognition.TaskSnapshot{}
+	if service.tasks != nil {
+		var err error
+		snapshot, err = service.tasks.SnapshotTasks(ctx)
+		if err != nil {
+			return TaskListOutput{}, err
+		}
 	}
 	tasks := make([]TaskSummary, 0, min(len(snapshot.Tasks), int(input.Limit)))
+	knownTaskIDs := make(map[string]struct{}, len(snapshot.Tasks))
 	for _, task := range snapshot.Tasks {
+		knownTaskIDs[task.TaskID] = struct{}{}
 		if input.Status != "" && string(task.Status) != input.Status {
 			continue
 		}
 		tasks = append(tasks, taskSummary(task))
+	}
+	if service.plans != nil {
+		plans, err := service.plans.List(ctx)
+		if err != nil {
+			return TaskListOutput{}, err
+		}
+		for _, plan := range plans {
+			if _, exists := knownTaskIDs[plan.TaskID]; exists {
+				continue
+			}
+			summary := planTaskSummary(plan)
+			if input.Status != "" && summary.Status != input.Status {
+				continue
+			}
+			tasks = append(tasks, summary)
+			if plan.Revision > snapshot.Revision {
+				snapshot.Revision = plan.Revision
+			}
+		}
 	}
 	slices.SortFunc(tasks, func(left, right TaskSummary) int {
 		if left.UpdatedAtUnixMillis > right.UpdatedAtUnixMillis {
@@ -176,20 +205,64 @@ func (service *Service) GetTask(
 	ctx context.Context,
 	input TaskGetInput,
 ) (TaskDetail, error) {
-	if service.tasks == nil {
+	if service.tasks == nil && service.plans == nil {
 		return TaskDetail{}, ErrTasksUnavailable
 	}
-	task, err := service.tasks.GetTask(ctx, strings.TrimSpace(input.TaskID))
+	taskID := strings.TrimSpace(input.TaskID)
+	if service.tasks != nil {
+		task, err := service.tasks.GetTask(ctx, taskID)
+		if err == nil {
+			return service.internalTaskDetail(ctx, task, input)
+		}
+		if !errors.Is(err, cognition.ErrProviderNotFound) {
+			return TaskDetail{}, err
+		}
+	}
+	if service.plans == nil {
+		return TaskDetail{}, cognition.ErrProviderNotFound
+	}
+	plans, err := service.plans.List(ctx)
 	if err != nil {
 		return TaskDetail{}, err
 	}
+	for _, plan := range plans {
+		if plan.TaskID != taskID && plan.PlanID != taskID {
+			continue
+		}
+		return TaskDetail{
+			Task: planTaskSummary(plan), Plan: &plan,
+			Timeline: timeline.Page{
+				ContractVersion: timeline.ContractVersion, TaskID: plan.TaskID,
+				Goal: plan.Goal, Status: string(plan.Status), Events: []timeline.Event{},
+			},
+		}, nil
+	}
+	return TaskDetail{}, cognition.ErrProviderNotFound
+}
+
+func (service *Service) internalTaskDetail(
+	ctx context.Context,
+	task cognition.TaskSession,
+	input TaskGetInput,
+) (TaskDetail, error) {
 	page, err := service.tasks.GetTaskTimeline(ctx, timeline.Query{
 		TaskID: task.TaskID, AfterCursor: strings.TrimSpace(input.AfterCursor), Limit: input.Limit,
 	})
 	if err != nil {
 		return TaskDetail{}, err
 	}
-	return TaskDetail{Task: taskSummary(task), Timeline: page}, nil
+	var plan *taskstate.PlanState
+	if task.PlanID != "" {
+		if service.plans == nil {
+			return TaskDetail{}, ErrPlansUnavailable
+		}
+		stored, err := service.plans.Get(ctx, task.PlanID)
+		if err != nil {
+			return TaskDetail{}, err
+		}
+		plan = &stored
+	}
+	return TaskDetail{Task: taskSummary(task), Plan: plan, Timeline: page}, nil
 }
 
 func (service *Service) ControlTask(
@@ -220,15 +293,34 @@ func (service *Service) ControlTask(
 
 func taskSummary(task cognition.TaskSession) TaskSummary {
 	return TaskSummary{
-		TaskID: task.TaskID, HostID: task.HostID, WorldID: task.WorldID, ActorID: task.ActorID,
+		TaskID: task.TaskID, HostID: task.HostID, AdapterID: task.AdapterID,
+		WorldID: task.WorldID, ActorID: task.ActorID,
 		Goal: task.Goal, Tags: append([]string(nil), task.Tags...),
 		Status: string(task.Status), PauseCode: task.PauseCode,
-		PlanningMode: string(task.PlanningMode), PlanID: task.PlanID,
+		PlanningMode: string(task.PlanningMode), ControllerSource: "internal",
+		TaskControlAvailable: true, PlanID: task.PlanID,
 		PlanRevision: task.PlanRevision, CurrentPlanStepID: task.CurrentPlanStepID,
 		Step: task.Step, MaxSteps: task.Budget.MaxSteps, ModelCalls: task.ModelCalls,
 		ModelTokens: task.ModelTokens, ActionCount: task.ActionCount,
 		PendingOperationID:  task.PendingOperationID,
 		CreatedAtUnixMillis: task.CreatedAtUnixMillis, UpdatedAtUnixMillis: task.UpdatedAtUnixMillis,
+	}
+}
+
+func planTaskSummary(plan taskstate.PlanState) TaskSummary {
+	completed := uint32(0)
+	for _, step := range plan.Steps {
+		if step.Status == taskstate.StepCompleted || step.Status == taskstate.StepSkipped {
+			completed++
+		}
+	}
+	return TaskSummary{
+		TaskID: plan.TaskID, HostID: plan.HostID, WorldID: plan.WorldID,
+		ActorID: plan.ActorID, Goal: plan.Goal, Status: string(plan.Status),
+		PlanningMode: string(plan.PlanningMode), ControllerSource: string(plan.ControllerSource),
+		PlanID: plan.PlanID, PlanRevision: plan.Revision,
+		CurrentPlanStepID: plan.CurrentStepID, Step: completed, MaxSteps: uint32(len(plan.Steps)),
+		CreatedAtUnixMillis: plan.CreatedAtUnixMillis, UpdatedAtUnixMillis: plan.UpdatedAtUnixMillis,
 	}
 }
 

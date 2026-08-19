@@ -884,6 +884,9 @@
           "host_id": {
             "$ref": "#/components/schemas/Identifier"
           },
+          "adapter_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
           "world_id": {
             "$ref": "#/components/schemas/Identifier"
           },

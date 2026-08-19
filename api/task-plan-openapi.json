@@ -61,10 +61,13 @@
         "type": "object", "additionalProperties": false,
         "properties": {
           "condition_id": { "$ref": "#/components/schemas/Identifier" },
-          "kind": { "type": "string", "enum": ["operation-outcome", "observation-fact", "player-confirmation", "host-condition"] },
-          "summary": { "type": "string", "minLength": 1, "maxLength": 500 }
+          "kind": { "type": "string", "enum": ["operation-outcome", "observation-fact"] },
+          "summary": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "capability": { "anyOf": [{ "type": "null" }, { "$ref": "#/components/schemas/CapabilityRef" }] },
+          "fact_id": { "type": "string", "maxLength": 128 },
+          "fact_value_json": { "type": "string", "maxLength": 1024 }
         },
-        "required": ["condition_id", "kind", "summary"]
+        "required": ["condition_id", "kind", "summary", "capability", "fact_id", "fact_value_json"]
       },
       "StepDraft": {
         "type": "object", "additionalProperties": false,
@@ -72,9 +75,8 @@
           "step_id": { "$ref": "#/components/schemas/Identifier" },
           "title": { "type": "string", "minLength": 1, "maxLength": 200 },
           "objective": { "type": "string", "minLength": 1, "maxLength": 1000 },
-          "preconditions": { "type": "array", "maxItems": 8, "items": { "$ref": "#/components/schemas/Condition" } },
           "success_conditions": { "type": "array", "maxItems": 8, "items": { "$ref": "#/components/schemas/Condition" } },
-          "capability_hints": { "type": "array", "maxItems": 8, "items": { "$ref": "#/components/schemas/CapabilityRef" } },
+          "capability_hints": { "type": "array", "maxItems": 32, "items": { "$ref": "#/components/schemas/CapabilityRef" } },
           "max_attempts": { "type": "integer", "minimum": 1, "maximum": 16 }
         },
         "required": ["step_id", "title", "objective", "success_conditions"]
@@ -161,7 +163,7 @@
         "type": "object", "additionalProperties": false,
         "properties": {
           "action": { "type": "object", "description": "Control V2 SubmitActionInput carrying the exact plan_step_ref." },
-          "condition_ids": { "type": "array", "maxItems": 8, "uniqueItems": true, "items": { "$ref": "#/components/schemas/Identifier" } }
+          "condition_ids": { "type": "array", "maxItems": 24, "uniqueItems": true, "items": { "$ref": "#/components/schemas/Identifier" } }
         }, "required": ["action"]
       }
     }

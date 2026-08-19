@@ -228,6 +228,9 @@ func Run(
 	if err != nil {
 		return err
 	}
+	if err := managementService.ConfigurePlans(planStore); err != nil {
+		return err
+	}
 	if err := managementService.ConfigureSkills(catalog, learnedSkills); err != nil {
 		return err
 	}

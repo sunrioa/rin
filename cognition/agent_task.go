@@ -97,6 +97,7 @@ type TaskSession struct {
 	TaskID              string                 `json:"task_id"`
 	SessionID           string                 `json:"session_id"`
 	HostID              string                 `json:"host_id"`
+	AdapterID           string                 `json:"adapter_id,omitempty"`
 	WorldID             string                 `json:"world_id"`
 	ActorID             string                 `json:"actor_id"`
 	ControllerID        string                 `json:"controller_id"`
@@ -300,6 +301,11 @@ func sealTaskSession(task TaskSession) (TaskSession, error) {
 		"actor_id": task.ActorID, "controller_id": task.ControllerID,
 	} {
 		if err := validateProviderID(field, value); err != nil {
+			return TaskSession{}, err
+		}
+	}
+	if task.AdapterID != "" {
+		if err := validateProviderID("adapter_id", task.AdapterID); err != nil {
 			return TaskSession{}, err
 		}
 	}

@@ -183,6 +183,7 @@ type WorldView struct {
 // ActorView is a defensive copy of one principal-visible actor snapshot.
 type ActorView struct {
 	HostID                string            `json:"host_id"`
+	AdapterID             string            `json:"adapter_id"`
 	WorldID               string            `json:"world_id"`
 	ActorID               string            `json:"actor_id"`
 	OwnerPrincipalID      string            `json:"owner_principal_id"`

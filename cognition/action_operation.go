@@ -52,7 +52,10 @@ func (runtime *AgentRuntime) advancePendingAction(
 				err = planErr
 			} else {
 				view, err = runtime.plans.SubmitStepAction(ctx, taskstate.SubmitStepActionInput{
-					Action: action, ConditionIDs: operationOutcomeConditionIDs(plan),
+					Action: action,
+					ConditionIDs: taskstate.OperationConditionIDs(
+						plan, task.PendingAction.Capability,
+					),
 				})
 			}
 		}
@@ -63,7 +66,23 @@ func (runtime *AgentRuntime) advancePendingAction(
 				return paused, false, pauseErr
 			}
 			if errors.Is(err, controlplane.ErrStale) || errors.Is(err, controlplane.ErrLeaseExpired) ||
-				errors.Is(err, controlplane.ErrForbidden) || errors.Is(err, controlplane.ErrInvalid) {
+				errors.Is(err, controlplane.ErrForbidden) || errors.Is(err, taskstate.ErrForbidden) {
+				clearPendingTaskAction(&task)
+				code := "controller.unavailable"
+				if errors.Is(err, controlplane.ErrStale) {
+					code = "plan.epoch-invalidated"
+				} else if errors.Is(err, controlplane.ErrForbidden) || errors.Is(err, taskstate.ErrForbidden) {
+					code = "controller.contended"
+				}
+				appendTaskEvent(&task, TaskEvent{
+					Kind: "action.invalidated", Step: task.Step,
+					Code:         actionSubmissionRejectionCode(err),
+					AtUnixMillis: runtime.now().UnixMilli(),
+				})
+				paused, pauseErr := runtime.pauseTask(ctx, task, code, err)
+				return paused, false, pauseErr
+			}
+			if errors.Is(err, controlplane.ErrInvalid) {
 				clearPendingTaskAction(&task)
 				task.Step++
 				appendTaskEvent(&task, TaskEvent{
@@ -253,7 +272,7 @@ func actionSubmissionRejectionCode(err error) string {
 		return "gateway.stale"
 	case errors.Is(err, controlplane.ErrLeaseExpired):
 		return "gateway.lease-expired"
-	case errors.Is(err, controlplane.ErrForbidden):
+	case errors.Is(err, controlplane.ErrForbidden), errors.Is(err, taskstate.ErrForbidden):
 		return "gateway.forbidden"
 	case errors.Is(err, controlplane.ErrInvalid):
 		return "gateway.invalid"

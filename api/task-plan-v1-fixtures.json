@@ -21,7 +21,10 @@
           {
             "condition_id": "condition.collected",
             "kind": "operation-outcome",
-            "summary": "The Host confirms collection."
+            "summary": "The Host confirms collection.",
+            "capability": { "id": "resource.harvest", "version": "1.0.0" },
+            "fact_id": "",
+            "fact_value_json": ""
           }
         ],
         "capability_hints": [

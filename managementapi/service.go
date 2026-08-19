@@ -14,17 +14,25 @@ import (
 	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/taskstate"
 )
 
 const MemoryScopeCommon = "common"
 
 var ErrSkillsUnavailable = errors.New("skill management is not enabled")
 var ErrControlUnavailable = errors.New("control management is not enabled")
+var ErrPlansUnavailable = errors.New("task plan management is not enabled")
+
+type PlanReader interface {
+	Get(context.Context, string) (taskstate.PlanState, error)
+	List(context.Context) ([]taskstate.PlanState, error)
+}
 
 type Service struct {
 	personas         cognition.PersonaStore
 	memory           cognition.MemoryProvider
 	tasks            TaskManager
+	plans            PlanReader
 	skills           cognition.SkillProvider
 	skillStore       SkillStore
 	control          *controlplane.Service
@@ -34,6 +42,14 @@ type Service struct {
 	diagnostics      DiagnosticsProvider
 	now              func() time.Time
 	newID            func() (string, error)
+}
+
+func (service *Service) ConfigurePlans(plans PlanReader) error {
+	if plans == nil {
+		return errors.New("task plan reader is required")
+	}
+	service.plans = plans
+	return nil
 }
 
 type MemoryListRequest struct {

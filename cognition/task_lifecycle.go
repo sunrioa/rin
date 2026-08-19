@@ -76,7 +76,8 @@ func (runtime *AgentRuntime) startTask(
 	now := runtime.now().UnixMilli()
 	task := TaskSession{
 		TaskID: sealed.TaskID, SessionID: actor.Epoch.SessionID,
-		HostID: sealed.HostID, WorldID: sealed.WorldID, ActorID: sealed.ActorID,
+		HostID: sealed.HostID, AdapterID: actor.AdapterID,
+		WorldID: sealed.WorldID, ActorID: sealed.ActorID,
 		ControllerID: sealed.ControllerID, Goal: sealed.Goal, Tags: sealed.Tags,
 		AllowedCapabilities: sealed.AllowedCapabilities,
 		PlanningMode:        sealed.PlanningMode,

@@ -18,6 +18,7 @@ type ControlClient interface {
 	GetActor(context.Context, string, string, string) (controlplane.ActorView, error)
 	GetController(context.Context, controlplane.ActorControlTarget) (controlplane.ControllerLease, error)
 	GetObservation(context.Context, controlplane.ActorControlTarget) (host.ObservationEnvelope, error)
+	ListCapabilities(context.Context, controlplane.ActorControlTarget) (host.CapabilitySnapshot, error)
 	GetOperation(context.Context, string) (controlplane.OperationView, error)
 	SubmitAction(context.Context, controlplane.SubmitActionInput) (controlplane.OperationView, error)
 }
@@ -104,9 +105,30 @@ func (coordinator *Coordinator) RevisePlan(ctx context.Context, input ReviseInpu
 	case ReplanGoalChanged, ReplanManualAuthorized:
 		gate.PlayerAuthorized = true
 	case ReplanFailureThresholdReached:
-		gate.HasAuthoritativeProof = current.Status == PlanBlocked
+		// ConsecutiveFailures is updated only from authoritative Host outcomes.
+		// A step may allow more attempts than the global replan threshold, so
+		// blocking the step is not a prerequisite for revising its approach.
+		gate.HasAuthoritativeProof = current.ConsecutiveFailures >= 3
+	case ReplanEpochInvalidated:
+		actor, actorErr := coordinator.control.GetActor(
+			ctx, current.HostID, current.WorldID, current.ActorID,
+		)
+		if actorErr != nil {
+			return PlanState{}, mapControlError(actorErr)
+		}
+		gate.HasAuthoritativeProof = actor.Online &&
+			actor.Epoch == input.Draft.BasedOnEpoch &&
+			actor.Epoch != current.BasedOnEpoch
+	case ReplanRequiredCapabilityMissing:
+		catalog, catalogErr := coordinator.control.ListCapabilities(ctx, controlplane.ActorControlTarget{
+			HostID: current.HostID, WorldID: current.WorldID, ActorID: current.ActorID,
+		})
+		if catalogErr != nil {
+			return PlanState{}, mapControlError(catalogErr)
+		}
+		gate.HasAuthoritativeProof = planStepCapabilityMissing(current, catalog)
 	default:
-		return PlanState{}, fmt.Errorf("%w: replan reason requires explicit Host evidence", ErrForbidden)
+		return PlanState{}, fmt.Errorf("%w: unsupported replan reason", ErrForbidden)
 	}
 	if !ShouldReplan(ReplanPolicy{
 		FailureThreshold: 3, MaxReplans: current.MaxReplans,
@@ -114,6 +136,25 @@ func (coordinator *Coordinator) RevisePlan(ctx context.Context, input ReviseInpu
 		return PlanState{}, fmt.Errorf("%w: deterministic replan gate is not satisfied", ErrConflict)
 	}
 	return coordinator.store.Revise(ctx, input)
+}
+
+func planStepCapabilityMissing(state PlanState, catalog host.CapabilitySnapshot) bool {
+	available := make(map[host.CapabilityRef]struct{}, len(catalog.Specs))
+	for _, spec := range catalog.Specs {
+		available[spec.Capability] = struct{}{}
+	}
+	for _, step := range state.Steps {
+		if step.StepID != state.CurrentStepID {
+			continue
+		}
+		for _, capability := range step.CapabilityHints {
+			if _, exists := available[capability]; !exists {
+				return true
+			}
+		}
+		return false
+	}
+	return false
 }
 
 func (coordinator *Coordinator) SetPlanStatus(ctx context.Context, input StatusInput) (PlanState, error) {
@@ -154,6 +195,12 @@ func (coordinator *Coordinator) RequestTransition(
 			operation.ActionRequest.PlanStep.PlanID != state.PlanID {
 			return PlanState{}, fmt.Errorf("%w: operation is not confirmed plan evidence", ErrInvalid)
 		}
+		condition, exists := currentPlanCondition(state, input.ConditionID)
+		if !exists || condition.Kind != EvidenceOperationOutcome ||
+			condition.Capability == nil ||
+			*condition.Capability != operation.ActionRequest.Capability {
+			return PlanState{}, fmt.Errorf("%w: operation capability does not prove the condition", ErrInvalid)
+		}
 		payload, _ := json.Marshal(operation.Outcome)
 		digest := sha256.Sum256(payload)
 		evidence = PlanEvidence{
@@ -181,6 +228,11 @@ func (coordinator *Coordinator) RequestTransition(
 		if fact == nil {
 			return PlanState{}, ErrNotFound
 		}
+		condition, exists := currentPlanCondition(state, input.ConditionID)
+		if !exists || condition.Kind != EvidenceObservationFact ||
+			!ObservationConditionMatches(condition, *fact) {
+			return PlanState{}, fmt.Errorf("%w: observation fact does not prove the condition", ErrInvalid)
+		}
 		payload, _ := json.Marshal(fact)
 		digest := sha256.Sum256(payload)
 		evidence = PlanEvidence{
@@ -193,7 +245,7 @@ func (coordinator *Coordinator) RequestTransition(
 	default:
 		return PlanState{}, fmt.Errorf("%w: MCP transition accepts only Host-owned evidence", ErrForbidden)
 	}
-	return coordinator.store.ApplyTrustedEvidence(
+	return coordinator.store.applyTrustedEvidence(
 		ctx, state.PlanID, state.Revision, evidence, "Verified plan evidence applied.",
 	)
 }
@@ -226,6 +278,17 @@ func (coordinator *Coordinator) SubmitStepAction(
 	}
 	if err := validateLinkConditions(state, link); err != nil {
 		return controlplane.OperationView{}, err
+	}
+	allowed := make(map[string]struct{})
+	for _, conditionID := range OperationConditionIDs(state, request.Capability) {
+		allowed[conditionID] = struct{}{}
+	}
+	for _, conditionID := range input.ConditionIDs {
+		if _, exists := allowed[conditionID]; !exists {
+			return controlplane.OperationView{}, invalid(
+				"condition_ids", "must match the submitted action capability",
+			)
+		}
 	}
 	operation, err := coordinator.control.SubmitAction(ctx, input.Action)
 	if err != nil {
@@ -358,13 +421,38 @@ func (sink *OutcomeSink) RecordOutcome(
 		OperationID: evidence.OperationID, PlanID: evidence.PlanStep.PlanID,
 		PlanRevision: evidence.PlanStep.PlanRevision, StepID: evidence.PlanStep.StepID,
 	}
+	state, err := sink.store.Get(ctx, evidence.PlanStep.PlanID)
+	if err != nil {
+		return err
+	}
+	if state.Revision == evidence.PlanStep.PlanRevision &&
+		state.CurrentStepID == evidence.PlanStep.StepID {
+		link.ConditionIDs = OperationConditionIDs(state, evidence.Capability)
+	}
 	if err := sink.store.ReconcileOperationLink(ctx, link); err != nil {
 		return err
 	}
-	_, _, err := sink.store.ApplyOperationResult(ctx, OperationResult{
+	_, _, err = sink.store.ApplyOperationResult(ctx, OperationResult{
 		OperationID: evidence.OperationID, ExecutionConfirmed: true, Outcome: evidence.Outcome,
 	})
 	return err
+}
+
+func currentPlanCondition(state PlanState, conditionID string) (PlanCondition, bool) {
+	index := currentStepIndex(state)
+	if index >= 0 {
+		for _, condition := range state.Steps[index].SuccessConditions {
+			if condition.ConditionID == conditionID {
+				return condition, true
+			}
+		}
+	}
+	for _, condition := range state.SuccessConditions {
+		if condition.ConditionID == conditionID {
+			return condition, true
+		}
+	}
+	return PlanCondition{}, false
 }
 
 var _ controlplane.OutcomeSink = (*OutcomeSink)(nil)

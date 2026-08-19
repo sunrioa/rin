@@ -719,12 +719,12 @@ async function loadTasks() {
     const result = await api("/management/v1/tasks/list", { body: { limit: 100 } });
     if (!isCurrentRequest(request)) return;
     const tasks = result.tasks || [];
-    $("#taskTable").innerHTML = tasks.length ? `<table><thead><tr><th>目标</th><th>状态</th><th>阶段</th><th>动作 / 模型</th><th>更新</th></tr></thead><tbody>${tasks.map((task) => `<tr data-task-row="${escapeHTML(task.task_id)}"><td><strong>${escapeHTML(task.goal)}</strong><br><code>${escapeHTML(task.task_id)}</code>${tagList(task.tags)}</td><td><span class="state ${task.status === "completed" ? "good" : task.status === "failed" ? "bad" : "warn"}">${escapeHTML(task.status)}</span></td><td>${escapeHTML(task.current_plan_step_id || task.plan_id || "-")}</td><td>${task.action_count} / ${task.model_calls}</td><td>${new Date(task.updated_at_unix_millis).toLocaleString()}</td></tr>`).join("")}</tbody></table>` : '<div class="detail-surface empty-state">内部 Agent 当前没有任务。</div>';
+    $("#taskTable").innerHTML = tasks.length ? `<table><thead><tr><th>目标</th><th>来源</th><th>状态</th><th>阶段</th><th>动作 / 模型</th><th>更新</th></tr></thead><tbody>${tasks.map((task) => `<tr data-task-row="${escapeHTML(task.task_id)}"><td><strong>${escapeHTML(task.goal)}</strong><br><code>${escapeHTML(task.task_id)}</code>${tagList(task.tags)}</td><td>${task.task_control_available ? "内部 Agent" : `外部计划 · ${escapeHTML(task.controller_source || "-")}`}</td><td><span class="state ${task.status === "completed" ? "good" : task.status === "failed" ? "bad" : "warn"}">${escapeHTML(task.status)}</span></td><td>${escapeHTML(task.current_plan_step_id || task.plan_id || "-")}</td><td>${task.action_count} / ${task.model_calls}</td><td>${new Date(task.updated_at_unix_millis).toLocaleString()}</td></tr>`).join("")}</tbody></table>` : '<div class="detail-surface empty-state">当前没有内部任务或外部 MCP 计划。</div>';
     $$('[data-task-row]').forEach((row) => onAsync(row, "click", () => showTask(row.dataset.taskRow)));
   } catch (error) {
     if (!isCurrentRequest(request)) return;
     if (error.message.includes("not enabled")) {
-      $("#taskTable").innerHTML = '<div class="detail-surface empty-state">内部 Agent Runtime 未启用；外部 MCP 任务仍可在 Operation 时间线中查看。</div>';
+      $("#taskTable").innerHTML = '<div class="detail-surface empty-state">内部 Agent Runtime 与计划存储均未启用。</div>';
       return;
     }
     throw error;
@@ -738,12 +738,12 @@ async function openTaskDialog() {
     $("#taskWorldId").value = selected.world_id || "";
     $("#taskActorId").value = selected.actor_id || "";
   }
-  if (!state.skills.length) {
-    const result = await api("/management/v1/skills/list", { body: { limit: 128 } });
-    state.skills = result.skills || [];
-  }
+  const result = await api("/management/v1/skills/list", { body: {
+    adapter: selected?.adapter_id || undefined, limit: 128,
+  } });
+  const taskSkills = result.skills || [];
   const triggers = new Map();
-  state.skills.forEach((skill) => (skill.triggers || []).forEach((trigger) => {
+  taskSkills.forEach((skill) => (skill.triggers || []).forEach((trigger) => {
     const labels = triggers.get(trigger) || [];
     labels.push(skill.summary || skill.skill_id);
     triggers.set(trigger, labels);
@@ -795,22 +795,25 @@ async function showTask(taskId, append = false) {
     ? mergeTimelineEvents(current.events, timeline.events || [])
     : (timeline.events || []);
   state.selectedTask = {
-    taskId, task: result.task, events,
+    taskId, task: result.task, plan: result.plan || null, events,
     nextCursor: timeline.next_cursor || afterCursor || "",
     more: Boolean(timeline.more), truncated: Boolean(timeline.truncated),
   };
   const status = result.task.status;
-  const controls = [
+  const controls = result.task.task_control_available ? [
     status === "active" ? '<button class="button secondary" data-task-action="run">继续</button>' : "",
     status === "paused" ? '<button class="button secondary" data-task-action="resume">恢复</button>' : "",
     ["active", "paused", "waiting-confirmation"].includes(status) ? '<button class="button danger" data-task-action="cancel">取消</button>' : "",
-  ].filter(Boolean).join("");
+  ].filter(Boolean).join("") : "";
   $("#taskDetail").classList.remove("empty-state");
   const truncated = state.selectedTask.truncated
     ? '<div class="form-notice">更早的时间线事件已按保留策略清理。</div>' : "";
   const loadMore = state.selectedTask.more
     ? '<div class="form-actions"><button id="loadMoreTaskEvents" class="button secondary">加载更多事件</button></div>' : "";
-  $("#taskDetail").innerHTML = `<div class="section-heading"><div><h2>${escapeHTML(result.task.goal)}</h2><p>${escapeHTML(result.task.task_id)} · ${escapeHTML(status)}</p>${tagList(result.task.tags)}</div><div class="toolbar">${controls}</div></div>${truncated}${taskTimeline(events)}${loadMore}`;
+  const pause = result.task.pause_code
+    ? `<div class="form-notice task-pause"><strong>暂停原因</strong><code>${escapeHTML(result.task.pause_code)}</code></div>` : "";
+  const source = result.task.task_control_available ? "内部 Agent" : `外部计划 · ${escapeHTML(result.task.controller_source || "-")}`;
+  $("#taskDetail").innerHTML = `<div class="section-heading"><div><h2>${escapeHTML(result.task.goal)}</h2><p>${escapeHTML(result.task.task_id)} · ${escapeHTML(status)} · ${source}</p>${tagList(result.task.tags)}</div><div class="toolbar">${controls}</div></div>${pause}${taskPlan(result.plan)}${truncated}${taskTimeline(events)}${loadMore}`;
   if (state.selectedTask.more) {
     onAsync($("#loadMoreTaskEvents"), "click", () => showTask(taskId, true));
   }
@@ -819,6 +822,24 @@ async function showTask(taskId, append = false) {
     toast("任务状态已更新");
     await Promise.all([loadTasks(), showTask(taskId)]);
   }));
+}
+
+function taskPlan(plan) {
+  if (!plan) return '<section class="task-plan"><div class="subheading"><h3>执行计划</h3><span>等待首次规划</span></div></section>';
+  const steps = (plan.steps || []).map((step) => {
+    const conditions = (step.success_conditions || []).map((condition) => {
+      const selector = condition.capability
+        ? `${condition.capability.id}@${condition.capability.version}`
+        : condition.fact_id
+          ? `${condition.fact_id} = ${condition.fact_value_json}`
+          : "未绑定";
+      return `${escapeHTML(condition.summary)} [${escapeHTML(selector)}]`;
+    }).join("；");
+    const evidence = (step.evidence_refs || []).map((item) => escapeHTML(item.digest || item.condition_id)).join("；");
+    const capabilities = (step.capability_hints || []).map((capability) => `${escapeHTML(capability.id)}@${escapeHTML(capability.version)}`).join("、");
+    return `<li class="plan-step ${escapeHTML(step.status)}"><span class="plan-marker"></span><div><div class="plan-step-heading"><strong>${escapeHTML(step.title)}</strong><span class="state ${step.status === "completed" ? "good" : step.status === "failed" || step.status === "blocked" ? "bad" : "warn"}">${escapeHTML(step.status)}</span></div><p>${escapeHTML(step.objective)}</p><div class="plan-meta"><span>尝试 ${step.attempt || 0}/${step.max_attempts || 0}</span>${capabilities ? `<span>${capabilities}</span>` : ""}${conditions ? `<span>成功条件：${conditions}</span>` : ""}${evidence ? `<span>证据：${evidence}</span>` : ""}${step.blocked_reason ? `<span>阻塞：${escapeHTML(step.blocked_reason)}</span>` : ""}</div></div></li>`;
+  }).join("");
+  return `<section class="task-plan"><div class="subheading"><h3>执行计划</h3><span>${escapeHTML(plan.phase || "未命名阶段")} · ${escapeHTML(plan.status)} · 修订 ${plan.revision || 0} · 重规划 ${plan.replan_count || 0}/${plan.max_replans || 0}</span></div><ol class="plan-steps">${steps || '<li class="empty-state">计划尚未生成步骤。</li>'}</ol></section>`;
 }
 
 function mergeTimelineEvents(existing = [], incoming = []) {

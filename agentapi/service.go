@@ -17,6 +17,7 @@ const (
 	defaultWorkerCount       = 4
 	defaultQueueCapacity     = 1_024
 	defaultReconcileInterval = time.Second
+	automaticResumeDelay     = 5 * time.Second
 )
 
 // Service owns only asynchronous task coordination. AgentRuntime remains the
@@ -321,7 +322,14 @@ func (service *Service) worker() {
 			if service.ctx.Err() != nil {
 				return
 			}
-			_, _ = service.runtime.RunTask(service.ctx, taskID)
+			task, err := service.runtime.GetTask(service.ctx, taskID)
+			if err == nil && task.Status == cognition.TaskPaused &&
+				taskNeedsAutomaticRunAt(task, time.Now()) {
+				task, err = service.runtime.ResumeTask(service.ctx, taskID)
+			}
+			if err == nil && taskCanRun(task.Status) {
+				_, _ = service.runtime.RunTask(service.ctx, taskID)
+			}
 			service.mu.Lock()
 			delete(service.scheduled, taskID)
 			service.mu.Unlock()
@@ -352,6 +360,10 @@ func (service *Service) reconcile() {
 }
 
 func taskNeedsAutomaticRun(task cognition.TaskSession) bool {
+	return taskNeedsAutomaticRunAt(task, time.Now())
+}
+
+func taskNeedsAutomaticRunAt(task cognition.TaskSession, now time.Time) bool {
 	switch task.Status {
 	case cognition.TaskCancelling, cognition.TaskWaitingConfirmation:
 		return true
@@ -372,8 +384,25 @@ func taskNeedsAutomaticRun(task cognition.TaskSession) bool {
 				return false
 			}
 		}
+	case cognition.TaskPaused:
+		if !automaticallyResumablePause(task.PauseCode) {
+			return false
+		}
+		return task.UpdatedAtUnixMillis == 0 ||
+			now.UnixMilli()-task.UpdatedAtUnixMillis >= automaticResumeDelay.Milliseconds()
 	}
 	return false
+}
+
+func automaticallyResumablePause(code string) bool {
+	switch code {
+	case "host.unavailable", "observation.unavailable", "controller.unavailable",
+		"operation.unavailable", "action.submit-unavailable", "capabilities.unavailable",
+		"model.unavailable", "plan.epoch-invalidated":
+		return true
+	default:
+		return false
+	}
 }
 
 func taskCanRun(status cognition.TaskStatus) bool {

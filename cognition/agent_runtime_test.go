@@ -31,7 +31,7 @@ func TestAgentRuntimeSharesOnePlanAcrossDecisionAndOutcome(t *testing.T) {
 			CapabilityHints: []host.CapabilityRef{action.Capability}, MaxAttempts: 3,
 			SuccessConditions: []taskstate.PlanCondition{{
 				ConditionID: "condition.arrived", Kind: taskstate.EvidenceOperationOutcome,
-				Summary: "The Host confirms arrival.",
+				Summary: "The Host confirms arrival.", Capability: &action.Capability,
 			}},
 		}},
 	}
@@ -73,6 +73,50 @@ func TestAgentRuntimeSharesOnePlanAcrossDecisionAndOutcome(t *testing.T) {
 		fixture.model.inputs[1].Plan == nil ||
 		fixture.model.inputs[1].Plan.Status != taskstate.PlanCompleted {
 		t.Fatalf("model plan contexts = %#v", fixture.model.inputs)
+	}
+}
+
+func TestAgentRuntimeAppliesOnlyExactObservedPlanFacts(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	plans := &runtimePlanStub{control: fixture.control, principal: fixture.principal}
+	fixture.plans = plans
+	wait := cognition.ModelDecision{
+		Kind: cognition.ModelDecisionWait, Summary: "Wait for the current Host fact.",
+		PlanDraft: &taskstate.Draft{
+			Phase: "Observe",
+			Steps: []taskstate.StepDraft{{
+				StepID: "step.observe", Title: "Observe", Objective: "Confirm the nearby player.",
+				MaxAttempts: 2,
+				SuccessConditions: []taskstate.PlanCondition{{
+					ConditionID: "condition.player-nearby", Kind: taskstate.EvidenceObservationFact,
+					Summary: "The Host reports the player is nearby.",
+					FactID:  "fact.player-nearby", FactValueJSON: "true",
+				}},
+			}},
+		},
+	}
+	fixture.model.decisions = []cognition.ModelDecision{
+		wait,
+		{Kind: cognition.ModelDecisionComplete, Summary: "The observed condition is confirmed."},
+	}
+	runtime := fixture.runtime(t, 8)
+	started, err := runtime.StartTask(context.Background(), cognition.StartTaskInput{
+		TaskID: "task.observed-plan", HostID: "host.test", WorldID: "world.test",
+		ActorID: "actor.mira", ControllerID: "controller.internal",
+		Goal: "Confirm the nearby player.", PlanningMode: taskstate.PlanningRequired,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waiting, err := runtime.RunTask(context.Background(), started.TaskID)
+	if err != nil || waiting.PlanID == "" || plans.plan.Status != taskstate.PlanActive {
+		t.Fatalf("waiting task = %#v, plan=%#v, err=%v", waiting, plans.plan, err)
+	}
+	completed, err := runtime.RunTask(context.Background(), started.TaskID)
+	if err != nil || completed.Status != cognition.TaskCompleted ||
+		plans.plan.Status != taskstate.PlanCompleted || plans.transitions != 1 {
+		t.Fatalf("fact-completed task = %#v, plan=%#v, transitions=%d, err=%v",
+			completed, plans.plan, plans.transitions, err)
 	}
 }
 
@@ -319,11 +363,13 @@ func TestAgentRuntimeCompletesLongGameGoalAcrossCoarsePlanPhases(t *testing.T) {
 							{ID: "resource.harvest", Version: "2.0.0"},
 							{ID: "crafting.craft", Version: "2.0.0"},
 							{ID: "inventory.place", Version: "2.0.0"},
+							{ID: "survival.eat", Version: "2.0.0"},
 						},
 						SuccessConditions: []taskstate.PlanCondition{{
 							ConditionID: "condition.survival-ready",
 							Kind:        taskstate.EvidenceOperationOutcome,
 							Summary:     "The Host confirms basic tools and cooked food are ready.",
+							Capability:  &host.CapabilityRef{ID: "survival.eat", Version: "2.0.0"},
 						}},
 					},
 					{
@@ -337,6 +383,7 @@ func TestAgentRuntimeCompletesLongGameGoalAcrossCoarsePlanPhases(t *testing.T) {
 							ConditionID: "condition.expedition-ready",
 							Kind:        taskstate.EvidenceOperationOutcome,
 							Summary:     "The Host confirms the expedition supplies are ready.",
+							Capability:  &host.CapabilityRef{ID: "crafting.craft", Version: "2.0.0"},
 						}},
 					},
 					{
@@ -353,6 +400,7 @@ func TestAgentRuntimeCompletesLongGameGoalAcrossCoarsePlanPhases(t *testing.T) {
 							ConditionID: "condition.nether-fortress-found",
 							Kind:        taskstate.EvidenceOperationOutcome,
 							Summary:     "The Host confirms the actor reached a Nether fortress.",
+							Capability:  &host.CapabilityRef{ID: "navigation.search_landmark", Version: "2.0.0"},
 						}},
 					},
 					{
@@ -368,6 +416,7 @@ func TestAgentRuntimeCompletesLongGameGoalAcrossCoarsePlanPhases(t *testing.T) {
 							ConditionID: "condition.blaze-pearls-ready",
 							Kind:        taskstate.EvidenceOperationOutcome,
 							Summary:     "The Host confirms the required drops were collected and returned.",
+							Capability:  &host.CapabilityRef{ID: "navigation.dimension_transfer", Version: "2.0.0"},
 						}},
 					},
 					{
@@ -386,6 +435,7 @@ func TestAgentRuntimeCompletesLongGameGoalAcrossCoarsePlanPhases(t *testing.T) {
 							ConditionID: "condition.end-entered",
 							Kind:        taskstate.EvidenceOperationOutcome,
 							Summary:     "The Host confirms the actor entered the End.",
+							Capability:  &host.CapabilityRef{ID: "navigation.dimension_transfer", Version: "2.0.0"},
 						}},
 					},
 					{
@@ -399,6 +449,7 @@ func TestAgentRuntimeCompletesLongGameGoalAcrossCoarsePlanPhases(t *testing.T) {
 							ConditionID: "condition.dragon-defeated",
 							Kind:        taskstate.EvidenceOperationOutcome,
 							Summary:     "The Host confirms dragon_defeated=true.",
+							Capability:  &host.CapabilityRef{ID: "combat.ender_dragon", Version: "2.0.0"},
 						}},
 					},
 				},
@@ -1199,7 +1250,69 @@ func TestAgentRuntimeRecordsStableActionGatewayRejectionCodes(t *testing.T) {
 				current.PendingAction != nil || current.PendingOperationID != "" {
 				t.Fatalf("gateway rejection was not classified: task=%+v err=%v", current, err)
 			}
+			temporary := errors.Is(test.err, controlplane.ErrStale) ||
+				errors.Is(test.err, controlplane.ErrLeaseExpired) ||
+				errors.Is(test.err, controlplane.ErrForbidden)
+			if temporary && (current.Status != cognition.TaskPaused || current.Step != 0 ||
+				!historyHasKind(current.History, "action.invalidated")) {
+				t.Fatalf("temporary invalidation skipped an action: %+v", current)
+			}
+			if !temporary && (current.Status != cognition.TaskActive || current.Step != 1 ||
+				!historyHasKind(current.History, "action.rejected")) {
+				t.Fatalf("permanent rejection was not consumed: %+v", current)
+			}
 		})
+	}
+}
+
+func TestAgentRuntimePausesPlannedActionWhenControllerChanges(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	plans := &runtimePlanStub{
+		control: fixture.control, principal: fixture.principal,
+		submitError: taskstate.ErrForbidden,
+	}
+	fixture.plans = plans
+	decision := agentActionDecision()
+	decision.PlanDraft = &taskstate.Draft{
+		Phase: "Follow", Steps: []taskstate.StepDraft{{
+			StepID: "step.follow", Title: "Follow", Objective: "Follow the player.",
+			CapabilityHints: []host.CapabilityRef{decision.Capability},
+			SuccessConditions: []taskstate.PlanCondition{{
+				ConditionID: "condition.follow", Kind: taskstate.EvidenceOperationOutcome,
+				Summary: "The Host confirms the movement.", Capability: &decision.Capability,
+			}},
+		}},
+	}
+	fixture.model.decisions = []cognition.ModelDecision{decision}
+	runtime := fixture.runtime(t, 4)
+	started, err := runtime.StartTask(context.Background(), cognition.StartTaskInput{
+		TaskID: "task.plan-controller-change", HostID: "host.test", WorldID: "world.test",
+		ActorID: "actor.mira", ControllerID: "controller.internal",
+		Goal: "Follow the nearby player.", Tags: []string{"task.follow"},
+		PlanningMode: taskstate.PlanningRequired,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := runtime.RunTask(context.Background(), started.TaskID)
+	if !errors.Is(err, taskstate.ErrForbidden) || current.Status != cognition.TaskPaused ||
+		current.PauseCode != "controller.contended" || current.Step != 0 ||
+		current.PendingAction != nil || !historyHasKind(current.History, "action.invalidated") {
+		t.Fatalf("controller change did not pause planned action: task=%+v err=%v", current, err)
+	}
+}
+
+func TestAgentRuntimeDoesNotRetryAControllerHeldByAnotherPrincipal(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	fixture.now = func() time.Time { return time.UnixMilli(60_000) }
+	runtime := fixture.runtime(t, 2)
+	started := fixture.start(t, runtime, "task.controller-contended")
+	fixture.control.renewError = controlplane.ErrLeaseExpired
+	fixture.control.acquireError = controlplane.ErrLeaseConflict
+	current, err := runtime.RunTask(context.Background(), started.TaskID)
+	if !errors.Is(err, controlplane.ErrLeaseConflict) || current.Status != cognition.TaskPaused ||
+		current.PauseCode != "controller.contended" || current.Step != 0 {
+		t.Fatalf("contended controller was not paused: task=%+v err=%v", current, err)
 	}
 }
 
@@ -1425,7 +1538,7 @@ func TestAgentRuntimeCancelsOwnedPlanWithPendingAction(t *testing.T) {
 			CapabilityHints: []host.CapabilityRef{action.Capability}, MaxAttempts: 3,
 			SuccessConditions: []taskstate.PlanCondition{{
 				ConditionID: "condition.arrived", Kind: taskstate.EvidenceOperationOutcome,
-				Summary: "The Host confirms arrival.",
+				Summary: "The Host confirms arrival.", Capability: &action.Capability,
 			}},
 		}},
 	}
@@ -1578,6 +1691,8 @@ type runtimePlanStub struct {
 	advanceAfter  []int
 	advancedSteps int
 	statusUpdates int
+	transitions   int
+	submitError   error
 }
 
 func (client *runtimePlanStub) CreatePlan(_ context.Context, input taskstate.Draft) (taskstate.PlanState, error) {
@@ -1647,8 +1762,28 @@ func (client *runtimePlanStub) SetPlanStatus(_ context.Context, input taskstate.
 	return client.plan, nil
 }
 
-func (client *runtimePlanStub) RequestTransition(context.Context, taskstate.TransitionInput) (taskstate.PlanState, error) {
-	return taskstate.PlanState{}, taskstate.ErrForbidden
+func (client *runtimePlanStub) RequestTransition(
+	_ context.Context,
+	input taskstate.TransitionInput,
+) (taskstate.PlanState, error) {
+	if input.PlanID != client.plan.PlanID || input.ExpectedRevision != client.plan.Revision ||
+		input.Kind != taskstate.EvidenceObservationFact {
+		return taskstate.PlanState{}, taskstate.ErrConflict
+	}
+	evidence := taskstate.PlanEvidence{
+		EvidenceID:  client.plan.BasedOnEpoch.SessionID + "." + input.EvidenceID,
+		ConditionID: input.ConditionID, Kind: input.Kind,
+		Epoch:               client.plan.BasedOnEpoch,
+		ObservationSequence: client.plan.BasedOnObservationSequence,
+		Digest:              strings.Repeat("b", 64), RecordedAtUnixMillis: 2_001,
+	}
+	plan, _, err := taskstate.ApplyEvidence(client.plan, evidence, 2_001)
+	if err != nil {
+		return taskstate.PlanState{}, err
+	}
+	client.plan = plan
+	client.transitions++
+	return plan, nil
 }
 
 func (client *runtimePlanStub) SubmitStepAction(
@@ -1656,6 +1791,9 @@ func (client *runtimePlanStub) SubmitStepAction(
 	input taskstate.SubmitStepActionInput,
 ) (controlplane.OperationView, error) {
 	client.submissions = append(client.submissions, input)
+	if client.submitError != nil {
+		return controlplane.OperationView{}, client.submitError
+	}
 	return client.control.SubmitAction(ctx, client.principal, input.Action)
 }
 
@@ -1676,7 +1814,8 @@ func newAgentRuntimeFixture(t *testing.T) *agentRuntimeFixture {
 	}
 	control := &fakeAgentControlPlane{
 		actor: controlplane.ActorView{
-			HostID: "host.test", WorldID: "world.test", ActorID: "actor.mira",
+			HostID: "host.test", AdapterID: "adapter.test",
+			WorldID: "world.test", ActorID: "actor.mira",
 			OwnerPrincipalID: "principal.internal", DisplayName: "Mira",
 			ObservationSeq: input.Observation.Sequence, Epoch: input.Observation.Epoch,
 			Authority: controlplane.DecisionAuthority{
@@ -1890,6 +2029,8 @@ type fakeAgentControlPlane struct {
 	releaseCalls          int
 	acquireCalls          int
 	submitError           error
+	acquireError          error
+	renewError            error
 }
 
 func (control *fakeAgentControlPlane) GetActor(
@@ -1904,6 +2045,9 @@ func (control *fakeAgentControlPlane) AcquireController(
 	input controlplane.AcquireControllerInput,
 ) (controlplane.ControllerLease, error) {
 	control.acquireCalls++
+	if control.acquireError != nil {
+		return controlplane.ControllerLease{}, control.acquireError
+	}
 	return control.lease, nil
 }
 
@@ -1913,6 +2057,9 @@ func (control *fakeAgentControlPlane) RenewController(
 	leaseID string,
 	ttl uint32,
 ) (controlplane.ControllerLease, error) {
+	if control.renewError != nil {
+		return controlplane.ControllerLease{}, control.renewError
+	}
 	return control.lease, nil
 }
 
