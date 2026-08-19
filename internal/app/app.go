@@ -212,6 +212,9 @@ func Run(
 	if err != nil {
 		return err
 	}
+	if err := managementService.ConfigureSkills(catalog, learnedSkills); err != nil {
+		return err
+	}
 	managementHandler, err := managementapi.NewHTTPHandler(
 		managementService, managementapi.HTTPOptions{Token: config.token},
 	)

@@ -99,8 +99,10 @@
       </section>
 
       <section id="skills" class="view">
-        <div class="section-heading"><div><h2>技能目录</h2><p>通用攻略与 Adapter 专属流程只在相关任务中加载。</p></div></div>
+        <div class="section-heading"><div><h2>技能目录</h2><p>通用攻略与 Adapter 专属流程只在相关任务中加载。</p></div><div class="toolbar"><button id="reloadSkillsButton" class="button secondary">重新加载</button><button id="newSkillButton" class="button primary">新增技能</button></div></div>
+        <div class="filterbar"><input id="skillSearch" class="search" type="search" placeholder="搜索名称、说明或 Adapter"></div>
         <div id="skillTable" class="table-wrap"></div>
+        <div id="skillDetail" class="detail-surface empty-state">选择一个 Skill 查看完整说明。</div>
       </section>
 
       <section id="connections" class="view">
@@ -153,6 +155,22 @@
         <label class="wide"><span>目标</span><textarea id="taskGoal" rows="5" required placeholder="例如：从当前状态准备物资并击败末影龙"></textarea></label>
       </div>
       <div class="form-actions"><button type="button" id="cancelTask" class="button secondary">取消</button><button class="button primary" value="default">开始任务</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="skillDialog" class="dialog wide-dialog" aria-labelledby="skillDialogTitle">
+    <form id="skillForm" method="dialog">
+      <h2 id="skillDialogTitle">新增技能</h2>
+      <div class="field-grid">
+        <label><span>Skill ID</span><input id="skillId" required placeholder="survival.prepare"></label>
+        <label><span>版本</span><input id="skillVersion" required value="v1"></label>
+        <label class="wide"><span>说明</span><input id="skillDescription" required></label>
+        <label><span>Adapter</span><input id="skillAdapters" placeholder="minecraft, visual-novel"></label>
+        <label><span>触发标签</span><input id="skillTriggers" placeholder="survival, prepare"></label>
+        <label class="wide"><span>所需 Capability</span><input id="skillCapabilities" placeholder="recipe.lookup, crafting.craft"></label>
+        <label class="wide"><span>操作说明</span><textarea id="skillInstructions" rows="10" required></textarea></label>
+      </div>
+      <div class="form-actions"><button type="button" id="cancelSkill" class="button secondary">取消</button><button class="button primary" value="default">保存技能</button></div>
     </form>
   </dialog>
 

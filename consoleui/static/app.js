@@ -7,6 +7,7 @@ const state = {
   actors: [],
   persona: null,
   memories: [],
+  skills: [],
   memoryScope: "common",
   selectedActorId: "",
   refreshing: false,
@@ -62,6 +63,11 @@ function bindForms() {
   $("#memoryForm").addEventListener("submit", saveMemory);
   $("#cancelMemory").addEventListener("click", () => $("#memoryDialog").close());
   $("#memorySearch").addEventListener("input", debounce(loadMemories, 220));
+  $("#skillSearch").addEventListener("input", renderSkills);
+  $("#newSkillButton").addEventListener("click", () => openSkillDialog());
+  $("#reloadSkillsButton").addEventListener("click", reloadSkills);
+  $("#skillForm").addEventListener("submit", saveSkill);
+  $("#cancelSkill").addEventListener("click", () => $("#skillDialog").close());
   $$("[data-memory-scope]").forEach((button) => button.addEventListener("click", () => {
     state.memoryScope = button.dataset.memoryScope;
     $$("[data-memory-scope]").forEach((item) => item.classList.toggle("active", item === button));
@@ -229,10 +235,65 @@ async function savePersona(event) {
 }
 
 async function loadSkills() {
-  const result = await api("/skills/v1/list", { body: { limit: 128 } });
-  const skills = result.skills || [];
-  $("#skillTable").innerHTML = skills.length ? `<table><thead><tr><th>Skill</th><th>说明</th><th>来源</th><th>Adapter</th></tr></thead><tbody>${skills.map((skill) => `<tr><td><code>${escapeHTML(skill.skill_id)}@${escapeHTML(skill.version)}</code></td><td>${escapeHTML(skill.summary || "")}</td><td>${escapeHTML(skill.source || "")}</td><td>${escapeHTML((skill.adapters || []).join(", ") || "通用")}</td></tr>`).join("")}</tbody></table>` : '<div class="detail-surface empty-state">目录中还没有 Skill。</div>';
+  const result = await api("/management/v1/skills/list", { body: { limit: 128 } });
+  state.skills = result.skills || [];
+  renderSkills();
   setService(true);
+}
+
+function renderSkills() {
+  const query = $("#skillSearch").value.trim().toLowerCase();
+  const skills = state.skills.filter((skill) => !query || [
+    skill.skill_id, skill.version, skill.summary, skill.source, ...(skill.adapters || []),
+  ].some((value) => String(value || "").toLowerCase().includes(query)));
+  $("#skillTable").innerHTML = skills.length ? `<table><thead><tr><th>Skill</th><th>说明</th><th>来源</th><th>Adapter</th><th></th></tr></thead><tbody>${skills.map((skill) => `<tr><td><code>${escapeHTML(skill.skill_id)}@${escapeHTML(skill.version)}</code></td><td>${escapeHTML(skill.summary || "")}</td><td>${escapeHTML(skill.source || "")}</td><td>${escapeHTML((skill.adapters || []).join(", ") || "通用")}</td><td><button class="table-action" data-skill-id="${escapeHTML(skill.skill_id)}" data-skill-version="${escapeHTML(skill.version)}">查看</button></td></tr>`).join("")}</tbody></table>` : '<div class="detail-surface empty-state">没有匹配的 Skill。</div>';
+  $$('[data-skill-id]').forEach((button) => button.addEventListener("click", () => showSkill(button.dataset.skillId, button.dataset.skillVersion)));
+}
+
+async function showSkill(skillId, version) {
+  const result = await api("/management/v1/skills/get", { body: { skill_id: skillId, version } });
+  const skill = result.skill;
+  const editable = skill.source === "learned";
+  $("#skillDetail").classList.remove("empty-state");
+  $("#skillDetail").innerHTML = `<div class="section-heading compact"><div><h2>${escapeHTML(skill.skill_id)} <span class="revision">${escapeHTML(skill.version)}</span></h2><p>${escapeHTML(skill.summary)}</p></div>${editable ? '<button id="editSkillButton" class="button secondary">编辑</button>' : '<span class="state">只读</span>'}</div><div class="skill-meta"><span>来源 ${escapeHTML(skill.source)}</span><span>Adapter ${escapeHTML((skill.adapters || []).join(", ") || "通用")}</span><span>Capability ${escapeHTML((skill.capabilities || []).join(", ") || "无")}</span></div><pre class="skill-instructions">${escapeHTML(skill.instructions)}</pre>`;
+  if (editable) $("#editSkillButton").addEventListener("click", () => openSkillDialog(skill));
+}
+
+function openSkillDialog(skill = null) {
+  $("#skillDialogTitle").textContent = skill ? "编辑技能" : "新增技能";
+  $("#skillId").value = skill?.skill_id || "";
+  $("#skillVersion").value = skill?.version || "v1";
+  $("#skillDescription").value = skill?.summary || "";
+  $("#skillAdapters").value = (skill?.adapters || []).join(", ");
+  $("#skillTriggers").value = (skill?.triggers || []).join(", ");
+  $("#skillCapabilities").value = (skill?.capabilities || []).join(", ");
+  $("#skillInstructions").value = skill?.instructions || "";
+  $("#skillId").readOnly = Boolean(skill);
+  $("#skillVersion").readOnly = Boolean(skill);
+  $("#skillDialog").showModal();
+}
+
+async function saveSkill(event) {
+  event.preventDefault();
+  const skillId = $("#skillId").value.trim();
+  const version = $("#skillVersion").value.trim();
+  await api("/management/v1/skills/save", { body: {
+    skill_id: skillId, version, description: $("#skillDescription").value.trim(),
+    instructions: $("#skillInstructions").value.trim(),
+    adapters: splitValues($("#skillAdapters").value),
+    triggers: splitValues($("#skillTriggers").value),
+    capabilities: splitValues($("#skillCapabilities").value),
+  }});
+  $("#skillDialog").close();
+  toast("Skill 已保存");
+  await loadSkills();
+  await showSkill(skillId, version);
+}
+
+async function reloadSkills() {
+  await api("/management/v1/skills/reload", { body: {} });
+  toast("Skill 目录已重新加载");
+  await loadSkills();
 }
 
 async function loadTasks() {

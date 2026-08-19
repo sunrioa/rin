@@ -17,12 +17,16 @@ import (
 
 const MemoryScopeCommon = "common"
 
+var ErrSkillsUnavailable = errors.New("skill management is not enabled")
+
 type Service struct {
-	personas cognition.PersonaStore
-	memory   cognition.MemoryProvider
-	tasks    TaskManager
-	now      func() time.Time
-	newID    func() (string, error)
+	personas   cognition.PersonaStore
+	memory     cognition.MemoryProvider
+	tasks      TaskManager
+	skills     cognition.SkillProvider
+	skillStore SkillStore
+	now        func() time.Time
+	newID      func() (string, error)
 }
 
 type MemoryListRequest struct {

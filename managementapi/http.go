@@ -23,9 +23,13 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /management/v1/info", secure(options.Token, func(response http.ResponseWriter, _ *http.Request) {
+		features := []string{"personas", "memory-cards", "long-goals"}
+		if service.skills != nil {
+			features = append(features, "skills")
+		}
 		writeJSON(response, http.StatusOK, map[string]any{
 			"contract_version": "rin.management/v1",
-			"features":         []string{"personas", "memory-cards", "long-goals"},
+			"features":         features,
 		})
 	}))
 	mux.HandleFunc("GET /management/v1/personas", secure(options.Token, func(response http.ResponseWriter, request *http.Request) {
@@ -104,6 +108,41 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 		result, err := service.ControlTask(request.Context(), input)
 		writeResult(response, result, err)
 	}))
+	mux.HandleFunc("POST /management/v1/skills/list", secure(options.Token, func(response http.ResponseWriter, request *http.Request) {
+		var input SkillListInput
+		if err := decodeJSON(request, &input); err != nil {
+			writeError(response, http.StatusBadRequest, err)
+			return
+		}
+		result, err := service.ListSkills(request.Context(), input)
+		writeResult(response, result, err)
+	}))
+	mux.HandleFunc("POST /management/v1/skills/get", secure(options.Token, func(response http.ResponseWriter, request *http.Request) {
+		var input SkillGetInput
+		if err := decodeJSON(request, &input); err != nil {
+			writeError(response, http.StatusBadRequest, err)
+			return
+		}
+		result, err := service.GetSkill(request.Context(), input)
+		writeResult(response, result, err)
+	}))
+	mux.HandleFunc("POST /management/v1/skills/save", secure(options.Token, func(response http.ResponseWriter, request *http.Request) {
+		var input SkillSaveInput
+		if err := decodeJSON(request, &input); err != nil {
+			writeError(response, http.StatusBadRequest, err)
+			return
+		}
+		result, err := service.SaveSkill(request.Context(), input)
+		writeResult(response, result, err)
+	}))
+	mux.HandleFunc("POST /management/v1/skills/reload", secure(options.Token, func(response http.ResponseWriter, request *http.Request) {
+		if err := requireEmptyJSON(request); err != nil {
+			writeError(response, http.StatusBadRequest, err)
+			return
+		}
+		result, err := service.ReloadSkills(request.Context())
+		writeResult(response, result, err)
+	}))
 	return mux, nil
 }
 
@@ -135,6 +174,17 @@ func decodeJSON(request *http.Request, target any) error {
 	return nil
 }
 
+func requireEmptyJSON(request *http.Request) error {
+	var value map[string]any
+	if err := decodeJSON(request, &value); err != nil {
+		return err
+	}
+	if len(value) != 0 {
+		return errors.New("request must contain an empty object")
+	}
+	return nil
+}
+
 func writeResult(response http.ResponseWriter, value any, err error) {
 	if err == nil {
 		writeJSON(response, http.StatusOK, value)
@@ -145,7 +195,7 @@ func writeResult(response http.ResponseWriter, value any, err error) {
 		status = http.StatusConflict
 	} else if errors.Is(err, cognition.ErrProviderNotFound) {
 		status = http.StatusNotFound
-	} else if errors.Is(err, ErrTasksUnavailable) {
+	} else if errors.Is(err, ErrTasksUnavailable) || errors.Is(err, ErrSkillsUnavailable) {
 		status = http.StatusServiceUnavailable
 	}
 	writeError(response, status, err)
