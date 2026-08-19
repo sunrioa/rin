@@ -61,6 +61,8 @@ func OpenFilePersonaStore(
 		}
 		if len(seed.Profiles) == 0 && len(seed.Bindings) == 0 {
 			seed = DefaultPersonaSnapshot()
+		} else {
+			seed = withSeedDefaultPersonaBinding(seed)
 		}
 		if seed.Revision == 0 {
 			seed.Revision = 1
@@ -87,6 +89,23 @@ func OpenFilePersonaStore(
 		return nil, fmt.Errorf("%w: initialize snapshot: %v", ErrPersonaStorePersistence, err)
 	}
 	return store, nil
+}
+
+func withSeedDefaultPersonaBinding(snapshot PersonaSnapshot) PersonaSnapshot {
+	for _, binding := range snapshot.Bindings {
+		if binding.ActorID == "" && binding.ControllerID == "" {
+			return snapshot
+		}
+	}
+	if len(snapshot.Profiles) == 0 {
+		return snapshot
+	}
+	profile := snapshot.Profiles[0]
+	snapshot.Bindings = append(snapshot.Bindings, PersonaBinding{
+		PersonaID: profile.PersonaID,
+		Version:   profile.Version,
+	})
+	return snapshot
 }
 
 func DefaultPersonaSnapshot() PersonaSnapshot {
