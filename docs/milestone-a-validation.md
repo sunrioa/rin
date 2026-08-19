@@ -2,7 +2,7 @@
 
 [English](milestone-a-validation.md) | [简体中文](milestone-a-validation.zh-CN.md)
 
-Date: 2026-08-17  
+Date: 2026-08-19
 Status: automated implementation and regression complete; human acceptance pending  
 Scope: Rin, rin-mi, and ai-galgame
 
@@ -23,9 +23,11 @@ have not been started.
 ```mermaid
 flowchart TB
     EXT["External Agent<br/>own persona and memory"] --> MCP["rin-mcp<br/>stateless STDIO proxy"]
+    USER["Player"] --> CONSOLE["Rin Console<br/>monitoring, goals, shared cognition"]
     INT["Internal Agent<br/>Persona / Memory / Skill / Model"] --> LOOP["AgentRuntime<br/>task and decision loop"]
     SIGNAL["Signal inbox"] --> LOOP
     MCP --> CTRL["rin-control<br/>resident control process"]
+    CONSOLE --> CTRL
     LOOP --> CTRL
     CTRL --> GATE["Action Gateway<br/>identity, lease, target binding"]
     PLAN["PlanState<br/>coarse complex-task progress"] <--> LOOP
@@ -61,9 +63,12 @@ Rin's `AgentRuntime` was reduced from about 1,896 lines to 774 lines. Context
 assembly, task lifecycle, plan and decision orchestration, action and operation
 coordination, and signal wake scheduling now live in focused package-private files.
 
-rin-mi's `CompanionRuntime` was reduced from about 4,182 lines to 3,892 lines.
-Action dispatch, capability projection, agency scheduling, operation recovery, and
-session storage were extracted without introducing Minecraft types into Rin Core.
+rin-mi extracted action dispatch, capability projection, agency scheduling,
+operation recovery, and session storage from `CompanionRuntime`. The Ender Dragon
+loop added dedicated portal, dimension, heading, landmark, and boss controllers;
+the runtime is now about 4,260 lines. Real-time logic remains in package-private
+controllers and no Minecraft types enter Rin Core. Further movement waits for
+human trace replay instead of risking a large pre-acceptance refactor.
 
 ## Automated evidence
 
@@ -73,7 +78,7 @@ session storage were extracted without introducing Minecraft types into Rin Core
 | SDKs | Python, JavaScript, C#, Java, and Lua tests pass |
 | Example adapters | Grid, Story, and Terminal tests pass |
 | Builds | macOS arm64, Windows amd64, and Linux amd64 binaries generated |
-| rin-mi | Core, installer, and 17/17 Fabric GameTests pass |
+| rin-mi | Core, Skill validation, installer, and 28/28 Fabric GameTests pass |
 | rin-mi process tests | V2 Binding and Internal Agent Macro pass against real `rin-control` |
 | ai-galgame | 328 Python tests, Ren'Py lint, content, and asset checks pass |
 | ai-galgame process tests | External and Internal full-process E2E pass |
@@ -106,8 +111,8 @@ inside the Rin Memory domain. JSONL remains an explicit exchange format only.
 1. Run two to four continuous hours: at least 90 minutes in Minecraft, with at least
    45 minutes each for internal and external control, plus 45 minutes in the visual novel.
 2. Exercise Minecraft gathering, crafting, building, survival, combat, replanning,
-   pause/resume, controller switching, emergency stop, restart, difficult terrain,
-   client pursuit, and external batch building.
+   controller switching, emergency stop, restart, difficult terrain, dimension
+   transfer, fortress/stronghold search, Eye of Ender travel, and a complete fresh-world Dragon run.
 3. Exercise fixed story, AI ScenePacket, critical choice, proactive topic, canon conflict,
    save/load, rollback, and Internal/External switching; judge dialogue naturalness.
 4. With an unlocked desktop, run native Ren'Py testcases and inspect 1280x720,
@@ -119,15 +124,16 @@ inside the Rin Memory domain. JSONL remains an explicit exchange format only.
 ## Known limitations
 
 - GameTest can log missing `server.properties`, Yggdrasil timeouts, and upstream
-  deprecation warnings; all 17 required tests still pass.
+  deprecation warnings; all 28 required tests still pass.
 - Native Ren'Py window tests cannot run while macOS has no available display.
 - Cross-compilation does not replace execution on the target operating system.
 - Automated traces prove contract and outcome consistency, not subjective character quality.
 
 ## Stage commits
 
-Rin: `ded4d23`, `6ed7da6`, `def23b7`, `07a8c8b`, `5cb2562`, `ff8cdb8`.  
-rin-mi: `0e37394`, `e2f8e48`, `d656ca6`, `70a56e1`, `4026468`.
+Current Rin stages before this report: `ce16d21`, `81f8bb5`, `c70642d`; the
+Console timeline and documentation closure are in the commit containing this
+report. Current rin-mi stages: `28690cd`, `f7f31da`.
 
 Do not start the ExternalMemoryProvider SPI or a concrete external-memory adapter
 until human acceptance is complete and the user explicitly confirms the milestone.

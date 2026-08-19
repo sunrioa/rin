@@ -13,12 +13,13 @@
 4. [游戏 Adapter](game-adapters.zh-CN.md)：具体引擎必须实现和禁止实现的内容。
 5. [MCP 与 Control Plane](mcp-control-plane.zh-CN.md)：外部 Agent、Daemon、工具和安装更新。
 6. [内部 Agent Runtime](internal-agent-runtime.zh-CN.md)：人格、记忆、Skill、模型和任务执行。
-7. [任务时间线](task-timeline.zh-CN.md)：查看公开任务决策、策略、投递与权威结果。
-8. [任务计划](task-plans.zh-CN.md)：在不绕过动作网关的前提下协调有界复杂任务。
-9. [Signal 收件箱](signals.zh-CN.md)：由 Host 发布短期注意提示，供内部唤醒或外部 MCP 读取。
-10. [Host 脚手架](host-scaffolding.zh-CN.md)：生成契约骨架并接入自己的语言与引擎。
-11. [集成验收](host-integration-validation.zh-CN.md)：自动门禁与真人游戏测试。
-12. [里程碑 A 验收报告](milestone-a-validation.zh-CN.md)：当前架构、跨 Adapter 证据、性能与
+7. [Rin Console](console.zh-CN.md)：本地监控、长目标、共享人格和公共记忆卡片。
+8. [任务时间线](task-timeline.zh-CN.md)：查看公开任务决策、策略、投递与权威结果。
+9. [任务计划](task-plans.zh-CN.md)：在不绕过动作网关的前提下协调有界复杂任务。
+10. [Signal 收件箱](signals.zh-CN.md)：由 Host 发布短期注意提示，供内部唤醒或外部 MCP 读取。
+11. [Host 脚手架](host-scaffolding.zh-CN.md)：生成契约骨架并接入自己的语言与引擎。
+12. [集成验收](host-integration-validation.zh-CN.md)：自动门禁与真人游戏测试。
+13. [里程碑 A 验收报告](milestone-a-validation.zh-CN.md)：当前架构、跨 Adapter 证据、性能与
     仍需真人确认的项目。
 
 补充资料：

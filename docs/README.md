@@ -14,12 +14,13 @@ contracts. Documentation examples never replace authoritative game-adapter check
 4. [Game adapters](game-adapters.md): what an engine integration must and must not implement.
 5. [MCP and Control Plane](mcp-control-plane.md): external Agents, the daemon, tools, installation, and updates.
 6. [Internal Agent Runtime](internal-agent-runtime.md): persona, memory, skills, models, and task execution.
-7. [Task timeline](task-timeline.md): inspect public task decisions, policy, delivery, and authoritative outcomes.
-8. [Task plans](task-plans.md): coordinate bounded multi-action work without bypassing the action gateway.
-9. [Signal inbox](signals.md): receive short-lived Host attention hints for internal wake-up or external MCP reads.
-10. [Host scaffolding](host-scaffolding.md): generate a contract skeleton for a language and engine.
-11. [Integration acceptance](host-integration-validation.md): automated gates and human game testing.
-12. [Milestone A validation report](milestone-a-validation.md): current architecture,
+7. [Rin Console](console.md): local monitoring, long goals, shared persona, and common memory cards.
+8. [Task timeline](task-timeline.md): inspect public task decisions, policy, delivery, and authoritative outcomes.
+9. [Task plans](task-plans.md): coordinate bounded multi-action work without bypassing the action gateway.
+10. [Signal inbox](signals.md): receive short-lived Host attention hints for internal wake-up or external MCP reads.
+11. [Host scaffolding](host-scaffolding.md): generate a contract skeleton for a language and engine.
+12. [Integration acceptance](host-integration-validation.md): automated gates and human game testing.
+13. [Milestone A validation report](milestone-a-validation.md): current architecture,
     cross-adapter evidence, performance, and remaining human checks.
 
 Additional material:

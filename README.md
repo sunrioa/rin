@@ -47,6 +47,7 @@ flowchart LR
 | `cognition` | 人格、记忆、技能、模型决策与内部 Agent Loop |
 | `agentapi` / `agentdaemon` | 可恢复的异步内部 Agent Task API |
 | `mcpbridge` | MCP 2026-07-28 薄代理，不拥有游戏状态 |
+| `consoleui` / `managementapi` | 嵌入式本地 Console、长目标、共享人格和公共记忆卡片 |
 | `sdk` | Python、JavaScript、C#、Java、Lua 的 Control V2 客户端与 Go HostKit |
 
 ## 本地构建
@@ -60,7 +61,7 @@ make build
 
 产物位于 `bin/`：
 
-- `rin`：Host 脚手架、Conformance、Doctor 和 MCP 安装管理。
+- `rin`：统一入口，包含 `serve`、`console`、MCP 管理、Host 脚手架、Conformance 和 Doctor。
 - `rin-control`：常驻的本地 Control Daemon，可选启用内部 Agent Runtime。
 - `rin-mcp`：连接 Control Daemon 的 STDIO MCP 薄代理。
 
@@ -71,7 +72,7 @@ Control Daemon 只接受回环地址，并要求至少 32 字节随机 Token。�
 
 ```bash
 export RIN_CONTROL_TOKEN="$(openssl rand -hex 32)"
-./bin/rin-control \
+./bin/rin serve \
   -principal local.player \
   -scopes actor.read,actor.control,actor.execute,operation.cancel,host.admin
 ```
@@ -82,6 +83,16 @@ export RIN_CONTROL_TOKEN="$(openssl rand -hex 32)"
 curl -H "Authorization: Bearer $RIN_CONTROL_TOKEN" \
   http://127.0.0.1:7375/control/v2/info
 ```
+
+打开本地管理界面：
+
+```bash
+./bin/rin console
+```
+
+Console 位于 `http://127.0.0.1:7375/console/`，用于查看世界、角色、Operation、长目标与
+人类可读时间线，并管理共享默认人格和公共记忆卡片。公共卡片可被所有连接到同一 Rin 的
+内部 Agent 检索；游戏 Canon、角色私有记忆和外部 Agent 私有记忆不会因此跨游戏传播。
 
 ## 接入外部 Agent
 
@@ -127,6 +138,7 @@ Control、Policy、Operation 与 Adapter 链路。
 - [Host V2 契约](docs/host-contract.zh-CN.md)
 - [Operation 与策略](docs/operations.zh-CN.md)
 - [内部 Agent Runtime](docs/internal-agent-runtime.zh-CN.md)
+- [Rin Console](docs/console.zh-CN.md)
 - [MCP 与 Control Plane](docs/mcp-control-plane.zh-CN.md)
 - [游戏 Adapter 指南](docs/game-adapters.zh-CN.md)
 - [集成验收](docs/host-integration-validation.zh-CN.md)

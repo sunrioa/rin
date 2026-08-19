@@ -20,6 +20,8 @@ changes; stability takes priority over compatibility with retired interfaces.
 - Python, JavaScript, C#, Java, and Lua Control SDKs plus Go HostKit.
 - Engine-neutral Grid, Story, and Terminal validation adapters.
 - Generic Host contract scaffolds for six languages and local one-command MCP management.
+- A single-binary local Console with long-goal entry, a shared default persona,
+  and common memory-card management.
 
 ## Current gates
 
@@ -56,7 +58,8 @@ These remain deferred until the existing execution path passes human validation:
 - optional vector-memory providers alongside the built-in lightweight store;
 - richer macro recovery, child-operation visualization, and cross-adapter evaluations;
 - complete reference adapters for RPGs, visual novels, and simulation games;
-- end-user permission editors, memory viewers, and behavior-explanation UI.
+- acceptance-driven permission editing and behavior explanation in the existing
+  Console, without a second control plane.
 
 ## Explicit non-goals
 

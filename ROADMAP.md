@@ -18,6 +18,7 @@ Rin 的方向是成为通用游戏 Agent Harness：模型在明确的负向约�
 - Python、JavaScript、C#、Java、Lua Control SDK 与 Go HostKit。
 - Grid、Story 和 Terminal 三个引擎中立验证 Adapter。
 - 六种语言的通用 Host 契约脚手架与本地 MCP 一键安装/更新。
+- 单二进制本地 Console、长目标入口、共享默认人格和公共记忆卡片管理。
 
 ## 当前门禁
 
@@ -45,7 +46,7 @@ Rin 的方向是成为通用游戏 Agent Harness：模型在明确的负向约�
 - 可替换的向量记忆 Provider，但继续保留内置轻量本地实现；
 - 更丰富的宏任务恢复、子 Operation 可视化和跨 Adapter 评测套件；
 - RPG、视觉小说、模拟经营等第二批完整参考 Adapter；
-- 面向最终用户的权限编辑器、记忆查看器和行为解释 UI。
+- 基于真人验收结果扩展当前 Console 的权限编辑与行为解释，不建立第二套控制面。
 
 ## 明确不做
 

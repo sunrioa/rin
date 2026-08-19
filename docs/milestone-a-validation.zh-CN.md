@@ -2,7 +2,7 @@
 
 [简体中文](milestone-a-validation.zh-CN.md) | [English](milestone-a-validation.md)
 
-日期：2026-08-17  
+日期：2026-08-19
 状态：自动实现与回归完成，等待真人验收  
 范围：Rin、rin-mi、ai-galgame
 
@@ -21,9 +21,11 @@ Hindsight 和 Graphiti 均未开始。
 ```mermaid
 flowchart TB
     EXT["外部 Agent<br/>自带人格与记忆"] --> MCP["rin-mcp<br/>无状态 STDIO 代理"]
+    USER["玩家"] --> CONSOLE["Rin Console<br/>监控、长目标、共享认知"]
     INT["内部 Agent<br/>Persona / Memory / Skill / Model"] --> LOOP["AgentRuntime<br/>任务与决策循环"]
     SIGNAL["Signal 收件箱"] --> LOOP
     MCP --> CTRL["rin-control<br/>常驻控制进程"]
+    CONSOLE --> CTRL
     LOOP --> CTRL
     CTRL --> GATE["Action Gateway<br/>身份、控制租约、目标绑定"]
     PLAN["PlanState<br/>复杂任务粗粒度进度"] <--> LOOP
@@ -60,8 +62,10 @@ Rin 的 `AgentRuntime` 从约 1896 行降至 774 行，职责分别位于：
 - `action_operation.go`：动作提交、Operation 等待、Outcome 与下一轮协调。
 - `signal_scheduler.go`：只在内部主动模式下消费 Signal 并唤醒任务。
 
-rin-mi 的 `CompanionRuntime` 从约 4182 行降至 3892 行，提取了动作分派、能力投影、主动调度、
-Operation 恢复和伙伴会话存储。组件保持包内可见，没有把 Minecraft 类型放进 Rin Core。
+rin-mi 的 `CompanionRuntime` 已提取动作分派、能力投影、主动调度、Operation 恢复和伙伴
+会话存储。末影龙闭环增加 Portal、跨维度、测向移动、地标搜索和 Boss 控制器后，该文件当前
+约 4260 行；新增实时执行逻辑均位于独立包内控制器，没有把 Minecraft 类型放进 Rin Core。
+进一步拆分必须以真人轨迹回放为保护，不在验收前进行大范围搬迁。
 
 ## 自动验收证据
 
@@ -71,7 +75,7 @@ Operation 恢复和伙伴会话存储。组件保持包内可见，没有把 Min
 | SDK | Python、JavaScript、C#、Java、Lua 测试通过 |
 | 示例 Adapter | Grid、Story、Terminal 测试通过 |
 | 构建 | macOS arm64、Windows amd64、Linux amd64 可执行文件生成成功 |
-| rin-mi | Core、安装器、17/17 Fabric GameTest 通过 |
+| rin-mi | Core、Skill 校验、安装器、28/28 Fabric GameTest 通过 |
 | rin-mi 跨进程 | 真实 `rin-control` 下 V2 Binding 与 Internal Agent Macro 通过 |
 | ai-galgame | 328 个 Python 测试、Ren'Py Lint、内容与资源检查通过 |
 | ai-galgame 跨进程 | External 与 Internal 两条真实进程 E2E 通过 |
@@ -103,8 +107,8 @@ ai-galgame 内容烟测覆盖 7 章、19 个交互回合、12 个桥接、13 个
 
 1. 连续使用 2 至 4 小时：Minecraft 至少 90 分钟，内部与外部控制各至少 45 分钟；视觉小说
    至少 45 分钟。
-2. Minecraft 覆盖采集、制作、建造、生存、战斗、重规划、暂停恢复、控制权切换、急停和重启；
-   特别检查复杂地形、客户端追击和外部批量建造。
+2. Minecraft 覆盖采集、制作、建造、生存、战斗、重规划、控制权切换、急停和重启；
+   特别检查复杂地形、跨维度迁移、下界要塞/要塞搜索、末影之眼测向和完整末影龙新世界通关。
 3. 视觉小说覆盖固定剧情、AI ScenePacket、关键选择、主动话题、Canon 冲突、存读档、回滚和
    Internal/External 切换，并判断对白是否自然。
 4. 解锁桌面后运行 Ren'Py 原生 Testcase，检查 1280x720、1536x864、1920x1080 UI；在真实
@@ -116,14 +120,14 @@ ai-galgame 内容烟测覆盖 7 章、19 个交互回合、12 个桥接、13 个
 ## 已知限制
 
 - GameTest 启动时可能出现缺省 `server.properties`、Yggdrasil 网络超时和上游弃用警告；测试
-  服务仍正常运行，17 个必需用例通过。
+  服务仍正常运行，28 个必需用例通过。
 - macOS 锁屏时 Ren'Py 无可用 Display，原生窗口测试没有被标记为通过。
 - 交叉编译只证明可生成 Windows/Linux 二进制，不替代目标系统运行。
 - 自动轨迹证明协议与终态一致，不证明角色“像活人”的主观体验。
 
 ## 阶段提交
 
-Rin：`ded4d23`、`6ed7da6`、`def23b7`、`07a8c8b`、`5cb2562`、`ff8cdb8`。  
-rin-mi：`0e37394`、`e2f8e48`、`d656ca6`、`70a56e1`、`4026468`。
+本报告之前的 Rin 阶段：`ce16d21`、`81f8bb5`、`c70642d`；Console 时间线与文档收口位于
+包含本报告的提交中。本轮 rin-mi：`28690cd`、`f7f31da`。
 
 真人验收完成并由用户确认前，不开始 ExternalMemoryProvider SPI 或任何具体外挂记忆适配器。

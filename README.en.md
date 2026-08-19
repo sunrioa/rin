@@ -54,6 +54,7 @@ Core invariants:
 | `cognition` | Persona, memory, skills, model decisions, and the internal Agent loop |
 | `agentapi` / `agentdaemon` | Recoverable asynchronous internal Agent Task API |
 | `mcpbridge` | Thin MCP 2026-07-28 proxy with no game-world ownership |
+| `consoleui` / `managementapi` | Embedded local Console, long goals, shared persona, and common memory cards |
 | `sdk` | Control V2 clients for Python, JavaScript, C#, Java, and Lua plus Go HostKit |
 
 ## Build locally
@@ -68,7 +69,8 @@ make build
 
 The `bin/` directory then contains:
 
-- `rin`: Host scaffolding, conformance, doctor, and MCP installation management.
+- `rin`: the unified `serve`, `console`, MCP management, Host scaffolding,
+  conformance, and doctor entry point.
 - `rin-control`: the resident local Control Daemon with an optional internal
   Agent Runtime.
 - `rin-mcp`: the STDIO MCP proxy connected to the Control Daemon.
@@ -81,7 +83,7 @@ production deployments should narrow them.
 
 ```bash
 export RIN_CONTROL_TOKEN="$(openssl rand -hex 32)"
-./bin/rin-control \
+./bin/rin serve \
   -principal local.player \
   -scopes actor.read,actor.control,actor.execute,operation.cancel,host.admin
 ```
@@ -92,6 +94,18 @@ Check the live contract:
 curl -H "Authorization: Bearer $RIN_CONTROL_TOKEN" \
   http://127.0.0.1:7375/control/v2/info
 ```
+
+Open the local management UI with:
+
+```bash
+./bin/rin console
+```
+
+The Console is served at `http://127.0.0.1:7375/console/`. It shows worlds,
+actors, operations, long goals, and a readable task timeline, and it manages the
+shared default persona and common memory cards. Common cards are retrievable by
+internal Agents attached to the same Rin instance; game canon, actor-private
+memory, and an external Agent's private memory do not become cross-game state.
 
 ## Connect external Agents
 
@@ -144,6 +158,7 @@ and adapter path.
 - [Host V2 contract](docs/host-contract.md)
 - [Operations and policy](docs/operations.md)
 - [Internal Agent Runtime](docs/internal-agent-runtime.md)
+- [Rin Console](docs/console.md)
 - [MCP and Control Plane](docs/mcp-control-plane.md)
 - [Game adapter guide](docs/game-adapters.md)
 - [Integration acceptance](docs/host-integration-validation.md)

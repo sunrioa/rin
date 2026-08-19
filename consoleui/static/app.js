@@ -8,6 +8,8 @@ const state = {
   persona: null,
   memories: [],
   memoryScope: "common",
+  selectedActorId: "",
+  refreshing: false,
 };
 
 const titles = {
@@ -27,6 +29,11 @@ document.addEventListener("DOMContentLoaded", () => {
   $$(".copy").forEach((button) => button.addEventListener("click", () => copyText(button.dataset.copy)));
   if (!state.token) $("#authDialog").showModal();
   else refreshCurrent();
+  window.setInterval(() => {
+    if (!document.hidden && ["overview", "actors", "tasks"].includes(state.view)) {
+      refreshCurrent();
+    }
+  }, 5000);
 });
 
 function bindNavigation() {
@@ -47,9 +54,9 @@ function bindForms() {
     selectView("overview");
   });
   $("#taskLookupForm").addEventListener("submit", lookupTask);
-	$("#newTaskButton").addEventListener("click", openTaskDialog);
-	$("#taskForm").addEventListener("submit", startTask);
-	$("#cancelTask").addEventListener("click", () => $("#taskDialog").close());
+  $("#newTaskButton").addEventListener("click", openTaskDialog);
+  $("#taskForm").addEventListener("submit", startTask);
+  $("#cancelTask").addEventListener("click", () => $("#taskDialog").close());
   $("#personaForm").addEventListener("submit", savePersona);
   $("#newMemoryButton").addEventListener("click", () => openMemoryDialog());
   $("#memoryForm").addEventListener("submit", saveMemory);
@@ -72,19 +79,22 @@ function selectView(view) {
 }
 
 async function refreshCurrent() {
-  if (!state.token) return;
+  if (!state.token || state.refreshing) return;
   const loaders = {
     overview: loadOverview, actors: loadActors, tasks: loadTasks, memory: loadMemories,
     persona: loadPersona, skills: loadSkills, connections: loadHealth, settings: () => {
       $("#settingsToken").value = state.token;
     },
   };
+  state.refreshing = true;
   try {
     await loaders[state.view]();
     $("#lastUpdated").textContent = new Date().toLocaleTimeString();
   } catch (error) {
     setService(false);
     toast(error.message, true);
+  } finally {
+    state.refreshing = false;
   }
 }
 
@@ -115,6 +125,7 @@ async function loadActors() {
   if (!state.worlds.length) state.worlds = await api("/control/v2/worlds", { body: {} });
   state.actors = await fetchActors(state.worlds);
   $("#actorTable").innerHTML = actorTable(state.actors);
+  bindActorRows();
   setService(true);
 }
 
@@ -240,29 +251,29 @@ async function loadTasks() {
 }
 
 function openTaskDialog() {
-	const selected = $("#actorTable [data-actor-row].selected");
-	if (selected) {
-		$("#taskHostId").value = selected.dataset.hostId || "";
-		$("#taskWorldId").value = selected.dataset.worldId || "";
-		$("#taskActorId").value = selected.dataset.actorId || "";
-	}
-	$("#taskDialog").showModal();
+  const selected = state.actors.find((actor) => actor.actor_id === state.selectedActorId);
+  if (selected) {
+    $("#taskHostId").value = selected.host_id || "";
+    $("#taskWorldId").value = selected.world_id || "";
+    $("#taskActorId").value = selected.actor_id || "";
+  }
+  $("#taskDialog").showModal();
 }
 
 async function startTask(event) {
-	event.preventDefault();
-	const task = await api("/management/v1/tasks/start", { body: {
-		host_id: $("#taskHostId").value.trim(),
-		world_id: $("#taskWorldId").value.trim(),
-		actor_id: $("#taskActorId").value.trim(),
-		goal: $("#taskGoal").value.trim(),
-		planning_mode: $("#taskPlanningMode").value,
-	} });
-	$("#taskDialog").close();
-	$("#taskForm").reset();
-	toast("长目标已创建并进入执行队列");
-	await loadTasks();
-	await showTask(task.task_id);
+  event.preventDefault();
+  const task = await api("/management/v1/tasks/start", { body: {
+    host_id: $("#taskHostId").value.trim(),
+    world_id: $("#taskWorldId").value.trim(),
+    actor_id: $("#taskActorId").value.trim(),
+    goal: $("#taskGoal").value.trim(),
+    planning_mode: $("#taskPlanningMode").value,
+  } });
+  $("#taskDialog").close();
+  $("#taskForm").reset();
+  toast("长目标已创建并进入执行队列");
+  await loadTasks();
+  await showTask(task.task_id);
 }
 
 async function lookupTask(event) {
@@ -275,7 +286,7 @@ async function lookupTask(event) {
 async function showTask(taskId) {
   const result = await api("/management/v1/tasks/get", { body: { task_id: taskId } });
   $("#taskDetail").classList.remove("empty-state");
-  $("#taskDetail").innerHTML = `<div class="section-heading"><div><h2>${escapeHTML(result.task.goal)}</h2><p>${escapeHTML(result.task.task_id)} · ${escapeHTML(result.task.status)}</p></div><div class="toolbar"><button class="button secondary" data-task-action="run">继续</button><button class="button secondary" data-task-action="resume">恢复</button><button class="button danger" data-task-action="cancel">取消</button></div></div><pre>${escapeHTML(JSON.stringify(result.timeline.events || [], null, 2))}</pre>`;
+  $("#taskDetail").innerHTML = `<div class="section-heading"><div><h2>${escapeHTML(result.task.goal)}</h2><p>${escapeHTML(result.task.task_id)} · ${escapeHTML(result.task.status)}</p></div><div class="toolbar"><button class="button secondary" data-task-action="run">继续</button><button class="button secondary" data-task-action="resume">恢复</button><button class="button danger" data-task-action="cancel">取消</button></div></div>${taskTimeline(result.timeline.events || [])}`;
   $$('[data-task-action]').forEach((button) => button.addEventListener("click", async () => {
     await api("/management/v1/tasks/control", { body: { task_id: taskId, action: button.dataset.taskAction } });
     toast("任务状态已更新");
@@ -290,7 +301,48 @@ function worldTable(worlds) {
 
 function actorTable(actors) {
   if (!actors.length) return '<div class="detail-surface empty-state">当前世界没有在线或可恢复角色。</div>';
-  return `<table><thead><tr><th>角色</th><th>世界</th><th>状态</th><th>任务</th><th>控制源</th></tr></thead><tbody>${actors.map((actor) => `<tr><td><strong>${escapeHTML(actor.display_name || actor.name || actor.actor_id)}</strong><br><code>${escapeHTML(actor.actor_id)}</code></td><td>${escapeHTML(actor.world_id)}</td><td><span class="state ${actor.online === false ? "bad" : "good"}">${actor.online === false ? "离线" : "在线"}</span></td><td>${escapeHTML(actor.state?.active_task?.status || actor.state?.status || "-")}</td><td>${escapeHTML(actor.controller?.source || actor.decision_authority?.source || "-")}</td></tr>`).join("")}</tbody></table>`;
+  return `<table><thead><tr><th>角色</th><th>世界</th><th>状态</th><th>任务</th><th>控制源</th></tr></thead><tbody>${actors.map((actor) => `<tr tabindex="0" data-actor-row data-actor-id="${escapeHTML(actor.actor_id)}" class="${actor.actor_id === state.selectedActorId ? "selected" : ""}"><td><strong>${escapeHTML(actor.display_name || actor.name || actor.actor_id)}</strong><br><code>${escapeHTML(actor.actor_id)}</code></td><td>${escapeHTML(actor.world_id)}</td><td><span class="state ${actor.online === false ? "bad" : "good"}">${actor.online === false ? "离线" : "在线"}</span></td><td>${escapeHTML(actor.state?.active_task?.status || actor.state?.status || "-")}</td><td>${escapeHTML(actor.controller?.source || actor.decision_authority?.source || "-")}</td></tr>`).join("")}</tbody></table>`;
+}
+
+function bindActorRows() {
+  $$('[data-actor-row]').forEach((row) => {
+    const select = () => {
+      state.selectedActorId = row.dataset.actorId;
+      $$('[data-actor-row]').forEach((candidate) => candidate.classList.toggle("selected", candidate === row));
+    };
+    row.addEventListener("click", select);
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        select();
+      }
+    });
+  });
+}
+
+function taskTimeline(events) {
+  if (!events.length) return '<div class="timeline empty-state">任务尚未产生时间线事件。</div>';
+  return `<div class="timeline">${events.map((event) => {
+    const operation = event.operation || {};
+    const policy = event.policy || {};
+    const usage = event.model_usage || {};
+    const memoryCount = (event.memory_context_refs || []).length;
+    const skillCount = (event.skill_refs || []).length;
+    const meta = [
+      event.plan_step_id ? `阶段 ${event.plan_step_id}` : "",
+      event.capability?.id ? `${event.capability.id}@${event.capability.version}` : "",
+      operation.status ? `操作 ${operation.status}` : "",
+      policy.disposition ? `策略 ${policy.disposition}` : "",
+      usage.latency_ms !== undefined ? `${usage.latency_ms} ms` : "",
+      usage.total_tokens !== undefined ? `${usage.total_tokens} tokens` : "",
+      usage.cache_hit_tokens !== undefined ? `缓存命中 ${usage.cache_hit_tokens}` : "",
+      memoryCount ? `${memoryCount} 条记忆` : "",
+      skillCount ? `${skillCount} 个 Skill` : "",
+    ].filter(Boolean);
+    const kind = event.event_kind || "task.event";
+    const status = operation.execution_confirmed ? "已确认" : event.reason_code || kind;
+    return `<article class="timeline-event"><div class="timeline-marker"></div><div><header><strong>${escapeHTML(kind)}</strong><span class="state ${operation.execution_confirmed ? "good" : operation.terminal ? "warn" : ""}">${escapeHTML(status)}</span></header><p>${escapeHTML(event.public_summary || policy.human_summary || "状态已更新。")}</p>${meta.length ? `<div class="timeline-meta">${meta.map((item) => `<span>${escapeHTML(item)}</span>`).join("")}</div>` : ""}<small>${event.occurred_at_unix_millis ? new Date(event.occurred_at_unix_millis).toLocaleString() : ""}</small></div></article>`;
+  }).join("")}</div>`;
 }
 
 function attentionList(worlds, actors) {
