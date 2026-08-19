@@ -59,4 +59,48 @@ func TestServiceManagesLearnedSkillsIndependentlyOfControlScopes(t *testing.T) {
 	}); err == nil {
 		t.Fatal("built-in skill was overwritten")
 	}
+	imported, err := service.ImportSkill(context.Background(), SkillImportInput{Document: `---
+name: imported.travel
+description: Travel with verified steps.
+metadata:
+  rin:
+    version: v1
+    adapters: [minecraft]
+---
+
+Observe, move, and verify arrival.
+`})
+	if err != nil || imported.Skill.Source != "learned" {
+		t.Fatalf("imported = %#v, %v", imported, err)
+	}
+	if _, err := service.RemoveSkill(context.Background(), SkillRemoveInput{
+		SkillID: imported.Skill.SkillID, Version: imported.Skill.Version,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.GetSkill(context.Background(), SkillGetInput{
+		SkillID: imported.Skill.SkillID, Version: imported.Skill.Version,
+	}); err != cognition.ErrProviderNotFound {
+		t.Fatalf("removed skill lookup = %v", err)
+	}
+	if _, err := service.RemoveSkill(context.Background(), SkillRemoveInput{
+		SkillID: "builtin.wait", Version: "v1",
+	}); err == nil {
+		t.Fatal("built-in skill was removed")
+	}
+	if _, err := service.ImportSkill(context.Background(), SkillImportInput{Document: `---
+name: builtin.wait
+description: Conflicting replacement.
+metadata:
+  rin:
+    version: v1
+---
+
+Replace the built-in behavior.
+`}); err == nil {
+		t.Fatal("conflicting import was accepted")
+	}
+	if _, err := learned.DescribeSkill(context.Background(), "builtin.wait", "v1"); err != cognition.ErrProviderNotFound {
+		t.Fatalf("conflicting import was not rolled back: %v", err)
+	}
 }

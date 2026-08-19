@@ -112,7 +112,8 @@
       </section>
 
       <section id="skills" class="view">
-        <div class="section-heading"><div><h2>技能目录</h2><p>通用攻略与 Adapter 专属流程只在相关任务中加载。</p></div><div class="toolbar"><button id="reloadSkillsButton" class="button secondary">重新加载</button><button id="newSkillButton" class="button primary">新增技能</button></div></div>
+        <div class="section-heading"><div><h2>技能目录</h2><p>通用攻略与 Adapter 专属流程只在相关任务中加载。</p></div><div class="toolbar"><button id="reloadSkillsButton" class="button secondary">重新加载</button><button id="importSkillButton" class="button secondary">导入 SKILL.md</button><button id="newSkillButton" class="button primary">新增技能</button></div></div>
+        <input id="skillFileInput" type="file" accept=".md,text/markdown,text/plain" hidden>
         <div class="filterbar"><input id="skillSearch" class="search" type="search" placeholder="搜索名称、说明或 Adapter"></div>
         <div id="skillTable" class="table-wrap"></div>
         <div id="skillDetail" class="detail-surface empty-state">选择一个 Skill 查看完整说明。</div>
@@ -154,6 +155,29 @@
               <label><span>最大退避（毫秒）</span><input id="agentMaxBackoffMillis" type="number" min="0"></label>
               <label><span>熔断失败次数</span><input id="agentFailureThreshold" type="number" min="0"></label>
               <label><span>熔断恢复（毫秒）</span><input id="agentOpenDurationMillis" type="number" min="0"></label>
+            </div>
+          </details>
+          <details class="advanced-fields">
+            <summary>语义记忆（可选）</summary>
+            <div class="field-grid">
+              <label><span>活跃记录上限</span><input id="memoryMaxActiveRecords" type="number" min="0"></label>
+              <label><span>历史记录上限</span><input id="memoryMaxHistory" type="number" min="0"></label>
+            </div>
+            <label class="check-row"><input id="embeddingEnabled" type="checkbox"><span>在本地检索不足时调用远程 Embedding</span></label>
+            <div class="field-grid embedding-fields">
+              <label><span>Provider</span><select id="embeddingProvider"><option value="openai-compatible">openai-compatible</option></select></label>
+              <label><span>认证方式</span><select id="embeddingAuthentication"><option value="bearer-env">API Key</option><option value="none">无认证</option></select></label>
+              <label class="wide"><span>Base URL</span><input id="embeddingBaseURL" placeholder="https://api.example.com/v1"></label>
+              <label><span>模型</span><input id="embeddingModel" placeholder="text-embedding-model"></label>
+              <label><span>允许的记忆域</span><input id="embeddingDomains" placeholder="common-semantic, actor-semantic"></label>
+              <label><span>本地命中阈值</span><input id="embeddingMinLocalMatches" type="number" min="0"></label>
+              <label><span>语义结果上限</span><input id="embeddingMaxResults" type="number" min="0"></label>
+              <label><span>输入字符上限</span><input id="embeddingMaxInputCharacters" type="number" min="0"></label>
+              <label><span>超时（毫秒）</span><input id="embeddingTimeoutMillis" type="number" min="0"></label>
+            </div>
+            <div class="secret-editor">
+              <label><span>Embedding API Key</span><input id="embeddingAPIKey" type="password" autocomplete="new-password" placeholder="留空表示保持现有值"></label>
+              <label class="check-row"><input id="clearEmbeddingAPIKey" type="checkbox"><span>清除本地保存的 Embedding Key</span></label>
             </div>
           </details>
           <div class="secret-editor">

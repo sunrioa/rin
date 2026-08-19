@@ -93,6 +93,7 @@ curl -H "Authorization: Bearer $RIN_CONTROL_TOKEN" \
 Console 位于 `http://127.0.0.1:7375/console/`，用于查看世界、角色、Operation、长目标与
 人类可读时间线，并管理共享默认人格和公共记忆卡片。公共卡片可被所有连接到同一 Rin 的
 内部 Agent 检索；游戏 Canon、角色私有记忆和外部 Agent 私有记忆不会因此跨游戏传播。
+Console 还可管理 learned Skill、内部模型、可选远程 Embedding 与通用游戏权限策略。
 
 ## 接入外部 Agent
 
@@ -146,13 +147,15 @@ Control、Policy、Operation 与 Adapter 链路。
 - [路线图](ROADMAP.md)
 
 OpenAPI 文件是 HTTP 字段与路由的唯一事实来源：
-`api/control-openapi.json` 和 `api/agent-openapi.json`。
+`api/control-openapi.json`、`api/agent-openapi.json` 和
+`api/management-openapi.json`。
 
 ## 安全边界
 
 Rin 不执行模型生成的代码，不把引擎对象暴露给模型，也不允许 Controller 自行声明 Effect。
 任意代码、文件访问、原生调用、权限伪造和秘密泄露 Effect 会被内置安全内核拒绝。API Key
-只能通过进程环境注入，不能写入 Agent 配置、游戏存档、观察数据或 MCP 输出。
+不能写入 Agent 配置、游戏存档、观察数据或 MCP 输出；它只能来自进程环境，或由本机
+Console 写入权限为 `0600` 的独立 secret 文件，且环境变量始终优先。
 
 详细威胁模型见 [SECURITY.md](SECURITY.md)。
 

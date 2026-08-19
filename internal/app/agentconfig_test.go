@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/sunrioa/rin/agentdaemon"
+	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/internal/privatefile"
 	"github.com/sunrioa/rin/managementapi"
 )
@@ -24,7 +25,7 @@ func TestAgentConfigStoreWritesValidatedAtomicPrivateFiles(t *testing.T) {
 	config := validConsoleAgentConfig()
 	key := "provider-secret-that-must-not-enter-config"
 	response, err := store.SaveAgentConfig(context.Background(), managementapi.AgentConfigSaveRequest{
-		Model: config.Model, APIKey: &key,
+		Model: config.Model, Memory: &config.Memory, APIKey: &key,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +64,9 @@ func TestAgentConfigStoreWritesValidatedAtomicPrivateFiles(t *testing.T) {
 	before := append([]byte(nil), configBytes...)
 	invalid := config.Model
 	invalid.BaseURL = "http://remote.example.test/v1"
-	if _, err := store.SaveAgentConfig(context.Background(), managementapi.AgentConfigSaveRequest{Model: invalid}); err == nil {
+	if _, err := store.SaveAgentConfig(context.Background(), managementapi.AgentConfigSaveRequest{
+		Model: invalid, Memory: &config.Memory,
+	}); err == nil {
 		t.Fatal("invalid remote plaintext model URL was accepted")
 	}
 	after, err := os.ReadFile(configPath)
@@ -74,7 +77,7 @@ func TestAgentConfigStoreWritesValidatedAtomicPrivateFiles(t *testing.T) {
 		t.Fatal("invalid save replaced the previous configuration")
 	}
 	cleared, err := store.SaveAgentConfig(context.Background(), managementapi.AgentConfigSaveRequest{
-		Model: config.Model, ClearAPIKey: true,
+		Model: config.Model, Memory: &config.Memory, ClearAPIKey: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -132,7 +135,7 @@ func TestAgentConfigEnvironmentKeyOverridesLocalSecret(t *testing.T) {
 	config := validConsoleAgentConfig()
 	localKey := "local-key"
 	if _, err := store.SaveAgentConfig(context.Background(), managementapi.AgentConfigSaveRequest{
-		Model: config.Model, APIKey: &localKey,
+		Model: config.Model, Memory: &config.Memory, APIKey: &localKey,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -161,8 +164,9 @@ func TestAgentConfigStoreRejectsAmbiguousCredentialMutation(t *testing.T) {
 		t.Fatal(err)
 	}
 	key := "secret"
+	config := validConsoleAgentConfig()
 	_, err = store.SaveAgentConfig(context.Background(), managementapi.AgentConfigSaveRequest{
-		Model: validConsoleAgentConfig().Model, APIKey: &key, ClearAPIKey: true,
+		Model: config.Model, Memory: &config.Memory, APIKey: &key, ClearAPIKey: true,
 	})
 	if err == nil || !strings.Contains(err.Error(), "api_key and clear_api_key") {
 		t.Fatalf("ambiguous credential mutation result = %v", err)
@@ -178,8 +182,9 @@ func TestAgentConfigJSONDoesNotContainSecretFieldInSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	key := "secret-not-for-response"
+	config := validConsoleAgentConfig()
 	response, err := store.SaveAgentConfig(context.Background(), managementapi.AgentConfigSaveRequest{
-		Model: validConsoleAgentConfig().Model, APIKey: &key,
+		Model: config.Model, Memory: &config.Memory, APIKey: &key,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -202,5 +207,53 @@ func TestAgentConfigStoreUsesExpectedPaths(t *testing.T) {
 	if filepath.Dir(store.configPath) != filepath.Join(dataDir, "agent") ||
 		filepath.Dir(store.secretsPath) != filepath.Join(dataDir, "agent") {
 		t.Fatalf("store paths = %#v", store)
+	}
+}
+
+func TestAgentConfigStorePersistsSemanticEmbeddingWithoutLeakingKey(t *testing.T) {
+	dataDir := t.TempDir()
+	store, err := openAgentConfigStore(dataDir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := validConsoleAgentConfig()
+	config.Memory.SemanticEmbedding = agentdaemon.SemanticEmbeddingConfig{
+		Enabled: true, Provider: agentdaemon.ProviderOpenAICompatible,
+		BaseURL: "http://127.0.0.1:2/v1", Model: "embedding-test",
+		Authentication: agentdaemon.AuthenticationBearerEnv,
+		AllowedDomains: []cognition.MemoryDomain{
+			cognition.MemoryCommonSemantic, cognition.MemoryActorSemantic,
+		},
+	}
+	key := "embedding-secret-that-must-not-enter-config"
+	response, err := store.SaveAgentConfig(context.Background(), managementapi.AgentConfigSaveRequest{
+		Model: config.Model, Memory: &config.Memory, EmbeddingAPIKey: &key,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !response.EmbeddingCredentialConfigured || !response.Memory.SemanticEmbedding.Enabled {
+		t.Fatalf("embedding response = %#v", response)
+	}
+	configBytes, err := os.ReadFile(managedAgentConfigPath(dataDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(configBytes, []byte(key)) {
+		t.Fatal("Embedding API key was written into Agent configuration")
+	}
+	var secrets agentSecrets
+	if err := privatefile.ReadJSON(managedAgentSecretsPath(dataDir), maxAgentSecretBytes, &secrets); err != nil {
+		t.Fatal(err)
+	}
+	if secrets.EmbeddingAPIKey != key {
+		t.Fatal("Embedding API key was not persisted in the private secret file")
+	}
+	encoded, err := json.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte(key)) || bytes.Contains(encoded, []byte(`"embedding_api_key"`)) {
+		t.Fatalf("embedding response leaked secret: %s", encoded)
 	}
 }

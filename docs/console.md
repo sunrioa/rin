@@ -20,11 +20,17 @@ tab closes.
 - **Tasks**: start `auto` or `required` goals, run, resume, or cancel them, and read the timeline.
 - **Memory**: search, add, edit, pin, and forget common memory cards.
 - **Persona**: edit the default Persona inherited by actors without a specific binding.
-- **Skills**: inspect generic and Adapter-specific entries in the Skill Catalog.
+- **Skills**: inspect generic and Adapter-specific entries; create, edit, import,
+  or remove learned Skills.
 - **Connections**: inspect the shared Control/MCP/Adapter topology and local commands.
+- **Settings**: save the internal model and optional remote embedding configuration,
+  and manage the generic gameplay policy. Provider keys use a separate private file
+  and are never echoed.
 
 Runtime views refresh every five seconds. Model calls, disk work, and game
 execution never run on the browser thread or a game tick.
+Gameplay policy changes are applied and persisted immediately. Model and embedding
+changes take effect after Rin restarts.
 
 ## Sharing boundary
 

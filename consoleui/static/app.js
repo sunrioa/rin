@@ -8,6 +8,7 @@ const state = {
   persona: null,
   memories: [],
   skills: [],
+  selectedSkill: null,
   operations: [],
   diagnostics: null,
   memoryScope: "common",
@@ -32,9 +33,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   bindNavigation();
   bindForms();
-  $("#refreshButton").addEventListener("click", refreshCurrent);
+  onAsync($("#refreshButton"), "click", refreshCurrent);
   $("#lockButton").addEventListener("click", lockConsole);
-  $$(".copy").forEach((button) => button.addEventListener("click", () => copyText(button.dataset.copy)));
+  $$(".copy").forEach((button) => onAsync(button, "click", () => copyText(button.dataset.copy)));
   if (!state.token) $("#authDialog").showModal();
   else refreshCurrent();
   window.setInterval(() => {
@@ -65,27 +66,32 @@ function bindForms() {
   $("#policyConfigForm").addEventListener("submit", savePolicyConfig);
   $("#clearAgentAPIKey").addEventListener("change", syncAgentCredentialInputs);
   $("#agentAPIKey").addEventListener("input", syncAgentCredentialInputs);
-  $("#taskLookupForm").addEventListener("submit", lookupTask);
+  $("#embeddingEnabled").addEventListener("change", syncEmbeddingInputs);
+  $("#clearEmbeddingAPIKey").addEventListener("change", syncEmbeddingCredentialInputs);
+  $("#embeddingAPIKey").addEventListener("input", syncEmbeddingCredentialInputs);
+  onAsync($("#taskLookupForm"), "submit", lookupTask);
   $("#newTaskButton").addEventListener("click", openTaskDialog);
-  $("#taskForm").addEventListener("submit", startTask);
+  onAsync($("#taskForm"), "submit", startTask);
   $("#cancelTask").addEventListener("click", () => $("#taskDialog").close());
-  $("#personaForm").addEventListener("submit", savePersona);
+  onAsync($("#personaForm"), "submit", savePersona);
   $("#newMemoryButton").addEventListener("click", () => openMemoryDialog());
-  $("#memoryForm").addEventListener("submit", saveMemory);
+  onAsync($("#memoryForm"), "submit", saveMemory);
   $("#cancelMemory").addEventListener("click", () => $("#memoryDialog").close());
   $("#memorySearch").addEventListener("input", debounce(loadMemories, 220));
   $("#skillSearch").addEventListener("input", renderSkills);
   $("#newSkillButton").addEventListener("click", () => openSkillDialog());
-  $("#reloadSkillsButton").addEventListener("click", reloadSkills);
-  $("#skillForm").addEventListener("submit", saveSkill);
+  $("#importSkillButton").addEventListener("click", () => $("#skillFileInput").click());
+  onAsync($("#skillFileInput"), "change", importSkillFile);
+  onAsync($("#reloadSkillsButton"), "click", reloadSkills);
+  onAsync($("#skillForm"), "submit", saveSkill);
   $("#cancelSkill").addEventListener("click", () => $("#skillDialog").close());
-  $("#operationStatus").addEventListener("change", loadOperations);
+  onAsync($("#operationStatus"), "change", loadOperations);
   $("#operationActor").addEventListener("input", debounce(loadOperations, 220));
-  $("#refreshDiagnosticsButton").addEventListener("click", loadHealth);
+  onAsync($("#refreshDiagnosticsButton"), "click", loadHealth);
   $$("[data-memory-scope]").forEach((button) => button.addEventListener("click", () => {
     state.memoryScope = button.dataset.memoryScope;
     $$("[data-memory-scope]").forEach((item) => item.classList.toggle("active", item === button));
-    loadMemories();
+    runUIAction(loadMemories);
   }));
 }
 
@@ -182,6 +188,8 @@ async function savePolicyConfig(event) {
 function renderAgentConfig(snapshot) {
   const model = snapshot.model || {};
   const resilience = model.resilience || {};
+  const memory = snapshot.memory || {};
+  const embedding = memory.semantic_embedding || {};
   $("#agentProvider").value = model.provider || "openai-compatible";
   $("#agentAuthentication").value = model.authentication || "bearer-env";
   $("#agentBaseURL").value = model.base_url || "";
@@ -198,9 +206,25 @@ function renderAgentConfig(snapshot) {
   setNumberField("agentMaxBackoffMillis", resilience.max_backoff_millis);
   setNumberField("agentFailureThreshold", resilience.failure_threshold);
   setNumberField("agentOpenDurationMillis", resilience.open_duration_millis);
+  setNumberField("memoryMaxActiveRecords", memory.max_active_records_per_namespace);
+  setNumberField("memoryMaxHistory", memory.max_history_per_namespace);
   $("#agentAPIKey").value = "";
   $("#clearAgentAPIKey").checked = false;
   syncAgentCredentialInputs();
+  $("#embeddingEnabled").checked = Boolean(embedding.enabled);
+  $("#embeddingProvider").value = embedding.provider || "openai-compatible";
+  $("#embeddingAuthentication").value = embedding.authentication || "bearer-env";
+  $("#embeddingBaseURL").value = embedding.base_url || "";
+  $("#embeddingModel").value = embedding.model || "";
+  $("#embeddingDomains").value = (embedding.allowed_domains || []).join(", ");
+  setNumberField("embeddingMinLocalMatches", embedding.min_local_matches);
+  setNumberField("embeddingMaxResults", embedding.max_semantic_results);
+  setNumberField("embeddingMaxInputCharacters", embedding.max_input_characters);
+  setNumberField("embeddingTimeoutMillis", embedding.timeout_millis);
+  $("#embeddingAPIKey").value = "";
+  $("#clearEmbeddingAPIKey").checked = false;
+  syncEmbeddingInputs();
+  syncEmbeddingCredentialInputs();
   $("#agentConfigNotice").hidden = true;
 }
 
@@ -222,9 +246,30 @@ function syncAgentCredentialInputs(event) {
   input.disabled = clear.checked;
 }
 
+function syncEmbeddingInputs() {
+  const enabled = $("#embeddingEnabled").checked;
+  if (enabled && !$("#embeddingDomains").value.trim()) {
+    $("#embeddingDomains").value = "common-semantic, actor-episodic, actor-semantic";
+  }
+  $$(".field-grid.embedding-fields input, .field-grid.embedding-fields select").forEach((element) => {
+    element.disabled = !enabled;
+  });
+  $("#embeddingEnabled").disabled = false;
+}
+
+function syncEmbeddingCredentialInputs(event) {
+  const clear = $("#clearEmbeddingAPIKey");
+  const input = $("#embeddingAPIKey");
+  if (event?.target === clear && clear.checked) input.value = "";
+  if (input.value) clear.checked = false;
+  input.disabled = clear.checked;
+}
+
 async function saveAgentConfig(event) {
   event.preventDefault();
   const apiKey = $("#agentAPIKey").value;
+  const embeddingEnabled = $("#embeddingEnabled").checked;
+  const embeddingAPIKey = $("#embeddingAPIKey").value;
   const body = {
     model: {
       provider: $("#agentProvider").value,
@@ -246,9 +291,27 @@ async function saveAgentConfig(event) {
         open_duration_millis: numberField("agentOpenDurationMillis", true),
       },
     },
+    memory: {
+      max_active_records_per_namespace: numberField("memoryMaxActiveRecords", true),
+      max_history_per_namespace: numberField("memoryMaxHistory", true),
+      semantic_embedding: embeddingEnabled ? {
+      enabled: true,
+      provider: $("#embeddingProvider").value,
+      base_url: $("#embeddingBaseURL").value.trim(),
+      model: $("#embeddingModel").value.trim(),
+      authentication: $("#embeddingAuthentication").value,
+      allowed_domains: splitValues($("#embeddingDomains").value),
+      max_input_characters: numberField("embeddingMaxInputCharacters", true),
+      min_local_matches: numberField("embeddingMinLocalMatches", true),
+      max_semantic_results: numberField("embeddingMaxResults", true),
+      timeout_millis: numberField("embeddingTimeoutMillis", true),
+      } : {},
+    },
   };
   if (apiKey) body.api_key = apiKey;
   if ($("#clearAgentAPIKey").checked) body.clear_api_key = true;
+  if (embeddingAPIKey) body.embedding_api_key = embeddingAPIKey;
+  if ($("#clearEmbeddingAPIKey").checked) body.clear_embedding_api_key = true;
   try {
     const result = await api("/management/v1/agent/config", { method: "PUT", body });
     renderAgentConfig(result);
@@ -313,7 +376,7 @@ function renderMemories() {
     </article>`;
   }).join("");
   $$('[data-edit-memory]').forEach((button) => button.addEventListener("click", () => openMemoryDialog(button.dataset.editMemory)));
-  $$('[data-forget-memory]').forEach((button) => button.addEventListener("click", () => forgetMemory(button.dataset.forgetMemory)));
+  $$('[data-forget-memory]').forEach((button) => onAsync(button, "click", () => forgetMemory(button.dataset.forgetMemory)));
 }
 
 function openMemoryDialog(memoryId = "") {
@@ -380,6 +443,10 @@ async function loadSkills() {
   const result = await api("/management/v1/skills/list", { body: { limit: 128 } });
   state.skills = result.skills || [];
   renderSkills();
+  if (state.selectedSkill && !state.skills.some((skill) =>
+    skill.skill_id === state.selectedSkill.skillId && skill.version === state.selectedSkill.version)) {
+    clearSkillDetail();
+  }
   setService(true);
 }
 
@@ -389,16 +456,19 @@ function renderSkills() {
     skill.skill_id, skill.version, skill.summary, skill.source, ...(skill.adapters || []),
   ].some((value) => String(value || "").toLowerCase().includes(query)));
   $("#skillTable").innerHTML = skills.length ? `<table><thead><tr><th>Skill</th><th>说明</th><th>来源</th><th>Adapter</th><th></th></tr></thead><tbody>${skills.map((skill) => `<tr><td><code>${escapeHTML(skill.skill_id)}@${escapeHTML(skill.version)}</code></td><td>${escapeHTML(skill.summary || "")}</td><td>${escapeHTML(skill.source || "")}</td><td>${escapeHTML((skill.adapters || []).join(", ") || "通用")}</td><td><button class="table-action" data-skill-id="${escapeHTML(skill.skill_id)}" data-skill-version="${escapeHTML(skill.version)}">查看</button></td></tr>`).join("")}</tbody></table>` : '<div class="detail-surface empty-state">没有匹配的 Skill。</div>';
-  $$('[data-skill-id]').forEach((button) => button.addEventListener("click", () => showSkill(button.dataset.skillId, button.dataset.skillVersion)));
+  $$('[data-skill-id]').forEach((button) => onAsync(button, "click", () => showSkill(button.dataset.skillId, button.dataset.skillVersion)));
 }
 
 async function showSkill(skillId, version) {
   const result = await api("/management/v1/skills/get", { body: { skill_id: skillId, version } });
   const skill = result.skill;
+  state.selectedSkill = { skillId: skill.skill_id, version: skill.version };
   const editable = skill.source === "learned";
   $("#skillDetail").classList.remove("empty-state");
-  $("#skillDetail").innerHTML = `<div class="section-heading compact"><div><h2>${escapeHTML(skill.skill_id)} <span class="revision">${escapeHTML(skill.version)}</span></h2><p>${escapeHTML(skill.summary)}</p></div>${editable ? '<button id="editSkillButton" class="button secondary">编辑</button>' : '<span class="state">只读</span>'}</div><div class="skill-meta"><span>来源 ${escapeHTML(skill.source)}</span><span>Adapter ${escapeHTML((skill.adapters || []).join(", ") || "通用")}</span><span>Capability ${escapeHTML((skill.capabilities || []).join(", ") || "无")}</span></div><pre class="skill-instructions">${escapeHTML(skill.instructions)}</pre>`;
+  const controls = editable ? '<div class="toolbar"><button id="editSkillButton" class="button secondary">编辑</button><button id="removeSkillButton" class="button danger">删除</button></div>' : '<span class="state">只读</span>';
+  $("#skillDetail").innerHTML = `<div class="section-heading compact"><div><h2>${escapeHTML(skill.skill_id)} <span class="revision">${escapeHTML(skill.version)}</span></h2><p>${escapeHTML(skill.summary)}</p></div>${controls}</div><div class="skill-meta"><span>来源 ${escapeHTML(skill.source)}</span><span>Adapter ${escapeHTML((skill.adapters || []).join(", ") || "通用")}</span><span>Capability ${escapeHTML((skill.capabilities || []).join(", ") || "无")}</span></div><pre class="skill-instructions">${escapeHTML(skill.instructions)}</pre>`;
   if (editable) $("#editSkillButton").addEventListener("click", () => openSkillDialog(skill));
+  if (editable) onAsync($("#removeSkillButton"), "click", () => removeSkill(skill));
 }
 
 function openSkillDialog(skill = null) {
@@ -438,6 +508,37 @@ async function reloadSkills() {
   await loadSkills();
 }
 
+async function importSkillFile(event) {
+  const input = event.target;
+  const file = input.files?.[0];
+  if (!file) return;
+  try {
+    if (file.size > 64 * 1024) throw new Error("SKILL.md 不能超过 64 KiB");
+    const result = await api("/management/v1/skills/import", { body: { document: await file.text() } });
+    toast("Skill 已导入");
+    await loadSkills();
+    await showSkill(result.skill.skill_id, result.skill.version);
+  } finally {
+    input.value = "";
+  }
+}
+
+async function removeSkill(skill) {
+  if (!confirm(`删除 learned Skill ${skill.skill_id}@${skill.version}？`)) return;
+  await api("/management/v1/skills/remove", { body: {
+    skill_id: skill.skill_id, version: skill.version,
+  }});
+  clearSkillDetail();
+  toast("Skill 已删除");
+  await loadSkills();
+}
+
+function clearSkillDetail() {
+  state.selectedSkill = null;
+  $("#skillDetail").classList.add("empty-state");
+  $("#skillDetail").textContent = "选择一个 Skill 查看完整说明。";
+}
+
 function renderDiagnostics(diagnostics) {
   const connections = diagnostics.connections || [];
   $("#diagnosticList").innerHTML = connections.length ? connections.map((item) => {
@@ -451,7 +552,7 @@ function renderDiagnostics(diagnostics) {
   }).join("") : '<div class="detail-surface empty-state">暂时没有可诊断的连接。</div>';
   const mcp = diagnostics.mcp || {};
   $("#mcpCommandList").innerHTML = mcpStatusSummary(mcp) + (mcp.commands || []).map((item) => `<div class="command-row"><div><strong>${escapeHTML(item.label)}</strong><small>${escapeHTML(item.id)}</small></div><code>${escapeHTML(item.command)}</code><button class="button secondary copy-command" data-copy="${escapeHTML(item.command)}">复制</button></div>`).join("");
-  $$(".copy-command").forEach((button) => button.addEventListener("click", () => copyText(button.dataset.copy)));
+  $$(".copy-command").forEach((button) => onAsync(button, "click", () => copyText(button.dataset.copy)));
 }
 
 function renderConfig(diagnostics) {
@@ -548,7 +649,7 @@ async function loadTasks() {
     const result = await api("/management/v1/tasks/list", { body: { limit: 100 } });
     const tasks = result.tasks || [];
     $("#taskTable").innerHTML = tasks.length ? `<table><thead><tr><th>目标</th><th>状态</th><th>阶段</th><th>动作 / 模型</th><th>更新</th></tr></thead><tbody>${tasks.map((task) => `<tr data-task-row="${escapeHTML(task.task_id)}"><td><strong>${escapeHTML(task.goal)}</strong><br><code>${escapeHTML(task.task_id)}</code></td><td><span class="state ${task.status === "completed" ? "good" : task.status === "failed" ? "bad" : "warn"}">${escapeHTML(task.status)}</span></td><td>${escapeHTML(task.current_plan_step_id || task.plan_id || "-")}</td><td>${task.action_count} / ${task.model_calls}</td><td>${new Date(task.updated_at_unix_millis).toLocaleString()}</td></tr>`).join("")}</tbody></table>` : '<div class="detail-surface empty-state">内部 Agent 当前没有任务。</div>';
-    $$('[data-task-row]').forEach((row) => row.addEventListener("click", () => showTask(row.dataset.taskRow)));
+    $$('[data-task-row]').forEach((row) => onAsync(row, "click", () => showTask(row.dataset.taskRow)));
   } catch (error) {
     if (error.message.includes("not enabled")) {
       $("#taskTable").innerHTML = '<div class="detail-surface empty-state">内部 Agent Runtime 未启用；外部 MCP 任务仍可在 Operation 时间线中查看。</div>';
@@ -593,9 +694,15 @@ async function lookupTask(event) {
 
 async function showTask(taskId) {
   const result = await api("/management/v1/tasks/get", { body: { task_id: taskId } });
+  const status = result.task.status;
+  const controls = [
+    status === "active" ? '<button class="button secondary" data-task-action="run">继续</button>' : "",
+    status === "paused" ? '<button class="button secondary" data-task-action="resume">恢复</button>' : "",
+    ["active", "paused", "waiting-confirmation"].includes(status) ? '<button class="button danger" data-task-action="cancel">取消</button>' : "",
+  ].filter(Boolean).join("");
   $("#taskDetail").classList.remove("empty-state");
-  $("#taskDetail").innerHTML = `<div class="section-heading"><div><h2>${escapeHTML(result.task.goal)}</h2><p>${escapeHTML(result.task.task_id)} · ${escapeHTML(result.task.status)}</p></div><div class="toolbar"><button class="button secondary" data-task-action="run">继续</button><button class="button secondary" data-task-action="resume">恢复</button><button class="button danger" data-task-action="cancel">取消</button></div></div>${taskTimeline(result.timeline.events || [])}`;
-  $$('[data-task-action]').forEach((button) => button.addEventListener("click", async () => {
+  $("#taskDetail").innerHTML = `<div class="section-heading"><div><h2>${escapeHTML(result.task.goal)}</h2><p>${escapeHTML(result.task.task_id)} · ${escapeHTML(status)}</p></div><div class="toolbar">${controls}</div></div>${taskTimeline(result.timeline.events || [])}`;
+  $$('[data-task-action]').forEach((button) => onAsync(button, "click", async () => {
     await api("/management/v1/tasks/control", { body: { task_id: taskId, action: button.dataset.taskAction } });
     toast("任务状态已更新");
     await Promise.all([loadTasks(), showTask(taskId)]);
@@ -771,6 +878,18 @@ function operationStateClass(operation) {
 function splitValues(value) { return [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))]; }
 function splitLines(value) { return [...new Set(value.split("\n").map((item) => item.trim()).filter(Boolean))]; }
 function escapeHTML(value) { return String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char])); }
-function debounce(fn, wait) { let timer; return () => { clearTimeout(timer); timer = setTimeout(fn, wait); }; }
+function reportActionError(error) {
+  const message = error?.message || "操作失败";
+  showViewError(message);
+  toast(message, true);
+}
+function runUIAction(action) { return Promise.resolve().then(action).catch(reportActionError); }
+function onAsync(element, eventName, action) {
+  element.addEventListener(eventName, (...args) => runUIAction(() => action(...args)));
+}
+function debounce(fn, wait) {
+  let timer;
+  return () => { clearTimeout(timer); timer = setTimeout(() => runUIAction(fn), wait); };
+}
 async function copyText(value) { await navigator.clipboard.writeText(value); toast("命令已复制"); }
 function toast(message, bad = false) { const element = $("#toast"); element.textContent = message; element.style.background = bad ? "#74322f" : "#202a25"; element.classList.add("show"); setTimeout(() => element.classList.remove("show"), 2600); }

@@ -93,7 +93,10 @@ export RIN_AGENT_EMBEDDING_API_KEY="embedding-key-from-secret-store"
 ./bin/rin-control
 ```
 
-API Key 不是配置字段；在 JSON 中加入 `api_key` 会被拒绝。连接无认证的本地
+API Key 不是 Agent 配置字段；在 JSON 中加入 `api_key` 会被拒绝。除了以上环境变量，
+回环地址上的 Rin Console 可将模型与 Embedding Key 保存到
+`<data>/agent/agent-secrets.json`。该文件权限为 `0600`，接口只返回是否配置，环境变量会
+覆盖本地值。连接无认证的本地
 OpenAI-compatible 服务时，把 `authentication` 设为 `none` 并确保
 `RIN_AGENT_API_KEY` 未设置。启动只校验配置，不向模型服务发送探测请求。
 

@@ -87,11 +87,17 @@ Internal Agent 把机器选择的允许 Capability、Target Handle、Epoch 和�
 
 ## Provider 与秘密
 
-内部 Agent 配置文件不得包含 API Key。凭据只通过以下环境变量进入进程：
+内部 Agent 配置文件不得包含 API Key。凭据可通过以下环境变量进入进程：
 
 - `RIN_CONTROL_TOKEN`：Control API；
 - `RIN_AGENT_TOKEN`：Agent Task API，必须与 Control Token 不同；
 - `RIN_AGENT_API_KEY`：可选模型 Provider Key，不能与任一 Daemon Token 相同。
+- `RIN_AGENT_EMBEDDING_API_KEY`：可选远程 Embedding Key，不能与任一 Daemon Token 相同。
+
+回环地址上的 Rin Console 也可以把两个 Provider Key 写入
+`<data>/agent/agent-secrets.json`。该文件与公开 Agent 配置分离，使用私有目录和 `0600`
+权限原子写入；API 只返回“是否已配置”，从不回显正文。对应环境变量存在时覆盖本地值。
+这个本机存储只提供操作系统用户级保护，不应放入同步目录、游戏存档或版本库。
 
 远端模型 URL 必须使用 HTTPS；仅回环 Provider 可以使用 HTTP。URL 不接受 userinfo，
 Provider Client 禁止 Redirect，并限制响应大小、超时、重试和熔断。错误不会回显

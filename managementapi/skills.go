@@ -11,6 +11,8 @@ import (
 type SkillStore interface {
 	cognition.SkillWriter
 	Reload(context.Context) error
+	Import(context.Context, []byte) (cognition.Skill, error)
+	Remove(context.Context, string, string) error
 }
 
 type SkillListInput struct {
@@ -39,6 +41,15 @@ type SkillSaveInput struct {
 	Triggers     []string `json:"triggers,omitempty"`
 	Adapters     []string `json:"adapters,omitempty"`
 	Capabilities []string `json:"capabilities,omitempty"`
+}
+
+type SkillImportInput struct {
+	Document string `json:"document"`
+}
+
+type SkillRemoveInput struct {
+	SkillID string `json:"skill_id"`
+	Version string `json:"version"`
 }
 
 type SkillReloadOutput struct {
@@ -134,6 +145,58 @@ func (service *Service) ReloadSkills(ctx context.Context) (SkillReloadOutput, er
 		return SkillReloadOutput{}, ErrSkillsUnavailable
 	}
 	if err := service.skillStore.Reload(ctx); err != nil {
+		return SkillReloadOutput{}, err
+	}
+	return SkillReloadOutput{Reloaded: true}, nil
+}
+
+func (service *Service) ImportSkill(
+	ctx context.Context,
+	input SkillImportInput,
+) (SkillGetOutput, error) {
+	if service.skills == nil || service.skillStore == nil {
+		return SkillGetOutput{}, ErrSkillsUnavailable
+	}
+	if strings.TrimSpace(input.Document) == "" {
+		return SkillGetOutput{}, errors.New("SKILL.md document is required")
+	}
+	skill, err := service.skillStore.Import(ctx, []byte(input.Document))
+	if err != nil {
+		return SkillGetOutput{}, err
+	}
+	resolved, err := service.skills.DescribeSkill(ctx, skill.SkillID, skill.Version)
+	if err == nil {
+		return SkillGetOutput{Skill: resolved}, nil
+	}
+	rollbackErr := service.skillStore.Remove(ctx, skill.SkillID, skill.Version)
+	if rollbackErr != nil {
+		return SkillGetOutput{}, errors.Join(err, rollbackErr)
+	}
+	if errors.Is(err, cognition.ErrProviderConflict) {
+		return SkillGetOutput{}, errors.New(
+			"imported skill conflicts with an existing skill id and version",
+		)
+	}
+	return SkillGetOutput{}, err
+}
+
+func (service *Service) RemoveSkill(
+	ctx context.Context,
+	input SkillRemoveInput,
+) (SkillReloadOutput, error) {
+	if service.skills == nil || service.skillStore == nil {
+		return SkillReloadOutput{}, ErrSkillsUnavailable
+	}
+	skillID := strings.TrimSpace(input.SkillID)
+	version := strings.TrimSpace(input.Version)
+	current, err := service.skills.DescribeSkill(ctx, skillID, version)
+	if err != nil {
+		return SkillReloadOutput{}, err
+	}
+	if current.Source != "learned" {
+		return SkillReloadOutput{}, errors.New("only learned skills can be removed")
+	}
+	if err := service.skillStore.Remove(ctx, skillID, version); err != nil {
 		return SkillReloadOutput{}, err
 	}
 	return SkillReloadOutput{Reloaded: true}, nil

@@ -27,6 +27,9 @@ func (editor *fakeAgentConfigEditor) SaveAgentConfig(_ context.Context, request 
 	}
 	editor.saved = request
 	editor.snapshot.Model = request.Model
+	if request.Memory != nil {
+		editor.snapshot.Memory = *request.Memory
+	}
 	editor.snapshot.Configured = true
 	editor.snapshot.CredentialConfigured = request.APIKey != nil && *request.APIKey != ""
 	return AgentConfigSaveResponse{AgentConfigSnapshot: editor.snapshot, RequiresRestart: true}, nil
@@ -52,7 +55,7 @@ func TestHTTPHandlerMapsInvalidAgentConfigToBadRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodPut, "/management/v1/agent/config", strings.NewReader(`{"model":{}}`))
+	request := httptest.NewRequest(http.MethodPut, "/management/v1/agent/config", strings.NewReader(`{"model":{},"memory":{}}`))
 	request.Header.Set("Authorization", "Bearer test-management-token")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -94,12 +97,14 @@ func TestHTTPHandlerAgentConfigNeverReturnsCredential(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	body := response.Body.String()
 	if response.Code != http.StatusOK || !strings.Contains(body, `"credential_configured":true`) ||
-		strings.Contains(body, "api_key") || strings.Contains(body, "secret") {
+		strings.Contains(body, `"api_key"`) || strings.Contains(body, `"embedding_api_key"`) ||
+		strings.Contains(body, "secret-only-in-request") {
 		t.Fatalf("unsafe GET response: status=%d body=%s", response.Code, body)
 	}
 	request = httptest.NewRequest(http.MethodPut, "/management/v1/agent/config", strings.NewReader(`{
-		"model":{"provider":"openai-compatible","base_url":"http://127.0.0.1:1/v1","model":"test-model"},
-		"api_key":"secret-only-in-request"
+			"model":{"provider":"openai-compatible","base_url":"http://127.0.0.1:1/v1","model":"test-model"},
+			"memory":{},
+			"api_key":"secret-only-in-request"
 	}`))
 	request.Header.Set("Authorization", "Bearer test-management-token")
 	response = httptest.NewRecorder()

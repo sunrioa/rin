@@ -80,3 +80,59 @@ func TestDirectorySkillProviderRejectsMismatchedDirectory(t *testing.T) {
 		t.Fatal("mismatched skill directory was accepted")
 	}
 }
+
+func TestDirectorySkillProviderImportsAndRemovesOwnedDocument(t *testing.T) {
+	root := t.TempDir()
+	provider, err := OpenDirectorySkillProvider(root, "learned", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := []byte(`---
+name: imported-survival
+description: Prepare for a journey.
+metadata:
+  rin:
+    version: v1
+    adapters: [minecraft]
+    capabilities: [recipe.lookup, crafting.craft]
+---
+
+Observe the inventory, prepare tools, and verify each outcome.
+`)
+	imported, err := provider.Import(context.Background(), document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if imported.SkillID != "imported-survival" || imported.Source != "learned" {
+		t.Fatalf("imported skill = %#v", imported)
+	}
+	if err := provider.Remove(context.Background(), imported.SkillID, imported.Version); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.DescribeSkill(context.Background(), imported.SkillID, imported.Version); err != ErrProviderNotFound {
+		t.Fatalf("removed skill lookup = %v", err)
+	}
+}
+
+func TestDirectorySkillProviderRefusesRemovalWithUnmanagedFiles(t *testing.T) {
+	root := t.TempDir()
+	provider, err := OpenDirectorySkillProvider(root, "learned", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	skill := Skill{SkillSummary: SkillSummary{
+		SkillID: "owned-skill", Version: "v1", Summary: "Owned skill.", Source: "learned",
+	}, Instructions: "Perform the verified operation."}
+	if err := provider.Save(context.Background(), skill); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "owned-skill", "notes.txt"), []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := provider.Remove(context.Background(), "owned-skill", "v1"); err == nil {
+		t.Fatal("skill directory with unmanaged content was removed")
+	}
+	if _, err := provider.DescribeSkill(context.Background(), "owned-skill", "v1"); err != nil {
+		t.Fatalf("failed removal changed provider state: %v", err)
+	}
+}

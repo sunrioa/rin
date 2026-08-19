@@ -219,6 +219,53 @@ func (provider *DirectorySkillProvider) Save(ctx context.Context, skill Skill) e
 	return provider.Reload(ctx)
 }
 
+// Import validates one inert SKILL.md document and stores it in this writable
+// provider. Instructions remain data; importing never grants capabilities.
+func (provider *DirectorySkillProvider) Import(ctx context.Context, document []byte) (Skill, error) {
+	if len(document) == 0 || len(document) > maxSkillDocumentBytes {
+		return Skill{}, errors.New("SKILL.md document is empty or exceeds 64 KiB")
+	}
+	skill, err := parseSkillDocument(document, provider.source)
+	if err != nil {
+		return Skill{}, err
+	}
+	if err := provider.Save(ctx, skill); err != nil {
+		return Skill{}, err
+	}
+	return provider.DescribeSkill(ctx, skill.SkillID, skill.Version)
+}
+
+// Remove deletes one provider-owned SKILL.md. It refuses directories that
+// contain any additional file so Console cannot remove user-managed content.
+func (provider *DirectorySkillProvider) Remove(ctx context.Context, skillID, version string) error {
+	if err := requireMemoryContext(ctx); err != nil {
+		return err
+	}
+	current, err := provider.DescribeSkill(ctx, skillID, version)
+	if err != nil {
+		return err
+	}
+	if current.Source != provider.source {
+		return errors.New("skill is not owned by this provider")
+	}
+	directory := filepath.Join(provider.root, current.SkillID)
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return err
+	}
+	if len(entries) != 1 || entries[0].Name() != "SKILL.md" ||
+		entries[0].Type()&os.ModeSymlink != 0 || !entries[0].Type().IsRegular() {
+		return errors.New("learned skill directory contains unmanaged files")
+	}
+	if err := os.Remove(filepath.Join(directory, "SKILL.md")); err != nil {
+		return err
+	}
+	if err := os.Remove(directory); err != nil {
+		return err
+	}
+	return provider.Reload(ctx)
+}
+
 func parseSkillDocument(payload []byte, source string) (Skill, error) {
 	frontmatter, body, err := splitSkillDocument(payload)
 	if err != nil {

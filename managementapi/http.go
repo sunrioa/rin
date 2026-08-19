@@ -156,6 +156,24 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 		result, err := service.ReloadSkills(request.Context())
 		writeResult(response, result, err)
 	}))
+	mux.HandleFunc("POST /management/v1/skills/import", secure(options.Token, func(response http.ResponseWriter, request *http.Request) {
+		var input SkillImportInput
+		if err := decodeJSON(request, &input); err != nil {
+			writeError(response, http.StatusBadRequest, err)
+			return
+		}
+		result, err := service.ImportSkill(request.Context(), input)
+		writeResult(response, result, err)
+	}))
+	mux.HandleFunc("POST /management/v1/skills/remove", secure(options.Token, func(response http.ResponseWriter, request *http.Request) {
+		var input SkillRemoveInput
+		if err := decodeJSON(request, &input); err != nil {
+			writeError(response, http.StatusBadRequest, err)
+			return
+		}
+		result, err := service.RemoveSkill(request.Context(), input)
+		writeResult(response, result, err)
+	}))
 	mux.HandleFunc("GET /management/v1/runtime", secure(options.Token, func(response http.ResponseWriter, request *http.Request) {
 		result, err := service.RuntimeSnapshot(request.Context())
 		writeResult(response, result, err)

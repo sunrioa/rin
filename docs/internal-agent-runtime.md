@@ -100,8 +100,12 @@ export RIN_AGENT_EMBEDDING_API_KEY="embedding-key-from-secret-store"
 ./bin/rin-control
 ```
 
-The API key is not a configuration field; adding `api_key` to the JSON is
-rejected. For an unauthenticated local OpenAI-compatible service, set
+API keys are not Agent configuration fields; adding `api_key` to that JSON is
+rejected. As an alternative to the environment variables above, the loopback
+Rin Console can store model and embedding keys in
+`<data>/agent/agent-secrets.json`. The file is mode `0600`, responses expose
+presence only, and environment variables override local values. For an
+unauthenticated local OpenAI-compatible service, set
 `authentication` to `none` and leave `RIN_AGENT_API_KEY` unset. Startup validates
 configuration without sending a model probe request.
 

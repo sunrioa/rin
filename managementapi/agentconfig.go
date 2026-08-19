@@ -3,6 +3,7 @@ package managementapi
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/sunrioa/rin/agentdaemon"
 )
@@ -16,19 +17,23 @@ var (
 // configuration. Model settings are editable; credentials are represented by
 // presence only and never cross the response boundary.
 type AgentConfigSnapshot struct {
-	Configured           bool                    `json:"configured"`
-	Model                agentdaemon.ModelConfig `json:"model"`
-	CredentialConfigured bool                    `json:"credential_configured"`
+	Configured                    bool                     `json:"configured"`
+	Model                         agentdaemon.ModelConfig  `json:"model"`
+	Memory                        agentdaemon.MemoryConfig `json:"memory"`
+	CredentialConfigured          bool                     `json:"credential_configured"`
+	EmbeddingCredentialConfigured bool                     `json:"embedding_credential_configured"`
 }
 
-// AgentConfigSaveRequest uses a tri-state credential update:
-// nil APIKey keeps the current secret, a non-nil APIKey sets it, and
-// ClearAPIKey removes it. The secret is request-only and is never serialized
-// into AgentConfigSnapshot.
+// AgentConfigSaveRequest uses tri-state credential updates: nil preserves a
+// secret, a non-nil value sets it, and the matching clear flag removes it.
+// Secrets are request-only and are never serialized into AgentConfigSnapshot.
 type AgentConfigSaveRequest struct {
-	Model       agentdaemon.ModelConfig `json:"model"`
-	APIKey      *string                 `json:"api_key,omitempty"`
-	ClearAPIKey bool                    `json:"clear_api_key,omitempty"`
+	Model                agentdaemon.ModelConfig   `json:"model"`
+	Memory               *agentdaemon.MemoryConfig `json:"memory"`
+	APIKey               *string                   `json:"api_key,omitempty"`
+	ClearAPIKey          bool                      `json:"clear_api_key,omitempty"`
+	EmbeddingAPIKey      *string                   `json:"embedding_api_key,omitempty"`
+	ClearEmbeddingAPIKey bool                      `json:"clear_embedding_api_key,omitempty"`
 }
 
 type AgentConfigSaveResponse struct {
@@ -65,6 +70,11 @@ func (service *Service) SaveAgentConfig(
 ) (AgentConfigSaveResponse, error) {
 	if service.agentConfig == nil {
 		return AgentConfigSaveResponse{}, ErrAgentConfigUnavailable
+	}
+	if request.Memory == nil {
+		return AgentConfigSaveResponse{}, fmt.Errorf(
+			"%w: memory configuration is required", ErrInvalidAgentConfig,
+		)
 	}
 	return service.agentConfig.SaveAgentConfig(ctx, request)
 }

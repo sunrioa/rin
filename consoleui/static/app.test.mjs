@@ -40,6 +40,12 @@ test("Console edits the complete internal Agent model contract", () => {
   assert.match(app, /temperature/);
   assert.match(html, /id="agentBaseURL"/);
   assert.match(html, /id="agentThinkingMode"/);
+  assert.match(html, /id="embeddingEnabled"/);
+  assert.match(html, /id="embeddingAPIKey"/);
+  assert.match(html, /id="memoryMaxActiveRecords"/);
+  assert.match(html, /id="memoryMaxHistory"/);
+  assert.match(app, /semantic_embedding/);
+  assert.match(app, /embedding_api_key/);
   assert.match(html, /重启 Rin/);
 });
 
@@ -49,4 +55,21 @@ test("Console edits the active gameplay policy with revision control", () => {
   assert.match(app, /JSON\.parse/);
   assert.match(html, /id="policyProfile"/);
   assert.match(html, /id="policyJSON"/);
+});
+
+test("Console catches asynchronous action failures and hides invalid task controls", () => {
+  assert.match(app, /function runUIAction/);
+  assert.match(app, /\.catch\(reportActionError\)/);
+  assert.match(app, /status === "paused"/);
+  assert.match(app, /\["active", "paused", "waiting-confirmation"\]\.includes\(status\)/);
+});
+
+test("Console imports and removes learned SKILL.md documents", () => {
+  assert.match(app, /\/management\/v1\/skills\/import/);
+  assert.match(app, /\/management\/v1\/skills\/remove/);
+  assert.match(app, /file\.size > 64 \* 1024/);
+  assert.match(html, /id="importSkillButton"/);
+  assert.match(html, /id="skillFileInput"/);
+  assert.match(app, /function clearSkillDetail/);
+  assert.match(app, /state\.selectedSkill && !state\.skills\.some/);
 });

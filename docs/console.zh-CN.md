@@ -18,10 +18,13 @@ Control API 相同的 Bearer Token；Token 只保存在当前浏览器标签页�
 - **任务**：创建 `auto` 或 `required` 长目标，继续、恢复或取消任务，并查看人类可读时间线。
 - **记忆**：搜索、新增、编辑、置顶和遗忘公共记忆卡片。
 - **人格**：编辑所有未专门绑定角色共同继承的默认 Persona。
-- **技能**：查看当前 Skill Catalog 中的通用和 Adapter 专属 Skill。
+- **技能**：查看通用和 Adapter 专属 Skill；新增、编辑、导入或删除 learned Skill。
 - **连接**：查看统一 Control/MCP/Adapter 拓扑和本机安装、诊断命令。
+- **设置**：保存内部模型与可选远程 Embedding 配置，管理通用游戏权限策略；Provider Key
+  只进入独立私有文件且不会回显。
 
 页面每五秒刷新运行状态；模型请求、磁盘操作和游戏执行不会在浏览器线程或游戏 Tick 中运行。
+游戏权限策略热更新并持久化；模型与 Embedding 配置在下次 Rin 启动时生效。
 
 ## 共享边界
 

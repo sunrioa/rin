@@ -1,0 +1,290 @@
+{
+  "openapi": "3.1.0",
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "info": {
+    "title": "Rin Management API",
+    "version": "1.0.0",
+    "description": "Local, bearer-authenticated management contract for Rin Console. It exposes configuration, memory, persona, Skill, task and execution management without exposing prompts, private memory or credentials."
+  },
+  "servers": [{"url": "http://127.0.0.1:7375"}],
+  "security": [{"bearerAuth": []}],
+  "x-rin-contract-version": "rin.management/v1",
+  "paths": {
+    "/management/v1/info": {
+      "get": {
+        "operationId": "management_v1_info",
+        "responses": {"200": {"description": "Management capabilities", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/InfoResponse"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      }
+    },
+    "/management/v1/personas": {
+      "get": {
+        "operationId": "management_v1_get_personas",
+        "responses": {"200": {"description": "Persona snapshot", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PersonaSnapshot"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      },
+      "put": {
+        "operationId": "management_v1_replace_personas",
+        "requestBody": {"$ref": "#/components/requestBodies/PersonaSnapshot"},
+        "responses": {"200": {"description": "Updated persona snapshot", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PersonaSnapshot"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      }
+    },
+    "/management/v1/memories/list": {
+      "post": {
+        "operationId": "management_v1_list_memories",
+        "requestBody": {"$ref": "#/components/requestBodies/MemoryListRequest"},
+        "responses": {"200": {"description": "Common memory cards", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MemoryListResponse"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      }
+    },
+    "/management/v1/memories/save": {
+      "post": {
+        "operationId": "management_v1_save_memory",
+        "requestBody": {"$ref": "#/components/requestBodies/MemoryCardInput"},
+        "responses": {"200": {"description": "Created or superseding memory card", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MemoryCard"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      }
+    },
+    "/management/v1/memories/forget": {
+      "post": {
+        "operationId": "management_v1_forget_memory",
+        "requestBody": {"$ref": "#/components/requestBodies/MemoryForgetInput"},
+        "responses": {"200": {"description": "Forget result", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ForgottenResponse"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      }
+    },
+    "/management/v1/tasks/list": {
+      "post": {
+        "operationId": "management_v1_list_tasks",
+        "requestBody": {"$ref": "#/components/requestBodies/TaskListInput"},
+        "responses": {"200": {"description": "Long-goal task list", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TaskListOutput"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      }
+    },
+    "/management/v1/tasks/start": {
+      "post": {
+        "operationId": "management_v1_start_task",
+        "requestBody": {"$ref": "#/components/requestBodies/TaskStartInput"},
+        "responses": {"200": {"description": "Created task", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TaskSummary"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      }
+    },
+    "/management/v1/tasks/get": {
+      "post": {
+        "operationId": "management_v1_get_task",
+        "requestBody": {"$ref": "#/components/requestBodies/TaskGetInput"},
+        "responses": {"200": {"description": "Task and public timeline", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TaskDetail"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      }
+    },
+    "/management/v1/tasks/control": {
+      "post": {
+        "operationId": "management_v1_control_task",
+        "requestBody": {"$ref": "#/components/requestBodies/TaskControlInput"},
+        "responses": {"200": {"description": "Updated task", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TaskSummary"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      }
+    },
+    "/management/v1/skills/list": {
+      "post": {
+        "operationId": "management_v1_list_skills",
+        "requestBody": {"$ref": "#/components/requestBodies/SkillListInput"},
+        "responses": {"200": {"description": "Skill summaries", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SkillListOutput"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      }
+    },
+    "/management/v1/skills/get": {
+      "post": {
+        "operationId": "management_v1_get_skill",
+        "requestBody": {"$ref": "#/components/requestBodies/SkillGetInput"},
+        "responses": {"200": {"description": "Skill document", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SkillGetOutput"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      }
+    },
+    "/management/v1/skills/save": {
+      "post": {
+        "operationId": "management_v1_save_skill",
+        "requestBody": {"$ref": "#/components/requestBodies/SkillSaveInput"},
+        "responses": {"200": {"description": "Saved learned Skill", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SkillGetOutput"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      }
+    },
+    "/management/v1/skills/reload": {
+      "post": {
+        "operationId": "management_v1_reload_skills",
+        "requestBody": {"$ref": "#/components/requestBodies/EmptyObject"},
+        "responses": {"200": {"description": "Reload result", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SkillReloadOutput"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      }
+    },
+    "/management/v1/skills/import": {
+      "post": {
+        "operationId": "management_v1_import_skill",
+        "requestBody": {"$ref": "#/components/requestBodies/SkillImportInput"},
+        "responses": {"200": {"description": "Imported learned Skill", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SkillGetOutput"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      }
+    },
+    "/management/v1/skills/remove": {
+      "post": {
+        "operationId": "management_v1_remove_skill",
+        "requestBody": {"$ref": "#/components/requestBodies/SkillRemoveInput"},
+        "responses": {"200": {"description": "Removed learned Skill and reloaded catalog", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SkillReloadOutput"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      }
+    },
+    "/management/v1/runtime": {
+      "get": {
+        "operationId": "management_v1_runtime",
+        "responses": {"200": {"description": "Visible Hosts, worlds and actors", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RuntimeSnapshot"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      }
+    },
+    "/management/v1/diagnostics": {
+      "get": {
+        "operationId": "management_v1_diagnostics",
+        "responses": {"200": {"description": "Metadata-only diagnostics", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DiagnosticsSnapshot"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      }
+    },
+    "/management/v1/agent/config": {
+      "get": {
+        "operationId": "management_v1_get_agent_config",
+        "responses": {"200": {"description": "Agent configuration without secrets", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AgentConfigSnapshot"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      },
+      "put": {
+        "operationId": "management_v1_save_agent_config",
+        "requestBody": {"$ref": "#/components/requestBodies/AgentConfigSaveRequest"},
+        "responses": {"200": {"description": "Saved Agent configuration", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AgentConfigSaveResponse"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      }
+    },
+    "/management/v1/policy/config": {
+      "get": {
+        "operationId": "management_v1_get_policy_config",
+        "responses": {"200": {"description": "Gameplay policy configuration", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PolicyConfigSnapshot"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      },
+      "put": {
+        "operationId": "management_v1_save_policy_config",
+        "requestBody": {"$ref": "#/components/requestBodies/PolicyConfigSaveRequest"},
+        "responses": {"200": {"description": "Saved gameplay policy configuration", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PolicyConfigSnapshot"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      }
+    },
+    "/management/v1/operations/list": {
+      "post": {
+        "operationId": "management_v1_list_operations",
+        "requestBody": {"$ref": "#/components/requestBodies/OperationListInput"},
+        "responses": {"200": {"description": "Principal-visible operation history", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationListOutput"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      }
+    },
+    "/management/v1/operations/control": {
+      "post": {
+        "operationId": "management_v1_control_operation",
+        "requestBody": {"$ref": "#/components/requestBodies/OperationControlInput"},
+        "responses": {"200": {"description": "Updated operation", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationView"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      }
+    },
+    "/management/v1/actors/control": {
+      "post": {
+        "operationId": "management_v1_control_actor",
+        "requestBody": {"$ref": "#/components/requestBodies/ActorControlInput"},
+        "responses": {"200": {"description": "Updated controller lease or emergency stop", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ActorControlOutput"}}}}, "default": {"$ref": "#/components/responses/Error"}}
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer"}},
+    "requestBodies": {
+      "EmptyObject": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EmptyObject"}}}},
+      "PersonaSnapshot": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PersonaSnapshot"}}}},
+      "MemoryListRequest": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MemoryListRequest"}}}},
+      "MemoryCardInput": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MemoryCardInput"}}}},
+      "MemoryForgetInput": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MemoryForgetInput"}}}},
+      "TaskListInput": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TaskListInput"}}}},
+      "TaskStartInput": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TaskStartInput"}}}},
+      "TaskGetInput": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TaskGetInput"}}}},
+      "TaskControlInput": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TaskControlInput"}}}},
+      "SkillListInput": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SkillListInput"}}}},
+      "SkillGetInput": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SkillGetInput"}}}},
+      "SkillSaveInput": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SkillSaveInput"}}}},
+      "SkillImportInput": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SkillImportInput"}}}},
+      "SkillRemoveInput": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SkillRemoveInput"}}}},
+      "AgentConfigSaveRequest": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AgentConfigSaveRequest"}}}},
+      "PolicyConfigSaveRequest": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PolicyConfigSaveRequest"}}}},
+      "OperationListInput": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationListInput"}}}},
+      "OperationControlInput": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationControlInput"}}}},
+      "ActorControlInput": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ActorControlInput"}}}}
+    },
+    "responses": {
+      "Error": {"description": "Management API error", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}
+    },
+    "schemas": {
+      "Identifier": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"},
+      "UnsignedInteger": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+      "PositiveInteger": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+      "Text": {"type": "string", "minLength": 1, "maxLength": 8192},
+      "JSONValue": {},
+      "JSONObject": {"type": "object", "additionalProperties": true},
+      "EmptyObject": {"type": "object", "additionalProperties": false},
+      "ErrorResponse": {"type": "object", "additionalProperties": false, "properties": {"error": {"type": "object", "additionalProperties": false, "properties": {"message": {"type": "string", "minLength": 1, "maxLength": 8192}}, "required": ["message"]}}, "required": ["error"]},
+      "InfoResponse": {"type": "object", "additionalProperties": false, "properties": {"contract_version": {"const": "rin.management/v1"}, "features": {"type": "array", "items": {"type": "string"}, "maxItems": 32}}, "required": ["contract_version", "features"]},
+      "Timepoint": {"type": "object", "additionalProperties": false, "properties": {"clock": {"type": "string", "enum": ["event", "step", "realtime"]}, "value": {"type": "integer"}}, "required": ["clock", "value"]},
+      "Epoch": {"type": "object", "additionalProperties": false, "properties": {"session_id": {"$ref": "#/components/schemas/Identifier"}, "world_id": {"$ref": "#/components/schemas/Identifier"}, "host": {"$ref": "#/components/schemas/UnsignedInteger"}, "world": {"$ref": "#/components/schemas/UnsignedInteger"}, "timeline": {"$ref": "#/components/schemas/UnsignedInteger"}}, "required": ["session_id", "world_id", "host", "world", "timeline"]},
+      "PersonaBoundary": {"type": "object", "additionalProperties": false, "properties": {"boundary_id": {"$ref": "#/components/schemas/Identifier"}, "rule": {"$ref": "#/components/schemas/Text"}, "response": {"$ref": "#/components/schemas/Text"}}, "required": ["boundary_id", "rule", "response"]},
+      "RelationshipStance": {"type": "object", "additionalProperties": false, "properties": {"role": {"$ref": "#/components/schemas/Text"}, "stance": {"$ref": "#/components/schemas/Text"}}, "required": ["role", "stance"]},
+      "InitiativePolicy": {"type": "object", "additionalProperties": false, "properties": {"enabled": {"type": "boolean"}, "cooldown_millis": {"type": "integer", "minimum": 0}, "max_consecutive_actions": {"type": "integer", "minimum": 0}, "triggers": {"type": "array", "maxItems": 64, "items": {"$ref": "#/components/schemas/Identifier"}}}, "required": ["enabled", "cooldown_millis", "max_consecutive_actions"]},
+      "PersonaProfile": {"type": "object", "additionalProperties": false, "properties": {"persona_id": {"$ref": "#/components/schemas/Identifier"}, "version": {"type": "string", "minLength": 1, "maxLength": 64}, "identity": {"$ref": "#/components/schemas/Text"}, "traits": {"type": "array", "maxItems": 64, "items": {"$ref": "#/components/schemas/Text"}}, "values": {"type": "array", "maxItems": 64, "items": {"$ref": "#/components/schemas/Text"}}, "voice": {"type": "string", "maxLength": 8192}, "boundaries": {"type": "array", "maxItems": 64, "items": {"$ref": "#/components/schemas/PersonaBoundary"}}, "relationship_stances": {"type": "array", "maxItems": 64, "items": {"$ref": "#/components/schemas/RelationshipStance"}}, "initiative_policy": {"$ref": "#/components/schemas/InitiativePolicy"}, "presentation_rules": {"type": "array", "maxItems": 64, "items": {"$ref": "#/components/schemas/Text"}}}, "required": ["persona_id", "version", "identity", "initiative_policy"]},
+      "PersonaBinding": {"type": "object", "additionalProperties": false, "properties": {"actor_id": {"type": "string", "maxLength": 128}, "controller_id": {"type": "string", "maxLength": 128}, "persona_id": {"$ref": "#/components/schemas/Identifier"}, "version": {"type": "string", "minLength": 1, "maxLength": 64}}, "required": ["actor_id", "persona_id", "version"]},
+      "PersonaSnapshot": {"type": "object", "additionalProperties": false, "properties": {"revision": {"$ref": "#/components/schemas/PositiveInteger"}, "profiles": {"type": "array", "minItems": 1, "maxItems": 256, "items": {"$ref": "#/components/schemas/PersonaProfile"}}, "bindings": {"type": "array", "maxItems": 256, "items": {"$ref": "#/components/schemas/PersonaBinding"}}}, "required": ["revision", "profiles", "bindings"]},
+      "MemoryListRequest": {"type": "object", "additionalProperties": false, "properties": {"scope": {"const": "common"}, "search": {"type": "string", "maxLength": 500}, "tags": {"type": "array", "maxItems": 32, "items": {"$ref": "#/components/schemas/Identifier"}}, "limit": {"type": "integer", "minimum": 0, "maximum": 500}}},
+      "MemoryCardInput": {"type": "object", "additionalProperties": false, "properties": {"memory_id": {"$ref": "#/components/schemas/Identifier"}, "content": {"$ref": "#/components/schemas/Text"}, "tags": {"type": "array", "maxItems": 64, "items": {"$ref": "#/components/schemas/Identifier"}}, "pinned": {"type": "boolean"}, "importance": {"type": "number", "minimum": 0, "maximum": 1}}, "required": ["content"]},
+      "MemoryForgetInput": {"type": "object", "additionalProperties": false, "properties": {"memory_id": {"$ref": "#/components/schemas/Identifier"}, "reason": {"type": "string", "maxLength": 1000}}, "required": ["memory_id"]},
+      "MemoryCard": {"type": "object", "additionalProperties": false, "properties": {"memory_id": {"$ref": "#/components/schemas/Identifier"}, "content": {"$ref": "#/components/schemas/Text"}, "tags": {"type": "array", "items": {"type": "string"}}, "pinned": {"type": "boolean"}, "importance": {"type": "number"}, "created_at": {"$ref": "#/components/schemas/Timepoint"}, "source": {"type": "string", "maxLength": 128}}, "required": ["memory_id", "content", "importance", "created_at", "source"]},
+      "MemoryListResponse": {"type": "object", "additionalProperties": false, "properties": {"revision": {"$ref": "#/components/schemas/UnsignedInteger"}, "records": {"type": "array", "maxItems": 500, "items": {"$ref": "#/components/schemas/MemoryCard"}}}, "required": ["revision", "records"]},
+      "ForgottenResponse": {"type": "object", "additionalProperties": false, "properties": {"forgotten": {"type": "boolean"}}, "required": ["forgotten"]},
+      "TaskStatus": {"type": "string", "enum": ["active", "waiting-confirmation", "cancelling", "paused", "completed", "failed", "outcome-unknown", "cancelled"]},
+      "PlanningMode": {"type": "string", "enum": ["auto", "required"]},
+      "TaskListInput": {"type": "object", "additionalProperties": false, "properties": {"status": {"$ref": "#/components/schemas/TaskStatus"}, "limit": {"type": "integer", "minimum": 0, "maximum": 500}}},
+      "TaskStartInput": {"type": "object", "additionalProperties": false, "properties": {"task_id": {"$ref": "#/components/schemas/Identifier"}, "host_id": {"$ref": "#/components/schemas/Identifier"}, "world_id": {"$ref": "#/components/schemas/Identifier"}, "actor_id": {"$ref": "#/components/schemas/Identifier"}, "goal": {"$ref": "#/components/schemas/Text"}, "planning_mode": {"$ref": "#/components/schemas/PlanningMode"}, "allowed_capabilities": {"type": "array", "maxItems": 256, "items": {"$ref": "#/components/schemas/Identifier"}}}, "required": ["host_id", "world_id", "actor_id", "goal"]},
+      "TaskGetInput": {"type": "object", "additionalProperties": false, "properties": {"task_id": {"$ref": "#/components/schemas/Identifier"}}, "required": ["task_id"]},
+      "TaskControlInput": {"type": "object", "additionalProperties": false, "properties": {"task_id": {"$ref": "#/components/schemas/Identifier"}, "action": {"type": "string", "enum": ["run", "resume", "cancel"]}}, "required": ["task_id", "action"]},
+      "TaskSummary": {"type": "object", "additionalProperties": false, "properties": {"task_id": {"$ref": "#/components/schemas/Identifier"}, "host_id": {"$ref": "#/components/schemas/Identifier"}, "world_id": {"$ref": "#/components/schemas/Identifier"}, "actor_id": {"$ref": "#/components/schemas/Identifier"}, "goal": {"$ref": "#/components/schemas/Text"}, "status": {"$ref": "#/components/schemas/TaskStatus"}, "pause_code": {"type": "string", "maxLength": 128}, "planning_mode": {"$ref": "#/components/schemas/PlanningMode"}, "plan_id": {"type": "string", "maxLength": 128}, "plan_revision": {"$ref": "#/components/schemas/UnsignedInteger"}, "current_plan_step_id": {"type": "string", "maxLength": 128}, "step": {"type": "integer", "minimum": 0}, "max_steps": {"type": "integer", "minimum": 0}, "model_calls": {"type": "integer", "minimum": 0}, "model_tokens": {"$ref": "#/components/schemas/UnsignedInteger"}, "action_count": {"type": "integer", "minimum": 0}, "pending_operation_id": {"type": "string", "maxLength": 128}, "created_at_unix_millis": {"type": "integer"}, "updated_at_unix_millis": {"type": "integer"}}, "required": ["task_id", "host_id", "world_id", "actor_id", "goal", "status", "planning_mode", "step", "max_steps", "model_calls", "model_tokens", "action_count", "created_at_unix_millis", "updated_at_unix_millis"]},
+      "TaskListOutput": {"type": "object", "additionalProperties": false, "properties": {"revision": {"$ref": "#/components/schemas/UnsignedInteger"}, "tasks": {"type": "array", "maxItems": 500, "items": {"$ref": "#/components/schemas/TaskSummary"}}}, "required": ["revision", "tasks"]},
+      "TaskTimelineEvent": {"type": "object", "additionalProperties": true, "properties": {"sequence": {"$ref": "#/components/schemas/UnsignedInteger"}, "kind": {"type": "string", "maxLength": 128}, "step": {"type": "integer", "minimum": 0}, "summary": {"type": "string", "maxLength": 2000}, "operation_id": {"type": "string", "maxLength": 128}, "at_unix_millis": {"type": "integer"}}, "required": ["sequence", "kind", "step", "at_unix_millis"]},
+      "TaskTimelinePage": {"type": "object", "additionalProperties": true, "properties": {"contract_version": {"type": "string"}, "task_id": {"$ref": "#/components/schemas/Identifier"}, "goal": {"type": "string", "maxLength": 8192}, "goal_digest": {"type": "string", "maxLength": 128}, "status": {"type": "string", "maxLength": 64}, "events": {"type": "array", "maxItems": 256, "items": {"$ref": "#/components/schemas/TaskTimelineEvent"}}, "next_cursor": {"type": "string", "maxLength": 256}, "more": {"type": "boolean"}, "truncated": {"type": "boolean"}}, "required": ["contract_version", "task_id", "events", "next_cursor", "more", "truncated"]},
+      "TaskDetail": {"type": "object", "additionalProperties": false, "properties": {"task": {"$ref": "#/components/schemas/TaskSummary"}, "timeline": {"$ref": "#/components/schemas/TaskTimelinePage"}}, "required": ["task", "timeline"]},
+      "SkillSummary": {"type": "object", "additionalProperties": false, "properties": {"skill_id": {"$ref": "#/components/schemas/Identifier"}, "version": {"type": "string", "minLength": 1, "maxLength": 64}, "summary": {"type": "string", "maxLength": 2000}, "triggers": {"type": "array", "maxItems": 64, "items": {"type": "string", "maxLength": 128}}, "adapters": {"type": "array", "maxItems": 64, "items": {"$ref": "#/components/schemas/Identifier"}}, "capabilities": {"type": "array", "maxItems": 128, "items": {"$ref": "#/components/schemas/Identifier"}}, "source": {"type": "string", "maxLength": 64}, "digest": {"type": "string", "maxLength": 128}}, "required": ["skill_id", "version", "summary", "source", "digest"]},
+      "Skill": {"type": "object", "additionalProperties": false, "properties": {"skill_id": {"$ref": "#/components/schemas/Identifier"}, "version": {"type": "string", "minLength": 1, "maxLength": 64}, "summary": {"type": "string", "maxLength": 2000}, "triggers": {"type": "array", "maxItems": 64, "items": {"type": "string", "maxLength": 128}}, "adapters": {"type": "array", "maxItems": 64, "items": {"$ref": "#/components/schemas/Identifier"}}, "capabilities": {"type": "array", "maxItems": 128, "items": {"$ref": "#/components/schemas/Identifier"}}, "source": {"type": "string", "maxLength": 64}, "digest": {"type": "string", "maxLength": 128}, "instructions": {"type": "string", "minLength": 1, "maxLength": 65536}}, "required": ["skill_id", "version", "summary", "source", "digest", "instructions"]},
+      "SkillListInput": {"type": "object", "additionalProperties": false, "properties": {"adapter": {"$ref": "#/components/schemas/Identifier"}, "limit": {"type": "integer", "minimum": 0, "maximum": 500}}},
+      "SkillListOutput": {"type": "object", "additionalProperties": false, "properties": {"skills": {"type": "array", "maxItems": 500, "items": {"$ref": "#/components/schemas/SkillSummary"}}}, "required": ["skills"]},
+      "SkillGetInput": {"type": "object", "additionalProperties": false, "properties": {"skill_id": {"$ref": "#/components/schemas/Identifier"}, "version": {"type": "string", "minLength": 1, "maxLength": 64}}, "required": ["skill_id", "version"]},
+      "SkillGetOutput": {"type": "object", "additionalProperties": false, "properties": {"skill": {"$ref": "#/components/schemas/Skill"}}, "required": ["skill"]},
+      "SkillSaveInput": {"type": "object", "additionalProperties": false, "properties": {"skill_id": {"$ref": "#/components/schemas/Identifier"}, "version": {"type": "string", "maxLength": 64}, "description": {"type": "string", "maxLength": 2000}, "instructions": {"type": "string", "minLength": 1, "maxLength": 65536}, "triggers": {"type": "array", "maxItems": 64, "items": {"type": "string", "maxLength": 128}}, "adapters": {"type": "array", "maxItems": 64, "items": {"$ref": "#/components/schemas/Identifier"}}, "capabilities": {"type": "array", "maxItems": 128, "items": {"$ref": "#/components/schemas/Identifier"}}}, "required": ["skill_id", "description", "instructions"]},
+      "SkillImportInput": {"type": "object", "additionalProperties": false, "properties": {"document": {"type": "string", "minLength": 1, "maxLength": 65536, "description": "Validated SKILL.md document; it is inert guidance and grants no capability."}}, "required": ["document"]},
+      "SkillRemoveInput": {"type": "object", "additionalProperties": false, "properties": {"skill_id": {"$ref": "#/components/schemas/Identifier"}, "version": {"type": "string", "minLength": 1, "maxLength": 64}}, "required": ["skill_id", "version"]},
+      "SkillReloadOutput": {"type": "object", "additionalProperties": false, "properties": {"reloaded": {"type": "boolean"}}, "required": ["reloaded"]},
+      "DecisionAuthority": {"type": "object", "additionalProperties": false, "properties": {"source": {"type": "string", "enum": ["internal", "external"]}, "controller_principal_id": {"type": "string", "maxLength": 128}, "revision": {"$ref": "#/components/schemas/UnsignedInteger"}, "persona_mode": {"type": "string", "enum": ["character-bound", "agent-avatar"]}}, "required": ["source", "revision", "persona_mode"]},
+      "ControllerLease": {"type": "object", "additionalProperties": false, "properties": {"lease_id": {"$ref": "#/components/schemas/Identifier"}, "controller_id": {"$ref": "#/components/schemas/Identifier"}, "principal_id": {"$ref": "#/components/schemas/Identifier"}, "host_id": {"$ref": "#/components/schemas/Identifier"}, "world_id": {"$ref": "#/components/schemas/Identifier"}, "actor_id": {"$ref": "#/components/schemas/Identifier"}, "source": {"type": "string", "enum": ["internal", "external"]}, "persona_mode": {"type": "string", "enum": ["character-bound", "agent-avatar"]}, "authority_revision": {"$ref": "#/components/schemas/UnsignedInteger"}, "epoch": {"$ref": "#/components/schemas/Epoch"}, "acquired_at_unix_millis": {"type": "integer"}, "expires_at_unix_millis": {"type": "integer"}}, "required": ["lease_id", "controller_id", "principal_id", "host_id", "world_id", "actor_id", "source", "persona_mode", "authority_revision", "epoch", "acquired_at_unix_millis", "expires_at_unix_millis"]},
+      "WorldView": {"type": "object", "additionalProperties": false, "properties": {"host_id": {"$ref": "#/components/schemas/Identifier"}, "world_id": {"$ref": "#/components/schemas/Identifier"}, "display_name": {"type": "string", "maxLength": 256}, "sequence": {"$ref": "#/components/schemas/UnsignedInteger"}, "online": {"type": "boolean"}, "lease_expires_at_unix_millis": {"type": "integer"}}, "required": ["host_id", "world_id", "display_name", "sequence", "online", "lease_expires_at_unix_millis"]},
+      "ActorView": {"type": "object", "additionalProperties": false, "properties": {"host_id": {"$ref": "#/components/schemas/Identifier"}, "world_id": {"$ref": "#/components/schemas/Identifier"}, "actor_id": {"$ref": "#/components/schemas/Identifier"}, "owner_principal_id": {"$ref": "#/components/schemas/Identifier"}, "display_name": {"type": "string", "maxLength": 256}, "observation_seq": {"$ref": "#/components/schemas/UnsignedInteger"}, "epoch": {"$ref": "#/components/schemas/Epoch"}, "authority": {"$ref": "#/components/schemas/DecisionAuthority"}, "controller_lease": {"$ref": "#/components/schemas/ControllerLease"}, "emergency_stopped": {"type": "boolean"}, "emergency_stop_revision": {"$ref": "#/components/schemas/UnsignedInteger"}, "state": {"$ref": "#/components/schemas/JSONValue"}, "online": {"type": "boolean"}, "lease_expires_at_unix_millis": {"type": "integer"}}, "required": ["host_id", "world_id", "actor_id", "owner_principal_id", "display_name", "observation_seq", "epoch", "authority", "emergency_stopped", "state", "online", "lease_expires_at_unix_millis"]},
+      "RuntimeSnapshot": {"type": "object", "additionalProperties": false, "properties": {"worlds": {"type": "array", "maxItems": 500, "items": {"$ref": "#/components/schemas/WorldView"}}, "actors": {"type": "array", "maxItems": 2000, "items": {"$ref": "#/components/schemas/ActorView"}}}, "required": ["worlds", "actors"]},
+      "ConnectionDiagnostic": {"type": "object", "additionalProperties": false, "properties": {"id": {"$ref": "#/components/schemas/Identifier"}, "kind": {"type": "string", "maxLength": 64}, "status": {"type": "string", "enum": ["ok", "warning", "offline", "disabled", "error"]}, "detail": {"type": "string", "maxLength": 2000}, "endpoint": {"type": "string", "maxLength": 2048}, "latency_millis": {"type": "integer", "minimum": 0}, "worlds": {"type": "integer", "minimum": 0}, "actors": {"type": "integer", "minimum": 0}}, "required": ["id", "kind", "status"]},
+      "ModelConfigMetadata": {"type": "object", "additionalProperties": false, "properties": {"enabled": {"type": "boolean"}, "provider": {"type": "string", "maxLength": 128}, "endpoint": {"type": "string", "maxLength": 2048}, "model": {"type": "string", "maxLength": 256}, "response_format": {"type": "string", "maxLength": 64}, "thinking_mode": {"type": "string", "maxLength": 64}, "authentication": {"type": "string", "maxLength": 64}, "credential_configured": {"type": "boolean"}}, "required": ["enabled", "credential_configured"]},
+      "MemoryConfigMetadata": {"type": "object", "additionalProperties": false, "properties": {"backend": {"type": "string", "maxLength": 64}, "semantic_embedding_enabled": {"type": "boolean"}, "semantic_provider": {"type": "string", "maxLength": 128}, "semantic_endpoint": {"type": "string", "maxLength": 2048}, "semantic_model": {"type": "string", "maxLength": 256}, "semantic_credential_configured": {"type": "boolean"}}, "required": ["backend", "semantic_embedding_enabled", "semantic_credential_configured"]},
+      "PolicyConfigMetadata": {"type": "object", "additionalProperties": false, "properties": {"revision": {"$ref": "#/components/schemas/UnsignedInteger"}, "profile": {"$ref": "#/components/schemas/PolicyProfile"}, "rule_count": {"type": "integer", "minimum": 0}, "budget_count": {"type": "integer", "minimum": 0}, "known_effect_kinds": {"type": "array", "items": {"type": "string"}}, "known_scopes": {"type": "array", "items": {"type": "string"}}, "confirmation_scopes": {"type": "array", "items": {"type": "string"}}}, "required": ["revision", "profile", "rule_count", "budget_count"]},
+      "PermissionMetadata": {"type": "object", "additionalProperties": false, "properties": {"principal_id": {"$ref": "#/components/schemas/Identifier"}, "control_scopes": {"type": "array", "items": {"type": "string", "maxLength": 128}}, "console_scopes": {"type": "array", "items": {"type": "string", "maxLength": 128}}}, "required": ["principal_id"]},
+      "AgentConfigMetadata": {"type": "object", "additionalProperties": false, "properties": {"enabled": {"type": "boolean"}, "status": {"type": "string", "maxLength": 64}, "model_credential_configured": {"type": "boolean"}, "embedding_credential_configured": {"type": "boolean"}}, "required": ["enabled", "status", "model_credential_configured", "embedding_credential_configured"]},
+      "MCPAgentMetadata": {"type": "object", "additionalProperties": false, "properties": {"id": {"$ref": "#/components/schemas/Identifier"}, "name": {"type": "string", "maxLength": 128}, "available": {"type": "boolean"}, "registered": {"type": "boolean"}, "managed": {"type": "boolean"}, "error": {"type": "string", "maxLength": 2000}}, "required": ["id", "name", "available", "registered", "managed"]},
+      "MCPCommand": {"type": "object", "additionalProperties": false, "properties": {"id": {"$ref": "#/components/schemas/Identifier"}, "label": {"type": "string", "maxLength": 256}, "command": {"type": "string", "minLength": 1, "maxLength": 2048}}, "required": ["id", "label", "command"]},
+      "MCPConfigMetadata": {"type": "object", "additionalProperties": false, "properties": {"installed": {"type": "boolean"}, "binary_present": {"type": "boolean"}, "binary_current": {"type": "boolean"}, "config_valid": {"type": "boolean"}, "control_url": {"type": "string", "maxLength": 2048}, "agents": {"type": "array", "maxItems": 32, "items": {"$ref": "#/components/schemas/MCPAgentMetadata"}}, "commands": {"type": "array", "maxItems": 32, "items": {"$ref": "#/components/schemas/MCPCommand"}}, "error": {"type": "string", "maxLength": 2000}}, "required": ["installed", "binary_present", "binary_current", "config_valid", "commands"]},
+      "DiagnosticsSnapshot": {"type": "object", "additionalProperties": false, "properties": {"checked_at_unix_millis": {"type": "integer"}, "connections": {"type": "array", "maxItems": 32, "items": {"$ref": "#/components/schemas/ConnectionDiagnostic"}}, "model": {"$ref": "#/components/schemas/ModelConfigMetadata"}, "memory": {"$ref": "#/components/schemas/MemoryConfigMetadata"}, "policy": {"$ref": "#/components/schemas/PolicyConfigMetadata"}, "permissions": {"$ref": "#/components/schemas/PermissionMetadata"}, "internal_agent": {"$ref": "#/components/schemas/AgentConfigMetadata"}, "mcp": {"$ref": "#/components/schemas/MCPConfigMetadata"}}, "required": ["checked_at_unix_millis", "connections", "model", "memory", "policy", "permissions", "internal_agent", "mcp"]},
+      "ModelConfig": {"type": "object", "additionalProperties": false, "properties": {"provider": {"type": "string", "maxLength": 128}, "base_url": {"type": "string", "maxLength": 2048}, "model": {"type": "string", "maxLength": 256}, "response_format": {"type": "string", "maxLength": 64}, "thinking_mode": {"type": "string", "maxLength": 64}, "authentication": {"type": "string", "enum": ["bearer-env", "none"]}, "max_context_characters": {"type": "integer", "minimum": 0}, "max_output_tokens": {"type": "integer", "minimum": 0}, "temperature": {"type": "number", "minimum": 0, "maximum": 2}, "resilience": {"$ref": "#/components/schemas/ResilienceConfig"}}, "required": ["provider", "base_url", "model"]},
+      "ResilienceConfig": {"type": "object", "additionalProperties": false, "properties": {"max_attempts": {"type": "integer", "minimum": 0}, "attempt_timeout_millis": {"type": "integer", "minimum": 0}, "total_timeout_millis": {"type": "integer", "minimum": 0}, "initial_backoff_millis": {"type": "integer", "minimum": 0}, "max_backoff_millis": {"type": "integer", "minimum": 0}, "failure_threshold": {"type": "integer", "minimum": 0}, "open_duration_millis": {"type": "integer", "minimum": 0}}, "required": []},
+      "SemanticEmbeddingConfig": {"type": "object", "additionalProperties": false, "properties": {"enabled": {"type": "boolean"}, "provider": {"type": "string", "maxLength": 128}, "base_url": {"type": "string", "maxLength": 2048}, "model": {"type": "string", "maxLength": 256}, "authentication": {"type": "string", "enum": ["bearer-env", "none"]}, "allowed_domains": {"type": "array", "maxItems": 32, "items": {"type": "string", "maxLength": 128}}, "max_input_characters": {"type": "integer", "minimum": 0}, "min_local_matches": {"type": "integer", "minimum": 0}, "max_semantic_results": {"type": "integer", "minimum": 0}, "timeout_millis": {"type": "integer", "minimum": 0}}},
+      "MemoryConfig": {"type": "object", "additionalProperties": false, "properties": {"max_active_records_per_namespace": {"type": "integer", "minimum": 0}, "max_history_per_namespace": {"type": "integer", "minimum": 0}, "semantic_embedding": {"$ref": "#/components/schemas/SemanticEmbeddingConfig"}}},
+      "AgentConfigSnapshot": {"type": "object", "additionalProperties": false, "properties": {"configured": {"type": "boolean"}, "model": {"$ref": "#/components/schemas/ModelConfig"}, "memory": {"$ref": "#/components/schemas/MemoryConfig"}, "credential_configured": {"type": "boolean"}, "embedding_credential_configured": {"type": "boolean"}}, "required": ["configured", "model", "memory", "credential_configured", "embedding_credential_configured"]},
+      "AgentConfigSaveRequest": {"type": "object", "additionalProperties": false, "properties": {"model": {"$ref": "#/components/schemas/ModelConfig"}, "memory": {"$ref": "#/components/schemas/MemoryConfig"}, "api_key": {"type": "string", "minLength": 1, "maxLength": 16384, "writeOnly": true}, "clear_api_key": {"type": "boolean"}, "embedding_api_key": {"type": "string", "minLength": 1, "maxLength": 16384, "writeOnly": true}, "clear_embedding_api_key": {"type": "boolean"}}, "required": ["model", "memory"]},
+      "AgentConfigSaveResponse": {"type": "object", "allOf": [{"$ref": "#/components/schemas/AgentConfigSnapshot"}], "properties": {"requires_restart": {"type": "boolean"}}, "required": ["requires_restart"]},
+      "PolicyProfile": {"type": "string", "enum": ["guarded", "survival", "open", "privileged-custom"]},
+      "PolicyLayer": {"type": "string", "enum": ["server", "world", "owner", "actor", "task"]},
+      "PolicyResult": {"type": "string", "enum": ["allow", "deny", "require_confirmation"]},
+      "PolicyRule": {"type": "object", "additionalProperties": false, "properties": {"rule_id": {"$ref": "#/components/schemas/Identifier"}, "layer": {"$ref": "#/components/schemas/PolicyLayer"}, "priority": {"type": "integer"}, "result": {"$ref": "#/components/schemas/PolicyResult"}, "effect_kinds": {"type": "array", "items": {"type": "string"}}, "operations": {"type": "array", "items": {"type": "string"}}, "ownership": {"type": "array", "items": {"type": "string"}}, "scopes": {"type": "array", "items": {"type": "string"}}, "tags_all": {"type": "array", "items": {"type": "string"}}, "tags_any": {"type": "array", "items": {"type": "string"}}, "risk_at_least": {"type": "string", "enum": ["low", "moderate", "high", "critical"]}, "risk_at_most": {"type": "string", "enum": ["low", "moderate", "high", "critical"]}, "reversible": {"type": "boolean"}, "reason_code": {"$ref": "#/components/schemas/Identifier"}, "human_summary": {"$ref": "#/components/schemas/Text"}}, "required": ["rule_id", "layer", "priority", "result", "reason_code", "human_summary"]},
+      "PolicyBudget": {"type": "object", "additionalProperties": false, "properties": {"budget_id": {"$ref": "#/components/schemas/Identifier"}, "layer": {"$ref": "#/components/schemas/PolicyLayer"}, "effect_kinds": {"type": "array", "items": {"type": "string"}}, "operations": {"type": "array", "items": {"type": "string"}}, "tags_any": {"type": "array", "items": {"type": "string"}}, "max_actions": {"type": "integer", "minimum": 0}, "max_quantity": {"$ref": "#/components/schemas/UnsignedInteger"}, "window": {"$ref": "#/components/schemas/Duration"}}, "required": ["budget_id", "layer"]},
+      "Duration": {"type": "object", "additionalProperties": false, "properties": {"clock": {"type": "string", "enum": ["event", "step", "realtime"]}, "value": {"$ref": "#/components/schemas/UnsignedInteger"}}, "required": ["clock", "value"]},
+      "ConfirmationTTL": {"type": "object", "additionalProperties": false, "properties": {"event": {"$ref": "#/components/schemas/UnsignedInteger"}, "step": {"$ref": "#/components/schemas/UnsignedInteger"}, "realtime": {"$ref": "#/components/schemas/UnsignedInteger"}}, "required": []},
+      "PolicyConfig": {"type": "object", "additionalProperties": false, "properties": {"revision": {"$ref": "#/components/schemas/PositiveInteger"}, "profile": {"$ref": "#/components/schemas/PolicyProfile"}, "known_effect_kinds": {"type": "array", "items": {"type": "string"}}, "known_scopes": {"type": "array", "items": {"type": "string"}}, "rules": {"type": "array", "maxItems": 512, "items": {"$ref": "#/components/schemas/PolicyRule"}}, "budgets": {"type": "array", "maxItems": 256, "items": {"$ref": "#/components/schemas/PolicyBudget"}}, "confirmation_ttl": {"$ref": "#/components/schemas/ConfirmationTTL"}, "confirmation_scopes": {"type": "array", "items": {"type": "string"}}}, "required": ["revision", "profile", "confirmation_ttl", "confirmation_scopes"]},
+      "PolicyConfigSnapshot": {"type": "object", "additionalProperties": false, "properties": {"configured": {"type": "boolean"}, "config": {"$ref": "#/components/schemas/PolicyConfig"}}, "required": ["configured", "config"]},
+      "PolicyConfigSaveRequest": {"type": "object", "additionalProperties": false, "properties": {"expected_revision": {"$ref": "#/components/schemas/UnsignedInteger"}, "config": {"$ref": "#/components/schemas/PolicyConfig"}}, "required": ["expected_revision", "config"]},
+      "OperationStatus": {"type": "string", "enum": ["queued", "awaiting-confirmation", "delivered", "accepted", "running", "succeeded", "failed", "cancelled", "interrupted", "stale", "outcome-unknown", "rejected"]},
+      "OperationListInput": {"type": "object", "additionalProperties": false, "properties": {"host_id": {"$ref": "#/components/schemas/Identifier"}, "world_id": {"$ref": "#/components/schemas/Identifier"}, "actor_id": {"$ref": "#/components/schemas/Identifier"}, "task_id": {"$ref": "#/components/schemas/Identifier"}, "status": {"$ref": "#/components/schemas/OperationStatus"}, "limit": {"type": "integer", "minimum": 0, "maximum": 500}}},
+      "OperationControlInput": {"type": "object", "additionalProperties": false, "properties": {"operation_id": {"$ref": "#/components/schemas/Identifier"}, "action": {"type": "string", "enum": ["cancel", "confirm"]}}, "required": ["operation_id", "action"]},
+      "OperationView": {"type": "object", "additionalProperties": false, "properties": {"operation_id": {"$ref": "#/components/schemas/Identifier"}, "request_id": {"$ref": "#/components/schemas/Identifier"}, "host_id": {"$ref": "#/components/schemas/Identifier"}, "world_id": {"$ref": "#/components/schemas/Identifier"}, "actor_id": {"$ref": "#/components/schemas/Identifier"}, "kind": {"type": "string", "enum": ["action"]}, "controller_lease_id": {"type": "string", "maxLength": 128}, "parent_operation_id": {"type": "string", "maxLength": 128}, "child_operation_ids": {"type": "array", "items": {"type": "string", "maxLength": 128}}, "action_request": {"$ref": "#/components/schemas/JSONObject"}, "bound_action": {"$ref": "#/components/schemas/JSONObject"}, "policy_decision": {"$ref": "#/components/schemas/JSONObject"}, "status": {"$ref": "#/components/schemas/OperationStatus"}, "cursor": {"type": "string", "maxLength": 256}, "terminal": {"type": "boolean"}, "reconciliation_pending": {"type": "boolean"}, "execution_confirmed": {"type": "boolean"}, "cancel_requested": {"type": "boolean"}, "delivery_attempts": {"type": "integer", "minimum": 0}, "run": {"$ref": "#/components/schemas/JSONObject"}, "outcome": {"$ref": "#/components/schemas/JSONObject"}, "output": {"$ref": "#/components/schemas/JSONObject"}, "rejection_code": {"type": "string", "maxLength": 128}, "rejection_message": {"type": "string", "maxLength": 2000}, "created_at_unix_millis": {"type": "integer"}, "updated_at_unix_millis": {"type": "integer"}}, "required": ["operation_id", "request_id", "host_id", "world_id", "actor_id", "kind", "status", "cursor", "terminal", "reconciliation_pending", "execution_confirmed", "cancel_requested", "delivery_attempts", "created_at_unix_millis", "updated_at_unix_millis"]},
+      "OperationListOutput": {"type": "object", "additionalProperties": false, "properties": {"operations": {"type": "array", "maxItems": 500, "items": {"$ref": "#/components/schemas/OperationView"}}}, "required": ["operations"]},
+      "ActorControlInput": {"type": "object", "additionalProperties": false, "properties": {"host_id": {"$ref": "#/components/schemas/Identifier"}, "world_id": {"$ref": "#/components/schemas/Identifier"}, "actor_id": {"$ref": "#/components/schemas/Identifier"}, "action": {"type": "string", "enum": ["acquire", "release", "emergency-stop", "clear-emergency-stop"]}, "controller_id": {"$ref": "#/components/schemas/Identifier"}, "lease_id": {"$ref": "#/components/schemas/Identifier"}, "lease_ttl_millis": {"type": "integer", "minimum": 0, "maximum": 86400000}}, "required": ["host_id", "world_id", "actor_id", "action"]},
+      "ActorEmergencyStop": {"type": "object", "additionalProperties": false, "properties": {"host_id": {"$ref": "#/components/schemas/Identifier"}, "world_id": {"$ref": "#/components/schemas/Identifier"}, "actor_id": {"$ref": "#/components/schemas/Identifier"}, "active": {"type": "boolean"}, "revision": {"$ref": "#/components/schemas/UnsignedInteger"}, "updated_by_principal_id": {"$ref": "#/components/schemas/Identifier"}, "updated_at_unix_millis": {"type": "integer"}}, "required": ["host_id", "world_id", "actor_id", "active", "revision", "updated_by_principal_id", "updated_at_unix_millis"]},
+      "ActorControlOutput": {"type": "object", "additionalProperties": false, "properties": {"action": {"type": "string"}, "lease": {"$ref": "#/components/schemas/ControllerLease"}, "emergency_stop": {"$ref": "#/components/schemas/ActorEmergencyStop"}}, "required": ["action"]}
+    }
+  }
+}

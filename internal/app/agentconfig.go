@@ -26,14 +26,16 @@ type agentSecrets struct {
 }
 
 type agentConfigStore struct {
-	mu                      sync.Mutex
-	configPath              string
-	secretsPath             string
-	config                  agentdaemon.Config
-	configured              bool
-	secrets                 agentSecrets
-	credentialConfigured    bool
-	credentialOverrideByEnv bool
+	mu                               sync.Mutex
+	configPath                       string
+	secretsPath                      string
+	config                           agentdaemon.Config
+	configured                       bool
+	secrets                          agentSecrets
+	credentialConfigured             bool
+	embeddingCredentialConfigured    bool
+	credentialOverrideByEnv          bool
+	embeddingCredentialOverrideByEnv bool
 }
 
 func managedAgentConfigPath(dataDir string) string {
@@ -69,6 +71,7 @@ func openAgentConfigStore(dataDir, runtimePath string) (*agentConfigStore, error
 		return nil, fmt.Errorf("load Agent secrets: %w", err)
 	}
 	store.credentialConfigured = store.secrets.APIKey != ""
+	store.embeddingCredentialConfigured = store.secrets.EmbeddingAPIKey != ""
 	return store, nil
 }
 
@@ -97,9 +100,11 @@ func (store *agentConfigStore) AgentConfig(ctx context.Context) (managementapi.A
 
 func (store *agentConfigStore) snapshotLocked() managementapi.AgentConfigSnapshot {
 	return managementapi.AgentConfigSnapshot{
-		Configured:           store.configured,
-		Model:                store.config.Model,
-		CredentialConfigured: store.credentialConfigured,
+		Configured:                    store.configured,
+		Model:                         store.config.Model,
+		Memory:                        store.config.Memory,
+		CredentialConfigured:          store.credentialConfigured,
+		EmbeddingCredentialConfigured: store.embeddingCredentialConfigured,
 	}
 }
 
@@ -110,9 +115,21 @@ func (store *agentConfigStore) SaveAgentConfig(
 	if err := ctx.Err(); err != nil {
 		return managementapi.AgentConfigSaveResponse{}, err
 	}
+	if request.Memory == nil {
+		return managementapi.AgentConfigSaveResponse{}, fmt.Errorf(
+			"%w: memory configuration is required",
+			managementapi.ErrInvalidAgentConfig,
+		)
+	}
 	if request.APIKey != nil && request.ClearAPIKey {
 		return managementapi.AgentConfigSaveResponse{}, fmt.Errorf(
 			"%w: api_key and clear_api_key cannot be used together",
+			managementapi.ErrInvalidAgentConfig,
+		)
+	}
+	if request.EmbeddingAPIKey != nil && request.ClearEmbeddingAPIKey {
+		return managementapi.AgentConfigSaveResponse{}, fmt.Errorf(
+			"%w: embedding_api_key and clear_embedding_api_key cannot be used together",
 			managementapi.ErrInvalidAgentConfig,
 		)
 	}
@@ -130,10 +147,25 @@ func (store *agentConfigStore) SaveAgentConfig(
 			)
 		}
 	}
+	if request.EmbeddingAPIKey != nil {
+		if strings.TrimSpace(*request.EmbeddingAPIKey) == "" {
+			return managementapi.AgentConfigSaveResponse{}, fmt.Errorf(
+				"%w: embedding_api_key must not be empty; use clear_embedding_api_key to remove it",
+				managementapi.ErrInvalidAgentConfig,
+			)
+		}
+		if len(*request.EmbeddingAPIKey) > 16<<10 {
+			return managementapi.AgentConfigSaveResponse{}, fmt.Errorf(
+				"%w: embedding_api_key exceeds 16384 bytes",
+				managementapi.ErrInvalidAgentConfig,
+			)
+		}
+	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	config := store.config
 	config.Model = request.Model
+	config.Memory = *request.Memory
 	validated, err := agentdaemon.ValidateConfig(config)
 	if err != nil {
 		return managementapi.AgentConfigSaveResponse{}, fmt.Errorf(
@@ -149,6 +181,13 @@ func (store *agentConfigStore) SaveAgentConfig(
 		secrets.APIKey = *request.APIKey
 		secretChanged = true
 	}
+	if request.ClearEmbeddingAPIKey {
+		secrets.EmbeddingAPIKey = ""
+		secretChanged = true
+	} else if request.EmbeddingAPIKey != nil {
+		secrets.EmbeddingAPIKey = *request.EmbeddingAPIKey
+		secretChanged = true
+	}
 	if err := privatefile.WriteJSON(store.configPath, validated); err != nil {
 		return managementapi.AgentConfigSaveResponse{}, fmt.Errorf("save Agent configuration: %w", err)
 	}
@@ -162,6 +201,9 @@ func (store *agentConfigStore) SaveAgentConfig(
 	store.secrets = secrets
 	if !store.credentialOverrideByEnv {
 		store.credentialConfigured = secrets.APIKey != ""
+	}
+	if !store.embeddingCredentialOverrideByEnv {
+		store.embeddingCredentialConfigured = secrets.EmbeddingAPIKey != ""
 	}
 	return managementapi.AgentConfigSaveResponse{
 		AgentConfigSnapshot: store.snapshotLocked(), RequiresRestart: true,
@@ -217,6 +259,8 @@ func (store *agentConfigStore) loadEffectiveCredentials(config *configuration) e
 	}
 	store.credentialOverrideByEnv = config.agentAPIKeyEnvSet
 	store.credentialConfigured = config.agentAPIKey != ""
+	store.embeddingCredentialOverrideByEnv = config.agentEmbeddingAPIKeyEnvSet
+	store.embeddingCredentialConfigured = config.agentEmbeddingAPIKey != ""
 	return nil
 }
 
