@@ -70,6 +70,10 @@ func Run(
 	if err != nil {
 		return err
 	}
+	policyStore, err := openPolicyConfigStore(config.dataDir, config.policy, policyEngine)
+	if err != nil {
+		return err
+	}
 	var agentConfig agentdaemon.Config
 	if config.agentConfig != "" {
 		if err := agentStore.loadEffectiveCredentials(&config); err != nil {
@@ -228,6 +232,9 @@ func Run(
 		return err
 	}
 	if err := managementService.ConfigureAgentConfig(agentStore); err != nil {
+		return err
+	}
+	if err := managementService.ConfigurePolicyConfig(policyStore); err != nil {
 		return err
 	}
 	if err := managementService.ConfigureControl(
@@ -437,9 +444,18 @@ func parseConfiguration(
 			"RIN_AGENT_EMBEDDING_API_KEY must differ from daemon tokens",
 		)
 	}
+	policy := strings.TrimSpace(*policyPath)
+	if policy == "" {
+		candidate := managedPolicyConfigPath(*dataDirectory)
+		if _, statErr := os.Stat(candidate); statErr == nil {
+			policy = candidate
+		} else if !errors.Is(statErr, os.ErrNotExist) {
+			return configuration{}, fmt.Errorf("inspect saved gameplay policy: %w", statErr)
+		}
+	}
 	return configuration{
 		address: *address, dataDir: *dataDirectory, token: token,
-		principal: principal, policy: strings.TrimSpace(*policyPath),
+		principal: principal, policy: policy,
 		agentConfig: agentConfig, agentToken: agentToken, agentAPIKey: agentAPIKey,
 		agentEmbeddingAPIKey: agentEmbeddingAPIKey, agentTokenEnvSet: agentTokenSet,
 		agentAPIKeyEnvSet: agentAPIKeySet, agentEmbeddingAPIKeyEnvSet: agentEmbeddingAPIKeySet,

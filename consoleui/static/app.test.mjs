@@ -42,3 +42,11 @@ test("Console edits the complete internal Agent model contract", () => {
   assert.match(html, /id="agentThinkingMode"/);
   assert.match(html, /重启 Rin/);
 });
+
+test("Console edits the active gameplay policy with revision control", () => {
+  assert.match(app, /\/management\/v1\/policy\/config/);
+  assert.match(app, /expected_revision/);
+  assert.match(app, /JSON\.parse/);
+  assert.match(html, /id="policyProfile"/);
+  assert.match(html, /id="policyJSON"/);
+});

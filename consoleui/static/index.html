@@ -161,10 +161,23 @@
             <label class="check-row"><input id="clearAgentAPIKey" type="checkbox"><span>清除本地保存的 API Key</span></label>
             <p class="form-hint">环境变量 <code>RIN_AGENT_API_KEY</code> 会覆盖这里的本地值；网页和接口都不会回显密钥。</p>
           </div>
-          <div id="agentConfigNotice" class="view-error" role="status" hidden></div>
+          <div id="agentConfigNotice" class="form-notice" role="status" hidden></div>
           <div class="form-actions"><button class="button primary" type="submit">保存模型配置</button></div>
         </form>
-        <div class="section-heading"><div><h2>运行配置</h2><p>只显示元数据和凭据是否存在。修改模型、Policy 或权限后请重启 Rin。</p></div></div>
+        <div class="section-heading"><div><h2>游戏权限策略</h2><p>选择默认权限档位；高级规则仍由通用 Effect、Scope 和预算组成，不绑定具体游戏。</p></div></div>
+        <form id="policyConfigForm" class="editor-form">
+          <div class="field-grid">
+            <label><span>默认档位</span><select id="policyProfile"><option value="guarded">谨慎</option><option value="survival">生存</option><option value="open">开放</option><option value="privileged-custom">完全自定义</option></select></label>
+            <label><span>当前修订</span><input id="policyRevision" disabled></label>
+          </div>
+          <details class="advanced-fields">
+            <summary>高级规则 JSON</summary>
+            <label><span>完整策略</span><textarea id="policyJSON" class="json-editor" rows="18" spellcheck="false" required></textarea></label>
+          </details>
+          <div id="policyConfigNotice" class="form-notice" role="status" hidden></div>
+          <div class="form-actions"><button class="button primary" type="submit">应用权限策略</button></div>
+        </form>
+        <div class="section-heading"><div><h2>运行配置</h2><p>只显示元数据和凭据是否存在。模型配置重启后生效，游戏权限策略会立即生效。</p></div></div>
         <div id="configSummary" class="config-grid"></div>
       </section>
     </main>

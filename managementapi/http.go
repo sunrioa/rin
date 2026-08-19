@@ -37,6 +37,9 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 		if service.agentConfig != nil {
 			features = append(features, "agent-config")
 		}
+		if service.policyConfig != nil {
+			features = append(features, "policy-config")
+		}
 		writeJSON(response, http.StatusOK, map[string]any{
 			"contract_version": "rin.management/v1",
 			"features":         features,
@@ -174,6 +177,19 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 		result, err := service.SaveAgentConfig(request.Context(), input)
 		writeResult(response, result, err)
 	}))
+	mux.HandleFunc("GET /management/v1/policy/config", secure(options.Token, func(response http.ResponseWriter, request *http.Request) {
+		result, err := service.PolicyConfig(request.Context())
+		writeResult(response, result, err)
+	}))
+	mux.HandleFunc("PUT /management/v1/policy/config", secure(options.Token, func(response http.ResponseWriter, request *http.Request) {
+		var input PolicyConfigSaveRequest
+		if err := decodeJSON(request, &input); err != nil {
+			writeError(response, http.StatusBadRequest, err)
+			return
+		}
+		result, err := service.SavePolicyConfig(request.Context(), input)
+		writeResult(response, result, err)
+	}))
 	mux.HandleFunc("POST /management/v1/operations/list", secure(options.Token, func(response http.ResponseWriter, request *http.Request) {
 		var input controlplane.ListOperationsInput
 		if err := decodeJSON(request, &input); err != nil {
@@ -261,6 +277,12 @@ func writeResult(response http.ResponseWriter, value any, err error) {
 		status = http.StatusServiceUnavailable
 	} else if errors.Is(err, ErrInvalidAgentConfig) {
 		status = http.StatusBadRequest
+	} else if errors.Is(err, ErrPolicyConfigUnavailable) {
+		status = http.StatusServiceUnavailable
+	} else if errors.Is(err, ErrInvalidPolicyConfig) {
+		status = http.StatusBadRequest
+	} else if errors.Is(err, ErrPolicyConfigConflict) {
+		status = http.StatusConflict
 	} else if errors.Is(err, controlplane.ErrForbidden) {
 		status = http.StatusForbidden
 	} else if errors.Is(err, controlplane.ErrNotFound) {

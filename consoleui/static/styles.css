@@ -122,6 +122,8 @@ tr[data-operation-id]:hover td, tr[data-operation-id]:focus td { background: #f1
 .advanced-fields .field-grid { padding: 4px 0 16px; }
 .secret-editor { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
 .form-hint { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.form-notice { margin-top: 16px; padding: 10px 12px; border-left: 3px solid var(--brand); background: #e9f3ed; color: #1d513e; }
+.json-editor { margin-top: 8px; min-height: 240px; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; tab-size: 2; }
 .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; }
 .field-grid .wide { grid-column: 1 / -1; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 17px; }

@@ -62,6 +62,7 @@ function bindForms() {
     selectView("overview");
   });
   $("#agentConfigForm").addEventListener("submit", saveAgentConfig);
+  $("#policyConfigForm").addEventListener("submit", savePolicyConfig);
   $("#clearAgentAPIKey").addEventListener("change", syncAgentCredentialInputs);
   $("#agentAPIKey").addEventListener("input", syncAgentCredentialInputs);
   $("#taskLookupForm").addEventListener("submit", lookupTask);
@@ -128,14 +129,54 @@ async function loadHealth() {
 
 async function loadSettings() {
   $("#settingsToken").value = state.token;
-  const [diagnostics, agentConfig] = await Promise.all([
+  const [diagnostics, agentConfig, policyConfig] = await Promise.all([
     api("/management/v1/diagnostics", { method: "GET" }),
     api("/management/v1/agent/config", { method: "GET" }),
+    api("/management/v1/policy/config", { method: "GET" }),
   ]);
   state.diagnostics = diagnostics;
   renderConfig(diagnostics);
   renderAgentConfig(agentConfig);
+  renderPolicyConfig(policyConfig);
   setService((diagnostics.connections || []).some((item) => item.id === "control-plane" && item.status === "ok"));
+}
+
+function renderPolicyConfig(snapshot) {
+  const config = snapshot.config || {};
+  $("#policyProfile").value = config.profile || "guarded";
+  $("#policyRevision").value = String(config.revision || 0);
+  $("#policyConfigForm").dataset.revision = String(config.revision || 0);
+  $("#policyJSON").value = JSON.stringify(config, null, 2);
+  $("#policyConfigNotice").hidden = true;
+}
+
+async function savePolicyConfig(event) {
+  event.preventDefault();
+  let config;
+  try {
+    config = JSON.parse($("#policyJSON").value);
+  } catch (error) {
+    showViewError("策略 JSON 格式错误：" + error.message);
+    toast("策略 JSON 格式错误", true);
+    return;
+  }
+  config.profile = $("#policyProfile").value;
+  const expectedRevision = Number.parseInt($("#policyConfigForm").dataset.revision || "0", 10);
+  try {
+    const result = await api("/management/v1/policy/config", {
+      method: "PUT", body: { expected_revision: expectedRevision, config },
+    });
+    renderPolicyConfig(result);
+    $("#policyConfigNotice").textContent = "权限策略已应用，并会在下次启动时继续使用。";
+    $("#policyConfigNotice").hidden = false;
+    const diagnostics = await api("/management/v1/diagnostics", { method: "GET" });
+    state.diagnostics = diagnostics;
+    renderConfig(diagnostics);
+    toast("权限策略已应用");
+  } catch (error) {
+    showViewError(error.message);
+    toast(error.message, true);
+  }
 }
 
 function renderAgentConfig(snapshot) {

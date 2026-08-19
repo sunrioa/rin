@@ -30,6 +30,7 @@ type Service struct {
 	control          *controlplane.Service
 	controlPrincipal host.Principal
 	agentConfig      AgentConfigEditor
+	policyConfig     PolicyConfigEditor
 	diagnostics      DiagnosticsProvider
 	now              func() time.Time
 	newID            func() (string, error)
