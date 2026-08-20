@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"runtime"
 	"testing"
 
 	"github.com/sunrioa/rin/managementapi"
@@ -40,7 +41,7 @@ func TestPolicyConfigStorePersistsAndActivatesNewRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("policy mode = %o, want 600", info.Mode().Perm())
 	}
 	reopened, err := loadPolicyEngine(path)
