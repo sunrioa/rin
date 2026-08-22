@@ -398,7 +398,7 @@ func automaticallyResumablePause(code string) bool {
 	switch code {
 	case "host.unavailable", "observation.unavailable", "controller.unavailable",
 		"operation.unavailable", "action.submit-unavailable", "capabilities.unavailable",
-		"model.unavailable", "plan.epoch-invalidated":
+		"plan.epoch-invalidated":
 		return true
 	default:
 		return false

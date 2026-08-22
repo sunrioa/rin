@@ -547,19 +547,26 @@ func (runtime *AgentRuntime) cancelOwnedPlan(
 	if runtime.plans == nil {
 		return task, errors.New("task plan coordinator is unavailable")
 	}
-	plan, err := runtime.plans.GetPlan(ctx, task.PlanID)
+	var plan taskstate.PlanState
+	var err error
+	if canceller, ok := runtime.plans.(taskstate.OwnedPlanCanceller); ok {
+		plan, err = canceller.CancelOwnedPlan(ctx, taskstate.OwnedPlanCancellationInput{
+			PlanID: task.PlanID, TaskID: task.TaskID, SessionID: task.SessionID,
+			HostID: task.HostID, WorldID: task.WorldID, ActorID: task.ActorID,
+			ControllerID: task.ControllerID, Summary: summary,
+		})
+	} else {
+		plan, err = runtime.plans.GetPlan(ctx, task.PlanID)
+		if err == nil && plan.Status != taskstate.PlanCompleted &&
+			plan.Status != taskstate.PlanCancelled && plan.Status != taskstate.PlanFailed {
+			plan, err = runtime.plans.SetPlanStatus(ctx, taskstate.StatusInput{
+				PlanID: plan.PlanID, ExpectedRevision: plan.Revision,
+				Status: taskstate.PlanCancelled, Summary: summary,
+			})
+		}
+	}
 	if err != nil {
 		return task, err
-	}
-	if plan.Status != taskstate.PlanCompleted && plan.Status != taskstate.PlanCancelled &&
-		plan.Status != taskstate.PlanFailed {
-		plan, err = runtime.plans.SetPlanStatus(ctx, taskstate.StatusInput{
-			PlanID: plan.PlanID, ExpectedRevision: plan.Revision,
-			Status: taskstate.PlanCancelled, Summary: summary,
-		})
-		if err != nil {
-			return task, err
-		}
 	}
 	task.PlanRevision = plan.Revision
 	task.CurrentPlanStepID = plan.CurrentStepID

@@ -33,6 +33,24 @@ type PlanClient interface {
 	SubmitStepAction(context.Context, SubmitStepActionInput) (controlplane.OperationView, error)
 }
 
+// OwnedPlanCanceller is the process-local capability used by the Agent Runtime
+// to terminate its own internal plan after controller authority has moved on.
+// It is intentionally separate from PlanClient and is not exposed over HTTP.
+type OwnedPlanCanceller interface {
+	CancelOwnedPlan(context.Context, OwnedPlanCancellationInput) (PlanState, error)
+}
+
+type OwnedPlanCancellationInput struct {
+	PlanID       string
+	TaskID       string
+	SessionID    string
+	HostID       string
+	WorldID      string
+	ActorID      string
+	ControllerID string
+	Summary      string
+}
+
 type SubmitStepActionInput struct {
 	Action       controlplane.SubmitActionInput `json:"action"`
 	ConditionIDs []string                       `json:"condition_ids,omitempty"`
@@ -166,6 +184,29 @@ func (coordinator *Coordinator) SetPlanStatus(ctx context.Context, input StatusI
 		return PlanState{}, err
 	}
 	return coordinator.store.SetStatus(ctx, input)
+}
+
+func (coordinator *Coordinator) CancelOwnedPlan(
+	ctx context.Context,
+	input OwnedPlanCancellationInput,
+) (PlanState, error) {
+	state, err := coordinator.store.Get(ctx, input.PlanID)
+	if err != nil {
+		return PlanState{}, err
+	}
+	if state.ControllerSource != ControllerInternal || state.TaskID != input.TaskID ||
+		state.SessionID != input.SessionID || state.HostID != input.HostID ||
+		state.WorldID != input.WorldID || state.ActorID != input.ActorID ||
+		state.ControllerID != input.ControllerID {
+		return PlanState{}, fmt.Errorf("%w: runtime does not own plan", ErrForbidden)
+	}
+	if terminalPlanStatus(state.Status) {
+		return state, nil
+	}
+	return coordinator.store.SetStatus(ctx, StatusInput{
+		PlanID: state.PlanID, ExpectedRevision: state.Revision,
+		Status: PlanCancelled, Summary: input.Summary,
+	})
 }
 
 func (coordinator *Coordinator) RequestTransition(
@@ -397,6 +438,7 @@ func timepointMillis(point host.Timepoint) int64 {
 }
 
 var _ PlanClient = (*Coordinator)(nil)
+var _ OwnedPlanCanceller = (*Coordinator)(nil)
 
 // OutcomeSink reconciles and applies only action requests carrying PlanStepRef.
 type OutcomeSink struct {

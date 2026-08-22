@@ -206,7 +206,7 @@ Controller 或预算。
 
 - Task HTTP 契约以 [`api/agent-openapi.json`](../api/agent-openapi.json) 为准。
 - 状态固定写入 `<RIN_CONTROL_DATA_DIR>/agent/tasks.json` 和 `memory.db`。
-- Task Snapshot 使用 `rin.cognition.tasks/v2`。
+- Task Snapshot 使用 `rin.cognition.tasks/v3`。
 - Task 文件使用私有权限与原子替换；Memory 使用 SQLite 事务、WAL 与单写者进程锁。
   配置不能改变状态路径。
 - `scheduled=true` 只表示任务已进入后台队列，不表示模型已决策、游戏已执行或

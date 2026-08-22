@@ -94,9 +94,14 @@ func TestServiceAutomaticallyResumesOnlyTemporaryPauses(t *testing.T) {
 	contended.Status = cognition.TaskPaused
 	contended.PauseCode = "controller.contended"
 	contended.UpdatedAtUnixMillis = 0
+	modelUnavailable := activeTask("task.model-unavailable", "task.paused")
+	modelUnavailable.Status = cognition.TaskPaused
+	modelUnavailable.PauseCode = "model.unavailable"
+	modelUnavailable.UpdatedAtUnixMillis = 0
 	runtime.tasks[temporary.TaskID] = temporary
 	runtime.tasks[manual.TaskID] = manual
 	runtime.tasks[contended.TaskID] = contended
+	runtime.tasks[modelUnavailable.TaskID] = modelUnavailable
 	service := newTestAgentService(t, runtime, 1)
 	defer service.Close()
 
@@ -108,6 +113,9 @@ func TestServiceAutomaticallyResumesOnlyTemporaryPauses(t *testing.T) {
 	}
 	if count := runtime.runCount(contended.TaskID); count != 0 {
 		t.Fatalf("contended controller was automatically retried %d times", count)
+	}
+	if count := runtime.runCount(modelUnavailable.TaskID); count != 0 {
+		t.Fatalf("model outage was automatically retried %d times", count)
 	}
 	recovered, err := runtime.GetTask(context.Background(), temporary.TaskID)
 	if err != nil || recovered.Status != cognition.TaskActive ||

@@ -241,7 +241,7 @@ data and cannot alter the allowed set, epoch, controller, or budgets.
 
 - [`api/agent-openapi.json`](../api/agent-openapi.json) is the Task HTTP contract.
 - State is fixed at `<RIN_CONTROL_DATA_DIR>/agent/tasks.json` and `memory.db`.
-- Task snapshots use `rin.cognition.tasks/v2`.
+- Task snapshots use `rin.cognition.tasks/v3`.
 - Task files use private permissions and atomic replacement. Memory uses SQLite
   transactions, WAL, and a single-writer process lock. Configuration cannot
   redirect these paths.

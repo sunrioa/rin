@@ -14,7 +14,7 @@ fmt:
 
 test: test-go test-console test-terminal-story
 
-verify: contract-check vet race test-sdks test-terminal-story
+verify: contract-check vet race test-console test-sdks test-terminal-story
 
 contract-check:
 	$(GO) test ./controlplane ./agentapi ./host -run 'Contract|OpenAPI|Fixture'

@@ -1528,42 +1528,62 @@ func TestAgentRuntimeCancelsPendingActionBeforeSubmission(t *testing.T) {
 }
 
 func TestAgentRuntimeCancelsOwnedPlanWithPendingAction(t *testing.T) {
-	fixture := newAgentRuntimeFixture(t)
-	plans := &runtimePlanStub{control: fixture.control, principal: fixture.principal}
-	action := agentActionDecision()
-	action.PlanDraft = &taskstate.Draft{
-		Phase: "Approach",
-		Steps: []taskstate.StepDraft{{
-			StepID: "step.approach", Title: "Approach", Objective: "Reach the player.",
-			CapabilityHints: []host.CapabilityRef{action.Capability}, MaxAttempts: 3,
-			SuccessConditions: []taskstate.PlanCondition{{
-				ConditionID: "condition.arrived", Kind: taskstate.EvidenceOperationOutcome,
-				Summary: "The Host confirms arrival.", Capability: &action.Capability,
-			}},
-		}},
-	}
-	fixture.model.decisions = []cognition.ModelDecision{action}
-	fixture.plans = plans
-	runtime := fixture.runtime(t, 1)
-	started, err := runtime.StartTask(context.Background(), cognition.StartTaskInput{
-		TaskID: "task.cancel-plan", HostID: "host.test", WorldID: "world.test",
-		ActorID: "actor.mira", ControllerID: "controller.internal",
-		Goal: "Reach the nearby player.", PlanningMode: taskstate.PlanningRequired,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	pending, err := runtime.RunTask(context.Background(), started.TaskID)
-	if err != nil || pending.PlanID == "" || pending.PendingAction == nil {
-		t.Fatalf("planned task did not stop before submission: task=%+v err=%v", pending, err)
-	}
-	cancelled, err := runtime.CancelTask(context.Background(), started.TaskID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cancelled.Status != cognition.TaskCancelled || plans.plan.Status != taskstate.PlanCancelled ||
-		cancelled.PlanRevision != plans.plan.Revision || plans.statusUpdates != 1 {
-		t.Fatalf("task and plan cancellation diverged: task=%+v plan=%+v", cancelled, plans.plan)
+	for _, test := range []struct {
+		name             string
+		wrap             func(taskstate.PlanClient) taskstate.PlanClient
+		getError         error
+		expectedGetCalls int
+	}{
+		{name: "private owned cancellation", wrap: func(client taskstate.PlanClient) taskstate.PlanClient {
+			return client
+		}, getError: controlplane.ErrUnavailable},
+		{name: "public client fallback", wrap: func(client taskstate.PlanClient) taskstate.PlanClient {
+			return planClientWithoutOwned{PlanClient: client}
+		}, expectedGetCalls: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newAgentRuntimeFixture(t)
+			plans := &runtimePlanStub{control: fixture.control, principal: fixture.principal}
+			action := agentActionDecision()
+			action.PlanDraft = &taskstate.Draft{
+				Phase: "Approach",
+				Steps: []taskstate.StepDraft{{
+					StepID: "step.approach", Title: "Approach", Objective: "Reach the player.",
+					CapabilityHints: []host.CapabilityRef{action.Capability}, MaxAttempts: 3,
+					SuccessConditions: []taskstate.PlanCondition{{
+						ConditionID: "condition.arrived", Kind: taskstate.EvidenceOperationOutcome,
+						Summary: "The Host confirms arrival.", Capability: &action.Capability,
+					}},
+				}},
+			}
+			fixture.model.decisions = []cognition.ModelDecision{action}
+			fixture.plans = test.wrap(plans)
+			runtime := fixture.runtime(t, 1)
+			started, err := runtime.StartTask(context.Background(), cognition.StartTaskInput{
+				TaskID: "task.cancel-plan", HostID: "host.test", WorldID: "world.test",
+				ActorID: "actor.mira", ControllerID: "controller.internal",
+				Goal: "Reach the nearby player.", PlanningMode: taskstate.PlanningRequired,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			pending, err := runtime.RunTask(context.Background(), started.TaskID)
+			if err != nil || pending.PlanID == "" || pending.PendingAction == nil {
+				t.Fatalf("planned task did not stop before submission: task=%+v err=%v", pending, err)
+			}
+			getCalls := plans.getCalls
+			plans.getError = test.getError
+			cancelled, err := runtime.CancelTask(context.Background(), started.TaskID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cancelled.Status != cognition.TaskCancelled ||
+				plans.plan.Status != taskstate.PlanCancelled ||
+				cancelled.PlanRevision != plans.plan.Revision || plans.statusUpdates != 1 ||
+				plans.getCalls-getCalls != test.expectedGetCalls {
+				t.Fatalf("task and plan cancellation diverged: task=%+v plan=%+v", cancelled, plans.plan)
+			}
+		})
 	}
 }
 
@@ -1693,6 +1713,12 @@ type runtimePlanStub struct {
 	statusUpdates int
 	transitions   int
 	submitError   error
+	getError      error
+	getCalls      int
+}
+
+type planClientWithoutOwned struct {
+	taskstate.PlanClient
 }
 
 func (client *runtimePlanStub) CreatePlan(_ context.Context, input taskstate.Draft) (taskstate.PlanState, error) {
@@ -1702,6 +1728,10 @@ func (client *runtimePlanStub) CreatePlan(_ context.Context, input taskstate.Dra
 }
 
 func (client *runtimePlanStub) GetPlan(context.Context, string) (taskstate.PlanState, error) {
+	client.getCalls++
+	if client.getError != nil {
+		return taskstate.PlanState{}, client.getError
+	}
 	for client.advancedSteps < len(client.plan.Steps) {
 		threshold := 1
 		if len(client.advanceAfter) != 0 {
@@ -1760,6 +1790,28 @@ func (client *runtimePlanStub) SetPlanStatus(_ context.Context, input taskstate.
 	}
 	client.statusUpdates++
 	return client.plan, nil
+}
+
+func (client *runtimePlanStub) CancelOwnedPlan(
+	_ context.Context,
+	input taskstate.OwnedPlanCancellationInput,
+) (taskstate.PlanState, error) {
+	if input.TaskID != client.plan.TaskID || input.SessionID != client.plan.SessionID ||
+		input.HostID != client.plan.HostID || input.WorldID != client.plan.WorldID ||
+		input.ActorID != client.plan.ActorID || input.ControllerID != client.plan.ControllerID {
+		return taskstate.PlanState{}, taskstate.ErrForbidden
+	}
+	if input.PlanID != client.plan.PlanID {
+		return taskstate.PlanState{}, taskstate.ErrNotFound
+	}
+	if client.plan.Status == taskstate.PlanCompleted || client.plan.Status == taskstate.PlanCancelled ||
+		client.plan.Status == taskstate.PlanFailed {
+		return client.plan, nil
+	}
+	return client.SetPlanStatus(context.Background(), taskstate.StatusInput{
+		PlanID: input.PlanID, ExpectedRevision: client.plan.Revision,
+		Status: taskstate.PlanCancelled, Summary: input.Summary,
+	})
 }
 
 func (client *runtimePlanStub) RequestTransition(

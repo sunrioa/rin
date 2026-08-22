@@ -81,6 +81,179 @@ func TestCoordinatorRequiresCurrentControllerAndLinksSubmittedAction(t *testing.
 	}
 }
 
+func TestCoordinatorCancelsRuntimeOwnedPlanAfterAuthorityChanges(t *testing.T) {
+	tests := []struct {
+		name        string
+		mutate      func(*planControlStub)
+		publicError error
+	}{
+		{
+			name: "actor unavailable",
+			mutate: func(client *planControlStub) {
+				client.actorErr = controlplane.ErrUnavailable
+			},
+			publicError: controlplane.ErrUnavailable,
+		},
+		{
+			name: "epoch changed",
+			mutate: func(client *planControlStub) {
+				client.actor.Epoch.Timeline++
+				client.lease.Epoch = client.actor.Epoch
+			},
+			publicError: taskstate.ErrConflict,
+		},
+		{
+			name: "lease expired",
+			mutate: func(client *planControlStub) {
+				client.controllerErr = controlplane.ErrLeaseExpired
+			},
+			publicError: taskstate.ErrForbidden,
+		},
+		{
+			name: "foreign controller",
+			mutate: func(client *planControlStub) {
+				client.lease.ControllerID = "controller.other"
+			},
+			publicError: taskstate.ErrForbidden,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store, err := taskstate.OpenSQLiteStore(
+				filepath.Join(t.TempDir(), "taskstate.db"),
+				taskstate.StoreConfig{Now: func() time.Time { return time.UnixMilli(10) }},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			draft := testDraft("plan.runtime-owned", "task.runtime-owned")
+			draft.ControllerSource = taskstate.ControllerInternal
+			client := &planControlStub{
+				principal: host.Principal{ID: "principal.internal", GrantedScopes: []string{
+					controlplane.ScopeActorRead, controlplane.ScopeActorControl,
+				}},
+				actor: controlplane.ActorView{
+					HostID: draft.HostID, WorldID: draft.WorldID, ActorID: draft.ActorID,
+					Epoch: draft.BasedOnEpoch, ObservationSeq: draft.BasedOnObservationSequence,
+				},
+				lease: controlplane.ControllerLease{
+					ControllerID: draft.ControllerID, PrincipalID: "principal.internal",
+					HostID: draft.HostID, WorldID: draft.WorldID, ActorID: draft.ActorID,
+					Source: controlplane.DecisionInternal, Epoch: draft.BasedOnEpoch,
+				},
+			}
+			coordinator, err := taskstate.NewCoordinator(store, client)
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan, err := coordinator.CreatePlan(context.Background(), draft)
+			if err != nil {
+				t.Fatal(err)
+			}
+			current, err := store.SetStatus(context.Background(), taskstate.StatusInput{
+				PlanID: plan.PlanID, ExpectedRevision: plan.Revision,
+				Status: taskstate.PlanPaused, Summary: "Pause before the authority change.",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			current, err = store.SetStatus(context.Background(), taskstate.StatusInput{
+				PlanID: current.PlanID, ExpectedRevision: current.Revision,
+				Status: taskstate.PlanActive, Summary: "Resume before the authority change.",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(client)
+			if _, err := coordinator.SetPlanStatus(context.Background(), taskstate.StatusInput{
+				PlanID: current.PlanID, ExpectedRevision: current.Revision,
+				Status: taskstate.PlanCancelled, Summary: "Public cancellation remains authorized.",
+			}); !errors.Is(err, test.publicError) {
+				t.Fatalf("public cancellation error = %v, want %v", err, test.publicError)
+			}
+			cancelled, err := coordinator.CancelOwnedPlan(
+				context.Background(), ownedCancellation(plan),
+			)
+			if err != nil || cancelled.Status != taskstate.PlanCancelled ||
+				cancelled.Revision != current.Revision+1 {
+				t.Fatalf("owned cancellation = %#v, err=%v", cancelled, err)
+			}
+			again, err := coordinator.CancelOwnedPlan(
+				context.Background(), ownedCancellation(plan),
+			)
+			if err != nil || again.Status != taskstate.PlanCancelled ||
+				again.Revision != cancelled.Revision {
+				t.Fatalf("idempotent owned cancellation = %#v, err=%v", again, err)
+			}
+		})
+	}
+}
+
+func TestCoordinatorOwnedCancellationPreservesOwnershipAndOperationGuards(t *testing.T) {
+	store, err := taskstate.OpenSQLiteStore(
+		filepath.Join(t.TempDir(), "taskstate.db"),
+		taskstate.StoreConfig{Now: func() time.Time { return time.UnixMilli(10) }},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	draft := testDraft("plan.runtime-guard", "task.runtime-guard")
+	draft.ControllerSource = taskstate.ControllerInternal
+	client := &planControlStub{
+		principal: host.Principal{ID: "principal.internal", GrantedScopes: []string{
+			controlplane.ScopeActorRead, controlplane.ScopeActorControl,
+		}},
+		actor: controlplane.ActorView{
+			HostID: draft.HostID, WorldID: draft.WorldID, ActorID: draft.ActorID,
+			Epoch: draft.BasedOnEpoch, ObservationSeq: draft.BasedOnObservationSequence,
+		},
+		lease: controlplane.ControllerLease{
+			ControllerID: draft.ControllerID, PrincipalID: "principal.internal",
+			HostID: draft.HostID, WorldID: draft.WorldID, ActorID: draft.ActorID,
+			Source: controlplane.DecisionInternal, Epoch: draft.BasedOnEpoch,
+		},
+	}
+	coordinator, err := taskstate.NewCoordinator(store, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := coordinator.CreatePlan(context.Background(), draft)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign := ownedCancellation(plan)
+	foreign.TaskID = "task.other"
+	if _, err := coordinator.CancelOwnedPlan(context.Background(), foreign); !errors.Is(err, taskstate.ErrForbidden) {
+		t.Fatalf("foreign task cancellation error = %v", err)
+	}
+	if err := store.LinkOperation(context.Background(), taskstate.OperationLink{
+		OperationID: "operation.running", PlanID: plan.PlanID,
+		PlanRevision: plan.Revision, StepID: plan.CurrentStepID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := coordinator.CancelOwnedPlan(
+		context.Background(), ownedCancellation(plan),
+	); !errors.Is(err, taskstate.ErrConflict) {
+		t.Fatalf("cancellation with unfinished operation error = %v", err)
+	}
+	current, err := store.Get(context.Background(), plan.PlanID)
+	if err != nil || current.Status != taskstate.PlanActive || current.Revision != plan.Revision {
+		t.Fatalf("guarded plan changed = %#v, err=%v", current, err)
+	}
+}
+
+func ownedCancellation(plan taskstate.PlanState) taskstate.OwnedPlanCancellationInput {
+	return taskstate.OwnedPlanCancellationInput{
+		PlanID: plan.PlanID,
+		TaskID: plan.TaskID, SessionID: plan.SessionID,
+		HostID: plan.HostID, WorldID: plan.WorldID, ActorID: plan.ActorID,
+		ControllerID: plan.ControllerID, Summary: "The owning runtime task terminated.",
+	}
+}
+
 func TestOutcomeSinkReconcilesCrashWindowAndAdvancesPlan(t *testing.T) {
 	clock := time.UnixMilli(10)
 	store, err := taskstate.OpenSQLiteStore(
@@ -287,11 +460,13 @@ func TestCoordinatorAllowsReplanAtFailureThresholdBeforeAttemptLimit(t *testing.
 }
 
 type planControlStub struct {
-	principal   host.Principal
-	actor       controlplane.ActorView
-	lease       controlplane.ControllerLease
-	catalog     host.CapabilitySnapshot
-	submissions int
+	principal     host.Principal
+	actor         controlplane.ActorView
+	actorErr      error
+	lease         controlplane.ControllerLease
+	controllerErr error
+	catalog       host.CapabilitySnapshot
+	submissions   int
 }
 
 func (client *planControlStub) Info(context.Context) (controlplane.ClientInfo, error) {
@@ -301,13 +476,13 @@ func (client *planControlStub) Info(context.Context) (controlplane.ClientInfo, e
 func (client *planControlStub) GetActor(
 	context.Context, string, string, string,
 ) (controlplane.ActorView, error) {
-	return client.actor, nil
+	return client.actor, client.actorErr
 }
 
 func (client *planControlStub) GetController(
 	context.Context, controlplane.ActorControlTarget,
 ) (controlplane.ControllerLease, error) {
-	return client.lease, nil
+	return client.lease, client.controllerErr
 }
 
 func (client *planControlStub) GetObservation(
