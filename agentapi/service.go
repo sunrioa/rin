@@ -325,9 +325,10 @@ func (service *Service) worker() {
 }
 
 func (service *Service) runTask(taskID string) {
-	// Deferring the scheduled cleanup guarantees the task is released even if
-	// RunTask panics, so the reconciler can re-enqueue it on the next sweep.
 	defer func() {
+		// Keep a TaskRuntime panic inside this dispatch so the worker remains
+		// available and the reconciler can retry the durable task state.
+		_ = recover()
 		service.mu.Lock()
 		delete(service.scheduled, taskID)
 		service.mu.Unlock()

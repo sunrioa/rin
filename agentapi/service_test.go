@@ -144,6 +144,28 @@ func TestServiceCloseCancelsRunningTask(t *testing.T) {
 	}
 }
 
+func TestServiceRecoversRuntimePanicAndRetriesTask(t *testing.T) {
+	runtime := newPanicOnceTaskRuntime()
+	service := newTestAgentService(t, runtime, 1)
+	defer service.Close()
+	principal := taskPrincipal(agentapi.ScopeTaskExecute)
+
+	dispatch, err := service.StartTask(
+		context.Background(), principal, startTaskInput("task.panic"),
+	)
+	if err != nil || !dispatch.Scheduled {
+		t.Fatalf("StartTask = %+v, %v", dispatch, err)
+	}
+	select {
+	case <-runtime.panicked:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for runtime panic")
+	}
+	waitFor(t, func() bool {
+		return runtime.runCount("task.panic") == 1 && runtime.startedCount() == 0
+	}, "panicked task retry")
+}
+
 func TestServiceEnforcesTaskScopes(t *testing.T) {
 	runtime := newFakeTaskRuntime()
 	service := newTestAgentService(t, runtime, 1)
@@ -175,7 +197,7 @@ func TestServiceEnforcesTaskScopes(t *testing.T) {
 	}
 }
 
-func newTestAgentService(t *testing.T, runtime *fakeTaskRuntime, workers uint32) *agentapi.Service {
+func newTestAgentService(t *testing.T, runtime agentapi.TaskRuntime, workers uint32) *agentapi.Service {
 	t.Helper()
 	service, err := agentapi.New(agentapi.Options{
 		Runtime: runtime, WorkerCount: workers, QueueCapacity: 16,
@@ -185,6 +207,34 @@ func newTestAgentService(t *testing.T, runtime *fakeTaskRuntime, workers uint32)
 		t.Fatal(err)
 	}
 	return service
+}
+
+type panicOnceTaskRuntime struct {
+	*fakeTaskRuntime
+	once     sync.Once
+	panicked chan struct{}
+}
+
+func newPanicOnceTaskRuntime() *panicOnceTaskRuntime {
+	return &panicOnceTaskRuntime{
+		fakeTaskRuntime: newFakeTaskRuntime(),
+		panicked:        make(chan struct{}),
+	}
+}
+
+func (runtime *panicOnceTaskRuntime) RunTask(
+	ctx context.Context,
+	taskID string,
+) (cognition.TaskSession, error) {
+	shouldPanic := false
+	runtime.once.Do(func() {
+		shouldPanic = true
+		close(runtime.panicked)
+	})
+	if shouldPanic {
+		panic("test runtime panic")
+	}
+	return runtime.fakeTaskRuntime.RunTask(ctx, taskID)
 }
 
 func taskPrincipal(scopes ...string) host.Principal {
