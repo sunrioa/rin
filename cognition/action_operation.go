@@ -410,7 +410,7 @@ func (runtime *AgentRuntime) advanceMacroOperation(
 	appendTaskEvent(&task, operationTimelineEvent(
 		task, "macro.terminal", view, runtime.now().UnixMilli(),
 	))
-	if view.Outcome != nil {
+	if view.Outcome != nil && len(task.History) != 0 {
 		task.History[len(task.History)-1].Code = string(view.Outcome.Status)
 		task.History[len(task.History)-1].Summary = view.Outcome.Summary
 	}

@@ -319,21 +319,29 @@ func (service *Service) worker() {
 		case <-service.ctx.Done():
 			return
 		case taskID := <-service.queue:
-			if service.ctx.Err() != nil {
-				return
-			}
-			task, err := service.runtime.GetTask(service.ctx, taskID)
-			if err == nil && task.Status == cognition.TaskPaused &&
-				taskNeedsAutomaticRunAt(task, time.Now()) {
-				task, err = service.runtime.ResumeTask(service.ctx, taskID)
-			}
-			if err == nil && taskCanRun(task.Status) {
-				_, _ = service.runtime.RunTask(service.ctx, taskID)
-			}
-			service.mu.Lock()
-			delete(service.scheduled, taskID)
-			service.mu.Unlock()
+			service.runTask(taskID)
 		}
+	}
+}
+
+func (service *Service) runTask(taskID string) {
+	// Deferring the scheduled cleanup guarantees the task is released even if
+	// RunTask panics, so the reconciler can re-enqueue it on the next sweep.
+	defer func() {
+		service.mu.Lock()
+		delete(service.scheduled, taskID)
+		service.mu.Unlock()
+	}()
+	if service.ctx.Err() != nil {
+		return
+	}
+	task, err := service.runtime.GetTask(service.ctx, taskID)
+	if err == nil && task.Status == cognition.TaskPaused &&
+		taskNeedsAutomaticRunAt(task, time.Now()) {
+		task, err = service.runtime.ResumeTask(service.ctx, taskID)
+	}
+	if err == nil && taskCanRun(task.Status) {
+		_, _ = service.runtime.RunTask(service.ctx, taskID)
 	}
 }
 
