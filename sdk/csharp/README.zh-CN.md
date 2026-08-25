@@ -21,8 +21,10 @@ var worlds = await control.ListWorldsAsync();
 ```
 
 方法返回 `JsonElement`，请求参数使用匿名对象或普通 DTO。默认地址是
-`http://127.0.0.1:7375`；客户端禁止 Redirect，并限制响应体、JSON 深度、超时
-和 JavaScript 安全整数范围。
+`http://127.0.0.1:7375`；客户端禁止 Redirect，并限制响应体大小和超时。请求
+Payload 还受 JSON 深度和 JavaScript 安全整数范围约束。
 
-所有异步方法接受 `CancellationToken`。取消或超时只说明结果未知，不能据此报告
-游戏没有执行；应重新查询同一个 Operation，直到得到权威终态。
+所有异步方法接受 `CancellationToken`。提交或等待期间发生取消或网络超时，不能证明
+游戏没有执行。已知 Operation ID 时应查询该 Operation；未知时只能用相同 Request
+和幂等身份精确重试原提交，不能换新身份重发。详见
+[Operation 恢复语义](../../docs/operations.zh-CN.md)。

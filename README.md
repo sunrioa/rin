@@ -52,11 +52,16 @@ flowchart LR
 
 ## 本地构建
 
-要求 Go `1.25` 或更高版本。其他语言运行时只在测试对应 SDK 时需要。
+构建核心二进制要求 Go `1.25` 或更高版本：
+
+```bash
+make build
+```
+
+运行完整维护者门禁还需要 Node.js、Python、.NET SDK、JDK 和 Lua：
 
 ```bash
 make verify
-make build
 ```
 
 产物位于 `bin/`：
@@ -115,9 +120,9 @@ Console 还可管理 learned Skill、内部模型、可选远程 Embedding 与�
 或伪造引擎集成：
 
 ```bash
-./bin/rin init host -engine custom -runtime java -id my-game-host -output ./my-game-host
-./bin/rin conformance host -project ./my-game-host
-./bin/rin doctor host -project ./my-game-host
+./bin/rin init host -engine custom -runtime java -id my_game_host -output ./my-game-host
+./bin/rin conformance host -path ./my-game-host
+./bin/rin doctor host -path ./my-game-host
 ```
 
 完整 Adapter 需要实现可信观察、能力发现、目标绑定、Effect Preview、权威执行、取消和结果验证。
@@ -147,8 +152,9 @@ Control、Policy、Operation 与 Adapter 链路。
 - [路线图](ROADMAP.md)
 
 OpenAPI 文件是 HTTP 字段与路由的唯一事实来源：
-`api/control-openapi.json`、`api/agent-openapi.json` 和
-`api/management-openapi.json`。
+`api/control-openapi.json`、`api/agent-openapi.json`、
+`api/management-openapi.json`、`api/signal-openapi.json` 和
+`api/task-plan-openapi.json`。
 
 ## 安全边界
 

@@ -1,9 +1,14 @@
 # Rin Lua Control SDK
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 This zero-dependency module calls the loopback-only `rin.control/v2` API from
 Lua game runtimes. The host engine supplies asynchronous HTTP and JSON
 adapters, while the SDK owns route selection, bearer authentication, input
 validation, response bounds, redirect rejection, and stable errors.
+
+The following is an engine-adapter integration sketch. The game runtime must
+provide the referenced HTTP, JSON, and logging functions.
 
 ```lua
 local rin = dofile("rin.lua")

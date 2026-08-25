@@ -115,7 +115,7 @@ export RIN_CONTROL_TOKEN="replace-with-the-same-random-secret"
 Agent 注册或私密连接配置；SHA-256 相同则不重复替换。也可明确指定已验证的二进制：
 
 ```bash
-rin mcp update -server /absolute/path/to/new/rin-mcp
+./bin/rin mcp update -server /absolute/path/to/new/rin-mcp
 ```
 
 Windows 会锁定正在运行的可执行文件，更新前需要退出使用 Rin MCP 的 Agent；
@@ -131,14 +131,14 @@ macOS/Linux 也建议更新后重启 Agent，使已有 STDIO 会话加载新版�
 Agent：
 
 ```bash
-rin mcp uninstall
-rin mcp uninstall -agents codex,claude
+./bin/rin mcp uninstall
+./bin/rin mcp uninstall -agents codex,claude
 ```
 
 完全移除托管二进制、安装清单和私密连接配置：
 
 ```bash
-rin mcp uninstall -purge
+./bin/rin mcp uninstall -purge
 ```
 
 卸载器只删除自己记录的注册和固定托管路径，不删除同名未托管配置，也拒绝清理

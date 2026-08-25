@@ -16,7 +16,7 @@ make build
 
 `make verify` covers:
 
-- Go formatting, vet, race, and all package tests;
+- Go vet and all package tests under the race detector;
 - Host, Control, and Agent OpenAPI consistency;
 - Python, JavaScript, C#, Java, and Lua SDKs;
 - Grid, Story, and Terminal V2 adapter flows;

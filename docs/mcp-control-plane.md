@@ -130,7 +130,7 @@ replacement. A verified binary may also be supplied
 explicitly:
 
 ```bash
-rin mcp update -server /absolute/path/to/new/rin-mcp
+./bin/rin mcp update -server /absolute/path/to/new/rin-mcp
 ```
 
 Windows locks running executable images, so exit Agents using Rin MCP before
@@ -148,14 +148,14 @@ By default, remove all manifest-owned Agent registrations while keeping the
 managed files for easy reinstall, or select clients explicitly:
 
 ```bash
-rin mcp uninstall
-rin mcp uninstall -agents codex,claude
+./bin/rin mcp uninstall
+./bin/rin mcp uninstall -agents codex,claude
 ```
 
 Remove the managed binary, manifest, and private connection config as well:
 
 ```bash
-rin mcp uninstall -purge
+./bin/rin mcp uninstall -purge
 ```
 
 The uninstaller only removes registrations it owns and exact managed regular

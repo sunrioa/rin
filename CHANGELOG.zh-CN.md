@@ -69,3 +69,55 @@ Commit 或 Tag。
 - Rin Go 核心、Race、OpenAPI、五语言 SDK 和三个 V2 示例具备自动化门禁。
 - Minecraft 与视觉小说两个真实 Adapter 的自动契约与跨进程回归已通过；安装、存读档、
   强制终止、多人权限、急停、UI、长时间游玩和角色自然度仍需人工验收。
+
+## [0.6.0] - 2026-07-24 - Preview
+
+本节记录 `v0.6.0` Tag 当时的行为。它描述的是已经退役的 V1 架构，仅作为发布历史
+保留，不是当前 V2 的使用文档。
+
+### 新增
+
+- 由游戏掌握权威的 Observation -> Proposal -> Apply/Reject -> Commit 生命周期，
+  包括延迟 Outcome 合并和游戏侧持久 Outbox 恢复。
+- 覆盖完整 Lineage 的持久 Request/Event ID History、Exact Retry 结果、指定 Revision
+  Replay、内部重放 Checkpoint、`rin inspect` 和显式全历史校验。
+- 由 Feature 控制的 Memory Archive、Actor 本地 Belief 与 Goal、Actor Activity、
+  世界仲裁和原子 Batch Outcome。
+- 具有有界队列、保留、取消、Provider 重试和熔断的异步 Proposal 与结构化
+  Generation Job。
+- 源码优先的 Python、JavaScript、C#、Java、Lua Client、一份 OpenAPI 3.1 Wire
+  Schema，以及该版本发布时提供的引擎接入示例。
+
+### 变化
+
+- 新 Session 可启用延迟 Outcome 上报；既有 Session 保持原有 Reducer 与 Commit
+  语义。
+- Restore 要求提供运行中游戏可信内容 Manifest 的 `expected_binding`，并同时核对
+  导入 Snapshot 与已存在的目标 Session。
+- `rin.reducer-projection/v2` 可重建 Proposal 展示内容，同时不改写权威事件字节。
+- 随附 File Store 增加 Session Lazy Load、Revision Index 和派生 Checkpoint，并继续
+  永久保留事件日志。
+
+### 安全
+
+- Inline Snapshot JSON 上限为 16 MiB；默认请求正文和随附 Client 响应正文上限为
+  32 MiB。超限输入会被拒绝，而不是截断。
+- Provider Prompt、凭据和原始 HTTP 正文不会进入错误、日志或持久 Session State。
+- 公共 HTTP JSON 整数使用可精确跨语言表示的范围；Commit 接受结果要求显式字段；
+  游戏侧请求及成功 Provider JSON 中的非法 UTF-8 或 Unicode 会在解码前被拒绝。
+- Snapshot、Checkpoint 与 Event Hash 被明确视为无密钥 Checksum，而不是签名或对抗
+  历史重写的证明。
+
+### 兼容说明
+
+- 这是 pre-1.0 Preview 契约。分发时需要把 Sidecar、Client 源码和 Conformance
+  Inventory 固定到同一仓库 Revision。
+- 请求拒绝未知字段，Client 则应容忍响应中的增量字段。SDK 采用源码优先分发，未发布
+  到各语言 Registry。
+- 完整 Snapshot 没有流式传输；随附 File Store 仅支持 `darwin` 与 `linux` 的本地
+  文件系统。
+
+## 更早的实施里程碑
+
+仓库历史中还存在名为 0.1 至 0.5 的实施里程碑。它们是开发阶段，不表示存在对应的
+公共 Release Tag。

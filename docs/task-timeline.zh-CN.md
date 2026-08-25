@@ -23,7 +23,7 @@ Skill 正文、行动参数或 Host 私有输出。调用方提交的 Goal 和�
 通过本地 Daemon CLI 查看：
 
 ```sh
-RIN_CONTROL_TOKEN='<本地令牌>' rin tasks timeline <task-id> --follow
+RIN_CONTROL_TOKEN='<本地令牌>' ./bin/rin tasks timeline <task-id> --follow
 ```
 
 增加 `--json` 后，每行输出一个契约页面。调用方使用不透明的 `next_cursor` 续读，不能把

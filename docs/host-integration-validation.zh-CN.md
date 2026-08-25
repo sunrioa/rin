@@ -14,7 +14,7 @@ make build
 
 `make verify` 覆盖：
 
-- Go Format、Vet、Race 和全包测试；
+- Go Vet 与 Race Detector 下的全包测试；
 - Host、Control 与 Agent OpenAPI 契约一致性；
 - Python、JavaScript、C#、Java、Lua SDK；
 - Grid、Story、Terminal 三个 V2 Adapter 流程；

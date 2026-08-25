@@ -20,7 +20,8 @@ go test ./examples/adapters/grid
 
 [adapters/story](adapters/story/) applies the same HostKit contract to
 dialogue, relationship changes, story progress, and enforceable character
-boundaries.
+boundaries. Its integration tests drive the scene through both the internal
+Agent Runtime and an in-memory MCP session.
 
 ~~~sh
 go test ./examples/adapters/story
@@ -29,14 +30,20 @@ go test ./examples/adapters/story
 ## Terminal story
 
 [terminal-story](terminal-story/) is a runnable end-to-end slice. It proves
-that the internal Agent Runtime and an external MCP client share the same
-policy and authoritative Operation path.
+that an embedded Host and an in-process controller carrying external decision
+authority use the shared policy and authoritative Operation path.
 
 ~~~sh
 go run ./examples/terminal-story --line "The light feels familiar." --json
 ~~~
 
-Real game adapters belong in their own repositories. Use "rin init host" for a
-portable contract skeleton, then validate the game-owned authority thread,
-save identity, policy, idempotency, cancellation, restart, and emergency-stop
-boundaries in the actual game.
+Real game adapters belong in their own repositories. Generate a portable
+contract skeleton with the [Host scaffolding workflow](../docs/host-scaffolding.md):
+
+~~~sh
+./bin/rin init host -engine custom -runtime java -id my_game_host -output ./my-game-host
+~~~
+
+Then validate the game-owned authority thread, save identity, policy,
+idempotency, cancellation, restart, and emergency-stop boundaries in the
+actual game.

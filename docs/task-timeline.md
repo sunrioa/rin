@@ -28,7 +28,7 @@ the authoritative Host reported completion.
 Use the local daemon CLI:
 
 ```sh
-RIN_CONTROL_TOKEN='<local-token>' rin tasks timeline <task-id> --follow
+RIN_CONTROL_TOKEN='<local-token>' ./bin/rin tasks timeline <task-id> --follow
 ```
 
 Add `--json` to write one contract page per line. A consumer resumes from the

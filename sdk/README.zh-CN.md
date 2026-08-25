@@ -15,9 +15,10 @@
 | Lua | 5.1+ | Callback | HTTP 与 JSON Adapter 由引擎注入 |
 | Go HostKit | Go 1.25 | `context.Context` | Authority Dispatch 与 V2 Adapter 协调 |
 
-## 公共 Control 操作
+## 共享 Control 子集
 
-五种客户端提供同一组路由：
+五种语言客户端都实现以下面向调用方的 Control 子集。额外的 Host、Signal、Agent
+或任务计划认证接口因语言而异，以各语言指南为准。
 
 - 读取世界、Actor、Observation 和 Capability；
 - 获取、续租和释放独占 Controller Lease；
@@ -36,9 +37,14 @@
 - 默认只连接 `http://127.0.0.1:7375` 或显式回环地址；
 - 要求至少 32 字节、无换行的 Bearer Token；
 - 禁止 HTTP Redirect；
-- 限制超时、响应体大小、JSON 深度和安全整数；
+- 限制超时和响应体大小；
+- 限制请求 Payload 的 JSON 深度和安全整数；
 - 拒绝非法 UTF-8、非 JSON 响应和不匹配的 `rin.control/v2`；
-- 将配置、传输、协议和 API 错误保持为可区分的稳定错误类型。
+- 返回稳定错误码和有界错误记录；具体异常类型或回调形式因语言而异。
+
+Daemon 启动与 Bearer Token 处理以 [MCP 与 Host Control 快速接入](../docs/mcp-control-plane.zh-CN.md)
+为准；等待、超时、终态和权威 Outcome 以 [Operation 语义](../docs/operations.zh-CN.md)
+为准。
 
 SDK 返回的 `queued`、`accepted` 或 `running` 只表示中间状态。调用方必须等待
 终态，并且只有 `execution_confirmed=true` 且存在 Host Outcome 时才可向用户报告

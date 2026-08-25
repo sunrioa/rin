@@ -15,9 +15,11 @@ daemon; they do not embed models, policy, or game execution logic.
 | Lua | 5.1+ | callback | engine-supplied HTTP and JSON adapters |
 | Go HostKit | Go 1.25 | `context.Context` | authority dispatch and V2 adapter coordination |
 
-## Common Control operations
+## Shared Control subset
 
-All five clients expose the same route set:
+All five language clients implement this shared client-facing Control subset.
+Additional authenticated Host, Signal, Agent, or task-plan coverage is
+language-specific and is documented in each language guide.
 
 - list worlds, actors, observations, and capabilities;
 - acquire, renew, and release the exclusive controller lease;
@@ -37,9 +39,16 @@ Every client enforces these boundaries:
 - default connection to `http://127.0.0.1:7375` or another explicit loopback origin;
 - a single-line bearer token of at least 32 bytes;
 - no HTTP redirects;
-- bounded timeout, response body, JSON depth, and safe integers;
+- bounded timeout and response body;
+- request-payload limits for JSON depth and safe integers;
 - rejection of invalid UTF-8, non-JSON responses, and contract mismatches;
-- distinct stable configuration, transport, protocol, and API errors.
+- stable error codes and bounded error records; language-specific exception or
+  callback shapes may differ.
+
+Use the [MCP and Host Control quick start](../docs/mcp-control-plane.md) as the
+source of truth for starting the daemon and handling its bearer token. Use the
+[Operation semantics](../docs/operations.md) as the source of truth for waiting,
+timeouts, terminal states, and authoritative outcomes.
 
 `queued`, `accepted`, and `running` are intermediate states. A caller may report
 game execution as complete only when the terminal operation has

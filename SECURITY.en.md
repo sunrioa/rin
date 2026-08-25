@@ -104,12 +104,21 @@ and adapter pre-execution validation must reject it.
 
 ## Providers and secrets
 
-Internal Agent configuration files must not contain API keys. Credentials enter
-the process only through:
+Internal Agent configuration files must not contain API keys. Credentials can
+enter the process through these environment variables:
 
 - `RIN_CONTROL_TOKEN` for the Control API;
 - `RIN_AGENT_TOKEN` for the Agent Task API, distinct from the Control token;
-- `RIN_AGENT_API_KEY` for an optional model provider, distinct from both daemon tokens.
+- `RIN_AGENT_API_KEY` for an optional model provider, distinct from both daemon tokens;
+- `RIN_AGENT_EMBEDDING_API_KEY` for optional remote embeddings, distinct from both daemon tokens.
+
+The loopback Rin Console can also store the two provider keys in
+`<data>/agent/agent-secrets.json`. This file is separate from public Agent
+configuration, is atomically written in a private directory with mode `0600`,
+and is never returned by the API; responses expose presence only. The matching
+environment variable overrides a saved value. This local store provides only
+operating-system user-level protection and must not be placed in a synchronized
+directory, game save, or repository.
 
 Remote model URLs require HTTPS; only loopback providers may use HTTP. URLs may
 not contain user information. The provider client rejects redirects and bounds

@@ -9,10 +9,10 @@ code, or pretend to integrate a game engine.
 ## Create
 
 ```bash
-rin init host \
+./bin/rin init host \
   -engine custom \
   -runtime java \
-  -id my-game-host \
+  -id my_game_host \
   -name "My Game Host" \
   -version 0.1.0 \
   -output ./my-game-host
@@ -25,8 +25,8 @@ generic contract, not a completed engine integration.
 Inspect without writing:
 
 ```bash
-rin init host -engine custom -runtime java -id my-game-host -dry-run
-rin init host -list-hosts
+./bin/rin init host -engine custom -runtime java -id my_game_host -dry-run
+./bin/rin init host -list-hosts
 ```
 
 The destination must not exist. The generator never overwrites a path or picks
@@ -36,6 +36,8 @@ a different name automatically.
 
 ```text
 my-game-host/
+  .editorconfig
+  .gitignore
   README.md
   README.zh-CN.md
   LICENSE-RIN.txt
@@ -48,7 +50,8 @@ my-game-host/
 ```
 
 - `rin-host.json`: schema 2, `rin.host/v2`, runtime, durability, and capability directory.
-- `rin-scaffold.json`: generator, project, and SHA-256 for every file, used to detect drift.
+- `rin-scaffold.json`: generator and project metadata plus SHA-256 for every
+  generated file except the manifest itself, used to detect drift.
 - `capabilities/dialogue.say.json`: a sealed `CapabilitySpec` example.
 - `src/README.md`: authority boundaries the concrete game must implement.
 - `LICENSE-RIN.txt`: covers Rin-generated scaffold material only and does not license the game or mod.
@@ -59,11 +62,11 @@ execution, and outcome reporting.
 
 ## Verification commands
 
-Run from the generated directory or pass `-project`:
+Run from the Rin repository root after `make build`:
 
 ```bash
-rin conformance host -project ./my-game-host
-rin doctor host -project ./my-game-host
+./bin/rin conformance host -path ./my-game-host
+./bin/rin doctor host -path ./my-game-host
 ```
 
 Conformance checks:
@@ -93,8 +96,10 @@ contract skeleton, never real game behavior.
 
 Before writing, the generator renders every file and validates total size,
 relative paths, case collisions, reserved names, symlinks, and destination
-existence. It writes a temporary sibling directory and publishes atomically;
-only one concurrent creator of the same destination may succeed.
+existence. It creates the final directory directly, adds
+`.rin-scaffold.incomplete`, exclusively creates and verifies every generated
+file, then removes the marker. Once the marker exists, a later failure retains
+it. Only one concurrent creator of the same destination may succeed.
 
 `rin-scaffold.json` is an integrity inventory, not a signature. Someone able to
 modify files can recalculate SHA-256. Use your own signing and supply-chain
