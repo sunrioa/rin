@@ -1,8 +1,12 @@
 # Rin Lua Control SDK
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 这是一个零依赖的 `rin.control/v2` Lua 客户端，供游戏运行时连接本机 Control
 Daemon。游戏引擎负责提供异步 HTTP 和 JSON 编解码器；SDK 负责固定路由、Bearer
 鉴权、输入校验、响应大小限制、拒绝重定向和稳定错误码。
+
+下面是引擎 Adapter 的集成草图；其中的 HTTP、JSON 和日志函数必须由游戏运行时提供。
 
 ```lua
 local rin = dofile("rin.lua")

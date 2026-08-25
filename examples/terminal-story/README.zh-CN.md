@@ -2,9 +2,9 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-终端故事是一个零外部依赖、嵌入式的 Control V2 示例。它用于证明非战斗类游戏也能
-通过引擎无关的 Adapter、Effect Policy、控制权租约、Operation 和权威 Outcome
-接入 Rin，并与其他游戏适配器共用同一条执行链。
+终端故事是一个不需要模型、API Key 或外部服务的自包含嵌入式 Control V2 示例。
+它用于证明非战斗类游戏也能通过引擎无关的 Adapter、Effect Policy、控制权租约、
+Operation 和权威 Outcome 接入 Rin，并与其他游戏适配器共用同一条执行链。
 
 参考场景提供四个强类型能力：
 
@@ -44,8 +44,9 @@ go run ./examples/terminal-story \
   --task restore-photograph
 ```
 
-该命令运行嵌入式 Host 和外部语义控制器，不会调用模型，也不需要 API Key。集成测试
-还会使用内部 Agent Runtime 和真实的 MCP 内存会话驱动同一个场景：
+该命令运行嵌入式 Host，以及携带外部决策权限的进程内 Controller；它不会启动内部
+Agent Runtime 或 MCP Client。集成测试还会使用内部 Agent Runtime 和真实的 MCP
+内存会话驱动同一个场景：
 
 ```bash
 go test ./examples/adapters/story

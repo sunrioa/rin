@@ -20,8 +20,6 @@ contracts. Documentation examples never replace authoritative game-adapter check
 10. [Signal inbox](signals.md): receive short-lived Host attention hints for internal wake-up or external MCP reads.
 11. [Host scaffolding](host-scaffolding.md): generate a contract skeleton for a language and engine.
 12. [Integration acceptance](host-integration-validation.md): automated gates and human game testing.
-13. [Milestone A validation report](milestone-a-validation.md): current architecture,
-    cross-adapter evidence, performance, and remaining human checks.
 
 Additional material:
 
@@ -36,6 +34,8 @@ Additional material:
 | Host `rin.host/v2` | `host/*.go` |
 | Control `rin.control/v2` | `api/control-openapi.json`, `controlplane/*.go` |
 | Agent Task API `v1` | `api/agent-openapi.json`, `agentapi/*.go` |
+| Management `rin.management/v1` | `api/management-openapi.json`, `managementapi/*.go` |
+| Task Plan `rin.task-plan/v1` | `api/task-plan-openapi.json`, `taskstate/*.go` |
 | Task timeline `v1` | `timeline/*.go`, `api/task-timeline-v1-fixtures.json` |
 | Signal `rin.signal/v1` | `signalbox/*.go`, `api/signal-openapi.json` |
 | MCP tools | `mcpbridge/server.go` |

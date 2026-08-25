@@ -22,8 +22,12 @@ var worlds = await control.ListWorldsAsync();
 
 Methods return `JsonElement`; inputs may be anonymous objects or ordinary DTOs.
 The default endpoint is `http://127.0.0.1:7375`. The client rejects redirects
-and bounds response size, JSON depth, timeout, and JavaScript-safe integers.
+and bounds response size and timeout. Request payloads are limited by JSON
+depth and the JavaScript-safe integer range.
 
-Every asynchronous method accepts a `CancellationToken`. Cancellation or
-timeout means that the result is unknown, not that the game did not execute.
-Query the same operation until an authoritative terminal state is available.
+Every asynchronous method accepts a `CancellationToken`. Cancellation or a
+network timeout while submitting or waiting does not prove that the game did
+not execute. If the Operation ID is known, query that Operation; otherwise,
+exactly retry the original submission with the same request and idempotency
+identity. Do not submit a new identity. See the
+[Operation recovery semantics](../../docs/operations.md).

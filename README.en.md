@@ -59,12 +59,17 @@ Core invariants:
 
 ## Build locally
 
-Go `1.25` or newer is required. Other language runtimes are needed only when
-testing their SDKs.
+Building the core binaries requires Go `1.25` or newer:
+
+```bash
+make build
+```
+
+The full maintainer verification gate also requires Node.js, Python, the .NET
+SDK, a JDK, and Lua:
 
 ```bash
 make verify
-make build
 ```
 
 The `bin/` directory then contains:
@@ -106,6 +111,8 @@ actors, operations, long goals, and a readable task timeline, and it manages the
 shared default persona and common memory cards. Common cards are retrievable by
 internal Agents attached to the same Rin instance; game canon, actor-private
 memory, and an external Agent's private memory do not become cross-game state.
+The Console also manages learned skills, the internal model, optional remote
+embeddings, and general gameplay policy.
 
 ## Connect external Agents
 
@@ -131,9 +138,9 @@ creates a contract skeleton without downloading dependencies or pretending to
 provide an engine integration.
 
 ```bash
-./bin/rin init host -engine custom -runtime java -id my-game-host -output ./my-game-host
-./bin/rin conformance host -project ./my-game-host
-./bin/rin doctor host -project ./my-game-host
+./bin/rin init host -engine custom -runtime java -id my_game_host -output ./my-game-host
+./bin/rin conformance host -path ./my-game-host
+./bin/rin doctor host -path ./my-game-host
 ```
 
 A complete adapter supplies trusted observations, capability discovery, target
@@ -166,15 +173,19 @@ and adapter path.
 - [Roadmap](ROADMAP.en.md)
 
 The OpenAPI files are the sole HTTP route and field sources of truth:
-`api/control-openapi.json` and `api/agent-openapi.json`.
+`api/control-openapi.json`, `api/agent-openapi.json`,
+`api/management-openapi.json`, `api/signal-openapi.json`, and
+`api/task-plan-openapi.json`.
 
 ## Security boundary
 
 Rin does not execute model-generated code, expose engine objects to models, or
 allow controllers to declare effects. The built-in safety kernel denies effects
 for arbitrary code, file access, native calls, authority forgery, and secret
-exposure. API keys enter through process environment only and must never appear
-in Agent configuration, game saves, observations, or MCP output.
+exposure. Model and embedding provider keys must never appear in public Agent
+configuration, game saves, observations, or MCP output. They may come from
+environment variables or a separate mode-`0600` secret file written by the
+local Console; environment variables take precedence.
 
 See [SECURITY.en.md](SECURITY.en.md) for the threat model.
 

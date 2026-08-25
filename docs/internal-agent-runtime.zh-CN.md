@@ -19,7 +19,7 @@ Runtime 当前推进显式创建的 Task，不会仅凭 Persona 的 `initiative_
 | Agent Client | 配置中的 `client_principal` | 仅 `task.read`、`task.execute`、`task.cancel` |
 | Internal Runtime | 进程内创建，不通过 HTTP 暴露 | 仅控制 `DecisionAuthority=internal` 的角色 |
 
-`RIN_CONTROL_TOKEN` 与 `RIN_AGENT_TOKEN` 应使用不同值。任一 Token 都不能访问
+`RIN_CONTROL_TOKEN` 与 `RIN_AGENT_TOKEN` 必须使用不同值。任一 Token 都不能访问
 另一组路由。Agent Client 不能配置 `host.admin`、`actor.*` 或游戏专属 Scope。
 
 ## 配置
@@ -87,6 +87,8 @@ Actor+Controller 绑定和 Actor 绑定优先；只能配置一个默认绑定�
 ```bash
 chmod 600 /absolute/path/agent.json
 export RIN_AGENT_CONFIG=/absolute/path/agent.json
+export RIN_CONTROL_TOKEN="$(openssl rand -hex 32)"
+export RIN_CONTROL_PRINCIPAL="local.player"
 export RIN_AGENT_TOKEN="$(openssl rand -hex 32)"
 export RIN_AGENT_API_KEY="provider-key-from-secret-store"
 export RIN_AGENT_EMBEDDING_API_KEY="embedding-key-from-secret-store"
@@ -142,10 +144,10 @@ Consolidate 可以把多条记录压缩为带来源的摘要。
 `memory_embeddings` 表；Query Vector 使用小型进程内缓存。向量候选进入结果前仍会重新校验
 当前可见域、过期、过滤条件和内容摘要。
 
-Embedding 凭据只从 `RIN_AGENT_EMBEDDING_API_KEY` 读取，不进入 JSON。Controller 私有域和
-疑似凭据文本不会外发。超时、断网、限流、模型身份不符、维度变化或非法向量都直接回退到
-FTS5 与近期记忆，不中断游戏任务。Rin 不下载或托管 Embedding 模型；远端 Provider 也不拥有
-Memory ID、事实、权限或删除权。
+Embedding 凭据不进入 JSON，可以来自 `RIN_AGENT_EMBEDDING_API_KEY` 或 Console 管理的
+secret 文件，环境变量优先。Controller 私有域和疑似凭据文本不会外发。超时、断网、限流、
+模型身份不符、维度变化或非法向量都直接回退到 FTS5 与近期记忆，不中断游戏任务。Rin
+不下载或托管 Embedding 模型；远端 Provider 也不拥有 Memory ID、事实、权限或删除权。
 
 `rin-control` 独占 `<RIN_CONTROL_DATA_DIR>/agent/memory.db`。SQLite 是 Rin Memory 域
 唯一的在线事实源，使用 WAL、完整同步和 FTS5；JSONL 仅用于显式的手动交换，不存在并行的

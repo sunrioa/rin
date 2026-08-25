@@ -23,7 +23,7 @@ cooldown, and cancellation path.
 | Agent Client | Configured `client_principal` | Only `task.read`, `task.execute`, and `task.cancel` |
 | Internal Runtime | Created in process and never exposed over HTTP | Only controls Actors with `DecisionAuthority=internal` |
 
-`RIN_CONTROL_TOKEN` and `RIN_AGENT_TOKEN` should use different values. Neither
+`RIN_CONTROL_TOKEN` and `RIN_AGENT_TOKEN` must use different values. Neither
 token can access the other route family. The Agent Client cannot receive
 `host.admin`, `actor.*`, or game-specific scopes.
 
@@ -94,6 +94,8 @@ Only one default is allowed, and it cannot select a controller.
 ```bash
 chmod 600 /absolute/path/agent.json
 export RIN_AGENT_CONFIG=/absolute/path/agent.json
+export RIN_CONTROL_TOKEN="$(openssl rand -hex 32)"
+export RIN_CONTROL_PRINCIPAL="local.player"
 export RIN_AGENT_TOKEN="$(openssl rand -hex 32)"
 export RIN_AGENT_API_KEY="provider-key-from-secret-store"
 export RIN_AGENT_EMBEDDING_API_KEY="embedding-key-from-secret-store"
@@ -162,12 +164,14 @@ table keyed by configured model and content digest. Query vectors use a small
 process-local cache; results are rechecked against current visibility, expiry,
 filters, and content digest before use.
 
-`RIN_AGENT_EMBEDDING_API_KEY` is separate from JSON configuration. Private
-controller domains and text resembling credentials are never sent to the
-embedding endpoint. Timeout, transport failure, rate limiting, invalid model,
-invalid dimensions, or malformed vectors fall back to normal FTS5 and recent
-memory results. Rin does not download or run an embedding model, and the remote
-provider never owns Memory IDs, facts, permissions, or deletion.
+The embedding key is separate from JSON configuration. It may come from
+`RIN_AGENT_EMBEDDING_API_KEY` or the Console-managed secret file; the environment
+variable takes precedence. Private controller domains and text resembling
+credentials are never sent to the embedding endpoint. Timeout, transport
+failure, rate limiting, invalid model, invalid dimensions, or malformed vectors
+fall back to normal FTS5 and recent memory results. Rin does not download or run
+an embedding model, and the remote provider never owns Memory IDs, facts,
+permissions, or deletion.
 
 `rin-control` exclusively owns `<RIN_CONTROL_DATA_DIR>/agent/memory.db`.
 SQLite is the only online source of truth for the Rin Memory domain and uses WAL,

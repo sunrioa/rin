@@ -19,8 +19,6 @@
 10. [Signal 收件箱](signals.zh-CN.md)：由 Host 发布短期注意提示，供内部唤醒或外部 MCP 读取。
 11. [Host 脚手架](host-scaffolding.zh-CN.md)：生成契约骨架并接入自己的语言与引擎。
 12. [集成验收](host-integration-validation.zh-CN.md)：自动门禁与真人游戏测试。
-13. [里程碑 A 验收报告](milestone-a-validation.zh-CN.md)：当前架构、跨 Adapter 证据、性能与
-    仍需真人确认的项目。
 
 补充资料：
 
@@ -35,6 +33,8 @@
 | Host `rin.host/v2` | `host/*.go` |
 | Control `rin.control/v2` | `api/control-openapi.json`、`controlplane/*.go` |
 | Agent Task API `v1` | `api/agent-openapi.json`、`agentapi/*.go` |
+| Management `rin.management/v1` | `api/management-openapi.json`、`managementapi/*.go` |
+| Task Plan `rin.task-plan/v1` | `api/task-plan-openapi.json`、`taskstate/*.go` |
 | Task Timeline `v1` | `timeline/*.go`、`api/task-timeline-v1-fixtures.json` |
 | Signal `rin.signal/v1` | `signalbox/*.go`、`api/signal-openapi.json` |
 | MCP Tool | `mcpbridge/server.go` |

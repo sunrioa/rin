@@ -2,10 +2,11 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Terminal Story is a dependency-free, embedded Control V2 example. It proves
-that a non-combat game can expose dialogue and story progression through the
-same engine-neutral Adapter, Effect Policy, controller lease, Operation, and
-authoritative Outcome path used by other game integrations.
+Terminal Story is a self-contained, embedded Control V2 example that requires
+no model, API key, or external service. It proves that a non-combat game can
+expose dialogue and story progression through the same engine-neutral Adapter,
+Effect Policy, controller lease, Operation, and authoritative Outcome path used
+by other game integrations.
 
 The reference scene offers four typed capabilities:
 
@@ -47,10 +48,10 @@ go run ./examples/terminal-story \
   --task restore-photograph
 ```
 
-The command runs an embedded Host and external semantic controller. It does
-not call a model and requires no API key. The integration tests additionally
-drive the same scene through the internal Agent Runtime and a real in-memory
-MCP session:
+The command runs an embedded Host and an in-process controller carrying
+external decision authority. It does not start the internal Agent Runtime or an
+MCP client. The integration tests additionally drive the same scene through the
+internal Agent Runtime and a real in-memory MCP session:
 
 ```bash
 go test ./examples/adapters/story

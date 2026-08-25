@@ -8,10 +8,10 @@
 ## 创建
 
 ```bash
-rin init host \
+./bin/rin init host \
   -engine custom \
   -runtime java \
-  -id my-game-host \
+  -id my_game_host \
   -name "My Game Host" \
   -version 0.1.0 \
   -output ./my-game-host
@@ -23,8 +23,8 @@ rin init host \
 先检查而不写文件：
 
 ```bash
-rin init host -engine custom -runtime java -id my-game-host -dry-run
-rin init host -list-hosts
+./bin/rin init host -engine custom -runtime java -id my_game_host -dry-run
+./bin/rin init host -list-hosts
 ```
 
 目标目录必须不存在。生成器不会覆盖已有目录或文件，也不会自动选择另一个名称。
@@ -33,6 +33,8 @@ rin init host -list-hosts
 
 ```text
 my-game-host/
+  .editorconfig
+  .gitignore
   README.md
   README.zh-CN.md
   LICENSE-RIN.txt
@@ -45,7 +47,8 @@ my-game-host/
 ```
 
 - `rin-host.json`：Schema 2、`rin.host/v2`、Runtime、Durability 与能力目录。
-- `rin-scaffold.json`：生成器、项目和每个文件的 SHA-256；用于检测骨架漂移。
+- `rin-scaffold.json`：生成器、项目，以及除 Manifest 自身外每个生成文件的 SHA-256；
+  用于检测骨架漂移。
 - `capabilities/dialogue.say.json`：经过密封的 `CapabilitySpec` 示例。
 - `src/README.md`：必须由具体游戏实现的 Authority 边界。
 - `LICENSE-RIN.txt`：只覆盖 Rin 生成的骨架，不替游戏或 Mod 选择许可证。
@@ -55,11 +58,11 @@ my-game-host/
 
 ## 验证命令
 
-在生成目录或通过 `-project` 指定目录：
+在 Rin 仓库根目录执行 `make build` 后运行：
 
 ```bash
-rin conformance host -project ./my-game-host
-rin doctor host -project ./my-game-host
+./bin/rin conformance host -path ./my-game-host
+./bin/rin doctor host -path ./my-game-host
 ```
 
 Conformance 检查：
@@ -87,8 +90,9 @@ Doctor 输出接入状态和后续工作。两条命令只证明契约骨架有�
 ## 安全属性
 
 生成器在写入前一次性渲染所有文件并验证总大小、相对路径、大小写碰撞、保留名称、
-符号链接和目标存在性。文件写入临时同级目录后原子发布；并发创建同一目标时只允许
-一个成功。
+符号链接和目标存在性。它直接创建最终目录，先写入 `.rin-scaffold.incomplete`，再以
+排他方式创建并验证全部生成文件，最后删除 Marker；Marker 创建后的后续步骤失败时，
+它会保留。并发创建同一目标时只允许一个成功。
 
 `rin-scaffold.json` 是完整性清单，不是签名。能修改文件的人也能重算 SHA-256；
 发布产物仍需使用你自己的签名和供应链机制。
