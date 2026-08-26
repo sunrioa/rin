@@ -2,10 +2,9 @@
 
 [English](game-adapters.md) | [简体中文](game-adapters.zh-CN.md)
 
-An adapter connects a concrete game model to `rin.host/v2`. Rin does not require
-ECS, behavior trees, a particular scripting language, or a network topology. An
-adapter supplies trusted observations, capability binding, and authoritative
-execution.
+Game-specific integration lives in the adapter. Rin does not require ECS,
+behavior trees, a particular scripting language, or a network topology. The
+complete adapter responsibilities are defined by the required interface below.
 
 ## Required boundary
 

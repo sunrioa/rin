@@ -88,6 +88,11 @@ jobs:
           set -euo pipefail
           .cache/mcp-conformance/bin/rin-control >.cache/mcp-conformance/control.log 2>&1 &
           control_pid=$!
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent --header "Authorization: Bearer ${RIN_CONTROL_TOKEN}" "${RIN_CONTROL_URL}/control/v2/info" >/dev/null; then break; fi
+            sleep 0.25
+          done
+          curl --fail --silent --header "Authorization: Bearer ${RIN_CONTROL_TOKEN}" "${RIN_CONTROL_URL}/control/v2/info" >/dev/null
           .cache/mcp-conformance/bin/rin-mcp -conformance-addr 127.0.0.1:17380 >.cache/mcp-conformance/mcp.log 2>&1 &
           mcp_pid=$!
           trap 'kill "$mcp_pid" "$control_pid" 2>/dev/null || true' EXIT

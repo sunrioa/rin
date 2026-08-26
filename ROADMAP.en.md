@@ -25,12 +25,10 @@ changes; stability takes priority over compatibility with retired interfaces.
 
 ## Current gates
 
-1. Converge public documentation and remove obsolete implementations, examples,
-   and compatibility claims.
-2. Run complete build, race, contract, MCP, SDK, installer, and credential scans
+1. Run complete build, race, contract, MCP, SDK, installer, and credential scans
    for Rin and the first real game adapter.
-3. Fix reproducible findings without adding abstractions that have no consumer.
-4. Enter human acceptance for long play, explicitly enabled multiplayer, GUI,
+2. Fix reproducible findings without adding abstractions that have no consumer.
+3. Enter human acceptance for long play, explicitly enabled multiplayer, GUI,
    emergency stop, behavioral naturalness, and model cost.
 
 ## Next release phase
