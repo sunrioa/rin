@@ -2,8 +2,8 @@
 
 [English](game-adapters.md) | [简体中文](game-adapters.zh-CN.md)
 
-Adapter 把具体游戏的世界模型接到 `rin.host/v2`。Rin 不要求游戏使用 ECS、行为树、
-特定脚本语言或特定网络架构；Adapter 只需提供可信观察、能力绑定和权威执行。
+具体游戏的集成边界集中在 Adapter。Rin 不要求游戏使用 ECS、行为树、特定脚本语言
+或特定网络架构；Adapter 的完整职责以下方“必须实现”接口为准。
 
 ## 必须实现
 

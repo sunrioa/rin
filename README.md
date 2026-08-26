@@ -5,8 +5,8 @@
 Rin 是一个引擎无关的游戏 Agent Harness。它把模型或外部 Agent 的低频决策，转换为
 游戏 Host 可验证、可授权、可追踪的结构化行动；游戏仍然拥有世界状态和最终执行权。
 
-Minecraft、RPG、视觉小说或自研游戏只需要实现 Adapter，不需要把游戏对象、线程模型
-或私有 API 放进 Rin 核心。
+Minecraft、RPG、视觉小说或自研游戏的集成都集中在 Adapter；游戏侧仍负责权威状态、
+实时控制和持久化语义，游戏对象、线程模型或私有 API 不进入 Rin 核心。
 
 当前源码版本为 `0.7.0` Preview。V2 是不兼容重构，不读取旧 Session/Proposal 协议状态。
 公开契约分别为 `rin.host/v2`、`rin.control/v2` 和 Agent Task API `v1`。

@@ -412,8 +412,12 @@ func (service *Service) restoreOperations(state persistedOperations) error {
 		service.emergencyStops[key] = stop
 	}
 	if state.PolicyState != nil {
-		if err := service.policyEngine.RestoreState(*state.PolicyState); err != nil {
+		migrated, err := service.restorePolicyState(*state.PolicyState)
+		if err != nil {
 			return fmt.Errorf("%w: restore policy state: %v", ErrPersistence, err)
+		}
+		if migrated {
+			service.operationCheckpointDirty = true
 		}
 	}
 	if len(state.Operations) != 0 {
@@ -449,6 +453,25 @@ func (service *Service) restoreOperations(state persistedOperations) error {
 func operationPolicyReservationPending(status OperationStatus) bool {
 	return status == OperationQueued || status == OperationDelivered ||
 		status == OperationAccepted || status == OperationRunning
+}
+
+// restorePolicyState treats the active Policy config as the commit record for
+// a forward config update. Policy config and operation checkpoints are separate
+// atomic files, so a crash may leave the checkpoint one or more revisions
+// behind. Engine.Update deliberately preserves usage and reservations across a
+// revision change; rebasing only the checkpoint metadata reproduces that same
+// transition without weakening rollback or same-revision digest checks.
+func (service *Service) restorePolicyState(state policy.State) (bool, error) {
+	active := service.policyEngine.SnapshotStateFor(nil)
+	if state.PolicyRevision < active.PolicyRevision {
+		state.PolicyRevision = active.PolicyRevision
+		state.ConfigDigest = active.ConfigDigest
+		if err := service.policyEngine.RestoreState(state); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	return false, service.policyEngine.RestoreState(state)
 }
 
 func validateOperationParentGraph(operations map[string]*operationState) error {
@@ -936,7 +959,11 @@ func (service *Service) flushOperationsLocked() error {
 	if service.closed {
 		return ErrClosed
 	}
-	if !service.operationDirty && !service.operationCheckpointDirty {
+	// The Policy Engine may advance independently through the Management API.
+	// Persistent services therefore always publish a final checkpoint on clean
+	// shutdown even when ordinary operation state did not change.
+	if service.operationFile == nil &&
+		!service.operationDirty && !service.operationCheckpointDirty {
 		return nil
 	}
 	return service.writeOperationsLocked(maxOperationFileBytes)
