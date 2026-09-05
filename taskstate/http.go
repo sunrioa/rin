@@ -3,7 +3,6 @@ package taskstate
 import (
 	"bytes"
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"github.com/sunrioa/rin/controlplane"
+	"github.com/sunrioa/rin/internal/httpjson"
 )
 
 const maxHTTPRequestBytes int64 = 1 << 20
@@ -189,14 +189,12 @@ func planHTTPHandler(
 ) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		response.Header().Set("Cache-Control", "no-store")
-		token := strings.TrimPrefix(request.Header.Get("Authorization"), "Bearer ")
-		if len(token) != len(options.Token) ||
-			subtle.ConstantTimeCompare([]byte(token), []byte(options.Token)) != 1 {
+		if !httpjson.Authorized(request, options.Token) {
 			writePlanHTTPError(response, http.StatusUnauthorized, "unauthorized")
 			return
 		}
-		body, err := io.ReadAll(io.LimitReader(request.Body, maxHTTPRequestBytes+1))
-		if err != nil || int64(len(body)) > maxHTTPRequestBytes {
+		body, err := httpjson.ReadBody(response, request, maxHTTPRequestBytes)
+		if err != nil {
 			writePlanHTTPError(response, http.StatusBadRequest, "invalid_request")
 			return
 		}
@@ -206,20 +204,13 @@ func planHTTPHandler(
 			writePlanHTTPError(response, status, code)
 			return
 		}
-		response.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(response).Encode(output)
+		httpjson.Write(response, http.StatusOK, output)
 	}
 }
 
 func decodeHTTPInput[T any](payload []byte) (T, error) {
 	var target T
-	decoder := json.NewDecoder(bytes.NewReader(payload))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&target); err != nil {
-		return target, ErrInvalid
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+	if err := httpjson.Decode(payload, &target); err != nil {
 		return target, ErrInvalid
 	}
 	return target, nil
@@ -241,9 +232,7 @@ func planHTTPError(err error) (int, string) {
 }
 
 func writePlanHTTPError(response http.ResponseWriter, status int, code string) {
-	response.Header().Set("Content-Type", "application/json")
-	response.WriteHeader(status)
-	_ = json.NewEncoder(response).Encode(map[string]string{
+	httpjson.Write(response, status, map[string]string{
 		"code": code, "error": code,
 	})
 }

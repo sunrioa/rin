@@ -1,20 +1,15 @@
 package controlplane
 
 import (
-	"bytes"
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"mime"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/sunrioa/rin/host"
-	"github.com/sunrioa/rin/internal/jsonwire"
+	"github.com/sunrioa/rin/internal/httpjson"
 	"github.com/sunrioa/rin/timeline"
 )
 
@@ -197,13 +192,7 @@ func (server *hostHTTPHandler) secure(next http.Handler) http.Handler {
 		response.Header().Set("X-Content-Type-Options", "nosniff")
 		if request.URL.Path != "/health" &&
 			request.URL.Path != "/control/v2/health" {
-			provided := strings.TrimPrefix(
-				request.Header.Get("Authorization"), "Bearer ",
-			)
-			if len(provided) != len(server.token) ||
-				subtle.ConstantTimeCompare(
-					[]byte(provided), []byte(server.token),
-				) != 1 {
+			if !httpjson.Authorized(request, server.token) {
 				response.Header().Set("WWW-Authenticate", "Bearer")
 				writeHTTPError(response, http.StatusUnauthorized, "unauthorized")
 				return
@@ -787,28 +776,7 @@ func (server *hostHTTPHandler) decode(
 	request *http.Request,
 	target any,
 ) error {
-	contentType, _, err := mime.ParseMediaType(
-		request.Header.Get("Content-Type"),
-	)
-	if err != nil || contentType != "application/json" {
-		return errors.New("content type must be application/json")
-	}
-	request.Body = http.MaxBytesReader(
-		response, request.Body, server.maxBodyBytes,
-	)
-	payload, err := io.ReadAll(request.Body)
-	if err != nil {
-		return errors.New("request body exceeds the configured limit")
-	}
-	if err := jsonwire.Validate(payload); err != nil {
-		return fmt.Errorf("invalid JSON: %w", err)
-	}
-	decoder := json.NewDecoder(bytes.NewReader(payload))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return fmt.Errorf("invalid request: %w", err)
-	}
-	return nil
+	return httpjson.DecodeRequest(response, request, server.maxBodyBytes, target)
 }
 
 func principalHasControlScope(principal host.Principal) bool {
@@ -866,12 +834,5 @@ func writeHTTPErrorCode(
 }
 
 func writeJSON(response http.ResponseWriter, status int, value any) {
-	payload, err := json.Marshal(value)
-	if err != nil {
-		http.Error(response, `{"error":"internal error"}`, http.StatusInternalServerError)
-		return
-	}
-	response.Header().Set("Content-Type", "application/json")
-	response.WriteHeader(status)
-	_, _ = response.Write(append(payload, '\n'))
+	httpjson.Write(response, status, value)
 }
