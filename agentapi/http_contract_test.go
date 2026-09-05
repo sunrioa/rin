@@ -36,8 +36,8 @@ func TestAgentOpenAPIMatchesRegisteredRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtimeRoutes := agentapi.ContractRoutes()
-	if len(openAPIRoutes) != 8 || len(runtimeRoutes) != len(openAPIRoutes) {
-		t.Fatalf("route count: OpenAPI=%d runtime=%d, want 8", len(openAPIRoutes), len(runtimeRoutes))
+	if len(openAPIRoutes) != 9 || len(runtimeRoutes) != len(openAPIRoutes) {
+		t.Fatalf("route count: OpenAPI=%d runtime=%d, want 9", len(openAPIRoutes), len(runtimeRoutes))
 	}
 	runtimeByKey := make(map[string]agentapi.ContractRoute, len(runtimeRoutes))
 	for _, route := range runtimeRoutes {
@@ -106,37 +106,40 @@ func TestAgentOpenAPISchemaFieldsMatchGoDTOs(t *testing.T) {
 		t.Fatal(err)
 	}
 	types := map[string]any{
-		"ClientInfo":            agentapi.ClientInfo{},
-		"Principal":             host.Principal{},
-		"StartTaskInput":        cognition.StartTaskInput{},
-		"TaskTarget":            agentapi.TaskTarget{},
-		"TaskBudget":            cognition.TaskBudget{},
-		"TaskDispatch":          agentapi.TaskDispatch{},
-		"TaskSchedule":          cognition.TaskSchedule{},
-		"TaskSession":           cognition.TaskSession{},
-		"TaskOperationResult":   cognition.TaskOperationResult{},
-		"SkillLearningState":    cognition.SkillLearningState{},
-		"TaskEvent":             cognition.TaskEvent{},
-		"ControllerLease":       controlplane.ControllerLease{},
-		"Epoch":                 host.Epoch{},
-		"CapabilityRef":         host.CapabilityRef{},
-		"HostRef":               host.HostRef{},
-		"ActionRequest":         host.ActionRequest{},
-		"MemoryRecord":          cognition.MemoryRecord{},
-		"MemoryNamespace":       cognition.MemoryNamespace{},
-		"MemoryProvenance":      cognition.MemoryProvenance{},
-		"MemoryCanonRef":        cognition.MemoryCanonRef{},
-		"Timepoint":             host.Timepoint{},
-		"TaskTimelineQuery":     timeline.Query{},
-		"WaitTaskTimelineInput": timeline.WaitInput{},
-		"TaskTimelinePage":      timeline.Page{},
-		"TaskTimelineUpdate":    timeline.Update{},
-		"TaskTimelineEvent":     timeline.Event{},
-		"MemoryContextRef":      timeline.MemoryContextRef{},
-		"SkillContextRef":       timeline.SkillContextRef{},
-		"ModelUsage":            timeline.ModelUsage{},
-		"PolicySummary":         timeline.PolicySummary{},
-		"OperationSummary":      timeline.OperationSummary{},
+		"ClientInfo":                  agentapi.ClientInfo{},
+		"Principal":                   host.Principal{},
+		"StartTaskInput":              cognition.StartTaskInput{},
+		"TaskTarget":                  agentapi.TaskTarget{},
+		"TaskBudget":                  cognition.TaskBudget{},
+		"TaskDispatch":                agentapi.TaskDispatch{},
+		"TaskCompletionPolicy":        cognition.TaskCompletionPolicy{},
+		"TaskCompletionEvidence":      cognition.TaskCompletionEvidence{},
+		"CompletionConfirmationInput": agentapi.CompletionConfirmationInput{},
+		"TaskSchedule":                cognition.TaskSchedule{},
+		"TaskSession":                 cognition.TaskSession{},
+		"TaskOperationResult":         cognition.TaskOperationResult{},
+		"SkillLearningState":          cognition.SkillLearningState{},
+		"TaskEvent":                   cognition.TaskEvent{},
+		"ControllerLease":             controlplane.ControllerLease{},
+		"Epoch":                       host.Epoch{},
+		"CapabilityRef":               host.CapabilityRef{},
+		"HostRef":                     host.HostRef{},
+		"ActionRequest":               host.ActionRequest{},
+		"MemoryRecord":                cognition.MemoryRecord{},
+		"MemoryNamespace":             cognition.MemoryNamespace{},
+		"MemoryProvenance":            cognition.MemoryProvenance{},
+		"MemoryCanonRef":              cognition.MemoryCanonRef{},
+		"Timepoint":                   host.Timepoint{},
+		"TaskTimelineQuery":           timeline.Query{},
+		"WaitTaskTimelineInput":       timeline.WaitInput{},
+		"TaskTimelinePage":            timeline.Page{},
+		"TaskTimelineUpdate":          timeline.Update{},
+		"TaskTimelineEvent":           timeline.Event{},
+		"MemoryContextRef":            timeline.MemoryContextRef{},
+		"SkillContextRef":             timeline.SkillContextRef{},
+		"ModelUsage":                  timeline.ModelUsage{},
+		"PolicySummary":               timeline.PolicySummary{},
+		"OperationSummary":            timeline.OperationSummary{},
 	}
 	for name, value := range types {
 		schema, exists := document.Components.Schemas[name]

@@ -117,6 +117,7 @@
               <label><span>主动冷却（毫秒）</span><input id="personaInitiativeCooldown" type="number" min="0" max="86400000"></label>
               <label><span>最多连续行动</span><input id="personaInitiativeMaxActions" type="number" min="0" max="64"></label>
               <label><span>主动触发器</span><input id="personaInitiativeTriggers" placeholder="signal.player_hurt, topic.unfinished"></label>
+              <label><span>可打断普通主动任务的触发器（可选）</span><input id="personaPreemptTriggers" placeholder="填写主动触发器中的高优先级事件"></label>
               <label class="wide"><span>边界</span><textarea id="personaBoundaries" rows="5" placeholder="每行：boundary_id :: 规则 :: 越界时回应"></textarea></label>
               <label class="wide"><span>关系立场</span><textarea id="personaRelationships" rows="4" placeholder="每行：role_id :: 对该关系的态度"></textarea></label>
               <label class="wide"><span>人格绑定</span><textarea id="personaBindings" rows="5" placeholder="每行：actor_id 或 * :: controller_id 或 * :: persona_id :: version"></textarea></label>
@@ -256,9 +257,11 @@
         <label><span>Host ID</span><input id="taskHostId" required placeholder="host.minecraft"></label>
         <label><span>World ID</span><input id="taskWorldId" required placeholder="world.example"></label>
         <label><span>Actor ID</span><input id="taskActorId" required placeholder="companion.example"></label>
-        <label><span>规划方式</span><select id="taskPlanningMode"><option value="required">先生成阶段计划</option><option value="auto">按复杂度自动决定</option></select></label>
+        <label><span>规划方式</span><select id="taskPlanningMode"><option value="required">先生成阶段计划</option><option value="auto">按复杂度自动决定</option><option value="disabled">直接执行，不创建计划</option></select></label>
         <label><span>流程攻略</span><select id="taskSkillTrigger"><option value="">不指定</option></select></label>
         <label><span>其他标签</span><input id="taskTags" placeholder="例如 survival, exploration"></label>
+        <label><span>完成标准</span><select id="taskCompletionMode"><option value="model-declared">由 Agent 判断（有计划时仍需计划完成）</option><option value="host-evidence">满足 Host 验收条件</option><option value="human-confirmation">由我确认结果</option></select></label>
+        <label id="taskCompletionConditionsLabel" class="wide" hidden><span>Host 验收条件（JSON 数组）</span><textarea id="taskCompletionConditions" rows="4" placeholder='[{"condition_id":"goal.arrived","kind":"observation-fact","summary":"已到达目的地","fact_id":"actor.arrived","fact_value_json":"true"}]'></textarea><small>事实条件要求当前观察值精确匹配；Operation 条件要求指定能力有成功的 Host 结果。</small></label>
         <label class="wide"><span>目标</span><textarea id="taskGoal" rows="5" required placeholder="例如：从当前状态准备物资并击败末影龙"></textarea></label>
       </div>
       <div class="form-actions"><button type="button" id="cancelTask" class="button secondary">取消</button><button class="button primary" value="default">开始任务</button></div>

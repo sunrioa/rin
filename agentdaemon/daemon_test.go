@@ -148,7 +148,7 @@ func TestCloseReleasesPersistentStoresForRestart(t *testing.T) {
 	if err := first.Close(); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"tasks.json", "memory.db"} {
+	for _, name := range []string{"tasks.db", "memory.db"} {
 		if info, err := os.Stat(filepath.Join(dataDirectory, "agent", name)); err != nil || !info.Mode().IsRegular() {
 			t.Fatalf("persistent %s was not created: %v", name, err)
 		}
@@ -233,7 +233,8 @@ func TestSignalSchedulerWakesOnlyInternalInitiative(t *testing.T) {
 			current := signalbox.Signal{
 				SignalID: "signal.one", HostID: "host.one", WorldID: "world.one", ActorID: "actor.one",
 				Kind: "test.player.hurt", Summary: "The player was hurt.", Epoch: epoch,
-				ObservationSequence: 2, ExpiresAtUnixMillis: time.Now().Add(time.Minute).UnixMilli(),
+				// Accepted older context still triggers a fresh decision at sequence 2.
+				ObservationSequence: 1, ExpiresAtUnixMillis: time.Now().Add(time.Minute).UnixMilli(),
 			}
 			if result, err := signals.Publish(current); err != nil || !result.Accepted {
 				t.Fatalf("publish = %#v, %v", result, err)

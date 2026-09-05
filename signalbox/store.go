@@ -81,6 +81,15 @@ func (store *Store) Configure(target Target, settings Settings) (Settings, error
 	}
 	unchanged := box.settings == settings
 	box.settings = settings
+	if !settings.Enabled {
+		for i := range box.signals {
+			if box.signals[i].Delivery.Status == "" || box.signals[i].Delivery.Status == "retry" {
+				box.signals[i].Delivery.Status = "dropped"
+				box.signals[i].Delivery.Reason = "inbox-disabled"
+				box.signals[i].Delivery.RetryAtUnixMillis = 0
+			}
+		}
+	}
 	store.pruneLocked(box, store.now().UnixMilli())
 	if len(box.signals) > int(settings.MaxPending) {
 		box.signals = append([]Signal(nil), box.signals[len(box.signals)-int(settings.MaxPending):]...)

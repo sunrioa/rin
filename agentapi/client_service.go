@@ -115,3 +115,7 @@ func cloneTaskPrincipal(principal host.Principal) host.Principal {
 }
 
 var _ TaskClient = (*ClientService)(nil)
+
+func (client *ClientService) ConfirmTaskCompletion(ctx context.Context, input CompletionConfirmationInput) (TaskDispatch, error) {
+	return client.service.ConfirmTaskCompletion(ctx, client.principal, input)
+}

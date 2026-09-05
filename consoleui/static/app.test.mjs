@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import vm from "node:vm";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const app = readFileSync(join(root, "app.js"), "utf8");
@@ -130,4 +131,87 @@ test("Console lists external MCP plans without internal task controls", () => {
   assert.match(app, /外部计划/);
   assert.match(app, /controller_source/);
   assert.match(app, /当前没有内部任务或外部 MCP 计划/);
+});
+
+function consoleHarness(fetch) {
+  const elements = new Map();
+  const element = (selector) => {
+    if (!elements.has(selector)) elements.set(selector, {
+      textContent: "", value: "", hidden: true, open: false, style: {},
+      classList: { add() {}, remove() {}, toggle() {} },
+      showModal() { this.open = true; },
+    });
+    return elements.get(selector);
+  };
+  const context = vm.createContext({
+    AbortController, DOMException, fetch, setTimeout, clearTimeout,
+    sessionStorage: { getItem() { return "test-token"; }, setItem() {}, removeItem() {} },
+    document: { addEventListener() {}, querySelector: element, querySelectorAll() { return []; } },
+    window: {},
+  });
+  vm.runInContext(app, context);
+  return { context, element, run: (code) => vm.runInContext(code, context) };
+}
+
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
+test("overlapping refreshes share one request and refresh again after settlement", async () => {
+  const harness = consoleHarness();
+  const gate = deferred();
+  let calls = 0;
+  harness.context.loadOverview = async () => { calls++; await gate.promise; };
+  const first = harness.run("refreshCurrent()");
+  const second = harness.run("refreshCurrent()");
+  const third = harness.run("refreshCurrent()");
+  assert.equal(calls, 1);
+  assert.equal(first, second);
+  assert.equal(second, third);
+  gate.resolve();
+  await Promise.all([first, second, third]);
+  await harness.run("refreshCurrent()");
+  assert.equal(calls, 2);
+});
+
+test("navigation aborts old reads without treating cancellation as an outage", async () => {
+  let signal;
+  const harness = consoleHarness((_url, options) => new Promise((_resolve, reject) => {
+    signal = options.signal;
+    signal.addEventListener("abort", () => reject(new DOMException("cancelled", "AbortError")), { once: true });
+  }));
+  harness.run('loadOverview = () => readAPI("/management/v1/runtime", { method: "GET" }); loadActors = async () => {};');
+  const oldRefresh = harness.run("refreshCurrent()");
+  harness.run('selectView("actors")');
+  await oldRefresh;
+  assert.equal(signal.aborted, true);
+  assert.equal(harness.element("#viewError").textContent, "");
+  assert.equal(harness.element("#toast").textContent, "");
+  assert.equal(harness.element("#serviceLabel").textContent, "");
+});
+
+test("late unauthorized reads cannot clear a replacement token", async () => {
+  const response = deferred();
+  const harness = consoleHarness(() => response.promise);
+  const request = harness.run('readAPI("/management/v1/runtime", { method: "GET" })');
+  const rejected = assert.rejects(request, { name: "AbortError" });
+  harness.run('setToken("replacement-token")');
+  response.resolve({ ok: false, status: 401, text: async () => '{"error":"old token"}' });
+  await rejected;
+  assert.equal(harness.run("state.token"), "replacement-token");
+  assert.equal(harness.element("#authDialog").open, false);
+});
+
+test("navigation leaves an explicitly submitted mutation running", async () => {
+  let signal;
+  const response = deferred();
+  const harness = consoleHarness((_url, options) => { signal = options.signal; return response.promise; });
+  harness.run('loadActors = async () => {};');
+  const mutation = harness.run('api("/management/v1/tasks/control", { body: { task_id: "task.one", action: "cancel" } })');
+  harness.run('selectView("actors")');
+  assert.equal(signal, undefined);
+  response.resolve({ ok: true, text: async () => '{}' });
+  await mutation;
 });

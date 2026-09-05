@@ -55,6 +55,7 @@ type Service struct {
 	requests                  map[string]string
 	changed                   chan struct{}
 	operationFile             *operationFile
+	operationSQLite           *operationSQLite
 	operationDirty            bool
 	operationCheckpointDirty  bool
 	operationTimelineSequence uint64
@@ -145,6 +146,9 @@ func (service *Service) Close() error {
 		var closeErr error
 		if service.operationFile != nil {
 			closeErr = service.operationFile.close()
+		}
+		if service.operationSQLite != nil {
+			closeErr = errors.Join(closeErr, service.operationSQLite.close())
 		}
 		service.notifyLocked()
 		service.closeError = errors.Join(persistErr, closeErr)

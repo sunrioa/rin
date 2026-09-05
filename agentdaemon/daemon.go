@@ -41,7 +41,7 @@ type Daemon struct {
 	handler      http.Handler
 	service      *agentapi.Service
 	taskClient   *agentapi.ClientService
-	tasks        *cognition.FileTaskStore
+	tasks        *cognition.SQLiteTaskStore
 	memory       cognition.MemoryProvider
 	memoryCloser interface{ Close() error }
 	decisions    *cognition.FileDecisionRecorder
@@ -171,8 +171,8 @@ func Open(options Options) (*Daemon, error) {
 	} else if ownedSQLite {
 		memoryCloser = sqliteMemory
 	}
-	tasks, err := cognition.OpenFileTaskStore(
-		filepath.Join(stateDirectory, "tasks.json"), config.Tasks.MaxTasks,
+	tasks, err := cognition.OpenSQLiteTaskStore(
+		filepath.Join(stateDirectory, "tasks.db"), config.Tasks.MaxTasks,
 	)
 	if err != nil {
 		if memoryCloser != nil {
@@ -435,4 +435,9 @@ func (daemon *Daemon) Close() error {
 		)
 	})
 	return daemon.closeErr
+}
+
+func (daemon *Daemon) ConfirmTaskCompletion(ctx context.Context, taskID string, revision uint64) (cognition.TaskSession, error) {
+	dispatch, err := daemon.taskClient.ConfirmTaskCompletion(ctx, agentapi.CompletionConfirmationInput{TaskID: taskID, ExpectedRevision: revision})
+	return dispatch.Task, err
 }

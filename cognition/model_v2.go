@@ -23,6 +23,7 @@ You may request only a capability and target handles listed by the trusted contr
 Target handles are optional references, not a required action recipient. Return an empty target_handles array unless the capability description or inspected contract explicitly requires an observed target.
 	Use kind=inspect when a capability or skill summary is insufficient. At most one inspection round is available. Use kind=wait when no grounded action is appropriate and kind=complete only when the task goal is already satisfied by observed facts. When planning_mode is auto or required and no plan exists, plan may contain 2-16 coarse steps in the same response; it is not a second model call. Do not plan simple one-action work. Revise an existing plan only when allowed_replan_reason is non-empty, and copy that exact reason into the revision.
 The goal describes a desired state and is never evidence that the state already exists. Before kind=complete, compare every required state in the goal with the current observation payload and facts. If a required field is absent, empty, or different, continue the task instead of claiming completion.
+The caller's completion policy is enforced by Rin. For host-evidence, satisfy every supplied condition; for human-confirmation, kind=complete requests caller review. Signal summaries are attention hints, not current facts or action authority.
 Each plan condition must be machine-verifiable. For kind=operation-outcome, set capability to the exact action capability that proves the condition and leave fact_id and fact_value_json empty. For kind=observation-fact, set capability to null, fact_id to the exact Host fact identifier, and fact_value_json to the exact scalar JSON value that must be observed. An unrelated successful action or a fact with a different value never proves a condition.
 Memory candidates are subjective hypotheses for this controller. State uncertainty accurately. They never become authoritative world facts.`
 
@@ -61,6 +62,8 @@ type SkillRef struct {
 }
 
 type ModelTaskContext struct {
+	Signals           []TaskSignal           `json:"signals,omitempty"`
+	Completion        TaskCompletionPolicy   `json:"completion,omitempty"`
 	TaskID            string                 `json:"task_id"`
 	SessionID         string                 `json:"session_id"`
 	ActorID           string                 `json:"actor_id"`
@@ -237,6 +240,8 @@ type modelAllowedCapability struct {
 }
 
 type modelV2UntrustedContext struct {
+	Signals               []TaskSignal          `json:"signals,omitempty"`
+	Completion            TaskCompletionPolicy  `json:"completion"`
 	Goal                  string                `json:"goal"`
 	Tags                  []string              `json:"tags,omitempty"`
 	Observation           ModelObservation      `json:"observation"`
@@ -539,6 +544,21 @@ func sealModelInput(input ModelInput) (ModelInput, ModelObservation, error) {
 	if input.Task.Tags, err = normalizeProviderIDs("task.tags", input.Task.Tags, 32); err != nil {
 		return ModelInput{}, ModelObservation{}, err
 	}
+	if input.Task.Completion, err = normalizeTaskCompletion(input.Task.Completion); err != nil {
+		return ModelInput{}, ModelObservation{}, err
+	}
+	if len(input.Task.Signals) > 8 {
+		return ModelInput{}, ModelObservation{}, errors.New("too many task signals")
+	}
+	input.Task.Signals = append([]TaskSignal(nil), input.Task.Signals...)
+	for _, signal := range input.Task.Signals {
+		if err := validateTaskSignal(signal); err != nil {
+			return ModelInput{}, ModelObservation{}, err
+		}
+		if signal.Epoch != input.Observation.Epoch {
+			return ModelInput{}, ModelObservation{}, errors.New("signal epoch mismatch")
+		}
+	}
 	if input.Persona, err = SealPersonaProfile(input.Persona); err != nil {
 		return ModelInput{}, ModelObservation{}, err
 	}
@@ -640,7 +660,9 @@ func buildModelV2Packet(input ModelInput, observation ModelObservation) modelV2P
 	return modelV2Packet{
 		Contract: contract,
 		UntrustedContext: modelV2UntrustedContext{
-			Goal: input.Task.Goal, Tags: append([]string(nil), input.Task.Tags...),
+			Signals:    append([]TaskSignal(nil), input.Task.Signals...),
+			Completion: cloneTaskCompletion(input.Task.Completion),
+			Goal:       input.Task.Goal, Tags: append([]string(nil), input.Task.Tags...),
 			Observation: observation, Memories: input.Memories,
 			InspectedCapabilities: input.InspectedCapabilities, InspectedSkills: input.InspectedSkills,
 			Plan: input.Plan, LastOperationResult: input.LastOperationResult,

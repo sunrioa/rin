@@ -39,6 +39,7 @@ func (service *Service) queueOutcomeDeliveryLocked(operation *operationState) {
 	for id := range service.outcomeSinks {
 		if _, known := operation.outcomeDelivery[id]; !known {
 			operation.outcomeDelivery[id] = false
+			operation.persistenceRevision++
 			service.markOperationsDirtyLocked()
 		}
 	}
@@ -130,11 +131,13 @@ func (service *Service) deliverOutcome(ctx context.Context, subscriber string, s
 		return nil
 	}
 	operation.outcomeDelivery[subscriber] = true
+	operation.persistenceRevision++
 	service.markOperationsDirtyLocked()
 	if err := service.persistOperationsLocked(); err != nil {
 		// A failed acknowledgement is retried even in this process. A crash before
 		// commit also replays it; the sink's idempotency makes both paths safe.
 		operation.outcomeDelivery[subscriber] = false
+		operation.persistenceRevision++
 		service.markOperationsDirtyLocked()
 		return err
 	}

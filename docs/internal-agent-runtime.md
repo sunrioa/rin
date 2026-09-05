@@ -244,11 +244,14 @@ data and cannot alter the allowed set, epoch, controller, or budgets.
 ## State and calls
 
 - [`api/agent-openapi.json`](../api/agent-openapi.json) is the Task HTTP contract.
-- State is fixed at `<RIN_CONTROL_DATA_DIR>/agent/tasks.json` and `memory.db`.
-- Task snapshots use `rin.cognition.tasks/v4` and import v3 snapshots on open.
-- Task files use private permissions and atomic replacement. Memory uses SQLite
-  transactions, WAL, and a single-writer process lock. Configuration cannot
-  redirect these paths.
+- State is fixed at `<RIN_CONTROL_DATA_DIR>/agent/tasks.db` and `memory.db`.
+- Tasks use SQLite schema version 1 and the `rin.cognition.tasks/v5` projection.
+  The first database open imports an existing `tasks.json` v3, v4 or v5 snapshot;
+  later opens use the database, even if that obsolete backup changes.
+- Task CAS writes one task row and the snapshot revision in one SQLite transaction.
+  WAL, `synchronous=FULL`, private files and a single-writer process lock preserve
+  the durable-return guarantee. A failed commit blocks cache reads until reopen.
+  Configuration cannot redirect these paths. See [migration](execution-storage.md).
 - `scheduled=true` only means background coordination was queued. It is not
   proof of model deliberation, game execution, or task completion.
 - `allowed_capabilities` is an optional task-local allowlist of at most 128
@@ -284,8 +287,9 @@ never gates readiness. `OperationWaitMillis` is retained for source compatibilit
 but no longer controls worker waiting.
 
 Importing a v3 snapshot infers a legacy observation wait once. A legacy wait with
-no recorded observation requires an explicit run. v4 snapshots must carry a
-valid schedule. v3 binaries cannot read snapshots written as v4.
+no recorded observation requires an explicit run. v4 and v5 snapshots must carry
+a valid schedule; legacy tasks default to model-declared completion. The original
+JSON is a migration backup, not a live replica for an older binary.
 
 Cancellation persists `cancel_requested` before cancelling the active run's
 context and does not wait for the per-task execution lock. Late model responses
@@ -300,6 +304,40 @@ A cancellation request does not undo effects already applied by the Host. Pendin
 Host operations remain `cancelling` until authoritative settlement. Custom model
 providers and outcome subscribers must honor context cancellation to release
 their own resources promptly.
+
+## Independent completion criteria
+
+`StartTaskInput.completion` controls acceptance independently of `planning_mode`:
+
+| `completion.mode` | Completion requirement |
+| --- | --- |
+| `model-declared` (default) | The model requests completion and any existing Plan is complete. |
+| `host-evidence` | The model requests completion and all caller-supplied conditions have Host evidence. |
+| `human-confirmation` | The model requests review; a caller with `task.execute` accepts the exact task revision. |
+
+For `host-evidence`, supply 1–16 conditions using the Plan condition shape. An
+`observation-fact` matches an exact scalar `fact_value_json`; all fact conditions
+must hold in the same current observation. An `operation-outcome` names an exact
+Capability ID/version and requires a confirmed successful operation from this
+task in the current epoch. Unrelated actions, past-epoch results, and accumulated
+facts from different snapshots do not satisfy acceptance. The model cannot rewrite
+the caller's criteria. Missing evidence registers an observation wait; new evidence
+can finish an already requested completion without another model call.
+
+```json
+{"mode":"host-evidence","conditions":[{"condition_id":"goal.arrived","kind":"observation-fact","summary":"The Host confirms arrival.","fact_id":"actor.at-destination","fact_value_json":"true"}]}
+```
+
+Human review pauses with `completion.confirmation-required`. Submit
+`POST /agent/v1/tasks/confirm-completion` with `task_id` and `expected_revision`.
+A stale revision returns conflict; cancellation, a pending action or an incomplete
+Plan cannot be overridden. Resume returns the task to deliberation. The Console
+exposes the completion mode when creating a task and an acceptance control while
+the task awaits human review.
+
+The runtime separates context collection, bounded model decisions and decision
+application. Explicit `inspect` and argument-schema repair share one additional
+model-call budget while preserving their distinct diagnostic events.
 
 ## Macro parent-child loop
 

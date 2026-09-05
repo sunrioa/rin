@@ -184,6 +184,7 @@ func (runtime *AgentRuntime) advancePendingAction(
 		paused, pauseErr := runtime.pauseTask(ctx, task, "operation.output-invalid", resultErr)
 		return paused, false, pauseErr
 	}
+	recordCompletionOutcome(&task, view)
 	task.LastOperationResult = result
 	clearPendingTaskAction(&task)
 	task.Step++
@@ -357,6 +358,7 @@ func (runtime *AgentRuntime) advanceMacroOperation(
 	if view.Outcome != nil && !runtime.outcomesRecordedByControl {
 		warning = runtime.appendOutcomeMemory(ctx, task, view, "macro-outcome")
 	}
+	recordCompletionOutcome(&task, view)
 	operationID := task.MacroOperationID
 	task.MacroOperationID = ""
 	if cancelling {

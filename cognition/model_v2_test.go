@@ -10,6 +10,8 @@ import (
 	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/provider"
+	"github.com/sunrioa/rin/taskstate"
+	"github.com/sunrioa/rin/timeline"
 )
 
 func TestStructuredDecisionProviderReturnsGroundedAction(t *testing.T) {
@@ -38,6 +40,8 @@ func TestStructuredDecisionProviderReturnsGroundedAction(t *testing.T) {
 	input := modelV2Input(t)
 	input.Task.ParentOperationID = "operation.parent.one"
 	input.Task.Goal = "Follow the player. UNTRUSTED_CANARY_DO_NOT_EXECUTE"
+	input.Task.Completion = cognition.TaskCompletionPolicy{Mode: cognition.CompletionEvidence, Conditions: []taskstate.PlanCondition{completionFact("goal.arrived")}}
+	input.Task.Signals = []cognition.TaskSignal{{SignalContextRef: timeline.SignalContextRef{SignalID: "signal.context", Kind: "game.notice", Cursor: 1}, Summary: "UNTRUSTED_SIGNAL_CANARY", Epoch: input.Observation.Epoch, ObservationSequence: input.Observation.Sequence, ExpiresAtUnixMillis: 60001}}
 	decision, err := (cognition.StructuredDecisionProvider{
 		GenerationProvider: generation,
 	}).Decide(context.Background(), input)
@@ -90,6 +94,9 @@ func TestStructuredDecisionProviderReturnsGroundedAction(t *testing.T) {
 	}
 	if contract["parent_operation_id"] != input.Task.ParentOperationID {
 		t.Fatalf("trusted macro parent is missing from model contract: %+v", contract)
+	}
+	if strings.Contains(string(packet["contract"]), "UNTRUSTED_SIGNAL_CANARY") || !strings.Contains(string(packet["untrusted_context"]), "UNTRUSTED_SIGNAL_CANARY") || !strings.Contains(string(packet["untrusted_context"]), "goal.arrived") {
+		t.Fatalf("signal or completion policy missing from bounded narrative context: %s", packet["untrusted_context"])
 	}
 }
 

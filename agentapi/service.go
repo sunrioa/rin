@@ -31,7 +31,7 @@ type Service struct {
 	dispatchDone chan struct{}
 
 	mu        sync.Mutex
-	scheduled map[string]struct{}
+	scheduled map[string]bool
 	closed    bool
 	closeOnce sync.Once
 	wg        sync.WaitGroup
@@ -67,7 +67,7 @@ func New(options Options) (*Service, error) {
 		runtime: options.Runtime, ctx: ctx, cancel: cancel,
 		queue: make(chan string, capacity), interval: interval,
 		dispatchDone: make(chan struct{}, 1),
-		scheduled:    make(map[string]struct{}),
+		scheduled:    make(map[string]bool),
 	}
 	snapshot, err := service.runtime.SnapshotTasks(ctx)
 	if err != nil {
@@ -119,6 +119,35 @@ func (service *Service) StartSignalTask(
 		return TaskDispatch{}, normalizeServiceError(err)
 	}
 	return TaskDispatch{Task: task, Scheduled: service.enqueue(task.TaskID)}, nil
+}
+
+// HandleActorSignal coordinates trusted local initiative; no public transport
+// accepts preemption rules or a caller-authored Signal context.
+func (service *Service) HandleActorSignal(ctx context.Context, principal host.Principal, input cognition.ActorSignalInput) (cognition.SignalHandlingResult, error) {
+	if err := service.authorize(ctx, principal, ScopeTaskExecute); err != nil {
+		return cognition.SignalHandlingResult{}, err
+	}
+	if input.Preempt {
+		if err := service.authorize(ctx, principal, ScopeTaskCancel); err != nil {
+			return cognition.SignalHandlingResult{}, err
+		}
+	}
+	runtime, ok := service.runtime.(interface {
+		HandleActorSignal(context.Context, cognition.ActorSignalInput) (cognition.SignalHandlingResult, error)
+	})
+	if !ok {
+		return cognition.SignalHandlingResult{}, ErrUnavailable
+	}
+	result, err := runtime.HandleActorSignal(ctx, input)
+	if err != nil {
+		return result, normalizeServiceError(err)
+	}
+	// Runtime state notifications handle attachment and cancellation. Newly
+	// created tasks are also queued directly for low startup latency.
+	if result.Status == "started" {
+		service.enqueue(result.TaskID)
+	}
+	return result, nil
 }
 
 func (service *Service) startTask(
@@ -201,7 +230,7 @@ func (service *Service) RunTask(
 	}
 	scheduled := false
 	if taskCanRun(task.Status) {
-		scheduled = service.enqueue(task.TaskID)
+		scheduled = service.enqueue(task.TaskID, true)
 	}
 	return TaskDispatch{Task: task, Scheduled: scheduled}, nil
 }
@@ -223,7 +252,7 @@ func (service *Service) ResumeTask(
 	}
 	scheduled := false
 	if taskCanRun(task.Status) {
-		scheduled = service.enqueue(task.TaskID)
+		scheduled = service.enqueue(task.TaskID, true)
 	}
 	return TaskDispatch{Task: task, Scheduled: scheduled}, nil
 }
@@ -251,7 +280,7 @@ func (service *Service) CancelTask(
 	}
 	scheduled := false
 	if task.Status == cognition.TaskCancelling {
-		scheduled = service.enqueue(task.TaskID)
+		scheduled = service.enqueue(task.TaskID, true)
 	}
 	if task.Status == cognition.TaskCancelling {
 		err = nil
@@ -295,18 +324,22 @@ func (service *Service) authorize(
 	return ErrForbidden
 }
 
-func (service *Service) enqueue(taskID string) bool {
+func (service *Service) enqueue(taskID string, explicit ...bool) bool {
+	force := len(explicit) != 0 && explicit[0]
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	if service.closed {
 		return false
 	}
 	if _, exists := service.scheduled[taskID]; exists {
+		if force {
+			service.scheduled[taskID] = true
+		}
 		return false
 	}
 	select {
 	case service.queue <- taskID:
-		service.scheduled[taskID] = struct{}{}
+		service.scheduled[taskID] = force
 		return true
 	default:
 		return false
@@ -345,6 +378,15 @@ func (service *Service) runTask(taskID string) {
 		return
 	}
 	task, err := service.runtime.GetTask(service.ctx, taskID)
+	service.mu.Lock()
+	force := service.scheduled[taskID]
+	service.mu.Unlock()
+	// A readiness snapshot can become stale while this task is queued. Explicit
+	// run requests may override a wait; automatic dispatches must recheck it.
+	if err == nil && !force && !service.taskReady(task) {
+		return
+	}
+
 	if err == nil && task.Status == cognition.TaskPaused &&
 		service.taskReady(task) {
 		task, err = service.runtime.ResumeTask(service.ctx, taskID)
@@ -449,3 +491,21 @@ func normalizeServiceError(err error) error {
 }
 
 var _ TaskRuntime = (*cognition.AgentRuntime)(nil)
+
+func (service *Service) ConfirmTaskCompletion(ctx context.Context, principal host.Principal, input CompletionConfirmationInput) (TaskDispatch, error) {
+	if err := service.authorize(ctx, principal, ScopeTaskExecute); err != nil {
+		return TaskDispatch{}, err
+	}
+	if err := cognition.ValidateTaskID(input.TaskID); err != nil {
+		return TaskDispatch{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
+	if input.ExpectedRevision == 0 || input.ExpectedRevision > 9_007_199_254_740_991 {
+		return TaskDispatch{}, fmt.Errorf("%w: expected_revision is required", ErrInvalid)
+	}
+	runtime, ok := service.runtime.(completionRuntime)
+	if !ok {
+		return TaskDispatch{}, ErrUnavailable
+	}
+	task, err := runtime.ConfirmTaskCompletion(ctx, input.TaskID, input.ExpectedRevision)
+	return TaskDispatch{Task: task}, normalizeServiceError(err)
+}

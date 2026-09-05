@@ -20,6 +20,7 @@ type RelationshipStance struct {
 }
 
 type InitiativePolicy struct {
+	PreemptTriggers       []string `json:"preempt_triggers,omitempty"`
 	Enabled               bool     `json:"enabled"`
 	CooldownMillis        uint32   `json:"cooldown_millis"`
 	MaxConsecutiveActions uint32   `json:"max_consecutive_actions"`
@@ -302,6 +303,14 @@ func SealPersonaProfile(profile PersonaProfile) (PersonaProfile, error) {
 	); err != nil {
 		return PersonaProfile{}, err
 	}
+	if profile.Initiative.PreemptTriggers, err = normalizeProviderIDs("initiative_policy.preempt_triggers", profile.Initiative.PreemptTriggers, 32); err != nil {
+		return PersonaProfile{}, err
+	}
+	for _, kind := range profile.Initiative.PreemptTriggers {
+		if len(profile.Initiative.Triggers) != 0 && !slices.Contains(profile.Initiative.Triggers, kind) {
+			return PersonaProfile{}, errors.New("preempt triggers must also be enabled initiative triggers")
+		}
+	}
 	return profile, nil
 }
 
@@ -325,6 +334,7 @@ func validatePersonaBinding(binding PersonaBinding) error {
 }
 
 func clonePersonaProfile(profile PersonaProfile) PersonaProfile {
+	profile.Initiative.PreemptTriggers = append([]string(nil), profile.Initiative.PreemptTriggers...)
 	profile.Traits = append([]string(nil), profile.Traits...)
 	profile.Values = append([]string(nil), profile.Values...)
 	profile.Boundaries = append([]PersonaBoundary(nil), profile.Boundaries...)

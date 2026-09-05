@@ -16,6 +16,8 @@ const state = {
   selectedActorId: "",
   viewEpoch: 0,
   requestVersions: new Map(),
+  viewController: new AbortController(),
+  refresh: null,
 };
 
 const titles = {
@@ -74,6 +76,9 @@ function bindForms() {
   onAsync($("#taskLookupForm"), "submit", lookupTask);
   onAsync($("#newTaskButton"), "click", openTaskDialog);
   onAsync($("#taskForm"), "submit", startTask);
+  $("#taskCompletionMode").addEventListener("change", () => {
+    $("#taskCompletionConditionsLabel").hidden = $("#taskCompletionMode").value !== "host-evidence";
+  });
   $("#cancelTask").addEventListener("click", () => $("#taskDialog").close());
   onAsync($("#personaForm"), "submit", savePersona);
   $("#newMemoryButton").addEventListener("click", () => openMemoryDialog());
@@ -101,7 +106,7 @@ function bindForms() {
 
 function selectView(view) {
   state.view = view;
-  state.viewEpoch += 1;
+  invalidateViewRequests();
   clearViewError();
   $$(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.view === view));
   $$(".view").forEach((item) => item.classList.toggle("active", item.id === view));
@@ -110,21 +115,37 @@ function selectView(view) {
   refreshCurrent();
 }
 
-async function refreshCurrent() {
-  if (!state.token) return;
+function invalidateViewRequests() {
+  state.viewController.abort();
+  state.viewController = new AbortController();
+  state.viewEpoch += 1;
+  state.refresh = null;
+}
+
+function refreshCurrent() {
+  if (!state.token) return Promise.resolve();
+  if (state.refresh?.epoch === state.viewEpoch) return state.refresh.promise;
+  const refresh = { view: state.view, epoch: state.viewEpoch };
+  refresh.promise = performRefresh(refresh).finally(() => {
+    if (state.refresh === refresh) state.refresh = null;
+  });
+  state.refresh = refresh;
+  return refresh.promise;
+}
+
+async function performRefresh({ view, epoch }) {
   const loaders = {
     overview: loadOverview, actors: loadActors, tasks: loadTasks, operations: loadOperations,
     memory: loadMemories,
     persona: loadPersona, skills: loadSkills, connections: loadHealth, settings: loadSettings,
   };
-  const view = state.view;
-  const epoch = state.viewEpoch;
   try {
     await loaders[view]();
     if (view !== state.view || epoch !== state.viewEpoch) return;
     clearViewError();
     $("#lastUpdated").textContent = new Date().toLocaleTimeString();
   } catch (error) {
+    if (error.name === "AbortError") return;
     if (view !== state.view || epoch !== state.viewEpoch) return;
     if (error.offline || error.status === 401) setService(false);
     showViewError(error.message);
@@ -145,7 +166,7 @@ function isCurrentRequest(request) {
 
 async function loadHealth() {
   const request = beginRequest("diagnostics");
-  const diagnostics = await api("/management/v1/diagnostics", { method: "GET" });
+  const diagnostics = await readAPI("/management/v1/diagnostics", { method: "GET" });
   if (!isCurrentRequest(request)) return;
   state.diagnostics = diagnostics;
   renderDiagnostics(diagnostics);
@@ -156,9 +177,9 @@ async function loadSettings() {
   const request = beginRequest("settings");
   $("#settingsToken").value = state.token;
   const [diagnostics, agentConfig, policyConfig] = await Promise.all([
-    api("/management/v1/diagnostics", { method: "GET" }),
-    api("/management/v1/agent/config", { method: "GET" }),
-    api("/management/v1/policy/config", { method: "GET" }),
+    readAPI("/management/v1/diagnostics", { method: "GET" }),
+    readAPI("/management/v1/agent/config", { method: "GET" }),
+    readAPI("/management/v1/policy/config", { method: "GET" }),
   ]);
   if (!isCurrentRequest(request)) return;
   state.diagnostics = diagnostics;
@@ -196,7 +217,7 @@ async function savePolicyConfig(event) {
     renderPolicyConfig(result);
     $("#policyConfigNotice").textContent = "权限策略已应用，并会在下次启动时继续使用。";
     $("#policyConfigNotice").hidden = false;
-    const diagnostics = await api("/management/v1/diagnostics", { method: "GET" });
+    const diagnostics = await readAPI("/management/v1/diagnostics", { method: "GET" });
     state.diagnostics = diagnostics;
     renderConfig(diagnostics);
     toast("权限策略已应用");
@@ -348,9 +369,9 @@ async function saveAgentConfig(event) {
 async function loadOverview() {
   const request = beginRequest("overview");
   const [health, info, runtime] = await Promise.all([
-    api("/control/v2/health", { method: "GET" }),
-    api("/control/v2/info", { method: "GET" }),
-    api("/management/v1/runtime", { method: "GET" }),
+    readAPI("/control/v2/health", { method: "GET" }),
+    readAPI("/control/v2/info", { method: "GET" }),
+    readAPI("/management/v1/runtime", { method: "GET" }),
   ]);
   if (!isCurrentRequest(request)) return;
   state.worlds = runtime.worlds || [];
@@ -367,7 +388,7 @@ async function loadOverview() {
 
 async function loadActors() {
   const request = beginRequest("actors");
-  const runtime = await api("/management/v1/runtime", { method: "GET" });
+  const runtime = await readAPI("/management/v1/runtime", { method: "GET" });
   if (!isCurrentRequest(request)) return;
   state.worlds = runtime.worlds || [];
   state.actors = runtime.actors || [];
@@ -378,7 +399,7 @@ async function loadActors() {
 
 async function loadMemories() {
   const request = beginRequest("memories");
-  const result = await api("/management/v1/memories/list", {
+  const result = await readAPI("/management/v1/memories/list", {
     body: { scope: state.memoryScope, search: $("#memorySearch").value.trim(), limit: 200 },
   });
   if (!isCurrentRequest(request)) return;
@@ -440,7 +461,7 @@ async function forgetMemory(memoryId) {
 
 async function loadPersona() {
   const request = beginRequest("persona");
-  const snapshot = await api("/management/v1/personas", { method: "GET" });
+  const snapshot = await readAPI("/management/v1/personas", { method: "GET" });
   if (!isCurrentRequest(request)) return;
   state.persona = snapshot;
   const defaultBinding = (state.persona.bindings || []).find((binding) => !binding.actor_id && !binding.controller_id);
@@ -456,6 +477,7 @@ async function loadPersona() {
   setNumberField("personaInitiativeCooldown", profile.initiative_policy?.cooldown_millis);
   setNumberField("personaInitiativeMaxActions", profile.initiative_policy?.max_consecutive_actions);
   $("#personaInitiativeTriggers").value = (profile.initiative_policy?.triggers || []).join(", ");
+  $("#personaPreemptTriggers").value = (profile.initiative_policy?.preempt_triggers || []).join(", ");
   $("#personaBoundaries").value = (profile.boundaries || [])
     .map((item) => [item.boundary_id, item.rule, item.response].join(" :: ")).join("\n");
   $("#personaRelationships").value = (profile.relationship_stances || [])
@@ -478,6 +500,7 @@ async function savePersona(event) {
       cooldown_millis: numberField("personaInitiativeCooldown", true),
       max_consecutive_actions: numberField("personaInitiativeMaxActions", true),
       triggers: splitValues($("#personaInitiativeTriggers").value),
+      preempt_triggers: splitValues($("#personaPreemptTriggers").value),
     },
     boundaries: parseStructuredLines("personaBoundaries", 3, ([boundary_id, rule, response]) => ({
       boundary_id, rule, response,
@@ -503,7 +526,7 @@ async function savePersona(event) {
 
 async function loadSkills() {
   const request = beginRequest("skills");
-  const result = await api("/management/v1/skills/list", { body: { limit: 128 } });
+  const result = await readAPI("/management/v1/skills/list", { body: { limit: 128 } });
   if (!isCurrentRequest(request)) return;
   state.skills = result.skills || [];
   renderSkills();
@@ -524,7 +547,7 @@ function renderSkills() {
 }
 
 async function showSkill(skillId, version) {
-  const result = await api("/management/v1/skills/get", { body: { skill_id: skillId, version } });
+  const result = await readAPI("/management/v1/skills/get", { body: { skill_id: skillId, version } });
   const skill = result.skill;
   state.selectedSkill = { skillId: skill.skill_id, version: skill.version };
   const editable = skill.source === "learned";
@@ -665,7 +688,7 @@ function diagnosticStateLabel(status) { return { ok: "正常", warning: "需检�
 
 async function loadOperations() {
   const request = beginRequest("operations");
-  const result = await api("/management/v1/operations/list", { body: {
+  const result = await readAPI("/management/v1/operations/list", { body: {
     status: $("#operationStatus").value || undefined,
     host_id: $("#operationHost").value.trim() || undefined,
     world_id: $("#operationWorld").value.trim() || undefined,
@@ -716,7 +739,7 @@ function showOperation(operationId) {
 async function loadTasks() {
   const request = beginRequest("tasks");
   try {
-    const result = await api("/management/v1/tasks/list", { body: { limit: 100 } });
+    const result = await readAPI("/management/v1/tasks/list", { body: { limit: 100 } });
     if (!isCurrentRequest(request)) return;
     const tasks = result.tasks || [];
     $("#taskTable").innerHTML = tasks.length ? `<table><thead><tr><th>目标</th><th>来源</th><th>状态</th><th>阶段</th><th>动作 / 模型</th><th>更新</th></tr></thead><tbody>${tasks.map((task) => `<tr data-task-row="${escapeHTML(task.task_id)}"><td><strong>${escapeHTML(task.goal)}</strong><br><code>${escapeHTML(task.task_id)}</code>${tagList(task.tags)}</td><td>${task.task_control_available ? "内部 Agent" : `外部计划 · ${escapeHTML(task.controller_source || "-")}`}</td><td><span class="state ${task.status === "completed" ? "good" : task.status === "failed" ? "bad" : "warn"}">${escapeHTML(task.status)}</span></td><td>${escapeHTML(task.current_plan_step_id || task.plan_id || "-")}</td><td>${task.action_count} / ${task.model_calls}</td><td>${new Date(task.updated_at_unix_millis).toLocaleString()}</td></tr>`).join("")}</tbody></table>` : '<div class="detail-surface empty-state">当前没有内部任务或外部 MCP 计划。</div>';
@@ -738,7 +761,7 @@ async function openTaskDialog() {
     $("#taskWorldId").value = selected.world_id || "";
     $("#taskActorId").value = selected.actor_id || "";
   }
-  const result = await api("/management/v1/skills/list", { body: {
+  const result = await readAPI("/management/v1/skills/list", { body: {
     adapter: selected?.adapter_id || undefined, limit: 128,
   } });
   const taskSkills = result.skills || [];
@@ -765,10 +788,16 @@ async function startTask(event) {
     actor_id: $("#taskActorId").value.trim(),
     goal: $("#taskGoal").value.trim(),
     planning_mode: $("#taskPlanningMode").value,
+    completion: {
+      mode: $("#taskCompletionMode").value,
+      conditions: $("#taskCompletionMode").value === "host-evidence"
+        ? JSON.parse($("#taskCompletionConditions").value) : undefined,
+    },
     tags,
   } });
   $("#taskDialog").close();
   $("#taskForm").reset();
+  $("#taskCompletionConditionsLabel").hidden = true;
   toast("长目标已创建并进入执行队列");
   await loadTasks();
   await showTask(task.task_id);
@@ -786,7 +815,7 @@ async function showTask(taskId, append = false) {
   const afterCursor = append ? current?.nextCursor : "";
   if (append && (!current?.more || !afterCursor)) return;
   const request = beginRequest("task-detail");
-  const result = await api("/management/v1/tasks/get", { body: {
+  const result = await readAPI("/management/v1/tasks/get", { body: {
     task_id: taskId, after_cursor: afterCursor || undefined, limit: 100,
   } });
   if (!isCurrentRequest(request)) return;
@@ -801,6 +830,8 @@ async function showTask(taskId, append = false) {
   };
   const status = result.task.status;
   const controls = result.task.task_control_available ? [
+    status === "paused" && result.task.completion_requested && result.task.completion?.mode === "human-confirmation"
+      ? '<button class="button primary" data-task-action="confirm-completion">确认任务完成</button>' : "",
     status === "active" ? '<button class="button secondary" data-task-action="run">继续</button>' : "",
     status === "paused" ? '<button class="button secondary" data-task-action="resume">恢复</button>' : "",
     ["active", "paused", "waiting-confirmation"].includes(status) ? '<button class="button danger" data-task-action="cancel">取消</button>' : "",
@@ -818,7 +849,7 @@ async function showTask(taskId, append = false) {
     onAsync($("#loadMoreTaskEvents"), "click", () => showTask(taskId, true));
   }
   $$('[data-task-action]').forEach((button) => onAsync(button, "click", async () => {
-    await api("/management/v1/tasks/control", { body: { task_id: taskId, action: button.dataset.taskAction } });
+    await api("/management/v1/tasks/control", { body: { task_id: taskId, action: button.dataset.taskAction, expected_revision: button.dataset.taskAction === "confirm-completion" ? result.task.revision : undefined } });
     toast("任务状态已更新");
     await Promise.all([loadTasks(), showTask(taskId)]);
   }));
@@ -942,21 +973,30 @@ function attentionList(worlds, actors) {
   return notices.map(([title, detail, kind]) => `<div class="notice"><div><strong>${escapeHTML(title)}</strong><p>${escapeHTML(detail)}</p></div><span class="state ${kind}">${kind === "good" ? "正常" : "检查"}</span></div>`).join("");
 }
 
+function readAPI(path, options = {}) {
+  return api(path, { ...options, signal: state.viewController.signal });
+}
+
 async function api(path, options = {}) {
   const method = options.method || "POST";
   let response;
   try {
     response = await fetch(path, {
       method,
+      signal: options.signal,
       headers: { "Authorization": `Bearer ${state.token}`, ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}) },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
     });
-  } catch {
+  } catch (cause) {
+    if (cause.name === "AbortError" || options.signal?.aborted) {
+      throw new DOMException("Request cancelled", "AbortError");
+    }
     const error = new Error("无法连接本地 Rin 服务");
     error.offline = true;
     throw error;
   }
   const text = await response.text();
+  if (options.signal?.aborted) throw new DOMException("Request cancelled", "AbortError");
   let payload = {};
   try { payload = text ? JSON.parse(text) : {}; } catch { payload = { error: text }; }
   if (!response.ok) {
@@ -970,12 +1010,14 @@ async function api(path, options = {}) {
 }
 
 function setToken(token) {
+  invalidateViewRequests();
   state.token = token;
   sessionStorage.setItem("rin.controlToken", token);
   $("#settingsToken").value = token;
 }
 
 function lockConsole() {
+  invalidateViewRequests();
   state.token = "";
   sessionStorage.removeItem("rin.controlToken");
   setService(false);
@@ -1037,6 +1079,7 @@ function parseStructuredLines(id, columns, mapRow) {
 }
 function escapeHTML(value) { return String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char])); }
 function reportActionError(error) {
+  if (error?.name === "AbortError") return;
   const message = error?.message || "操作失败";
   showViewError(message);
   toast(message, true);

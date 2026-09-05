@@ -187,7 +187,11 @@ func (service *Service) projectOperationTimelineEvent(
 }
 
 func (service *Service) recordOperationTimelineLocked(operation *operationState) {
-	if operation == nil || operation.request.ActionRequest == nil ||
+	if operation == nil {
+		return
+	}
+	operation.persistenceRevision++
+	if operation.request.ActionRequest == nil ||
 		operation.request.ActionRequest.TaskID == "" {
 		return
 	}

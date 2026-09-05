@@ -610,6 +610,7 @@ func (service *Service) storeActionOperationLocked(
 		parentUpdatedAt = parent.updatedAt
 		parent.children = append(parent.children, request.OperationID)
 		parent.updatedAt = request.SubmittedAt
+		parent.persistenceRevision++
 	}
 	service.operations[request.OperationID] = operation
 	service.requests[key] = request.OperationID
@@ -621,6 +622,7 @@ func (service *Service) storeActionOperationLocked(
 		if parent != nil {
 			parent.children = parent.children[:len(parent.children)-1]
 			parent.updatedAt = parentUpdatedAt
+			parent.persistenceRevision++
 		}
 		service.finalizeOperationPolicyLocked(operation, false)
 		service.operationDirty = true

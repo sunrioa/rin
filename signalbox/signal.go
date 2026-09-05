@@ -20,18 +20,19 @@ var (
 )
 
 type Signal struct {
-	SchemaVersion        string     `json:"schema_version"`
-	SignalID             string     `json:"signal_id"`
-	HostID               string     `json:"host_id"`
-	WorldID              string     `json:"world_id"`
-	ActorID              string     `json:"actor_id"`
-	Kind                 string     `json:"kind"`
-	Summary              string     `json:"summary"`
-	Epoch                host.Epoch `json:"epoch"`
-	ObservationSequence  uint64     `json:"observation_sequence"`
-	ExpiresAtUnixMillis  int64      `json:"expires_at_unix_millis"`
-	ReceivedAtUnixMillis int64      `json:"received_at_unix_millis"`
-	Cursor               uint64     `json:"cursor"`
+	Delivery             DeliveryState `json:"delivery,omitempty"`
+	SchemaVersion        string        `json:"schema_version"`
+	SignalID             string        `json:"signal_id"`
+	HostID               string        `json:"host_id"`
+	WorldID              string        `json:"world_id"`
+	ActorID              string        `json:"actor_id"`
+	Kind                 string        `json:"kind"`
+	Summary              string        `json:"summary"`
+	Epoch                host.Epoch    `json:"epoch"`
+	ObservationSequence  uint64        `json:"observation_sequence"`
+	ExpiresAtUnixMillis  int64         `json:"expires_at_unix_millis"`
+	ReceivedAtUnixMillis int64         `json:"received_at_unix_millis"`
+	Cursor               uint64        `json:"cursor"`
 	globalSequence       uint64
 }
 
@@ -115,6 +116,9 @@ func ValidateTarget(value Target) error {
 }
 
 func validateSignal(value Signal, now int64) error {
+	if value.Delivery != (DeliveryState{}) {
+		return invalid("delivery", "must be assigned by Rin")
+	}
 	if value.SchemaVersion != "" && value.SchemaVersion != SchemaVersion {
 		return invalid("schema_version", "is unsupported")
 	}

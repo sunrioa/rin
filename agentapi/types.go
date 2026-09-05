@@ -85,3 +85,12 @@ type ClientInfo struct {
 	ContractVersion string         `json:"contract_version"`
 	Principal       host.Principal `json:"principal"`
 }
+
+// CompletionConfirmationInput binds caller acceptance to one review revision.
+type CompletionConfirmationInput struct {
+	TaskID           string `json:"task_id"`
+	ExpectedRevision uint64 `json:"expected_revision"`
+}
+type completionRuntime interface {
+	ConfirmTaskCompletion(context.Context, string, uint64) (cognition.TaskSession, error)
+}

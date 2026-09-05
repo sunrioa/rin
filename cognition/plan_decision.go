@@ -135,24 +135,34 @@ func (runtime *AgentRuntime) applyModelDecision(
 			paused, pauseErr := runtime.pauseTask(ctx, task, "model.invalid", err)
 			return paused, false, pauseErr
 		}
-		warning, err := runtime.appendModelDecisionMemories(
-			ctx, task, observation, runtime.stepID(task, "decision"), decision.MemoryCandidates,
-		)
+		switch task.Completion.Mode {
+		case CompletionHuman:
+			task.CompletionRequested = true
+			task.Status = TaskPaused
+			task.PauseCode = "completion.confirmation-required"
+			task.Schedule = TaskSchedule{Kind: ScheduleUser}
+			appendTaskEvent(&task, TaskEvent{Kind: "task.completion-requested", Step: task.Step, Code: "human-confirmation", Summary: decision.Summary, AtUnixMillis: runtime.now().UnixMilli()})
+			saved, err := runtime.saveTask(ctx, task)
+			return saved, false, err
+		case CompletionEvidence:
+			refreshCompletionFacts(&task, observation)
+			if !taskCompletionSatisfied(task, observation.Epoch) {
+				task.CompletionRequested = true
+				waitForObservation(&task, observation)
+				task.Step++
+				appendTaskEvent(&task, TaskEvent{Kind: "task.completion-unmet", Step: task.Step, Code: "host-evidence-required", Summary: "The completion request lacks the required Host evidence.", AtUnixMillis: runtime.now().UnixMilli()})
+				saved, err := runtime.saveTask(ctx, task)
+				return saved, false, err
+			}
+		}
+		warning, err := runtime.appendModelDecisionMemories(ctx, task, observation, runtime.stepID(task, "decision"), decision.MemoryCandidates)
 		if err != nil {
 			return task, false, err
 		}
-		task.Status = TaskCompleted
-		appendTaskEvent(&task, TaskEvent{
-			Kind: "task.completed", Step: task.Step, Code: "model-declared",
-			Summary: decision.Summary, AtUnixMillis: runtime.now().UnixMilli(),
-		})
 		if warning {
 			appendTaskEvent(&task, runtime.warningEvent(task, "memory.degraded"))
 		}
-		saved, err := runtime.saveTask(ctx, task)
-		if err == nil {
-			runtime.releaseController(saved)
-		}
+		saved, err := runtime.finishCompletedTask(ctx, task, string(task.Completion.Mode), decision.Summary)
 		return saved, false, err
 	case ModelDecisionAction:
 		if err := actionArgumentsSchemaError(decision, specs); err != nil {

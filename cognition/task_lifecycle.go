@@ -35,12 +35,30 @@ func (runtime *AgentRuntime) startTask(
 	input StartTaskInput,
 	signalRef *timeline.SignalContextRef,
 ) (TaskSession, error) {
+	return runtime.startTaskWithSignal(ctx, input, signalRef, nil, 0)
+}
+
+func (runtime *AgentRuntime) startTaskWithSignal(ctx context.Context, input StartTaskInput, signalRef *timeline.SignalContextRef, signal *TaskSignal, priority uint32) (TaskSession, error) {
 	if err := requireMemoryContext(ctx); err != nil {
 		return TaskSession{}, err
 	}
 	sealed, err := sealStartTaskInput(input)
 	if err != nil {
 		return TaskSession{}, err
+	}
+	// Controller acquisition and task creation must serialize for one Actor,
+	// including callers reusing the same controller ID.
+	actorLock := runtime.taskLock("\x00actor\x00" + sealed.HostID + "\x00" + sealed.WorldID + "\x00" + sealed.ActorID)
+	actorLock.Lock()
+	defer actorLock.Unlock()
+	snapshot, err := runtime.tasks.Snapshot(ctx)
+	if err != nil {
+		return TaskSession{}, err
+	}
+	for _, existing := range snapshot.Tasks {
+		if existing.TaskID == sealed.TaskID || (existing.HostID == sealed.HostID && existing.WorldID == sealed.WorldID && existing.ActorID == sealed.ActorID && !terminalTaskStatus(existing.Status)) {
+			return TaskSession{}, fmt.Errorf("%w: Actor already has an unfinished task", ErrProviderConflict)
+		}
 	}
 	if sealed.PlanningMode != taskstate.PlanningDisabled && runtime.plans == nil {
 		return TaskSession{}, errors.New("planning mode requires the shared task coordinator")
@@ -59,6 +77,9 @@ func (runtime *AgentRuntime) startTask(
 	if !actor.Online {
 		return TaskSession{}, controlplane.ErrUnavailable
 	}
+	if signal != nil && actor.Epoch != signal.Epoch {
+		return TaskSession{}, controlplane.ErrStale
+	}
 	target := controlplane.ActorControlTarget{
 		HostID: sealed.HostID, WorldID: sealed.WorldID, ActorID: sealed.ActorID,
 	}
@@ -75,7 +96,8 @@ func (runtime *AgentRuntime) startTask(
 	}
 	now := runtime.now().UnixMilli()
 	task := TaskSession{
-		TaskID: sealed.TaskID, SessionID: actor.Epoch.SessionID,
+		InitiativePriority: priority,
+		TaskID:             sealed.TaskID, SessionID: actor.Epoch.SessionID, Completion: sealed.Completion,
 		HostID: sealed.HostID, AdapterID: actor.AdapterID,
 		WorldID: sealed.WorldID, ActorID: sealed.ActorID,
 		ControllerID: sealed.ControllerID, Goal: sealed.Goal, Tags: sealed.Tags,
@@ -84,6 +106,10 @@ func (runtime *AgentRuntime) startTask(
 		Schedule:            TaskSchedule{Kind: ScheduleReady},
 		Status:              TaskActive, Budget: sealed.Budget, ControllerLease: lease,
 		CreatedAtUnixMillis: now, UpdatedAtUnixMillis: now,
+	}
+	if signal != nil {
+		task.PendingSignals = []TaskSignal{*signal}
+		rememberTaskSignal(&task, signal.SignalID)
 	}
 	appendTaskEvent(&task, TaskEvent{
 		Kind: "task.created", Step: 0, Summary: "Task accepted by the internal Agent Runtime.",
@@ -136,6 +162,7 @@ func (runtime *AgentRuntime) ResumeTask(
 		return task, nil
 	}
 	task.Status = TaskActive
+	task.CompletionRequested = false
 	task.Schedule = TaskSchedule{Kind: ScheduleReady}
 	task.PauseCode = ""
 	task.UpdatedAtUnixMillis = runtime.now().UnixMilli()
@@ -169,6 +196,7 @@ func (runtime *AgentRuntime) CancelTask(
 			break
 		}
 		task.CancelRequested = true
+		task.CompletionRequested = false
 		task.Status = TaskCancelling
 		task.PauseCode = ""
 		task.Schedule = TaskSchedule{Kind: ScheduleReady}
@@ -291,6 +319,10 @@ func sealStartTaskInput(input StartTaskInput) (StartTaskInput, error) {
 		return StartTaskInput{}, errors.New("planning_mode is invalid")
 	}
 	var err error
+	input.Completion, err = normalizeTaskCompletion(input.Completion)
+	if err != nil {
+		return StartTaskInput{}, err
+	}
 	if input.Tags, err = normalizeProviderIDs("tags", input.Tags, 32); err != nil {
 		return StartTaskInput{}, err
 	}

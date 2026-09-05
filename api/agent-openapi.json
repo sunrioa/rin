@@ -19,6 +19,36 @@
   "x-rin-contract-version": "rin.agent/v1",
   "x-rin-task-timeline-fixtures": "task-timeline-v1-fixtures.json",
   "paths": {
+    "/agent/v1/tasks/confirm-completion": {
+      "post": {
+        "operationId": "agent_v1_confirm_task_completion",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompletionConfirmationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The caller accepted the exact task revision.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskDispatch"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/agent/v1/info": {
       "get": {
         "operationId": "agent_v1_info",
@@ -265,6 +295,146 @@
       }
     },
     "schemas": {
+      "TaskSignal": {"type": "object", "additionalProperties": false, "properties": {"signal_id": {"$ref": "#/components/schemas/Identifier"}, "kind": {"$ref": "#/components/schemas/Identifier"}, "cursor": {"$ref": "#/components/schemas/JSONSafePositiveInteger"}, "summary": {"type": "string", "minLength": 1, "maxLength": 1000}, "epoch": {"$ref": "#/components/schemas/Epoch"}, "observation_sequence": {"$ref": "#/components/schemas/JSONSafePositiveInteger"}, "expires_at_unix_millis": {"$ref": "#/components/schemas/JSONSafePositiveInteger"}}, "required": ["signal_id", "kind", "cursor", "summary", "epoch", "observation_sequence", "expires_at_unix_millis"]},
+      "TaskCompletionPolicy": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "model-declared",
+              "host-evidence",
+              "human-confirmation"
+            ]
+          },
+          "conditions": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "$ref": "#/components/schemas/TaskCompletionCondition"
+            }
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "TaskCompletionCondition": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "condition_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "observation-fact",
+              "operation-outcome"
+            ]
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "capability": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "maxLength": 128
+                  },
+                  "version": {
+                    "type": "string",
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "id",
+                  "version"
+                ]
+              }
+            ]
+          },
+          "fact_id": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "fact_value_json": {
+            "type": "string",
+            "maxLength": 1024
+          }
+        },
+        "required": [
+          "condition_id",
+          "kind",
+          "summary"
+        ]
+      },
+      "TaskCompletionEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "condition_id": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "observation-fact",
+              "operation-outcome"
+            ]
+          },
+          "epoch": {
+            "$ref": "#/components/schemas/Epoch"
+          },
+          "observation_sequence": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "operation_id": {
+            "type": "string",
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "condition_id",
+          "kind",
+          "epoch",
+          "observation_sequence"
+        ]
+      },
+      "CompletionConfirmationInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "task_id",
+          "expected_revision"
+        ]
+      },
       "Identifier": {
         "type": "string",
         "minLength": 1,
@@ -398,6 +568,9 @@
           },
           "budget": {
             "$ref": "#/components/schemas/TaskBudget"
+          },
+          "completion": {
+            "$ref": "#/components/schemas/TaskCompletionPolicy"
           }
         },
         "required": [
@@ -1071,6 +1244,38 @@
           },
           "updated_at_unix_millis": {
             "$ref": "#/components/schemas/UnixMillis"
+          },
+          "completion": {
+            "$ref": "#/components/schemas/TaskCompletionPolicy"
+          },
+          "completion_requested": {
+            "type": "boolean"
+          },
+          "completion_evidence": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "$ref": "#/components/schemas/TaskCompletionEvidence"
+            }
+          },
+          "initiative_priority": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2
+          },
+          "pending_signals": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "$ref": "#/components/schemas/TaskSignal"
+            }
+          },
+          "seen_signal_ids": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            }
           }
         },
         "required": [

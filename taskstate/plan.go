@@ -757,3 +757,12 @@ func validEvidenceKind(value EvidenceKind) bool {
 		return false
 	}
 }
+
+// ValidateCompletionConditions validates Host-verifiable predicates without
+// requiring callers to create a Plan or invent steps for a simple goal.
+func ValidateCompletionConditions(conditions []PlanCondition) error {
+	if len(conditions) == 0 || len(conditions) > 16 {
+		return invalid("conditions", "require 1 to 16 entries")
+	}
+	return validateConditions(conditions, make(map[string]EvidenceKind))
+}
