@@ -17,7 +17,7 @@ import (
 	"github.com/sunrioa/rin/internal/sqlitestore"
 )
 
-const TaskSQLiteSchemaVersion = 1
+const TaskSQLiteSchemaVersion = 2
 
 // SQLiteTaskStore commits the changed Task and snapshot revision together. The
 // in-memory projection serves scheduler reads; it is never acknowledged before
@@ -31,6 +31,7 @@ type SQLiteTaskStore struct {
 	totalBytes   int64
 	closed       bool
 	writeBlocked error
+	retired      string
 }
 
 // OpenSQLiteTaskStore imports a same-name .json snapshot exactly once. Both
@@ -63,6 +64,9 @@ func OpenSQLiteTaskStore(path string, maxTasks uint32) (*SQLiteTaskStore, error)
 	store.db, err = sqlitestore.Open(absolute)
 	if err == nil {
 		err = store.initialize(legacy, maxTasks)
+	}
+	if err == nil {
+		err = store.initializeArchive()
 	}
 	if err != nil {
 		_ = store.Close()
@@ -188,10 +192,16 @@ func (store *SQLiteTaskStore) Create(ctx context.Context, task TaskSession) (Tas
 	if err := store.ready(); err != nil {
 		return TaskSession{}, err
 	}
+	if _, err := store.loadArchived(ctx, task.TaskID); err == nil {
+		return TaskSession{}, ErrProviderConflict
+	} else if !errors.Is(err, ErrProviderNotFound) {
+		return TaskSession{}, err
+	}
 	created, err := store.local.Create(ctx, task)
 	if err != nil {
 		return TaskSession{}, err
 	}
+	store.retired = store.local.retired
 	if err := store.persistChanged(created, 0); err != nil {
 		return TaskSession{}, err
 	}
@@ -205,6 +215,9 @@ func (store *SQLiteTaskStore) CompareAndSwap(ctx context.Context, revision uint6
 		return TaskSession{}, err
 	}
 	updated, err := store.local.CompareAndSwap(ctx, revision, task)
+	if errors.Is(err, ErrProviderNotFound) {
+		return store.updateArchived(ctx, revision, task)
+	}
 	if err != nil {
 		return TaskSession{}, err
 	}
@@ -220,7 +233,11 @@ func (store *SQLiteTaskStore) Load(ctx context.Context, id string) (TaskSession,
 	if err := store.ready(); err != nil {
 		return TaskSession{}, err
 	}
-	return store.local.Load(ctx, id)
+	task, err := store.local.Load(ctx, id)
+	if errors.Is(err, ErrProviderNotFound) {
+		return store.loadArchived(ctx, id)
+	}
+	return task, err
 }
 
 func (store *SQLiteTaskStore) Snapshot(ctx context.Context) (TaskSnapshot, error) {
@@ -245,7 +262,12 @@ func (store *SQLiteTaskStore) persistChanged(task TaskSession, previous uint64) 
 	if err != nil {
 		return err
 	}
+	removed := make([]string, 0)
 	total := store.totalBytes - store.rowBytes[task.TaskID] + int64(len(payload))
+	if store.retired != "" {
+		removed = append(removed, store.retired)
+		total -= store.rowBytes[store.retired]
+	}
 	if total > maxTaskSnapshotBytes {
 		return ErrProviderCapacity
 	}
@@ -254,6 +276,14 @@ func (store *SQLiteTaskStore) persistChanged(task TaskSession, previous uint64) 
 		return err
 	}
 	defer tx.Rollback()
+	for _, id := range removed {
+		if _, err = tx.Exec(`INSERT INTO task_archive(task_id,revision,payload,archived_at) SELECT task_id,revision,payload,? FROM task_sessions WHERE task_id=?`, task.UpdatedAtUnixMillis, id); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(`DELETE FROM task_sessions WHERE task_id=?`, id); err != nil {
+			return err
+		}
+	}
 	if previous == 0 {
 		_, err = tx.Exec(`INSERT INTO task_sessions VALUES(?,?,?)`, task.TaskID, task.Revision, payload)
 	} else {
@@ -277,6 +307,10 @@ func (store *SQLiteTaskStore) persistChanged(task TaskSession, previous uint64) 
 		return err
 	}
 	store.totalBytes = total
+	store.retired = ""
+	for _, id := range removed {
+		delete(store.rowBytes, id)
+	}
 	store.rowBytes[task.TaskID] = int64(len(payload))
 	return nil
 }

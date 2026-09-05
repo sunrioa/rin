@@ -69,6 +69,7 @@
           <label><span>Task ID</span><input id="taskId" autocomplete="off" placeholder="task.example"></label>
           <button class="button primary" type="submit">查看任务</button>
         </form>
+        <label class="check-row"><input id="taskArchive" type="checkbox"><span>查看已归档的内部任务</span></label>
         <div id="taskTable" class="table-wrap"></div>
         <div id="taskDetail" class="detail-surface empty-state">输入 Task ID 后查看任务。</div>
       </section>
@@ -83,6 +84,7 @@
           <input id="operationTask" class="search" placeholder="Task ID">
         </div>
         <div id="operationTable" class="table-wrap"></div>
+        <details class="detail-surface"><summary>结果投递积压 <span id="outcomeBacklogCount"></span></summary><p>查看各订阅者尚未确认的结果。重试只补投已有结果。</p><div id="outcomeBacklog" class="table-wrap"></div></details>
         <div id="operationDetail" class="detail-surface empty-state">选择一条 Operation 查看投递、策略与 Outcome。</div>
       </section>
 
@@ -260,8 +262,9 @@
         <label><span>规划方式</span><select id="taskPlanningMode"><option value="required">先生成阶段计划</option><option value="auto">按复杂度自动决定</option><option value="disabled">直接执行，不创建计划</option></select></label>
         <label><span>流程攻略</span><select id="taskSkillTrigger"><option value="">不指定</option></select></label>
         <label><span>其他标签</span><input id="taskTags" placeholder="例如 survival, exploration"></label>
-        <label><span>完成标准</span><select id="taskCompletionMode"><option value="model-declared">由 Agent 判断（有计划时仍需计划完成）</option><option value="host-evidence">满足 Host 验收条件</option><option value="human-confirmation">由我确认结果</option></select></label>
-        <label id="taskCompletionConditionsLabel" class="wide" hidden><span>Host 验收条件（JSON 数组）</span><textarea id="taskCompletionConditions" rows="4" placeholder='[{"condition_id":"goal.arrived","kind":"observation-fact","summary":"已到达目的地","fact_id":"actor.arrived","fact_value_json":"true"}]'></textarea><small>事实条件要求当前观察值精确匹配；Operation 条件要求指定能力有成功的 Host 结果。</small></label>
+        <label><span>完成标准</span><select id="taskCompletionMode"><option value="human-confirmation">由我确认结果（默认）</option><option value="host-evidence">满足 Host 验收条件</option><option value="model-declared">由 Agent 判断（有计划时仍需计划完成）</option></select></label>
+        <label id="taskCompletionConditionsLabel" class="wide" hidden><span>Host 验收条件（JSON 数组）</span><textarea id="taskCompletionConditions" rows="4" placeholder='[{"condition_id":"goal.arrived","kind":"observation-fact","summary":"已到达目的地","fact_id":"actor.arrived","fact_value_json":"true"}]'></textarea><small>事实条件要求当前观察值精确匹配；Operation 条件要求指定能力有成功的 Host 结果。持续时长和聚合目标请使用游戏 Host 提供的明确事实。</small></label>
+        <label id="taskCompletionRequirementsLabel" class="wide" hidden><span>动作验收约束（可选 JSON 数组）</span><textarea id="taskCompletionRequirements" rows="3" placeholder='[{"condition_id":"goal.collect","arguments_json":"{\"item\":\"wood\"}","minimum_count":2}]'></textarea><small>可限定精确参数、Host 绑定目标 target_refs 和不同成功 Operation 的最少次数。</small></label>
         <label class="wide"><span>目标</span><textarea id="taskGoal" rows="5" required placeholder="例如：从当前状态准备物资并击败末影龙"></textarea></label>
       </div>
       <div class="form-actions"><button type="button" id="cancelTask" class="button secondary">取消</button><button class="button primary" value="default">开始任务</button></div>

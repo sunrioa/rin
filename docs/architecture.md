@@ -127,10 +127,12 @@ and at most one detailed capability or skill inspection. Closed-schema output is
 checked against the allowed set and converted into the same `ActionRequest` used
 by MCP.
 
-The runtime does not treat model prose saying “complete” as task success. It
-requires a fresh observation or authoritative operation outcome. Provider
-failure, authority changes, exhausted budgets, and unknown outcomes pause or
-terminate the task explicitly; they do not activate a hidden execution path.
+Completion follows caller-owned acceptance criteria: new tasks default to human
+confirmation; `host-evidence` checks current Host facts or matching confirmed
+operations. Explicit `model-declared` accepts model judgment once any Plan is
+complete and provides no independent goal proof. Existing tasks retain their
+original policy. Provider failures, authority changes and exhausted budgets pause
+or end work. Unknown results stop deliberation while reconciliation continues.
 
 ## State ownership
 
@@ -140,7 +142,9 @@ terminate the task explicitly; they do not activate a hidden execution path.
 | Actor authority and safety configuration | Game Host | same game save |
 | Host and controller leases | Control Plane | runtime projection, rebuilt on reconnect |
 | Action operations and outcomes | Control Plane | Control data directory |
-| Internal Agent tasks and subjective memory | Agent Runtime | `agent/` below the Control data directory |
+| Internal Agent tasks and subjective memory | Agent Runtime | `agent/tasks.db`, `agent/memory.db` |
+| Signal inbox and delivery diagnostics | Control daemon | `agent/signals.db`, bounded by Epoch and TTL |
+| Decision diagnostics | Agent Runtime | `agent/decision-records.db`, bounded row retention |
 | Persona, skills, and provider configuration | Administrator | private Agent configuration file |
 | External Agent persona and private memory | External Agent | not copied by Rin |
 

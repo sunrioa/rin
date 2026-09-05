@@ -75,9 +75,11 @@ function bindForms() {
   $("#embeddingAPIKey").addEventListener("input", syncEmbeddingCredentialInputs);
   onAsync($("#taskLookupForm"), "submit", lookupTask);
   onAsync($("#newTaskButton"), "click", openTaskDialog);
+	 onAsync($("#taskArchive"), "change", loadTasks);
   onAsync($("#taskForm"), "submit", startTask);
   $("#taskCompletionMode").addEventListener("change", () => {
     $("#taskCompletionConditionsLabel").hidden = $("#taskCompletionMode").value !== "host-evidence";
+    $("#taskCompletionRequirementsLabel").hidden = $("#taskCompletionMode").value !== "host-evidence";
   });
   $("#cancelTask").addEventListener("click", () => $("#taskDialog").close());
   onAsync($("#personaForm"), "submit", savePersona);
@@ -706,6 +708,7 @@ async function loadOperations() {
       if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(); }
     });
   });
+  await loadOutcomeBacklog(request);
   setService(true);
 }
 
@@ -739,7 +742,7 @@ function showOperation(operationId) {
 async function loadTasks() {
   const request = beginRequest("tasks");
   try {
-    const result = await readAPI("/management/v1/tasks/list", { body: { limit: 100 } });
+    const result = await readAPI("/management/v1/tasks/list", { body: { limit: 100, archived: $("#taskArchive").checked } });
     if (!isCurrentRequest(request)) return;
     const tasks = result.tasks || [];
     $("#taskTable").innerHTML = tasks.length ? `<table><thead><tr><th>目标</th><th>来源</th><th>状态</th><th>阶段</th><th>动作 / 模型</th><th>更新</th></tr></thead><tbody>${tasks.map((task) => `<tr data-task-row="${escapeHTML(task.task_id)}"><td><strong>${escapeHTML(task.goal)}</strong><br><code>${escapeHTML(task.task_id)}</code>${tagList(task.tags)}</td><td>${task.task_control_available ? "内部 Agent" : `外部计划 · ${escapeHTML(task.controller_source || "-")}`}</td><td><span class="state ${task.status === "completed" ? "good" : task.status === "failed" ? "bad" : "warn"}">${escapeHTML(task.status)}</span></td><td>${escapeHTML(task.current_plan_step_id || task.plan_id || "-")}</td><td>${task.action_count} / ${task.model_calls}</td><td>${new Date(task.updated_at_unix_millis).toLocaleString()}</td></tr>`).join("")}</tbody></table>` : '<div class="detail-surface empty-state">当前没有内部任务或外部 MCP 计划。</div>';
@@ -792,12 +795,15 @@ async function startTask(event) {
       mode: $("#taskCompletionMode").value,
       conditions: $("#taskCompletionMode").value === "host-evidence"
         ? JSON.parse($("#taskCompletionConditions").value) : undefined,
+      operation_requirements: $("#taskCompletionMode").value === "host-evidence"
+        ? JSON.parse($("#taskCompletionRequirements").value || "[]") : undefined,
     },
     tags,
   } });
   $("#taskDialog").close();
   $("#taskForm").reset();
   $("#taskCompletionConditionsLabel").hidden = true;
+  $("#taskCompletionRequirementsLabel").hidden = true;
   toast("长目标已创建并进入执行队列");
   await loadTasks();
   await showTask(task.task_id);
@@ -833,8 +839,9 @@ async function showTask(taskId, append = false) {
     status === "paused" && result.task.completion_requested && result.task.completion?.mode === "human-confirmation"
       ? '<button class="button primary" data-task-action="confirm-completion">确认任务完成</button>' : "",
     status === "active" ? '<button class="button secondary" data-task-action="run">继续</button>' : "",
+    status === "outcome-unknown" ? '<button class="button secondary" data-task-action="run">核对 Host 结果</button>' : "",
     status === "paused" ? '<button class="button secondary" data-task-action="resume">恢复</button>' : "",
-    ["active", "paused", "waiting-confirmation"].includes(status) ? '<button class="button danger" data-task-action="cancel">取消</button>' : "",
+    ["active", "paused", "waiting-confirmation", "outcome-unknown"].includes(status) ? '<button class="button danger" data-task-action="cancel">取消</button>' : "",
   ].filter(Boolean).join("") : "";
   $("#taskDetail").classList.remove("empty-state");
   const truncated = state.selectedTask.truncated
@@ -1094,3 +1101,17 @@ function debounce(fn, wait) {
 }
 async function copyText(value) { await navigator.clipboard.writeText(value); toast("命令已复制"); }
 function toast(message, bad = false) { const element = $("#toast"); element.textContent = message; element.style.background = bad ? "#74322f" : "#202a25"; element.classList.add("show"); setTimeout(() => element.classList.remove("show"), 2600); }
+
+async function loadOutcomeBacklog(request) {
+  const health = await readAPI("/management/v1/outcomes/backlog");
+  if (!isCurrentRequest(request)) return;
+  $("#outcomeBacklogCount").textContent = `（${health.pending || 0}）`;
+  const entries = health.entries || [];
+  $("#outcomeBacklog").innerHTML = entries.length ? `<table><thead><tr><th>Operation</th><th>订阅者</th><th>失败次数</th><th>最早等待</th><th>状态</th><th>处理</th></tr></thead><tbody>${entries.map((entry, i) => `<tr><td><code>${escapeHTML(entry.operation_id)}</code></td><td>${escapeHTML(entry.subscriber)}</td><td>${entry.attempts || 0}</td><td>${formatMillis(entry.created_at_unix_millis)}</td><td>${entry.configured ? (entry.last_error_code ? "投递失败，等待重试" : "等待投递") : "订阅者未配置"}</td><td><button class="button secondary" data-outcome-retry="${i}" ${entry.configured ? "" : "disabled"}>立即重试</button></td></tr>`).join("")}</tbody></table><p>显示最早的 ${entries.length} 条；确认成功后自动移出积压。</p>` : '<p>当前没有待确认的结果投递。</p>';
+  $$("[data-outcome-retry]").forEach((button) => onAsync(button, "click", async () => {
+    const entry = entries[Number(button.dataset.outcomeRetry)];
+    await api("/management/v1/outcomes/retry", { body: { operation_id: entry.operation_id, subscriber: entry.subscriber } });
+    toast("已安排重新投递结果");
+    await loadOperations();
+  }));
+}

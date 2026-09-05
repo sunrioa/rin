@@ -65,6 +65,10 @@ func (runtime *AgentRuntime) TaskReady(ctx context.Context, task TaskSession) (b
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
+	if task.Status == TaskOutcomeUnknown {
+		_, ready := runtime.reconciledTaskOperation(task)
+		return ready, nil
+	}
 	if terminalTaskStatus(task.Status) {
 		return false, nil
 	}

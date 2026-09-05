@@ -235,7 +235,7 @@ One model response is exactly `action`, `wait`, `complete`, or `inspect`:
 - `action` selects one allowed capability, strict JSON arguments, and listed target handles;
 - `inspect` expands at most four capabilities and one skill for one round;
 - `wait` means there is no grounded action now;
-- `complete` still requires the runtime to verify the goal through observation or outcome.
+- `complete` requests acceptance under the caller-owned completion policy; it cannot override that policy.
 
 The trusted contract is separate from `untrusted_context`. Persona, memory,
 skills, observation, player text, and capability descriptions are untrusted
@@ -245,7 +245,7 @@ data and cannot alter the allowed set, epoch, controller, or budgets.
 
 - [`api/agent-openapi.json`](../api/agent-openapi.json) is the Task HTTP contract.
 - State is fixed at `<RIN_CONTROL_DATA_DIR>/agent/tasks.db` and `memory.db`.
-- Tasks use SQLite schema version 1 and the `rin.cognition.tasks/v5` projection.
+- Tasks use SQLite schema version 2 and the `rin.cognition.tasks/v5` projection.
   The first database open imports an existing `tasks.json` v3, v4 or v5 snapshot;
   later opens use the database, even if that obsolete backup changes.
 - Task CAS writes one task row and the snapshot revision in one SQLite transaction.
@@ -275,12 +275,13 @@ appending a warning or a Signal event cannot change whether the task runs.
 | `waiting-confirmation` | The tracked Operation changes after confirmation or cancellation. |
 | `retry-at` | The persisted retry deadline has elapsed. |
 | `waiting-user` | An explicit run or resume request, as appropriate to task status. |
-| `stopped` | The task is terminal; no automatic run. |
+| `stopped` | Deliberation stops; an unknown outcome still observes its original Operation for reconciliation. |
 
 A model `wait` records the current observation epoch and sequence. Operation and
 confirmation waits record an Operation ID and cursor, then release the worker.
-Task and Control Plane changes wake the scheduler; a periodic scan recovers from
-missed notifications or process restart. The default scan interval is one second
+Task and Control Plane invalidations select indexed active tasks by world, Actor
+or Operation, without copying historical task context. A periodic scan recovers from
+missed notifications or process restart. The default recovery scan interval is five seconds
 and transient failures retry after five seconds. A planned task also waits until
 the `task-plan` outcome subscriber acknowledges its projection; Memory delivery
 never gates readiness. `OperationWaitMillis` is retained for source compatibility
@@ -311,9 +312,9 @@ their own resources promptly.
 
 | `completion.mode` | Completion requirement |
 | --- | --- |
-| `model-declared` (default) | The model requests completion and any existing Plan is complete. |
+| `model-declared` (explicit) | The model requests completion and any existing Plan is complete. |
 | `host-evidence` | The model requests completion and all caller-supplied conditions have Host evidence. |
-| `human-confirmation` | The model requests review; a caller with `task.execute` accepts the exact task revision. |
+| `human-confirmation` (new-task default) | The model requests review; a caller with `task.execute` accepts the exact task revision. |
 
 For `host-evidence`, supply 1–16 conditions using the Plan condition shape. An
 `observation-fact` matches an exact scalar `fact_value_json`; all fact conditions
@@ -326,6 +327,24 @@ can finish an already requested completion without another model call.
 
 ```json
 {"mode":"host-evidence","conditions":[{"condition_id":"goal.arrived","kind":"observation-fact","summary":"The Host confirms arrival.","fact_id":"actor.at-destination","fact_value_json":"true"}]}
+```
+
+Existing tasks preserve their recorded policy; legacy snapshots without one keep
+model-declared semantics. Short-lived automatic initiative explicitly selects
+model-declared acceptance. Caller goals default to human confirmation.
+
+`completion.operation_requirements` optionally tightens outcome conditions by
+`condition_id`. `arguments_json` matches the complete argument object (key order
+is ignored; numeric spelling is exact). `target_refs` requires exact references
+from the Host's resolved binding, including Epoch. `minimum_count` counts 1–64
+distinct successful Operation IDs; retries of one ID cannot increment it.
+Requirements are immutable for the task. These count operations, not item totals.
+For duration, inventory totals or compound world goals, the Host should publish a
+scalar acceptance fact only after evaluating the complete goal, for example
+`goal.bridge-held-30s=true` or `goal.has-ten-wood=true`.
+
+```json
+{"mode":"host-evidence","conditions":[{"condition_id":"goal.collect","kind":"operation-outcome","summary":"Collect wood twice.","capability":{"id":"game.item.collect","version":"1.0.0"}}],"operation_requirements":[{"condition_id":"goal.collect","arguments_json":"{\"item\":\"wood\"}","minimum_count":2}]}
 ```
 
 Human review pauses with `completion.confirmation-required`. Submit
@@ -371,3 +390,20 @@ The model can only propose an ActionRequest grounded in the current Observation
 and Capability catalog. The Host still binds targets, previews Effects, applies
 Policy, mutates the world, and reports the Outcome. Persona, memory, and a Task
 token never grant world authority.
+
+## Recovery and settled history
+
+Unknown outcomes stop model decisions but keep reconciling the original intent or
+Operation, including a late Host result and the required Plan projection. A Run
+request is also a read-only reconciliation entry while the result remains unknown.
+Reconciliation does not resubmit the action. Once the original operation settles,
+the task can continue or complete cancellation; it no longer permanently blocks
+its Actor's Signal coordinator.
+
+Plan creation uses `plan.<TaskID>`. If Plan commit succeeds before the Task reference
+is saved, restart adopts the existing plan after checking Task, Host, world, Actor,
+controller, session, goal and planning ownership. The plan's saved Epoch still
+governs evidence and action authorization; a changed Epoch requires revalidation
+or replanning. Cancellation also looks up an unreferenced owned plan. See
+[storage retention and migrations](execution-storage.md) for Task/Plan archives,
+Signal durability and incremental decision records.

@@ -36,6 +36,8 @@ type Store struct {
 	globalSequence  uint64
 	changed         chan struct{}
 	closed          bool
+	blocked         error
+	durable         *sqliteInboxStore
 }
 
 func NewStore(config StoreConfig) (*Store, error) {
@@ -72,8 +74,8 @@ func (store *Store) Configure(target Target, settings Settings) (Settings, error
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if store.closed {
-		return Settings{}, ErrClosed
+	if err := store.readyLocked(); err != nil {
+		return Settings{}, err
 	}
 	box, err := store.inboxLocked(keyOf(target), true)
 	if err != nil {
@@ -94,6 +96,11 @@ func (store *Store) Configure(target Target, settings Settings) (Settings, error
 	if len(box.signals) > int(settings.MaxPending) {
 		box.signals = append([]Signal(nil), box.signals[len(box.signals)-int(settings.MaxPending):]...)
 	}
+	if !unchanged || (store.durable != nil && store.durable.bytes[keyOf(target)] == 0) {
+		if err := store.persistInboxLocked(keyOf(target), box); err != nil {
+			return Settings{}, err
+		}
+	}
 	if !unchanged {
 		store.notifyLocked()
 	}
@@ -106,8 +113,8 @@ func (store *Store) Settings(target Target) (Settings, error) {
 	}
 	store.mu.RLock()
 	defer store.mu.RUnlock()
-	if store.closed {
-		return Settings{}, ErrClosed
+	if err := store.readyLocked(); err != nil {
+		return Settings{}, err
 	}
 	if box := store.inboxes[keyOf(target)]; box != nil {
 		return box.settings, nil
@@ -122,8 +129,8 @@ func (store *Store) Publish(value Signal) (PublishResult, error) {
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if store.closed {
-		return PublishResult{}, ErrClosed
+	if err := store.readyLocked(); err != nil {
+		return PublishResult{}, err
 	}
 	box, err := store.inboxLocked(keyOf(Target{value.HostID, value.WorldID, value.ActorID}), true)
 	if err != nil {
@@ -145,6 +152,12 @@ func (store *Store) Publish(value Signal) (PublishResult, error) {
 	if len(box.signals) >= int(box.settings.MaxPending) {
 		return PublishResult{Reason: "capacity"}, nil
 	}
+	if _, known := box.lastKindMillis[value.Kind]; !known && len(box.lastKindMillis) >= 1024 {
+		return PublishResult{Reason: "capacity"}, nil
+	}
+	if box.nextCursor >= 1<<53-1 || store.globalSequence >= 1<<53-1 {
+		return PublishResult{}, ErrInvalid
+	}
 	box.nextCursor++
 	store.globalSequence++
 	value.SchemaVersion = SchemaVersion
@@ -154,6 +167,9 @@ func (store *Store) Publish(value Signal) (PublishResult, error) {
 	value.globalSequence = store.globalSequence
 	box.signals = append(box.signals, value)
 	box.lastKindMillis[value.Kind] = now
+	if err := store.persistInboxLocked(keyOf(Target{value.HostID, value.WorldID, value.ActorID}), box); err != nil {
+		return PublishResult{}, err
+	}
 	store.notifyLocked()
 	return PublishResult{Accepted: true, Cursor: value.Cursor}, nil
 }
@@ -165,8 +181,8 @@ func (store *Store) List(input ListInput) (Page, error) {
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if store.closed {
-		return Page{}, ErrClosed
+	if err := store.readyLocked(); err != nil {
+		return Page{}, err
 	}
 	box := store.inboxes[keyOf(input.Target)]
 	if box == nil {
@@ -215,9 +231,9 @@ func (store *Store) WaitAny(ctx context.Context, after uint64, wait time.Duratio
 	defer timer.Stop()
 	for {
 		store.mu.Lock()
-		if store.closed {
+		if err := store.readyLocked(); err != nil {
 			store.mu.Unlock()
-			return nil, after, ErrClosed
+			return nil, after, err
 		}
 		if after > store.globalSequence {
 			store.mu.Unlock()
@@ -251,13 +267,17 @@ func (store *Store) WaitAny(ctx context.Context, after uint64, wait time.Duratio
 	}
 }
 
-func (store *Store) Close() {
+func (store *Store) Close() error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	if !store.closed {
 		store.closed = true
 		store.notifyLocked()
+		if store.durable != nil {
+			return store.durable.close()
+		}
 	}
+	return nil
 }
 
 func (store *Store) pageAndWake(input ListInput) (Page, bool, <-chan struct{}, error) {
@@ -267,8 +287,8 @@ func (store *Store) pageAndWake(input ListInput) (Page, bool, <-chan struct{}, e
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if store.closed {
-		return Page{}, false, nil, ErrClosed
+	if err := store.readyLocked(); err != nil {
+		return Page{}, false, nil, err
 	}
 	box := store.inboxes[keyOf(validated.Target)]
 	if box == nil {
@@ -310,6 +330,11 @@ func (store *Store) pruneLocked(box *inbox, now int64) {
 		}
 	}
 	box.signals = kept
+	for kind, at := range box.lastKindMillis {
+		if now-at >= int64(box.settings.CooldownMillis) {
+			delete(box.lastKindMillis, kind)
+		}
+	}
 }
 
 func (store *Store) notifyLocked() {

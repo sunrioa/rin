@@ -50,7 +50,8 @@ func TestAgentRuntimeSharesOnePlanAcrossDecisionAndOutcome(t *testing.T) {
 		t.Fatal(err)
 	}
 	started, err := runtime.StartTask(context.Background(), cognition.StartTaskInput{
-		TaskID: "task.planned", HostID: "host.test", WorldID: "world.test",
+		Completion: cognition.TaskCompletionPolicy{Mode: cognition.CompletionModel},
+		TaskID:     "task.planned", HostID: "host.test", WorldID: "world.test",
 		ActorID: "actor.mira", ControllerID: "controller.internal",
 		Goal: "Reach the nearby player.", PlanningMode: taskstate.PlanningRequired,
 	})
@@ -101,7 +102,8 @@ func TestAgentRuntimeAppliesOnlyExactObservedPlanFacts(t *testing.T) {
 	}
 	runtime := fixture.runtime(t, 8)
 	started, err := runtime.StartTask(context.Background(), cognition.StartTaskInput{
-		TaskID: "task.observed-plan", HostID: "host.test", WorldID: "world.test",
+		Completion: cognition.TaskCompletionPolicy{Mode: cognition.CompletionModel},
+		TaskID:     "task.observed-plan", HostID: "host.test", WorldID: "world.test",
 		ActorID: "actor.mira", ControllerID: "controller.internal",
 		Goal: "Confirm the nearby player.", PlanningMode: taskstate.PlanningRequired,
 	})
@@ -487,7 +489,8 @@ func TestAgentRuntimeCompletesLongGameGoalAcrossCoarsePlanPhases(t *testing.T) {
 	fixture.plans = plans
 	runtime := fixture.runtime(t, 96)
 	started, err := runtime.StartTask(context.Background(), cognition.StartTaskInput{
-		TaskID: "task.ender-dragon", HostID: "host.test", WorldID: "world.test",
+		Completion: cognition.TaskCompletionPolicy{Mode: cognition.CompletionModel},
+		TaskID:     "task.ender-dragon", HostID: "host.test", WorldID: "world.test",
 		ActorID: "actor.mira", ControllerID: "controller.internal",
 		Goal:         "Start empty-handed and defeat the Ender Dragon.",
 		Tags:         []string{"minecraft.ender-dragon"},
@@ -1729,6 +1732,9 @@ func (client *runtimePlanStub) CreatePlan(_ context.Context, input taskstate.Dra
 
 func (client *runtimePlanStub) GetPlan(context.Context, string) (taskstate.PlanState, error) {
 	client.getCalls++
+	if client.plan.PlanID == "" {
+		return taskstate.PlanState{}, taskstate.ErrNotFound
+	}
 	if client.getError != nil {
 		return taskstate.PlanState{}, client.getError
 	}
@@ -1951,7 +1957,8 @@ func (fixture *agentRuntimeFixture) start(
 	task, err := runtime.StartTask(context.Background(), cognition.StartTaskInput{
 		TaskID: taskID, HostID: "host.test", WorldID: "world.test", ActorID: "actor.mira",
 		ControllerID: "controller.internal", Goal: "Follow the nearby player.",
-		Tags: []string{"task.follow"},
+		Tags:       []string{"task.follow"},
+		Completion: cognition.TaskCompletionPolicy{Mode: cognition.CompletionModel},
 	})
 	if err != nil {
 		t.Fatal(err)

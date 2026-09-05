@@ -637,7 +637,23 @@ func (service *Service) idempotentActionLocked(
 ) (OperationView, bool, error) {
 	operationID, exists := service.requests[key]
 	if !exists {
-		return OperationView{}, false, nil
+		if service.operationSQLite == nil {
+			return OperationView{}, false, nil
+		}
+		operation, err := service.operationSQLite.archivedRequest(key)
+		if errors.Is(err, ErrNotFound) {
+			return OperationView{}, false, nil
+		}
+		if err != nil {
+			return OperationView{}, false, err
+		}
+		if operation.request.Kind != ControlAction || actionRequestFingerprint(operation.request) != fingerprint {
+			return OperationView{}, true, fmt.Errorf("%w: archived idempotency_key was reused with different input", ErrConflict)
+		}
+		if err := service.persistOperationsLocked(); err != nil {
+			return OperationView{}, true, err
+		}
+		return operationView(operation), true, nil
 	}
 	operation := service.operations[operationID]
 	if operation == nil || operation.request.Kind != ControlAction ||

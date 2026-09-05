@@ -62,7 +62,7 @@ func (service *Service) AcquireController(
 		current.ExpiresAtUnixMillis = now + int64(input.LeaseTTLMillis)
 		service.controllers[key] = current
 		service.markOperationsDirtyLocked()
-		service.notifyLocked()
+		service.notifyActorChangedLocked(input.ActorControlTarget)
 		return current, service.persistOperationsLocked()
 	}
 	leaseID, err := service.newID("controller-lease")
@@ -85,7 +85,7 @@ func (service *Service) AcquireController(
 	}
 	service.controllers[key] = lease
 	service.markOperationsDirtyLocked()
-	service.notifyLocked()
+	service.notifyActorChangedLocked(input.ActorControlTarget)
 	return lease, service.persistOperationsLocked()
 }
 
@@ -133,7 +133,7 @@ func (service *Service) RenewController(
 	lease.ExpiresAtUnixMillis = now + int64(ttlMillis)
 	service.controllers[key] = lease
 	service.markOperationsDirtyLocked()
-	service.notifyLocked()
+	service.notifyActorChangedLocked(target)
 	return lease, service.persistOperationsLocked()
 }
 
@@ -184,7 +184,7 @@ func (service *Service) ReleaseController(
 		return ErrForbidden
 	}
 	service.invalidateControllerLocked(key, service.now().UnixMilli())
-	service.notifyLocked()
+	service.notifyActorChangedLocked(target)
 	return service.persistOperationsLocked()
 }
 
@@ -256,7 +256,7 @@ func (service *Service) SetActorEmergencyStop(
 		service.cancelActorOperationsLocked(key, current.UpdatedAtUnixMillis)
 	}
 	service.markOperationsDirtyLocked()
-	service.notifyLocked()
+	service.notifyActorChangedLocked(target)
 	return current, service.persistOperationsLocked()
 }
 

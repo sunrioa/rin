@@ -64,11 +64,16 @@ func (service *Service) deliverOutcomes(ctx context.Context, subscriber string, 
 		changed := service.Changes()
 		service.mu.Lock()
 		var ids []string
+		durable := service.operationSQLite != nil
 		if !service.closed && service.persistOperationsLocked() == nil {
-			for id, operation := range service.operations {
-				delivered, registered := operation.outcomeDelivery[subscriber]
-				if registered && !delivered {
-					ids = append(ids, id)
+			if durable {
+				ids, _ = service.operationSQLite.pendingOutcomeIDs(subscriber, time.Now().UnixMilli())
+			} else {
+				for id, operation := range service.operations {
+					delivered, registered := operation.outcomeDelivery[subscriber]
+					if registered && !delivered {
+						ids = append(ids, id)
+					}
 				}
 			}
 		}
@@ -78,11 +83,20 @@ func (service *Service) deliverOutcomes(ctx context.Context, subscriber string, 
 			if ctx.Err() != nil {
 				return
 			}
-			if time.Now().Before(retryAfter[id]) {
+			if !durable && time.Now().Before(retryAfter[id]) {
 				continue
 			}
 			if err := service.deliverOutcome(ctx, subscriber, sink, id); err != nil {
-				retryAfter[id] = time.Now().Add(outcomeRetryInterval)
+				if durable {
+					service.mu.Lock()
+					if !service.closed {
+						now := time.Now()
+						_, _ = service.operationSQLite.db.Exec(`UPDATE outcome_backlog SET attempts=min(attempts+1,9007199254740991),last_attempt_at=?,next_attempt_at=?,last_error='subscriber-failed' WHERE operation_id=? AND subscriber=?`, now.UnixMilli(), now.Add(outcomeRetryInterval).UnixMilli(), id, subscriber)
+					}
+					service.mu.Unlock()
+				} else {
+					retryAfter[id] = time.Now().Add(outcomeRetryInterval)
+				}
 			} else {
 				delete(retryAfter, id)
 			}
@@ -98,10 +112,14 @@ func (service *Service) deliverOutcomes(ctx context.Context, subscriber string, 
 
 func (service *Service) deliverOutcome(ctx context.Context, subscriber string, sink OutcomeSink, id string) error {
 	service.mu.Lock()
-	operation := service.operations[id]
-	if operation == nil || operation.outcome == nil || service.closed {
+	if service.closed {
 		service.mu.Unlock()
 		return nil
+	}
+	operation, lookupErr := service.lookupOperationLocked(id)
+	if lookupErr != nil || operation.outcome == nil {
+		service.mu.Unlock()
+		return lookupErr
 	}
 	delivered, registered := operation.outcomeDelivery[subscriber]
 	if !registered || delivered {
@@ -126,10 +144,14 @@ func (service *Service) deliverOutcome(ctx context.Context, subscriber string, s
 	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
-	operation = service.operations[id]
-	if operation == nil {
-		return nil
+	operation, err = service.lookupOperationLocked(id)
+	if err != nil {
+		return err
 	}
+	if service.operations[id] == nil {
+		return service.ackArchivedOutcomeLocked(operation, subscriber)
+	}
+	service.recordOperationChangeLocked(id)
 	operation.outcomeDelivery[subscriber] = true
 	operation.persistenceRevision++
 	service.markOperationsDirtyLocked()
@@ -164,9 +186,9 @@ func (service *Service) OutcomeProjectionPending(principal host.Principal, opera
 	if service.closed {
 		return false, ErrClosed
 	}
-	operation := service.operations[operationID]
-	if operation == nil {
-		return false, ErrNotFound
+	operation, err := service.lookupOperationLocked(operationID)
+	if err != nil {
+		return false, err
 	}
 	if principal.ID != operation.request.Principal.ID && !hasScope(principal, ScopeHostAdmin) {
 		return false, ErrForbidden

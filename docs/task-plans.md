@@ -46,3 +46,11 @@ continues to manage them through MCP.
 
 The HTTP contract is `api/task-plan-openapi.json`; language-neutral requests are
 in `api/task-plan-v1-fixtures.json`.
+
+## Closed-plan retention
+
+Capacity counts planned, active, blocked and paused plans. Closed plans retain their
+identity, links and evidence without consuming active capacity; list queries return
+active plans and bounded recent closed history. Exact Plan/Task lookup can retrieve
+older plans. An internal Task interrupted between Plan creation and Task reference
+commit adopts its exact owned `plan.<TaskID>` instead of creating a conflicting plan.

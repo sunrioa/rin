@@ -266,7 +266,9 @@ func (service *Service) ReportHostResult(
 	if operation.outcome != nil {
 		if reflect.DeepEqual(*operation.outcome, outcome) &&
 			bytes.Equal(operation.output, output) {
-			service.queueOutcomeDeliveryLocked(operation)
+			if service.operations[outcome.OperationID] != nil {
+				service.queueOutcomeDeliveryLocked(operation)
+			}
 			if err := service.persistOperationsLocked(); err != nil {
 				return err
 			}
@@ -493,9 +495,9 @@ func (service *Service) getOperationLocked(
 	principal host.Principal,
 	operationID string,
 ) (OperationView, error) {
-	operation, exists := service.operations[operationID]
-	if !exists {
-		return OperationView{}, ErrNotFound
+	operation, err := service.lookupOperationLocked(operationID)
+	if err != nil {
+		return OperationView{}, err
 	}
 	service.refreshOperationHostLocked(operation)
 	if err := service.persistOperationsLocked(); err != nil {
@@ -522,9 +524,9 @@ func (service *Service) CancelOperation(
 	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
-	operation, exists := service.operations[operationID]
-	if !exists {
-		return OperationView{}, ErrNotFound
+	operation, err := service.lookupOperationLocked(operationID)
+	if err != nil {
+		return OperationView{}, err
 	}
 	service.refreshOperationHostLocked(operation)
 	if err := service.persistOperationsLocked(); err != nil {
@@ -600,6 +602,9 @@ func (service *Service) authorizeActorLocked(
 func (service *Service) prepareOperationLocked() (string, error) {
 	now := service.now().UnixMilli()
 	service.pruneOperationsLocked(now)
+	if len(service.operations) >= service.maxOperations && service.operationSQLite != nil {
+		service.retireSettledOperationLocked()
+	}
 	if err := service.persistOperationsLocked(); err != nil {
 		return "", err
 	}
@@ -705,9 +710,9 @@ func deliveryPriority(status OperationStatus) int {
 func (service *Service) hostOperationLocked(
 	hostID, operationID string,
 ) (*operationState, error) {
-	operation, exists := service.operations[operationID]
-	if !exists {
-		return nil, ErrNotFound
+	operation, err := service.lookupOperationLocked(operationID)
+	if err != nil {
+		return nil, err
 	}
 	if operation.request.HostID != hostID {
 		return nil, ErrForbidden
@@ -767,11 +772,15 @@ func (service *Service) pruneOperationsLocked(now int64) {
 		changed = service.expireOperationByTTLLocked(operation, now) || changed
 	}
 	for operationID, operation := range service.operations {
-		if !completeOperation(operation) || hasPendingOutcome(operation) || operation.updatedAt > cutoff {
+		if !completeOperation(operation) || operation.status == OperationOutcomeUnknown ||
+			(hasPendingOutcome(operation) && service.operationSQLite == nil) || operation.updatedAt > cutoff {
 			continue
 		}
 		if len(operation.children) != 0 {
 			continue
+		}
+		if service.operationSQLite != nil {
+			service.operationSQLite.archives[operationID] = operation
 		}
 		delete(service.operations, operationID)
 		delete(service.requests, operation.idempotency)
@@ -1027,7 +1036,7 @@ func terminalOperationStatus(status OperationStatus) bool {
 
 func completeOperation(operation *operationState) bool {
 	// An unresolved outcome is no longer delivered or cancellable. It remains
-	// reconcilable until retention pruning removes it.
+	// in the hot pool until the Host supplies an authoritative outcome.
 	if operation.status == OperationOutcomeUnknown {
 		return true
 	}

@@ -117,9 +117,10 @@ Internal Agent 接收异步 Task，循环执行 `Observe -> Recall -> Decide -> 
 模型只看到有界摘要，并可进行一次 Capability/Skill 详细检查。模型输出经过封闭
 JSON Schema 和允许集合复验，再转换成与 MCP 完全相同的 `ActionRequest`。
 
-内部 Runtime 不因模型返回一句“完成”就认定任务成功；它必须用新 Observation 或
-权威 Operation Outcome 验证目标。Provider 故障、控制权变化、预算耗尽和未知结果
-会让 Task 暂停或进入明确终态，不会切换到隐藏执行旁路。
+任务按调用方确定的验收策略完成：新任务默认人工确认；`host-evidence` 核验当前 Host
+事实或匹配的已确认 Operation。显式 `model-declared` 在已有 Plan 完成后接受模型判断，
+不提供独立目标证明；旧任务保留原策略。Provider 故障、控制权变化和预算耗尽使任务暂停
+或结束；未知结果停止继续决策，但继续对账。
 
 ## 状态归属
 
@@ -129,7 +130,9 @@ JSON Schema 和允许集合复验，再转换成与 MCP 完全相同的 `ActionR
 | Actor Authority 与安全配置 | 游戏 Host | 同一游戏存档 |
 | Host/Controller Lease | Control Plane | 运行时投影，重连时重建 |
 | Action Operation 与 Outcome | Control Plane | Control 数据目录 |
-| 内部 Agent Task 与主观 Memory | Agent Runtime | Control 数据目录下 `agent/` |
+| 内部 Agent Task 与主观 Memory | Agent Runtime | `agent/tasks.db`、`agent/memory.db` |
+| Signal 收件箱及投递诊断 | Control daemon | `agent/signals.db`，受 Epoch 与 TTL 约束 |
+| 决策诊断 | Agent Runtime | `agent/decision-records.db`，有界逐行保留 |
 | Persona、Skill、Provider 配置 | 管理员 | 私有 Agent 配置文件 |
 | 外部 Agent 人格与私有记忆 | 外部 Agent | Rin 不复制 |
 

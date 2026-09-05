@@ -133,3 +133,28 @@ func TestHumanCompletionRequiresExactReviewAndCannotReviveCancellation(t *testin
 		})
 	}
 }
+
+func TestNewTaskDefaultsToHumanWhileLegacySnapshotKeepsModelAcceptance(t *testing.T) {
+	fixture := newAgentRuntimeFixture(t)
+	fixture.model.decisions = []cognition.ModelDecision{{Kind: cognition.ModelDecisionComplete, Summary: "Done."}}
+	runtime := fixture.runtime(t, 16)
+	task := startCompletionTask(t, runtime, cognition.TaskCompletionPolicy{})
+	if task.Completion.Mode != cognition.CompletionHuman {
+		t.Fatalf("default: %s", task.Completion.Mode)
+	}
+	result, err := runtime.RunTask(context.Background(), task.TaskID)
+	if err != nil || result.PauseCode != "completion.confirmation-required" {
+		t.Fatalf("default bypassed review: %#v %v", result, err)
+	}
+	snapshot, _ := fixture.tasks.Snapshot(context.Background())
+	snapshot.Tasks[0].Completion = cognition.TaskCompletionPolicy{}
+	snapshot.Tasks[0].CompletionRequested = false
+	restored, err := cognition.RestoreLocalTaskStore(10, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := restored.Load(context.Background(), task.TaskID)
+	if err != nil || legacy.Completion.Mode != cognition.CompletionModel {
+		t.Fatalf("legacy policy changed: %#v %v", legacy.Completion, err)
+	}
+}

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/internal/changefeed"
 	"github.com/sunrioa/rin/policy"
 )
 
@@ -54,6 +55,7 @@ type Service struct {
 	operations                map[string]*operationState
 	requests                  map[string]string
 	changed                   chan struct{}
+	schedulingChanges         changefeed.Feed[SchedulingChange]
 	operationFile             *operationFile
 	operationSQLite           *operationSQLite
 	operationDirty            bool
@@ -243,7 +245,7 @@ func (service *Service) UnregisterHost(hostID, leaseID string) error {
 		current.lease.ExpiresAtUnixMillis,
 	)
 	service.failHostGatewayLocked(hostID, ErrUnavailable)
-	service.notifyLocked()
+	service.notifyActorChangedLocked(ActorControlTarget{HostID: hostID})
 	return service.persistOperationsLocked()
 }
 
@@ -289,7 +291,7 @@ func (service *Service) PublishWorld(
 		publication,
 	)
 	current.worlds[publication.WorldID] = clonePublication(publication)
-	service.notifyLocked()
+	service.notifyActorChangedLocked(ActorControlTarget{HostID: hostID, WorldID: publication.WorldID})
 	return nil
 }
 

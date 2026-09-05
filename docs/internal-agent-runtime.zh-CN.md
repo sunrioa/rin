@@ -198,7 +198,7 @@ Resilient 只透明转发，不在核心引入供应商分支。
 - `action` 选择一个允许 Capability、严格 JSON 参数和已列出的 Target Handle；
 - `inspect` 最多展开 4 个 Capability 和 1 个 Skill，并且最多一轮；
 - `wait` 表示当前没有有根据的行动；
-- `complete` 仍需 Runtime 用 Observation/Outcome 验证任务目标。
+- `complete` 仅提出完成请求，必须满足调用方选定的验收策略，不能覆盖该策略。
 
 可信 Contract 与 `untrusted_context` 分离。Persona、Memory、Skill、Observation、
 玩家文本和 Capability Description 都属于不可信数据，不能改变允许集合、Epoch、
@@ -208,7 +208,7 @@ Controller 或预算。
 
 - Task HTTP 契约以 [`api/agent-openapi.json`](../api/agent-openapi.json) 为准。
 - 状态固定写入 `<RIN_CONTROL_DATA_DIR>/agent/tasks.db` 和 `memory.db`。
-- Task 使用 SQLite Schema 1，任务投影为 `rin.cognition.tasks/v5`。首次创建数据库时
+- Task 使用 SQLite Schema 2，任务投影为 `rin.cognition.tasks/v5`。首次创建数据库时
   导入已有 `tasks.json` 的 v3、v4 或 v5 快照；后续打开只读取数据库。
 - Task CAS 在同一事务内更新一个任务行和快照 Revision。WAL、`synchronous=FULL`、
   私有文件及单写者进程锁保留成功返回前已持久化的保证；提交失败后缓存不可读，需重新打开。
@@ -235,11 +235,12 @@ Controller 或预算。
 | `waiting-confirmation` | 确认或取消使被跟踪的 Operation 发生变化。 |
 | `retry-at` | 到达已保存的重试时间。 |
 | `waiting-user` | 根据任务状态，由用户显式请求运行或恢复。 |
-| `stopped` | 任务已终止，不再自动执行。 |
+| `stopped` | 停止继续决策；未知结果仍跟踪原始 Operation 进行对账。 |
 
 模型返回 `wait` 时保存当前 Observation 的 Epoch 和 Sequence；等待 Operation 或确认时
-保存 Operation ID 和 Cursor，然后释放 worker。Task 与 Control Plane 变化会唤醒调度器，
-定时扫描负责遗漏通知及进程重启后的恢复。默认扫描间隔为 1 秒，暂时性故障 5 秒后重试。
+保存 Operation ID 和 Cursor，然后释放 worker。Task 与 Control Plane 通知按世界、Actor
+或 Operation 索引选择受影响的活动任务，不复制历史上下文。恢复扫描负责通知遗漏及进程重启，
+默认每 5 秒执行一次；暂时性故障在 5 秒后具备重试资格。
 带 Plan 的任务还会等待 `task-plan` 订阅者确认结果投影；Memory 回写不影响任务就绪条件。
 `OperationWaitMillis` 保留以兼容已有调用代码，但不再控制 worker 等待。
 
@@ -262,9 +263,9 @@ Gateway 的阶段。恢复时通过进程内 `FindActionOperation` 查询原始�
 
 | `completion.mode` | 完成条件 |
 | --- | --- |
-| `model-declared`（默认） | 模型请求完成，且已有 Plan 已完成。 |
+| `model-declared`（显式选择） | 模型请求完成，且已有 Plan 已完成。 |
 | `host-evidence` | 模型请求完成，且调用方提供的全部条件有 Host 证据。 |
-| `human-confirmation` | 模型请求验收后，由具备 `task.execute` 权限的调用方确认精确任务版本。 |
+| `human-confirmation`（新任务默认） | 模型请求验收后，由具备 `task.execute` 权限的调用方确认精确任务版本。 |
 
 `host-evidence` 接受 1–16 个采用 Plan Condition 结构的条件。`observation-fact` 精确
 匹配标量 `fact_value_json`，全部事实条件必须同时成立于当前观察；`operation-outcome`
@@ -274,6 +275,20 @@ Gateway 的阶段。恢复时通过进程内 `FindActionOperation` 查询原始�
 
 ```json
 {"mode":"host-evidence","conditions":[{"condition_id":"goal.arrived","kind":"observation-fact","summary":"Host 确认到达。","fact_id":"actor.at-destination","fact_value_json":"true"}]}
+```
+
+已有任务保留所记录的验收策略，未记录策略的旧快照继续采用模型声明完成。短期自动主动
+任务显式选择模型声明；调用方目标默认人工确认。
+
+`completion.operation_requirements` 可按 `condition_id` 收紧动作条件：
+`arguments_json` 精确匹配整个参数对象（忽略键顺序，数字按 JSON 表示精确匹配）；
+`target_refs` 匹配 Host 绑定后的真实目标引用及 Epoch；`minimum_count` 要求 1–64 个
+不同的成功 Operation，同一 ID 的重试不能重复计数。条件在任务内不可改写；这里统计的是
+操作次数，不是物品总数。持续时长、库存总量等复合目标应由 Host 完整判断后发布标量事实，
+例如 `goal.bridge-held-30s=true` 或 `goal.has-ten-wood=true`。
+
+```json
+{"mode":"host-evidence","conditions":[{"condition_id":"goal.collect","kind":"operation-outcome","summary":"成功采集木材两次。","capability":{"id":"game.item.collect","version":"1.0.0"}}],"operation_requirements":[{"condition_id":"goal.collect","arguments_json":"{\"item\":\"wood\"}","minimum_count":2}]}
 ```
 
 人工验收时暂停码为 `completion.confirmation-required`。向
@@ -308,3 +323,15 @@ Policy、执行与权威 Outcome。
 模型只能提出基于当前 Observation 和 Capability 的 ActionRequest。Host 仍负责绑定
 目标、预览 Effect、执行 Policy、修改世界并返回 Outcome；人格、记忆或 Task Token
 都不能授予世界权限。
+
+## 异常恢复与历史保留
+
+未知结果停止模型决策，但持续核对原始 Intent 或 Operation，以及必要的 Plan 投影。
+显式运行也可触发只读结果核对，不会重发动作。Host 补齐终态后，任务继续或完成取消，
+不会因历史 unknown 永久阻止该角色的 Signal 协调。
+
+Plan 使用确定的 `plan.<TaskID>` 身份。若 Plan 已提交而 Task 引用尚未保存，重启会检查
+Task、Host、World、Actor、Controller、Session、Goal 和规划归属后接续已有计划。
+保存的 Plan Epoch 继续约束证据及动作授权；Epoch 改变后须复验或重规划。取消也会查找
+尚未写入 Task 引用的自有 Plan。Task/Plan 归档、Signal 持久化与增量决策日志详见
+[存储与迁移](execution-storage.zh-CN.md)。

@@ -63,3 +63,13 @@ Every Adapter connects to one resident `rin serve`. A game Mod implements the
 Host/Adapter contract, not another MCP server. Codex, Claude Code, or OpenClaw
 installs `rin mcp` once. Games and Mods still use their own distribution and
 update channels.
+
+## Acceptance, archive and delivery recovery
+
+New goals default to human confirmation. Choose Host evidence or explicit model
+judgment when appropriate; outcome criteria can include exact arguments, resolved
+target references and a distinct-operation count. The Task page can list archived
+internal goals, accept a reviewed revision and reconcile an unknown Host result.
+The execution page displays pending subscriber deliveries and can retry existing
+evidence. Archive and migration guarantees are described in
+[execution storage](execution-storage.md).

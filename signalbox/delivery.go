@@ -34,8 +34,8 @@ func (store *Store) RecordDelivery(signal Signal, status, reason, taskID string)
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if store.closed {
-		return ErrClosed
+	if err := store.readyLocked(); err != nil {
+		return err
 	}
 	box := store.inboxes[keyOf(Target{signal.HostID, signal.WorldID, signal.ActorID})]
 	if box == nil {
@@ -45,6 +45,12 @@ func (store *Store) RecordDelivery(signal Signal, status, reason, taskID string)
 		current := &box.signals[i]
 		if current.SignalID != signal.SignalID || current.Cursor != signal.Cursor {
 			continue
+		}
+		if current.Delivery.Status != "" && current.Delivery.Status != "retry" {
+			if current.Delivery.Status == status && current.Delivery.Reason == reason && current.Delivery.TaskID == taskID {
+				return nil
+			}
+			return ErrInvalid
 		}
 		attempts := current.Delivery.Attempts + 1
 		state := DeliveryState{Status: status, Reason: reason, TaskID: taskID, Attempts: attempts}
@@ -57,6 +63,9 @@ func (store *Store) RecordDelivery(signal Signal, status, reason, taskID string)
 			}
 		}
 		current.Delivery = state
+		if err := store.persistInboxLocked(keyOf(Target{signal.HostID, signal.WorldID, signal.ActorID}), box); err != nil {
+			return err
+		}
 		store.notifyLocked()
 		return nil
 	}
@@ -69,9 +78,9 @@ func (store *Store) WaitPending(ctx context.Context, wait time.Duration) ([]Sign
 	deadline := time.Now().Add(wait)
 	for {
 		store.mu.Lock()
-		if store.closed {
+		if err := store.readyLocked(); err != nil {
 			store.mu.Unlock()
-			return nil, ErrClosed
+			return nil, err
 		}
 		now := store.now().UnixMilli()
 		items := make([]Signal, 0)

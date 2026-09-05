@@ -16,7 +16,7 @@ import (
 const (
 	defaultWorkerCount       = 4
 	defaultQueueCapacity     = 1_024
-	defaultReconcileInterval = time.Second
+	defaultReconcileInterval = 5 * time.Second
 )
 
 // Service owns only asynchronous task coordination. AgentRuntime remains the
@@ -69,7 +69,7 @@ func New(options Options) (*Service, error) {
 		dispatchDone: make(chan struct{}, 1),
 		scheduled:    make(map[string]bool),
 	}
-	snapshot, err := service.runtime.SnapshotTasks(ctx)
+	snapshot, err := service.schedulingSnapshot(ctx)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("restore task scheduler: %w", err)
@@ -401,12 +401,23 @@ func (service *Service) reconcile() {
 	defer service.wg.Done()
 	ticker := time.NewTicker(service.interval)
 	defer ticker.Stop()
+	var cursor cognition.SchedulingCursor
+	full := true
 	for {
 		var taskChanges, controlChanges <-chan struct{}
 		if runtime, ok := service.runtime.(schedulingRuntime); ok {
 			taskChanges, controlChanges = runtime.SchedulingEvents()
 		}
-		snapshot, err := service.runtime.SnapshotTasks(service.ctx)
+		var snapshot cognition.TaskSnapshot
+		var err error
+		if runtime, ok := service.runtime.(interface {
+			SchedulingUpdates(context.Context, cognition.SchedulingCursor, bool) (cognition.TaskSnapshot, cognition.SchedulingCursor, error)
+		}); ok {
+			snapshot, cursor, err = runtime.SchedulingUpdates(service.ctx, cursor, full)
+		} else {
+			snapshot, err = service.schedulingSnapshot(service.ctx)
+		}
+		full = false
 		if err == nil {
 			for _, task := range snapshot.Tasks {
 				if service.taskReady(task) {
@@ -418,6 +429,7 @@ func (service *Service) reconcile() {
 		case <-service.ctx.Done():
 			return
 		case <-ticker.C:
+			full = true
 		case <-taskChanges:
 		case <-controlChanges:
 		case <-service.dispatchDone:
@@ -433,9 +445,18 @@ func (service *Service) taskReady(task cognition.TaskSession) bool {
 	return cognition.TaskReadyAt(task, time.Now())
 }
 
+func (service *Service) schedulingSnapshot(ctx context.Context) (cognition.TaskSnapshot, error) {
+	if source, ok := service.runtime.(interface {
+		SchedulingSnapshot(context.Context) (cognition.TaskSnapshot, error)
+	}); ok {
+		return source.SchedulingSnapshot(ctx)
+	}
+	return service.runtime.SnapshotTasks(ctx)
+}
+
 func taskCanRun(status cognition.TaskStatus) bool {
 	switch status {
-	case cognition.TaskActive, cognition.TaskWaitingConfirmation, cognition.TaskCancelling:
+	case cognition.TaskActive, cognition.TaskWaitingConfirmation, cognition.TaskCancelling, cognition.TaskOutcomeUnknown:
 		return true
 	default:
 		return false

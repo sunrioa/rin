@@ -122,13 +122,15 @@ Policy、Controller 检查点在同一 SQLite FULL 同步事务中落盘。Host 
 **至少一次投递**：订阅者必须按 Operation ID 幂等处理，并响应 Context 取消。某个订阅者
 缓慢不会阻塞其他订阅者；带 Plan 的任务会等待计划结果投影确认后再推进。
 
-未全部确认的 Operation 不受普通保留期清理，但仍计入容量上限。因此长期回写故障可能
-阻止新提交，不会静默丢弃未确认结果。跨重启应保持订阅者 ID 稳定：移除订阅者会保留其
-待处理结果，恢复相同 ID 后继续；新增 ID 会重放仍被保留的结果。持久化服务每个 Operation
+默认 SQLite 后端将已确定终态的 Operation 归档，未确认的投影证据保存在独立积压区，
+订阅者故障不会占用执行槽位。未知结果持续保留在工作集，等待 Host 对账。订阅者 ID 应保持
+稳定：移除后保留待处理证据，恢复同一 ID 后继续；新增 ID 接收仍在工作集的结果，不自动
+回填全部归档。Console 提供积压状态与证据重试，详见[存储和保留](execution-storage.zh-CN.md)。
+持久化服务每个 Operation
 最多支持 64 个有效订阅者 ID，包含历史注册 ID；旧 OutcomeSink 不能与具名订阅者重复占用
 `default`。
 
-SQLite Schema 1 保存 `rin.control.operations/v6` 表示。首次创建数据库时导入已有
+SQLite Schema 2 保存 `rin.control.operations/v6` 表示。首次创建数据库时导入已有
 v5、v6 `operations.json`；v5 没有投递确认记录，会把仍保留的结果重放给已配置订阅者。
 后续打开不再导入旧 JSON 备份，详见[存储迁移](execution-storage.zh-CN.md)。关闭时先停止
 Control Plane，再关闭订阅者使用的存储。
@@ -155,7 +157,7 @@ Host 在 ACK 前断线时，无法证明绑定仍适用的请求会变为 `stale
 同一 Operation 可以重投；Adapter 必须按其 Durability Profile 去重。已经看到执行
 迹象但缺少结果时进入 `outcome-unknown`，允许 Host 后续提交权威 Outcome。
 
-Control 状态使用单写者锁和原子文件替换。Host Read Model 与 Lease 由 Host 重连后
+Control 状态使用单写者锁和 SQLite 事务。Host Read Model 与 Lease 由 Host 重连后
 重新发布；Operation 身份和已持久终态不会因 Daemon 重启而改变。
 
 ## 取消与急停

@@ -16,8 +16,11 @@ Adapters own namespaced kinds such as `minecraft.player.death`.
 6. Any resulting action still traverses Controller, Policy, Operation, and authoritative Host Outcome.
 
 Signals are disabled by default. A Host configures `enabled`,
-`cooldown_millis`, and `max_pending` per actor. Inboxes are process-local and
-are discarded on daemon restart so old-Epoch reminders cannot enter a new timeline.
+`cooldown_millis`, and `max_pending` per actor. The daemon commits accepted hints,
+settings, cursors and delivery state to `agent/signals.db` before acknowledging
+them. Restart restores unexpired pending/retry items. Dispatch still checks the
+current Host Epoch, and acknowledged deliveries do not replay. Embedders may
+explicitly use the in-memory `NewStore`.
 
 ## Actor coordination
 
@@ -63,6 +66,9 @@ Epoch and Observation; Rin assigns `received_at_unix_millis` and `cursor`.
 - Adapters collect and merge events; Rin Core owns no cross-game emotion dictionary.
 - A summary states an observation or an explicitly uncertain hypothesis, never an authoritative Outcome.
 - Disabled, duplicate, cooled-down, or capacity-limited Signals return a PublishResult reason and create no task.
-- Inbox delivery diagnostics remain process-local and expire with the Signal;
-  pending context already attached to a Task is durable. No public `claim/ack`
+- Inbox and Task delivery commits remain separate. If the daemon stops after Task
+  attachment but before inbox acknowledgement, the Task's durable Signal identity
+  deduplicates redelivery. Diagnostics expire with the Signal. No public `claim/ack`
   authority is added, and Hosts cannot supply `delivery` state.
+- Automatic short-lived initiative explicitly uses model-declared acceptance.
+  Durable caller goals default to human confirmation. See [migration](execution-storage.md).

@@ -384,7 +384,7 @@ is present and treat the HTTP status as the compatibility fallback.
 writer. Each transaction updates changed operation rows and the Policy,
 controller and emergency-stop checkpoint together. Stored JSON remains strict;
 the database never stores the token, model keys, prompts or a game save.
-The first open imports v5/v6 `operations.json` into SQLite schema 1, preserving
+The first open imports v5/v6 `operations.json` into SQLite schema 2, preserving
 per-subscriber outcome acknowledgements. Older request formats are not supported.
 See [storage migration](execution-storage.md) and
 [durable outcome delivery](operations.md#durable-outcome-delivery) for replay and

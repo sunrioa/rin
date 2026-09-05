@@ -23,6 +23,26 @@ type OperationControlInput struct {
 	Action      string `json:"action"`
 }
 
+func (service *Service) OutcomeBacklog(ctx context.Context) (controlplane.OutcomeBacklogHealth, error) {
+	if service.control == nil {
+		return controlplane.OutcomeBacklogHealth{}, ErrControlUnavailable
+	}
+	if err := ctx.Err(); err != nil {
+		return controlplane.OutcomeBacklogHealth{}, err
+	}
+	return service.control.OutcomeBacklog(service.controlPrincipal)
+}
+
+func (service *Service) RetryOutcomeDelivery(ctx context.Context, input controlplane.OutcomeRetryInput) error {
+	if service.control == nil {
+		return ErrControlUnavailable
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return service.control.RetryOutcomeDelivery(service.controlPrincipal, input)
+}
+
 type ActorControlInput struct {
 	controlplane.ActorControlTarget
 	Action         string `json:"action"`
