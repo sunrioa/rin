@@ -14,7 +14,7 @@ func (runtime *AgentRuntime) advancePendingAction(
 	ctx context.Context,
 	task TaskSession,
 ) (TaskSession, bool, error) {
-	if len(task.PendingMemories) != 0 {
+	if len(task.PendingMemories) != 0 && task.Status != TaskCancelling {
 		var warning bool
 		if runtime.memory == nil {
 			warning = true
@@ -35,7 +35,21 @@ func (runtime *AgentRuntime) advancePendingAction(
 			return task, false, err
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return task, false, err
+	}
 	if task.PendingOperationID == "" {
+		if !task.ActionSubmissionStarted {
+			task.ActionSubmissionStarted = true
+			var err error
+			task, err = runtime.saveTask(ctx, task)
+			if err != nil {
+				return task, false, err
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return task, false, err
+		}
 		action := controlplane.SubmitActionInput{
 			HostID: task.HostID, WorldID: task.WorldID, Request: *task.PendingAction,
 			ParentOperationID: task.MacroOperationID,
@@ -138,42 +152,20 @@ func (runtime *AgentRuntime) advancePendingAction(
 		return runtime.activatePendingMacro(ctx, task, view)
 	}
 	if !view.Terminal && view.Status != controlplane.OperationAwaitingConfirmation {
-		update, waitErr := runtime.control.WaitOperation(ctx, runtime.principal, controlplane.WaitOperationInput{
-			OperationID: view.OperationID, AfterCursor: view.Cursor,
-			WaitMillis: runtime.operationWaitMillis,
-		})
-		if waitErr != nil {
-			return task, false, waitErr
-		}
-		view = update.Operation
-		if !update.Changed && !view.Terminal {
-			return task, false, nil
-		}
+		return runtime.waitForOperation(ctx, task, view)
 	}
-	if operationRequiresReconciliation(view) {
-		return runtime.recordUnknownOperation(ctx, task, "operation.unknown", view)
-	}
+
 	if view.Status == controlplane.OperationAwaitingConfirmation {
-		if task.Status != TaskWaitingConfirmation {
-			task.Status = TaskWaitingConfirmation
-			saved, saveErr := runtime.saveTask(ctx, task)
-			return saved, false, saveErr
-		}
-		return task, false, nil
-	}
-	if task.PendingActionMacro && macroOperationStarted(view) {
-		return runtime.activatePendingMacro(ctx, task, view)
-	}
-	if !view.Terminal {
-		if task.Status == TaskWaitingConfirmation {
-			task.Status = TaskActive
-			saved, saveErr := runtime.saveTask(ctx, task)
-			return saved, saveErr == nil, saveErr
-		}
-		return task, false, nil
+		task.Status = TaskWaitingConfirmation
+		return runtime.waitForOperation(ctx, task, view)
 	}
 	if operationOutcomeIsUnknown(view) {
 		return runtime.recordUnknownOperation(ctx, task, "operation.unknown", view)
+	}
+	if pending, err := runtime.planProjectionPending(task, view); err != nil {
+		return task, false, err
+	} else if pending {
+		return runtime.waitForOperation(ctx, task, view)
 	}
 	warning := false
 	if view.Outcome != nil && !runtime.outcomesRecordedByControl {
@@ -328,46 +320,19 @@ func (runtime *AgentRuntime) advanceMacroOperation(
 	if operationRequiresReconciliation(view) {
 		return runtime.recordUnknownOperation(ctx, task, "macro.unknown", view)
 	}
-	if !view.Terminal && !cancelling &&
-		view.Status != controlplane.OperationAwaitingConfirmation &&
-		view.Status != controlplane.OperationAccepted &&
-		view.Status != controlplane.OperationRunning {
-		update, waitErr := runtime.control.WaitOperation(
-			ctx,
-			runtime.principal,
-			controlplane.WaitOperationInput{
-				OperationID: view.OperationID,
-				AfterCursor: view.Cursor,
-				WaitMillis:  runtime.operationWaitMillis,
-			},
-		)
-		if waitErr != nil {
-			return task, false, waitErr
-		}
-		view = update.Operation
-		if !update.Changed && !view.Terminal {
-			return task, false, nil
-		}
+	if !view.Terminal && view.Status != controlplane.OperationAwaitingConfirmation &&
+		view.Status != controlplane.OperationAccepted && view.Status != controlplane.OperationRunning {
+		return runtime.waitForOperation(ctx, task, view)
 	}
-	if operationRequiresReconciliation(view) {
-		return runtime.recordUnknownOperation(ctx, task, "macro.unknown", view)
-	}
+
 	if view.Status == controlplane.OperationAwaitingConfirmation {
-		if task.Status != TaskWaitingConfirmation {
-			task.Status = TaskWaitingConfirmation
-			task.PauseCode = ""
-			saved, saveErr := runtime.saveTask(ctx, task)
-			return saved, false, saveErr
-		}
-		return task, false, nil
+		task.Status = TaskWaitingConfirmation
+		task.PauseCode = ""
+		return runtime.waitForOperation(ctx, task, view)
 	}
 	if !view.Terminal {
 		if cancelling {
-			return task, false, nil
-		}
-		if view.Status != controlplane.OperationAccepted &&
-			view.Status != controlplane.OperationRunning {
-			return task, false, nil
+			return runtime.waitForOperation(ctx, task, view)
 		}
 		if task.Status == TaskWaitingConfirmation {
 			task.Status = TaskActive
@@ -382,6 +347,11 @@ func (runtime *AgentRuntime) advanceMacroOperation(
 	}
 	if operationOutcomeIsUnknown(view) {
 		return runtime.recordUnknownOperation(ctx, task, "macro.unknown", view)
+	}
+	if pending, err := runtime.planProjectionPending(task, view); err != nil {
+		return task, false, err
+	} else if pending {
+		return runtime.waitForOperation(ctx, task, view)
 	}
 	warning := false
 	if view.Outcome != nil && !runtime.outcomesRecordedByControl {

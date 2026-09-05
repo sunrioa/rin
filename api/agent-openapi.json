@@ -871,10 +871,60 @@
           "scheduled"
         ]
       },
+      "TaskSchedule": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "waiting-observation",
+              "waiting-operation",
+              "waiting-confirmation",
+              "retry-at",
+              "waiting-user",
+              "stopped"
+            ]
+          },
+          "operation_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "after_cursor": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "observation_epoch": {
+            "$ref": "#/components/schemas/Epoch"
+          },
+          "after_observation_sequence": {
+            "$ref": "#/components/schemas/JSONSafePositiveInteger"
+          },
+          "retry_at_unix_millis": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
       "TaskSession": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
+          "action_submission_started": {
+            "type": "boolean",
+            "description": "Durable marker that the pending intent may have reached the gateway."
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/TaskSchedule"
+          },
+          "cancel_requested": {
+            "type": "boolean",
+            "description": "Durable cancellation intent; does not confirm that Host execution stopped."
+          },
           "task_id": {
             "$ref": "#/components/schemas/TaskIdentifier"
           },
@@ -1024,6 +1074,7 @@
           }
         },
         "required": [
+          "schedule",
           "task_id",
           "session_id",
           "host_id",

@@ -138,7 +138,9 @@ func Run(
 		config.dataDir,
 		controlplane.Options{
 			PolicyEngine: policyEngine,
-			OutcomeSink:  controlplane.JoinOutcomeSinks(outcomeSink, planOutcomeSink),
+			OutcomeSinks: map[string]controlplane.OutcomeSink{
+				"memory": outcomeSink, "task-plan": planOutcomeSink,
+			},
 		},
 	)
 	if err != nil {

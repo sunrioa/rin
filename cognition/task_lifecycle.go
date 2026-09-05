@@ -81,6 +81,7 @@ func (runtime *AgentRuntime) startTask(
 		ControllerID: sealed.ControllerID, Goal: sealed.Goal, Tags: sealed.Tags,
 		AllowedCapabilities: sealed.AllowedCapabilities,
 		PlanningMode:        sealed.PlanningMode,
+		Schedule:            TaskSchedule{Kind: ScheduleReady},
 		Status:              TaskActive, Budget: sealed.Budget, ControllerLease: lease,
 		CreatedAtUnixMillis: now, UpdatedAtUnixMillis: now,
 	}
@@ -135,6 +136,7 @@ func (runtime *AgentRuntime) ResumeTask(
 		return task, nil
 	}
 	task.Status = TaskActive
+	task.Schedule = TaskSchedule{Kind: ScheduleReady}
 	task.PauseCode = ""
 	task.UpdatedAtUnixMillis = runtime.now().UnixMilli()
 	appendTaskEvent(&task, TaskEvent{
@@ -156,13 +158,86 @@ func (runtime *AgentRuntime) CancelTask(
 	if err := validateTaskID(taskID); err != nil {
 		return TaskSession{}, err
 	}
+	var task TaskSession
+	for {
+		var err error
+		task, err = runtime.tasks.Load(ctx, taskID)
+		if err != nil || terminalTaskStatus(task.Status) {
+			return task, err
+		}
+		if task.CancelRequested {
+			break
+		}
+		task.CancelRequested = true
+		task.Status = TaskCancelling
+		task.PauseCode = ""
+		task.Schedule = TaskSchedule{Kind: ScheduleReady}
+		appendTaskEvent(&task, TaskEvent{Kind: "task.cancel-requested", Step: task.Step,
+			OperationID: task.PendingOperationID, AtUnixMillis: runtime.now().UnixMilli()})
+		task, err = runtime.saveTask(ctx, task)
+		if errors.Is(err, ErrTaskRevisionConflict) {
+			continue
+		}
+		if err != nil {
+			return task, err
+		}
+		break
+	}
+	// Cancellation intent is durable before touching an in-flight call. This
+	// path never waits for a model provider to honor cancellation.
+	runtime.runsMu.Lock()
+	if cancel := runtime.activeRuns[taskID]; cancel != nil {
+		cancel()
+	}
+	runtime.runsMu.Unlock()
 	lock := runtime.taskLock(taskID)
-	lock.Lock()
+	if !lock.TryLock() {
+		return task, nil
+	}
 	defer lock.Unlock()
 	task, err := runtime.tasks.Load(ctx, taskID)
-	if err != nil || terminalTaskStatus(task.Status) {
+	if err != nil {
 		return task, err
 	}
+	return runtime.reconcileCancellation(ctx, task)
+}
+
+func (runtime *AgentRuntime) reconcileCancellation(ctx context.Context, task TaskSession) (TaskSession, error) {
+	task.Schedule = TaskSchedule{Kind: ScheduleReady}
+	var err error
+	if task.PendingAction != nil && task.PendingOperationID == "" && !task.ActionSubmissionStarted {
+		clearPendingTaskAction(&task)
+	}
+	if task.PendingAction != nil && task.PendingOperationID == "" {
+		// A crash or cancellation may have happened after the gateway committed
+		// but before the task saved its Operation ID. Lookup never submits work.
+		view, lookupErr := runtime.control.FindActionOperation(runtime.principal, controlplane.SubmitActionInput{
+			HostID: task.HostID, WorldID: task.WorldID, Request: *task.PendingAction,
+			ParentOperationID: task.MacroOperationID,
+		})
+		if errors.Is(lookupErr, controlplane.ErrNotFound) {
+			// The gateway may have pruned an older operation. Absence after a
+			// submitted intent is not proof that no effect occurred.
+			task.Status = TaskOutcomeUnknown
+			task.PauseCode = "action.submission-unknown"
+			appendTaskEvent(&task, TaskEvent{Kind: "action.submission-unknown", Step: task.Step,
+				Code: task.PauseCode, AtUnixMillis: runtime.now().UnixMilli()})
+			saved, err := runtime.saveTask(ctx, task)
+			if err == nil {
+				runtime.releaseController(saved)
+			}
+			return saved, err
+		} else if lookupErr != nil {
+			return task, lookupErr
+		} else {
+			task.PendingOperationID = view.OperationID
+			task, err = runtime.saveTask(ctx, task)
+			if err != nil {
+				return task, err
+			}
+		}
+	}
+
 	if task.PendingOperationID == "" && task.MacroOperationID == "" {
 		return runtime.finishCancelledTask(ctx, task, "before-operation")
 	}

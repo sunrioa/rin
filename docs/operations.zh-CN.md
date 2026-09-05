@@ -110,6 +110,27 @@ Operation View 显式包含：
 `changed=false` 仅表示长轮询期间没有新版本。`stale` 且
 `delivery_attempts=0` 明确表示 Host 从未领取请求。
 
+## 持久化结果投递
+
+Host 结果与各订阅者的投递状态一起提交到 `operations.json`。Host 回复只等待这次落盘，
+计划和记忆回写由后台处理。`Options.OutcomeSinks` 按稳定 ID 注册独立 worker，应用使用
+`task-plan` 和 `memory`；旧 `OutcomeSink` 仍可作为 `default` 订阅者使用。
+
+各订阅者分别确认。回写失败、panic 或确认落盘失败都会保留待投递状态，同一 Operation
+对同一订阅者最多每秒重试一次，每次尝试传入 5 秒超时 Context，重启后继续重放。这是
+**至少一次投递**：订阅者必须按 Operation ID 幂等处理，并响应 Context 取消。某个订阅者
+缓慢不会阻塞其他订阅者；带 Plan 的任务会等待计划结果投影确认后再推进。
+
+未全部确认的 Operation 不受普通保留期清理，但仍计入容量上限。因此长期回写故障可能
+阻止新提交，不会静默丢弃未确认结果。跨重启应保持订阅者 ID 稳定：移除订阅者会保留其
+待处理结果，恢复相同 ID 后继续；新增 ID 会重放仍被保留的结果。持久化服务每个 Operation
+最多支持 64 个有效订阅者 ID，包含历史注册 ID；旧 OutcomeSink 不能与具名订阅者重复占用
+`default`。
+
+文件格式为 `rin.control.operations/v6`，兼容导入 v5；v5 没有投递确认记录，会把仍保留的
+结果重放给已配置订阅者。写成 v6 后不能由 v5 二进制打开。关闭时先停止 Control Plane，
+再关闭订阅者使用的存储。
+
 ## 幂等与等待
 
 同一 Principal 和 `idempotency_key` 的完全相同 Action 返回同一 Operation。相同

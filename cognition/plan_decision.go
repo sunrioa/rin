@@ -29,7 +29,7 @@ func (runtime *AgentRuntime) callModel(
 	if !finishedAt.Before(startedAt) {
 		latency = uint64(finishedAt.Sub(startedAt).Milliseconds())
 	}
-	if modelErr != nil && ctx.Err() != nil {
+	if ctx.Err() != nil {
 		return ModelDecision{}, beforeCall, ctx.Err()
 	}
 	task.ModelCalls++
@@ -107,6 +107,7 @@ func (runtime *AgentRuntime) applyModelDecision(
 	}
 	switch decision.Kind {
 	case ModelDecisionWait:
+		waitForObservation(&task, observation)
 		warning, err := runtime.appendModelDecisionMemories(
 			ctx, task, observation, runtime.stepID(task, "decision"), decision.MemoryCandidates,
 		)

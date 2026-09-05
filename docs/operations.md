@@ -120,6 +120,35 @@ means in progress, and `changed=false` means only that a long poll observed no
 new version. `stale` with `delivery_attempts=0` proves the Host never collected
 the request.
 
+## Durable outcome delivery
+
+Host results and their subscriber delivery state are committed together in
+`operations.json`. The Host reply waits for that commit, not for Plan or Memory
+projection. `Options.OutcomeSinks` registers independent workers by stable ID;
+the application uses `task-plan` and `memory`. `OutcomeSink` remains available as
+the legacy `default` subscriber.
+
+Each subscriber acknowledges separately. A failure, panic, or acknowledgement
+write failure leaves that delivery pending. Pending deliveries retry at most once
+per second per Operation, with a five-second context deadline per attempt, and
+replay after restart. This is **at-least-once delivery**: each sink must implement
+idempotent handling by Operation ID and honor the supplied context. A slow sink
+does not block other subscribers. Planned tasks wait for their Plan projection
+acknowledgement before advancing.
+
+Operations with pending deliveries are retained even after ordinary retention
+expires. Capacity limits still apply, so an extended subscriber outage can stop
+new submissions rather than discard unacknowledged results. Keep subscriber IDs
+stable across restarts: removing a sink leaves its unacknowledged work pending;
+restoring the same ID resumes it. Registering a new ID replays retained outcomes.
+Persistent services allow at most 64 valid subscriber IDs per Operation, including
+previously registered IDs; the legacy sink cannot share `default` with a named sink.
+
+The file format is `rin.control.operations/v6`; v5 files import without delivery
+acknowledgements and replay retained outcomes to configured sinks. Once written
+as v6, the file cannot be opened by a v5 binary. Close the Control Plane before
+closing stores used by its subscribers.
+
 ## Idempotency and waiting
 
 An identical action under the same principal and `idempotency_key` returns the

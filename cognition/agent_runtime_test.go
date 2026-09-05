@@ -2152,6 +2152,19 @@ func (control *fakeAgentControlPlane) SubmitAction(
 	return queued, nil
 }
 
+func (control *fakeAgentControlPlane) FindActionOperation(principal host.Principal, input controlplane.SubmitActionInput) (controlplane.OperationView, error) {
+	for _, submitted := range control.submissions {
+		if submitted.Request.IdempotencyKey == input.Request.IdempotencyKey && control.submitError == nil {
+			view := control.operationAfterSubmit
+			if view.OperationID == "" {
+				view = queuedAgentOperation()
+			}
+			return view, nil
+		}
+	}
+	return controlplane.OperationView{}, controlplane.ErrNotFound
+}
+
 func (control *fakeAgentControlPlane) GetOperation(
 	principal host.Principal,
 	operationID string,

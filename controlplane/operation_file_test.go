@@ -402,6 +402,7 @@ func openActionFileHarness(
 	root string,
 	now *time.Time,
 	instanceID string,
+	subscribers ...map[string]OutcomeSink,
 ) (*Service, HostLease, host.Principal, *actionGatewayHost) {
 	t.Helper()
 	actionHost, engine := actionGatewayTestComponents(t, host.RiskLow, policy.ProfileOpen)
@@ -409,7 +410,12 @@ func openActionFileHarness(
 	for index := range random {
 		random[index] = byte(index)
 	}
+	var sinks map[string]OutcomeSink
+	if len(subscribers) != 0 {
+		sinks = subscribers[0]
+	}
 	service, err := OpenFile(root, Options{
+		OutcomeSinks: sinks,
 		Now:          func() time.Time { return *now },
 		Random:       bytes.NewReader(random),
 		ActionHost:   actionHost,
@@ -418,6 +424,7 @@ func openActionFileHarness(
 	if err != nil {
 		t.Fatalf("OpenFile: %v", err)
 	}
+	t.Cleanup(func() { _ = service.Close() })
 	lease := mustRegister(t, service, registration(instanceID))
 	if err := service.PublishWorld(
 		"test.host", lease.LeaseID, worldPublication(1, "ready"),

@@ -32,6 +32,7 @@ type AgentControlPlane interface {
 	RenewController(host.Principal, controlplane.ActorControlTarget, string, uint32) (controlplane.ControllerLease, error)
 	ReleaseController(host.Principal, controlplane.ActorControlTarget, string) error
 	SubmitAction(context.Context, host.Principal, controlplane.SubmitActionInput) (controlplane.OperationView, error)
+	FindActionOperation(host.Principal, controlplane.SubmitActionInput) (controlplane.OperationView, error)
 	GetOperation(host.Principal, string) (controlplane.OperationView, error)
 	WaitOperation(context.Context, host.Principal, controlplane.WaitOperationInput) (controlplane.OperationUpdate, error)
 	CancelOperation(host.Principal, string) (controlplane.OperationView, error)
@@ -54,9 +55,10 @@ type AgentRuntimeOptions struct {
 	Now                   func() time.Time
 	ControllerLeaseMillis uint32
 	RenewBeforeMillis     uint32
-	OperationWaitMillis   uint32
-	MaxAdvancesPerRun     uint32
-	MemoryBudget          MemoryBudget
+	// Deprecated: worker execution now yields on pending Operations. Kept for source compatibility.
+	OperationWaitMillis uint32
+	MaxAdvancesPerRun   uint32
+	MemoryBudget        MemoryBudget
 }
 
 type StartTaskInput struct {
@@ -89,9 +91,11 @@ type AgentRuntime struct {
 	now                   func() time.Time
 	controllerLeaseMillis uint32
 	renewBeforeMillis     uint32
-	operationWaitMillis   uint32
 	maxAdvancesPerRun     uint32
 	memoryBudget          MemoryBudget
+
+	runsMu     sync.Mutex
+	activeRuns map[string]context.CancelFunc
 
 	taskLocksMu sync.Mutex
 	taskLocks   map[string]*sync.Mutex
@@ -153,9 +157,9 @@ func NewAgentRuntime(options AgentRuntimeOptions) (*AgentRuntime, error) {
 		now:                       options.Now,
 		controllerLeaseMillis:     options.ControllerLeaseMillis,
 		renewBeforeMillis:         options.RenewBeforeMillis,
-		operationWaitMillis:       options.OperationWaitMillis,
 		maxAdvancesPerRun:         options.MaxAdvancesPerRun,
 		memoryBudget:              options.MemoryBudget,
+		activeRuns:                make(map[string]context.CancelFunc),
 		taskLocks:                 make(map[string]*sync.Mutex),
 		taskChanged:               make(chan struct{}),
 	}, nil
@@ -173,6 +177,17 @@ func (runtime *AgentRuntime) RunTask(
 	lock := runtime.taskLock(taskID)
 	lock.Lock()
 	defer lock.Unlock()
+	runCtx, cancel := context.WithCancel(ctx)
+	runtime.runsMu.Lock()
+	runtime.activeRuns[taskID] = cancel
+	runtime.runsMu.Unlock()
+	defer func() {
+		cancel()
+		runtime.runsMu.Lock()
+		delete(runtime.activeRuns, taskID)
+		runtime.runsMu.Unlock()
+	}()
+	ctx = runCtx
 	var task TaskSession
 	var err error
 	for advance := uint32(0); advance < runtime.maxAdvancesPerRun; advance++ {
@@ -186,6 +201,13 @@ func (runtime *AgentRuntime) RunTask(
 			}
 			return task, nil
 		}
+		if task.CancelRequested || task.Status == TaskCancelling {
+			return runtime.reconcileCancellation(ctx, task)
+		}
+		if err := ctx.Err(); err != nil {
+			return task, err
+		}
+		task.Schedule = TaskSchedule{Kind: ScheduleReady}
 		var keepRunning bool
 		task, keepRunning, err = runtime.advanceTask(ctx, task)
 		if err != nil || !keepRunning {
@@ -255,7 +277,9 @@ func (runtime *AgentRuntime) advanceTask(
 	// Wait for that newer publication instead of binding a child to the snapshot
 	// that originally started the macro.
 	if task.MacroOperationID != "" && observation.Sequence <= task.LastObservationSeq {
-		return task, false, nil
+		waitForObservation(&task, observation)
+		saved, err := runtime.saveTask(ctx, task)
+		return saved, false, err
 	}
 	target := controlplane.ActorControlTarget{
 		HostID: task.HostID, WorldID: task.WorldID, ActorID: task.ActorID,
@@ -499,6 +523,7 @@ func (runtime *AgentRuntime) pauseTask(
 		return task, errors.Join(cause, ctxErr)
 	}
 	task.Status = TaskPaused
+	task.Schedule = TaskSchedule{}
 	task.PauseCode = code
 	appendTaskEvent(&task, TaskEvent{
 		Kind: "task.paused", Step: task.Step, Code: code,
@@ -578,6 +603,7 @@ func (runtime *AgentRuntime) saveTask(
 	task TaskSession,
 ) (TaskSession, error) {
 	task.UpdatedAtUnixMillis = runtime.now().UnixMilli()
+	task.Schedule = scheduleForStatus(task)
 	saved, err := runtime.tasks.CompareAndSwap(ctx, task.Revision, task)
 	if err != nil {
 		return task, err
@@ -812,6 +838,7 @@ func (runtime *AgentRuntime) appendOutcomeMemory(
 }
 
 func clearPendingTaskAction(task *TaskSession) {
+	task.ActionSubmissionStarted = false
 	task.PendingAction = nil
 	task.PendingActionMacro = false
 	task.PendingOperationID = ""

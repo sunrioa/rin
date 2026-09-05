@@ -245,7 +245,7 @@ data and cannot alter the allowed set, epoch, controller, or budgets.
 
 - [`api/agent-openapi.json`](../api/agent-openapi.json) is the Task HTTP contract.
 - State is fixed at `<RIN_CONTROL_DATA_DIR>/agent/tasks.json` and `memory.db`.
-- Task snapshots use `rin.cognition.tasks/v3`.
+- Task snapshots use `rin.cognition.tasks/v4` and import v3 snapshots on open.
 - Task files use private permissions and atomic replacement. Memory uses SQLite
   transactions, WAL, and a single-writer process lock. Configuration cannot
   redirect these paths.
@@ -256,8 +256,50 @@ data and cannot alter the allowed set, epoch, controller, or budgets.
   with the current Host catalog and revalidates restored pending actions. An
   empty array uses the current full Host catalog. This field can only narrow
   authority; it cannot create capabilities or bypass Policy.
-- Shutdown cancels and joins Agent workers before releasing Task and Memory
-  locks, then closes the Control Plane.
+- The daemon stops Agent workers and closes Task state first, then stops Control
+  Plane delivery workers before closing the shared Plan and Memory stores.
+
+## Scheduling and cancellation
+
+`TaskSession.schedule` is durable control state. Task history remains diagnostic;
+appending a warning or a Signal event cannot change whether the task runs.
+
+| `schedule.kind` | Resume condition |
+| --- | --- |
+| `ready` | Queue a bounded runtime advance. |
+| `waiting-observation` | The Actor is online and publishes a newer sequence or a different epoch. |
+| `waiting-operation` | The Operation cursor changes, the Operation settles, or reconciliation becomes necessary. |
+| `waiting-confirmation` | The tracked Operation changes after confirmation or cancellation. |
+| `retry-at` | The persisted retry deadline has elapsed. |
+| `waiting-user` | An explicit run or resume request, as appropriate to task status. |
+| `stopped` | The task is terminal; no automatic run. |
+
+A model `wait` records the current observation epoch and sequence. Operation and
+confirmation waits record an Operation ID and cursor, then release the worker.
+Task and Control Plane changes wake the scheduler; a periodic scan recovers from
+missed notifications or process restart. The default scan interval is one second
+and transient failures retry after five seconds. A planned task also waits until
+the `task-plan` outcome subscriber acknowledges its projection; Memory delivery
+never gates readiness. `OperationWaitMillis` is retained for source compatibility
+but no longer controls worker waiting.
+
+Importing a v3 snapshot infers a legacy observation wait once. A legacy wait with
+no recorded observation requires an explicit run. v4 snapshots must carry a
+valid schedule. v3 binaries cannot read snapshots written as v4.
+
+Cancellation persists `cancel_requested` before cancelling the active run's
+context and does not wait for the per-task execution lock. Late model responses
+are discarded. `action_submission_started` records when a pending intent may
+have reached the gateway. Recovery resolves that exact intent through the
+process-local `FindActionOperation` port and never submits it from the cancellation
+path. If the intent may have been submitted but no Operation can be found, the
+task becomes `outcome-unknown` with `action.submission-unknown`; absence alone is
+not proof that no effect occurred.
+
+A cancellation request does not undo effects already applied by the Host. Pending
+Host operations remain `cancelling` until authoritative settlement. Custom model
+providers and outcome subscribers must honor context cancellation to release
+their own resources promptly.
 
 ## Macro parent-child loop
 
