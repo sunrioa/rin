@@ -134,7 +134,7 @@ func Run(
 	if err != nil {
 		return fmt.Errorf("create task plan Outcome projection: %w", err)
 	}
-	service, err := controlplane.OpenFile(
+	service, err := controlplane.OpenSQLite(
 		config.dataDir,
 		controlplane.Options{
 			PolicyEngine: policyEngine,

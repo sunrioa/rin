@@ -121,6 +121,35 @@ func (service *Service) StartSignalTask(
 	return TaskDispatch{Task: task, Scheduled: service.enqueue(task.TaskID)}, nil
 }
 
+// HandleActorSignal coordinates trusted local initiative; no public transport
+// accepts preemption rules or a caller-authored Signal context.
+func (service *Service) HandleActorSignal(ctx context.Context, principal host.Principal, input cognition.ActorSignalInput) (cognition.SignalHandlingResult, error) {
+	if err := service.authorize(ctx, principal, ScopeTaskExecute); err != nil {
+		return cognition.SignalHandlingResult{}, err
+	}
+	if input.Preempt {
+		if err := service.authorize(ctx, principal, ScopeTaskCancel); err != nil {
+			return cognition.SignalHandlingResult{}, err
+		}
+	}
+	runtime, ok := service.runtime.(interface {
+		HandleActorSignal(context.Context, cognition.ActorSignalInput) (cognition.SignalHandlingResult, error)
+	})
+	if !ok {
+		return cognition.SignalHandlingResult{}, ErrUnavailable
+	}
+	result, err := runtime.HandleActorSignal(ctx, input)
+	if err != nil {
+		return result, normalizeServiceError(err)
+	}
+	// Runtime state notifications handle attachment and cancellation. Newly
+	// created tasks are also queued directly for low startup latency.
+	if result.Status == "started" {
+		service.enqueue(result.TaskID)
+	}
+	return result, nil
+}
+
 func (service *Service) startTask(
 	ctx context.Context,
 	principal host.Principal,

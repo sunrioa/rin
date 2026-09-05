@@ -207,10 +207,12 @@ Controller 或预算。
 ## 状态与调用
 
 - Task HTTP 契约以 [`api/agent-openapi.json`](../api/agent-openapi.json) 为准。
-- 状态固定写入 `<RIN_CONTROL_DATA_DIR>/agent/tasks.json` 和 `memory.db`。
-- Task Snapshot 使用 `rin.cognition.tasks/v4`，打开时兼容导入 v3 快照。
-- Task 文件使用私有权限与原子替换；Memory 使用 SQLite 事务、WAL 与单写者进程锁。
-  配置不能改变状态路径。
+- 状态固定写入 `<RIN_CONTROL_DATA_DIR>/agent/tasks.db` 和 `memory.db`。
+- Task 使用 SQLite Schema 1，任务投影为 `rin.cognition.tasks/v5`。首次创建数据库时
+  导入已有 `tasks.json` 的 v3、v4 或 v5 快照；后续打开只读取数据库。
+- Task CAS 在同一事务内更新一个任务行和快照 Revision。WAL、`synchronous=FULL`、
+  私有文件及单写者进程锁保留成功返回前已持久化的保证；提交失败后缓存不可读，需重新打开。
+  配置不能改变状态路径。详见[存储迁移](execution-storage.zh-CN.md)。
 - `scheduled=true` 只表示任务已进入后台队列，不表示模型已决策、游戏已执行或
   目标已经完成。
 - `allowed_capabilities` 是可选的任务级 Capability ID 白名单，最多 128 项。非空时，
@@ -242,7 +244,8 @@ Controller 或预算。
 `OperationWaitMillis` 保留以兼容已有调用代码，但不再控制 worker 等待。
 
 导入 v3 快照时只推断一次旧等待条件；缺少 Observation 记录的旧 `wait` 需要显式运行。
-v4 快照必须包含有效的 schedule；v3 二进制不能读取已经写成 v4 的快照。
+v4、v5 快照必须包含有效的 schedule；旧任务默认使用模型声明完成。原 JSON 仅作为
+迁移备份保留，不是供旧版程序继续使用的实时副本。
 
 取消先持久化 `cancel_requested`，再取消当前运行的 Context，不等待任务执行锁。
 迟到的模型输出会被丢弃。`action_submission_started` 记录 Pending Intent 可能已经到达
@@ -252,6 +255,34 @@ Gateway 的阶段。恢复时通过进程内 `FindActionOperation` 查询原始�
 
 取消请求不能撤销 Host 已产生的 Effect；已提交的操作在权威结果确定前保持 `cancelling`。
 自定义模型 Provider 与 Outcome 订阅者需要响应 Context 取消，及时释放自身资源。
+
+## 独立目标验收
+
+`StartTaskInput.completion` 独立于 `planning_mode`，不必为简单目标创建 Plan：
+
+| `completion.mode` | 完成条件 |
+| --- | --- |
+| `model-declared`（默认） | 模型请求完成，且已有 Plan 已完成。 |
+| `host-evidence` | 模型请求完成，且调用方提供的全部条件有 Host 证据。 |
+| `human-confirmation` | 模型请求验收后，由具备 `task.execute` 权限的调用方确认精确任务版本。 |
+
+`host-evidence` 接受 1–16 个采用 Plan Condition 结构的条件。`observation-fact` 精确
+匹配标量 `fact_value_json`，全部事实条件必须同时成立于当前观察；`operation-outcome`
+指定精确的 Capability ID 与版本，要求本任务在当前 Epoch 内得到已确认的成功结果。
+不相关动作、旧 Epoch 结果以及不同时刻拼凑的事实均不能完成验收，模型也不能改写调用方
+提供的条件。证据不足时等待新观察；已提出完成请求后，新证据可直接完成任务，无需额外模型调用。
+
+```json
+{"mode":"host-evidence","conditions":[{"condition_id":"goal.arrived","kind":"observation-fact","summary":"Host 确认到达。","fact_id":"actor.at-destination","fact_value_json":"true"}]}
+```
+
+人工验收时暂停码为 `completion.confirmation-required`。向
+`POST /agent/v1/tasks/confirm-completion` 提交 `task_id` 和 `expected_revision`；
+过期版本返回冲突。确认不能覆盖取消、未结束的动作或未完成的 Plan；恢复任务则重新进入
+决策。Console 创建表单提供验收模式，任务进入人工验收后显示确认按钮。
+
+运行流程已拆成上下文收集、有界模型决策和应用决策。显式 `inspect` 与参数 Schema 修复
+共享至多一次追加模型调用的预算，同时保留各自的诊断事件。
 
 ## Macro 父子循环
 

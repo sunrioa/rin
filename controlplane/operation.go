@@ -24,6 +24,9 @@ const (
 )
 
 type operationState struct {
+	// Internal invalidation counter for incremental durable rows. Diagnostic
+	// timelines may coalesce identical events, but persistence must not.
+	persistenceRevision     uint64
 	request                 HostControlRequest
 	status                  OperationStatus
 	attempts                uint32
@@ -778,6 +781,7 @@ func (service *Service) pruneOperationsLocked(now int64) {
 				func(childID string) bool { return childID == operationID },
 			)
 			parent.updatedAt = now
+			parent.persistenceRevision++
 		}
 		changed = true
 	}

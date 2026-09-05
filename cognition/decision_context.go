@@ -141,5 +141,10 @@ func (runtime *AgentRuntime) collectDecisionContext(ctx context.Context, task Ta
 		AllowedReplanReason: allowedPlanRevisionReason(plan, observation.Epoch, summaries),
 		LastOperationResult: task.LastOperationResult,
 	}
+	for _, signal := range task.PendingSignals {
+		if signal.Epoch == observation.Epoch && signal.ExpiresAtUnixMillis > runtime.now().UnixMilli() {
+			input.Task.Signals = append(input.Task.Signals, signal)
+		}
+	}
 	return task, &taskDecisionContext{observation: observation, specs: specs, summaries: summaries, input: input, warnings: assembled.warnings}, nil
 }

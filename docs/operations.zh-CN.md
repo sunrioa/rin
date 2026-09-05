@@ -112,7 +112,8 @@ Operation View 显式包含：
 
 ## 持久化结果投递
 
-Host 结果与各订阅者的投递状态一起提交到 `operations.json`。Host 回复只等待这次落盘，
+Host 结果与各订阅者的投递状态一起提交到 `operations.db`；变更的 Operation 行与
+Policy、Controller 检查点在同一 SQLite FULL 同步事务中落盘。Host 回复只等待这次落盘，
 计划和记忆回写由后台处理。`Options.OutcomeSinks` 按稳定 ID 注册独立 worker，应用使用
 `task-plan` 和 `memory`；旧 `OutcomeSink` 仍可作为 `default` 订阅者使用。
 
@@ -127,9 +128,10 @@ Host 结果与各订阅者的投递状态一起提交到 `operations.json`。Hos
 最多支持 64 个有效订阅者 ID，包含历史注册 ID；旧 OutcomeSink 不能与具名订阅者重复占用
 `default`。
 
-文件格式为 `rin.control.operations/v6`，兼容导入 v5；v5 没有投递确认记录，会把仍保留的
-结果重放给已配置订阅者。写成 v6 后不能由 v5 二进制打开。关闭时先停止 Control Plane，
-再关闭订阅者使用的存储。
+SQLite Schema 1 保存 `rin.control.operations/v6` 表示。首次创建数据库时导入已有
+v5、v6 `operations.json`；v5 没有投递确认记录，会把仍保留的结果重放给已配置订阅者。
+后续打开不再导入旧 JSON 备份，详见[存储迁移](execution-storage.zh-CN.md)。关闭时先停止
+Control Plane，再关闭订阅者使用的存储。
 
 ## 幂等与等待
 

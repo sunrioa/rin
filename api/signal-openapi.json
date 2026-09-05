@@ -40,6 +40,7 @@
   "components": {
     "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer"}},
     "schemas": {
+      "DeliveryState": {"type": "object", "additionalProperties": false, "properties": {"status": {"type": "string", "enum": ["started", "attached", "merged", "dropped", "retry"]}, "reason": {"type": "string", "maxLength": 128}, "task_id": {"$ref": "#/components/schemas/Identifier"}, "attempts": {"type": "integer", "minimum": 0, "maximum": 32}, "retry_at_unix_millis": {"$ref": "#/components/schemas/JSONSafeUnsignedInteger"}}, "required": []},
       "Identifier": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$", "maxLength": 128},
       "JSONSafeUnsignedInteger": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
       "JSONSafePositiveInteger": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
@@ -56,17 +57,7 @@
         },
         "required": ["session_id", "world_id", "host", "world", "timeline"]
       },
-      "Signal": {
-        "type": "object", "additionalProperties": false,
-        "properties": {
-          "schema_version": {"const": "rin.signal/v1"}, "signal_id": {"$ref": "#/components/schemas/Identifier"},
-          "host_id": {"$ref": "#/components/schemas/Identifier"}, "world_id": {"$ref": "#/components/schemas/Identifier"}, "actor_id": {"$ref": "#/components/schemas/Identifier"},
-          "kind": {"$ref": "#/components/schemas/Identifier"}, "summary": {"type": "string", "minLength": 1, "maxLength": 1000},
-          "epoch": {"$ref": "#/components/schemas/Epoch"}, "observation_sequence": {"$ref": "#/components/schemas/JSONSafePositiveInteger"},
-          "expires_at_unix_millis": {"$ref": "#/components/schemas/JSONSafePositiveInteger"}, "received_at_unix_millis": {"$ref": "#/components/schemas/JSONSafeUnsignedInteger"}, "cursor": {"$ref": "#/components/schemas/JSONSafeUnsignedInteger"}
-        },
-        "required": ["schema_version", "signal_id", "host_id", "world_id", "actor_id", "kind", "summary", "epoch", "observation_sequence", "expires_at_unix_millis", "received_at_unix_millis", "cursor"]
-      },
+      "Signal": {"type": "object", "additionalProperties": false, "properties": {"schema_version": {"const": "rin.signal/v1"}, "signal_id": {"$ref": "#/components/schemas/Identifier"}, "host_id": {"$ref": "#/components/schemas/Identifier"}, "world_id": {"$ref": "#/components/schemas/Identifier"}, "actor_id": {"$ref": "#/components/schemas/Identifier"}, "kind": {"$ref": "#/components/schemas/Identifier"}, "summary": {"type": "string", "minLength": 1, "maxLength": 1000}, "epoch": {"$ref": "#/components/schemas/Epoch"}, "observation_sequence": {"$ref": "#/components/schemas/JSONSafePositiveInteger"}, "expires_at_unix_millis": {"$ref": "#/components/schemas/JSONSafePositiveInteger"}, "received_at_unix_millis": {"$ref": "#/components/schemas/JSONSafeUnsignedInteger"}, "cursor": {"$ref": "#/components/schemas/JSONSafeUnsignedInteger"}, "delivery": {"$ref": "#/components/schemas/DeliveryState", "readOnly": true}}, "required": ["schema_version", "signal_id", "host_id", "world_id", "actor_id", "kind", "summary", "epoch", "observation_sequence", "expires_at_unix_millis", "received_at_unix_millis", "cursor"]},
       "Settings": {
         "type": "object", "additionalProperties": false,
         "properties": {"enabled": {"type": "boolean"}, "cooldown_millis": {"type": "integer", "minimum": 0, "maximum": 3600000}, "max_pending": {"type": "integer", "minimum": 1, "maximum": 256}},

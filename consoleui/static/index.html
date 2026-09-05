@@ -117,6 +117,7 @@
               <label><span>主动冷却（毫秒）</span><input id="personaInitiativeCooldown" type="number" min="0" max="86400000"></label>
               <label><span>最多连续行动</span><input id="personaInitiativeMaxActions" type="number" min="0" max="64"></label>
               <label><span>主动触发器</span><input id="personaInitiativeTriggers" placeholder="signal.player_hurt, topic.unfinished"></label>
+              <label><span>可打断普通主动任务的触发器（可选）</span><input id="personaPreemptTriggers" placeholder="填写主动触发器中的高优先级事件"></label>
               <label class="wide"><span>边界</span><textarea id="personaBoundaries" rows="5" placeholder="每行：boundary_id :: 规则 :: 越界时回应"></textarea></label>
               <label class="wide"><span>关系立场</span><textarea id="personaRelationships" rows="4" placeholder="每行：role_id :: 对该关系的态度"></textarea></label>
               <label class="wide"><span>人格绑定</span><textarea id="personaBindings" rows="5" placeholder="每行：actor_id 或 * :: controller_id 或 * :: persona_id :: version"></textarea></label>

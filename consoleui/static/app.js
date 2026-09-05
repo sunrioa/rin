@@ -477,6 +477,7 @@ async function loadPersona() {
   setNumberField("personaInitiativeCooldown", profile.initiative_policy?.cooldown_millis);
   setNumberField("personaInitiativeMaxActions", profile.initiative_policy?.max_consecutive_actions);
   $("#personaInitiativeTriggers").value = (profile.initiative_policy?.triggers || []).join(", ");
+  $("#personaPreemptTriggers").value = (profile.initiative_policy?.preempt_triggers || []).join(", ");
   $("#personaBoundaries").value = (profile.boundaries || [])
     .map((item) => [item.boundary_id, item.rule, item.response].join(" :: ")).join("\n");
   $("#personaRelationships").value = (profile.relationship_stances || [])
@@ -499,6 +500,7 @@ async function savePersona(event) {
       cooldown_millis: numberField("personaInitiativeCooldown", true),
       max_consecutive_actions: numberField("personaInitiativeMaxActions", true),
       triggers: splitValues($("#personaInitiativeTriggers").value),
+      preempt_triggers: splitValues($("#personaPreemptTriggers").value),
     },
     boundaries: parseStructuredLines("personaBoundaries", 3, ([boundary_id, rule, response]) => ({
       boundary_id, rule, response,

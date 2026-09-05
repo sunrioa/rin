@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"slices"
 	"time"
 
+	"github.com/sunrioa/rin/agentapi"
 	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
@@ -23,18 +25,28 @@ func (daemon *Daemon) runSignalScheduler(
 	principal host.Principal,
 ) {
 	defer daemon.signalWG.Done()
-	var cursor uint64
 	for ctx.Err() == nil {
-		signals, next, err := store.WaitAny(ctx, cursor, 25*time.Second)
+		signals, err := store.WaitPending(ctx, 25*time.Second)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, signalbox.ErrClosed) {
 				return
 			}
 			continue
 		}
-		cursor = next
 		for _, current := range signals {
-			daemon.dispatchSignal(ctx, control, personas, principal, current)
+			result, dispatchErr := daemon.dispatchSignal(ctx, control, personas, principal, current)
+			if ctx.Err() != nil {
+				return
+			}
+			if dispatchErr != nil {
+				result.Status, result.Reason = "retry", "temporarily-unavailable"
+				if errors.Is(dispatchErr, agentapi.ErrForbidden) || errors.Is(dispatchErr, controlplane.ErrForbidden) {
+					result.Status, result.Reason = "dropped", "forbidden"
+				}
+			}
+			if err := store.RecordDelivery(current, result.Status, result.Reason, result.TaskID); errors.Is(err, signalbox.ErrClosed) {
+				return
+			}
 		}
 	}
 }
@@ -45,28 +57,41 @@ func (daemon *Daemon) dispatchSignal(
 	personas cognition.PersonaProvider,
 	principal host.Principal,
 	current signalbox.Signal,
-) {
+) (cognition.SignalHandlingResult, error) {
 	actor, err := control.GetActor(
 		principal, current.HostID, current.WorldID, current.ActorID,
 	)
-	if err != nil || !actor.Online || actor.Authority.Source != controlplane.DecisionInternal ||
-		actor.Epoch != current.Epoch || actor.ObservationSeq != current.ObservationSequence {
-		return
+	if err != nil {
+		return cognition.SignalHandlingResult{}, err
+	}
+	if !actor.Online {
+		return cognition.SignalHandlingResult{Status: "retry", Reason: "host-offline"}, nil
+	}
+	if actor.Authority.Source != controlplane.DecisionInternal {
+		return cognition.SignalHandlingResult{Status: "dropped", Reason: "external-authority"}, nil
+	}
+	if actor.Epoch != current.Epoch {
+		return cognition.SignalHandlingResult{Status: "dropped", Reason: "epoch-changed"}, nil
+	}
+	if actor.ObservationSeq < current.ObservationSequence {
+		return cognition.SignalHandlingResult{Status: "retry", Reason: "observation-pending"}, nil
 	}
 	controllerID := proactiveControllerID(current.ActorID)
 	persona, err := personas.Load(ctx, cognition.PersonaRequest{
 		ActorID: current.ActorID, ControllerID: controllerID,
 	})
-	if err != nil || !persona.Initiative.Enabled ||
-		!initiativeMatches(persona.Initiative.Triggers, current.Kind) {
-		return
+	if err != nil {
+		return cognition.SignalHandlingResult{}, err
+	}
+	if !persona.Initiative.Enabled || !initiativeMatches(persona.Initiative.Triggers, current.Kind) {
+		return cognition.SignalHandlingResult{Status: "dropped", Reason: "initiative-disabled"}, nil
 	}
 	maxActions := persona.Initiative.MaxConsecutiveActions
 	if maxActions == 0 {
 		maxActions = 1
 	}
 	goal := "Notice and respond naturally to the current game event without assuming facts beyond the latest observation: " + current.Summary
-	_, _ = daemon.service.StartSignalTask(ctx, principal, cognition.StartTaskInput{
+	return daemon.service.HandleActorSignal(ctx, principal, cognition.ActorSignalInput{Task: cognition.StartTaskInput{
 		TaskID: proactiveTaskID(current), HostID: current.HostID, WorldID: current.WorldID,
 		ActorID: current.ActorID, ControllerID: controllerID, Goal: goal,
 		Tags: []string{"signal", current.Kind}, PlanningMode: taskstate.PlanningDisabled,
@@ -74,9 +99,10 @@ func (daemon *Daemon) dispatchSignal(
 			MaxSteps: maxActions * 4, MaxModelCalls: maxActions * 4,
 			MaxModelTokens: uint64(maxActions) * 32_000, MaxActions: maxActions,
 		},
-	}, timeline.SignalContextRef{
+	}, Signal: cognition.TaskSignal{SignalContextRef: timeline.SignalContextRef{
 		SignalID: current.SignalID, Kind: current.Kind, Cursor: current.Cursor,
-	})
+	}, Summary: current.Summary, Epoch: current.Epoch, ObservationSequence: current.ObservationSequence, ExpiresAtUnixMillis: current.ExpiresAtUnixMillis},
+		Preempt: slices.Contains(persona.Initiative.PreemptTriggers, current.Kind), CooldownMillis: persona.Initiative.CooldownMillis})
 }
 
 func proactiveTaskID(current signalbox.Signal) string {

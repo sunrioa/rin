@@ -331,11 +331,12 @@ Principal，避免身份伪造。Host 只使用 `/control/v2/host/*`。
 
 ## 持久化与恢复
 
-`RIN_CONTROL_DATA_DIR` 中的 `operations.json` 使用 0600 权限、严格 JSON、
-临时文件同步和原子替换。目录带跨平台进程锁，只能由一个 `rin-control` 写入。
-状态文件写入 `rin.control.operations/v6` 的 Action-only Schema，兼容导入 v5，
-新增各订阅者的持久化 Outcome 确认。更早的 Request 格式不受支持，也不保存 Token、
-模型 Key、Prompt 或游戏存档。重放和保留策略见[持久化结果投递](operations.zh-CN.md#持久化结果投递)。
+`RIN_CONTROL_DATA_DIR` 中的 `operations.db` 使用私有文件、WAL 和 `synchronous=FULL`。
+目录带跨平台进程锁，只能由一个 `rin-control` 写入；每次事务把变更 Operation 行与
+Policy、Controller、急停检查点一起提交。行内 JSON 仍严格校验，不保存 Token、模型 Key、
+Prompt 或游戏存档。首次打开将 v5、v6 `operations.json` 导入 SQLite Schema 1，保留
+各订阅者的 Outcome 确认。更早的 Request 格式不受支持。参见[存储迁移](execution-storage.zh-CN.md)
+与[持久化结果投递](operations.zh-CN.md#持久化结果投递)。
 
 恢复规则：
 

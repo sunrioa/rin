@@ -98,6 +98,9 @@ type TaskEvent struct {
 // TaskSession contains every decision-side value needed to resume without
 // regenerating or mutating an already selected action.
 type TaskSession struct {
+	InitiativePriority  uint32                   `json:"initiative_priority,omitempty"`
+	PendingSignals      []TaskSignal             `json:"pending_signals,omitempty"`
+	SeenSignalIDs       []string                 `json:"seen_signal_ids,omitempty"`
 	Completion          TaskCompletionPolicy     `json:"completion"`
 	CompletionRequested bool                     `json:"completion_requested,omitempty"`
 	CompletionEvidence  []TaskCompletionEvidence `json:"completion_evidence,omitempty"`
@@ -311,6 +314,9 @@ func (store *LocalTaskStore) Snapshot(ctx context.Context) (TaskSnapshot, error)
 }
 
 func sealTaskSession(task TaskSession) (TaskSession, error) {
+	if err := validateTaskSignals(task); err != nil {
+		return TaskSession{}, err
+	}
 	if err := validateTaskID(task.TaskID); err != nil {
 		return TaskSession{}, err
 	}
@@ -620,6 +626,8 @@ func validateTaskID(taskID string) error {
 }
 
 func cloneTaskSession(task TaskSession) TaskSession {
+	task.PendingSignals = append([]TaskSignal(nil), task.PendingSignals...)
+	task.SeenSignalIDs = append([]string(nil), task.SeenSignalIDs...)
 	task.Completion = cloneTaskCompletion(task.Completion)
 	task.CompletionEvidence = append([]TaskCompletionEvidence(nil), task.CompletionEvidence...)
 	if task.Schedule.ObservationEpoch != nil {

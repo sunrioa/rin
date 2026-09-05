@@ -79,17 +79,34 @@ func OpenFile(root string, options Options) (*Service, error) {
 func openOperationFile(
 	root string,
 ) (*operationFile, persistedOperations, error) {
+	file, err := openOperationDirectory(root)
+	if err != nil {
+		return nil, persistedOperations{}, err
+	}
+	if _, err := os.Lstat(filepath.Join(file.root, operationSQLiteName)); !errors.Is(err, os.ErrNotExist) {
+		_ = file.close()
+		return nil, persistedOperations{}, fmt.Errorf("%w: operations.db exists; use OpenSQLite", ErrPersistence)
+	}
+	state, err := file.read()
+	if err != nil {
+		_ = file.close()
+		return nil, persistedOperations{}, err
+	}
+	return file, state, nil
+}
+
+func openOperationDirectory(root string) (*operationFile, error) {
 	if root == "" {
-		return nil, persistedOperations{}, errors.New(
+		return nil, errors.New(
 			"control plane data directory is required",
 		)
 	}
 	absolute, err := filepath.Abs(root)
 	if err != nil {
-		return nil, persistedOperations{}, err
+		return nil, err
 	}
 	if err := os.MkdirAll(absolute, 0o700); err != nil {
-		return nil, persistedOperations{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"%w: create data directory: %v",
 			ErrPersistence,
 			err,
@@ -97,20 +114,20 @@ func openOperationFile(
 	}
 	info, err := os.Lstat(absolute)
 	if err != nil {
-		return nil, persistedOperations{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"%w: inspect data directory: %v",
 			ErrPersistence,
 			err,
 		)
 	}
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return nil, persistedOperations{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"%w: data directory must be a real directory",
 			ErrPersistence,
 		)
 	}
 	if err := prepareOperationDirectoryPermissions(absolute, info); err != nil {
-		return nil, persistedOperations{}, err
+		return nil, err
 	}
 	file := &operationFile{
 		root: absolute,
@@ -120,15 +137,10 @@ func openOperationFile(
 		filepath.Join(absolute, operationLockFileName),
 	)
 	if err != nil {
-		return nil, persistedOperations{}, err
+		return nil, err
 	}
 	file.lockFile = lockFile
-	state, err := file.read()
-	if err != nil {
-		_ = file.close()
-		return nil, persistedOperations{}, err
-	}
-	return file, state, nil
+	return file, nil
 }
 
 func (file *operationFile) close() error {
@@ -896,10 +908,18 @@ func (service *Service) persistedOperationsLocked() persistedOperations {
 		}
 		return compare(left.request.OperationID, right.request.OperationID)
 	})
+	state := service.persistedOperationMetadataLocked()
+	state.Operations = make([]persistedOperation, len(operations))
+	for index, operation := range operations {
+		state.Operations[index] = persistedOperationValue(operation)
+	}
+	return state
+}
+
+func (service *Service) persistedOperationMetadataLocked() persistedOperations {
 	state := persistedOperations{
 		Version:          operationFileVersion,
 		TimelineSequence: service.operationTimelineSequence,
-		Operations:       make([]persistedOperation, len(operations)),
 		Controllers:      make([]ControllerLease, 0, len(service.controllers)),
 		EmergencyStops:   make([]ActorEmergencyStop, 0, len(service.emergencyStops)),
 	}
@@ -916,23 +936,6 @@ func (service *Service) persistedOperationsLocked() persistedOperations {
 		}
 		checkpoint := service.policyEngine.SnapshotStateFor(decisionIDs)
 		state.PolicyState = &checkpoint
-	}
-	for index, operation := range operations {
-		state.Operations[index] = persistedOperation{
-			Request:                 cloneControlRequest(operation.request),
-			Status:                  operation.status,
-			Attempts:                operation.attempts,
-			Cancel:                  operation.cancel,
-			Ack:                     cloneAcknowledgement(operation.ack),
-			Run:                     cloneRunPointer(operation.run),
-			Outcome:                 cloneOutcomePointer(operation.outcome),
-			OutcomeDelivery:         maps.Clone(operation.outcomeDelivery),
-			Output:                  append(json.RawMessage(nil), operation.output...),
-			CreatedAt:               operation.createdAt,
-			UpdatedAt:               operation.updatedAt,
-			Timeline:                cloneOperationTimeline(operation.timeline),
-			TimelineTruncatedBefore: operation.timelineTruncatedBefore,
-		}
 	}
 	for _, controller := range service.controllers {
 		state.Controllers = append(state.Controllers, controller)
@@ -961,6 +964,15 @@ func (service *Service) persistedOperationsLocked() persistedOperations {
 	return state
 }
 
+func persistedOperationValue(operation *operationState) persistedOperation {
+	return persistedOperation{
+		Request: cloneControlRequest(operation.request), Status: operation.status, Attempts: operation.attempts, Cancel: operation.cancel,
+		Ack: cloneAcknowledgement(operation.ack), Run: cloneRunPointer(operation.run), Outcome: cloneOutcomePointer(operation.outcome),
+		OutcomeDelivery: maps.Clone(operation.outcomeDelivery), Output: append(json.RawMessage(nil), operation.output...),
+		CreatedAt: operation.createdAt, UpdatedAt: operation.updatedAt, Timeline: cloneOperationTimeline(operation.timeline), TimelineTruncatedBefore: operation.timelineTruncatedBefore,
+	}
+}
+
 func (service *Service) persistOperationsLocked() error {
 	return service.persistOperationsWithLimitLocked(maxOperationFileBytes)
 }
@@ -984,7 +996,7 @@ func (service *Service) flushOperationsLocked() error {
 	// The Policy Engine may advance independently through the Management API.
 	// Persistent services therefore always publish a final checkpoint on clean
 	// shutdown even when ordinary operation state did not change.
-	if service.operationFile == nil &&
+	if service.operationFile == nil && service.operationSQLite == nil &&
 		!service.operationDirty && !service.operationCheckpointDirty {
 		return nil
 	}
@@ -992,16 +1004,19 @@ func (service *Service) flushOperationsLocked() error {
 }
 
 func (service *Service) writeOperationsLocked(maximumBytes int64) error {
-	if service.operationFile == nil {
+	if service.operationFile == nil && service.operationSQLite == nil {
 		service.operationDirty = false
 		service.operationCheckpointDirty = false
 		return nil
 	}
 	service.expireControllersLocked(service.now().UnixMilli())
-	if err := service.operationFile.write(
-		service.persistedOperationsLocked(),
-		maximumBytes,
-	); err != nil {
+	var err error
+	if service.operationSQLite != nil {
+		err = service.operationSQLite.writeLocked(service, maximumBytes)
+	} else {
+		err = service.operationFile.write(service.persistedOperationsLocked(), maximumBytes)
+	}
+	if err != nil {
 		return err
 	}
 	service.operationDirty = false

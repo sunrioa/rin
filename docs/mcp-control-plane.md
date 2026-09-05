@@ -379,12 +379,14 @@ is present and treat the HTTP status as the compatibility fallback.
 
 ## Persistence and Recovery
 
-`operations.json` in `RIN_CONTROL_DATA_DIR` uses mode 0600, strict JSON,
-temporary-file synchronization, and atomic replacement. A cross-platform process
-lock permits only one `rin-control` writer. The file never stores the token,
-model keys, prompts, or a game save. It writes the Action-only
-`rin.control.operations/v6` schema and imports v5, adding durable per-subscriber
-outcome acknowledgements. Older request formats are not supported. See
+`operations.db` in `RIN_CONTROL_DATA_DIR` uses private files, WAL and
+`synchronous=FULL`. A cross-platform process lock permits only one `rin-control`
+writer. Each transaction updates changed operation rows and the Policy,
+controller and emergency-stop checkpoint together. Stored JSON remains strict;
+the database never stores the token, model keys, prompts or a game save.
+The first open imports v5/v6 `operations.json` into SQLite schema 1, preserving
+per-subscriber outcome acknowledgements. Older request formats are not supported.
+See [storage migration](execution-storage.md) and
 [durable outcome delivery](operations.md#durable-outcome-delivery) for replay and
 retention behavior.
 

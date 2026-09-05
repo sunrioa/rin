@@ -123,7 +123,8 @@ the request.
 ## Durable outcome delivery
 
 Host results and their subscriber delivery state are committed together in
-`operations.json`. The Host reply waits for that commit, not for Plan or Memory
+`operations.db`. Each changed operation row and the Policy/controller checkpoint
+share one FULL-synchronous SQLite transaction. The Host reply waits for that commit, not for Plan or Memory
 projection. `Options.OutcomeSinks` registers independent workers by stable ID;
 the application uses `task-plan` and `memory`. `OutcomeSink` remains available as
 the legacy `default` subscriber.
@@ -144,10 +145,11 @@ restoring the same ID resumes it. Registering a new ID replays retained outcomes
 Persistent services allow at most 64 valid subscriber IDs per Operation, including
 previously registered IDs; the legacy sink cannot share `default` with a named sink.
 
-The file format is `rin.control.operations/v6`; v5 files import without delivery
-acknowledgements and replay retained outcomes to configured sinks. Once written
-as v6, the file cannot be opened by a v5 binary. Close the Control Plane before
-closing stores used by its subscribers.
+SQLite schema 1 stores the `rin.control.operations/v6` representation. The first
+database open imports an existing v5 or v6 `operations.json`; v5 has no delivery
+acknowledgements, so retained outcomes replay to configured sinks. Later opens
+never reimport the obsolete JSON backup. See [storage migration](execution-storage.md).
+Close the Control Plane before closing stores used by its subscribers.
 
 ## Idempotency and waiting
 

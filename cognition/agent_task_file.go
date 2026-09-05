@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/sunrioa/rin/internal/privatefile"
@@ -52,6 +53,12 @@ func OpenFileTaskStore(path string, maxTasks uint32) (*FileTaskStore, error) {
 	}
 	store := &FileTaskStore{
 		path: absolute, maxTasks: maxTasks, lockFile: lockFile,
+	}
+	if filepath.Ext(absolute) == ".json" {
+		if _, err := os.Lstat(strings.TrimSuffix(absolute, ".json") + ".db"); !errors.Is(err, os.ErrNotExist) {
+			_ = releaseProviderStoreLock(lockFile)
+			return nil, fmt.Errorf("%w: task database exists; use OpenSQLiteTaskStore", ErrTaskStorePersistence)
+		}
 	}
 	var snapshot TaskSnapshot
 	if err := privatefile.ReadJSON(absolute, maxTaskSnapshotBytes, &snapshot); err != nil {

@@ -254,6 +254,7 @@ func (runtime *AgentRuntime) advanceTask(
 	if err != nil {
 		return task, false, err
 	}
+	task.PendingSignals = nil
 	return runtime.applyModelDecision(ctx, task, decisionContext.observation, decisionContext.specs, decisionContext.summaries, decision)
 }
 

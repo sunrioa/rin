@@ -404,6 +404,10 @@ func openActionFileHarness(
 	instanceID string,
 	subscribers ...map[string]OutcomeSink,
 ) (*Service, HostLease, host.Principal, *actionGatewayHost) {
+	return openActionPersistenceHarness(t, root, now, instanceID, OpenFile, subscribers...)
+}
+
+func openActionPersistenceHarness(t *testing.T, root string, now *time.Time, instanceID string, open func(string, Options) (*Service, error), subscribers ...map[string]OutcomeSink) (*Service, HostLease, host.Principal, *actionGatewayHost) {
 	t.Helper()
 	actionHost, engine := actionGatewayTestComponents(t, host.RiskLow, policy.ProfileOpen)
 	random := make([]byte, 4_096)
@@ -414,7 +418,7 @@ func openActionFileHarness(
 	if len(subscribers) != 0 {
 		sinks = subscribers[0]
 	}
-	service, err := OpenFile(root, Options{
+	service, err := open(root, Options{
 		OutcomeSinks: sinks,
 		Now:          func() time.Time { return *now },
 		Random:       bytes.NewReader(random),
