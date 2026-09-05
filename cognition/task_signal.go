@@ -48,17 +48,18 @@ func (runtime *AgentRuntime) HandleActorSignal(ctx context.Context, input ActorS
 	if input.Signal.ExpiresAtUnixMillis <= runtime.now().UnixMilli() {
 		return SignalHandlingResult{Status: "dropped", Reason: "expired"}, nil
 	}
-	snapshot, err := runtime.tasks.Snapshot(ctx)
+	previous, lookupErr := runtime.tasks.Load(ctx, input.Task.TaskID)
+	if lookupErr == nil {
+		if previous.HostID != input.Task.HostID || previous.WorldID != input.Task.WorldID || previous.ActorID != input.Task.ActorID || !slices.Contains(previous.SeenSignalIDs, input.Signal.SignalID) {
+			return SignalHandlingResult{}, ErrProviderConflict
+		}
+		return SignalHandlingResult{Status: "started", Reason: "already-created", TaskID: previous.TaskID}, nil
+	} else if !errors.Is(lookupErr, ErrProviderNotFound) {
+		return SignalHandlingResult{}, lookupErr
+	}
+	snapshot, err := runtime.actorTasks(ctx, input.Task)
 	if err != nil {
 		return SignalHandlingResult{}, err
-	}
-	for _, task := range snapshot.Tasks {
-		if task.TaskID == input.Task.TaskID {
-			if task.HostID != input.Task.HostID || task.WorldID != input.Task.WorldID || task.ActorID != input.Task.ActorID || !slices.Contains(task.SeenSignalIDs, input.Signal.SignalID) {
-				return SignalHandlingResult{}, ErrProviderConflict
-			}
-			return SignalHandlingResult{Status: "started", Reason: "already-created", TaskID: task.TaskID}, nil
-		}
 	}
 	for _, task := range snapshot.Tasks {
 		if task.HostID != input.Task.HostID || task.WorldID != input.Task.WorldID || task.ActorID != input.Task.ActorID {

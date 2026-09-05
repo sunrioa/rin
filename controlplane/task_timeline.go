@@ -191,6 +191,7 @@ func (service *Service) recordOperationTimelineLocked(operation *operationState)
 		return
 	}
 	operation.persistenceRevision++
+	service.recordOperationChangeLocked(operation.request.OperationID)
 	if operation.request.ActionRequest == nil ||
 		operation.request.ActionRequest.TaskID == "" {
 		return

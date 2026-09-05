@@ -164,10 +164,14 @@ type TaskStore interface {
 }
 
 type LocalTaskStore struct {
-	mu       sync.RWMutex
-	revision uint64
-	maxTasks uint32
-	tasks    map[string]TaskSession
+	mu            sync.RWMutex
+	revision      uint64
+	maxTasks      uint32
+	tasks         map[string]TaskSession
+	active        map[string]bool
+	actors        map[string]map[string]bool
+	retired       string
+	scheduleIndex map[string]map[string]bool
 }
 
 func NewLocalTaskStore(maxTasks uint32) (*LocalTaskStore, error) {
@@ -179,6 +183,7 @@ func NewLocalTaskStore(maxTasks uint32) (*LocalTaskStore, error) {
 	}
 	return &LocalTaskStore{
 		revision: 1, maxTasks: maxTasks, tasks: make(map[string]TaskSession),
+		active: make(map[string]bool), actors: make(map[string]map[string]bool), scheduleIndex: make(map[string]map[string]bool),
 	}, nil
 }
 
@@ -212,6 +217,7 @@ func RestoreLocalTaskStore(maxTasks uint32, snapshot TaskSnapshot) (*LocalTaskSt
 			return nil, fmt.Errorf("tasks[%d]: %w", index, ErrProviderConflict)
 		}
 		store.tasks[sealed.TaskID] = sealed
+		store.indexTaskLocked(sealed)
 	}
 	store.revision = snapshot.Revision
 	return store, nil
@@ -234,13 +240,17 @@ func (store *LocalTaskStore) Create(
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	store.retired = ""
 	if _, exists := store.tasks[sealed.TaskID]; exists {
 		return TaskSession{}, ErrProviderConflict
 	}
 	if len(store.tasks) >= int(store.maxTasks) {
-		return TaskSession{}, ErrProviderCapacity
+		if !store.retireTaskLocked("") {
+			return TaskSession{}, ErrProviderCapacity
+		}
 	}
 	store.tasks[sealed.TaskID] = sealed
+	store.indexTaskLocked(sealed)
 	store.revision++
 	return cloneTaskSession(sealed), nil
 }
@@ -289,7 +299,16 @@ func (store *LocalTaskStore) CompareAndSwap(
 	if current.Revision != expectedRevision {
 		return TaskSession{}, ErrTaskRevisionConflict
 	}
+	store.removeSchedulingIndexLocked(current)
+	oldActor := taskActorKey(current.HostID, current.WorldID, current.ActorID)
+	if oldActor != taskActorKey(sealed.HostID, sealed.WorldID, sealed.ActorID) {
+		delete(store.actors[oldActor], sealed.TaskID)
+		if len(store.actors[oldActor]) == 0 {
+			delete(store.actors, oldActor)
+		}
+	}
 	store.tasks[sealed.TaskID] = sealed
+	store.indexTaskLocked(sealed)
 	store.revision++
 	return cloneTaskSession(sealed), nil
 }

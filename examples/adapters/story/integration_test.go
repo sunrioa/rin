@@ -78,7 +78,8 @@ func TestInternalAgentAdvancesStoryThroughSharedControlPlane(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = runtime.StartTask(context.Background(), cognition.StartTaskInput{
-		TaskID: "task.story.internal", HostID: story.HostID, WorldID: story.WorldID,
+		Completion: cognition.TaskCompletionPolicy{Mode: cognition.CompletionModel},
+		TaskID:     "task.story.internal", HostID: story.HostID, WorldID: story.WorldID,
 		ActorID: story.ActorID, ControllerID: "controller.story.internal",
 		Goal: "Open the archive-room scene with one grounded line.",
 		Tags: []string{"story.opening"},

@@ -13,6 +13,8 @@ func TestManagementContractRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []Route{
+		{OperationID: "management_v1_outcome_backlog", Method: "GET", Path: "/management/v1/outcomes/backlog", SuccessStatus: 200},
+		{OperationID: "management_v1_retry_outcome", Method: "POST", Path: "/management/v1/outcomes/retry", SuccessStatus: 200},
 		{OperationID: "management_v1_get_agent_config", Method: "GET", Path: "/management/v1/agent/config", SuccessStatus: 200},
 		{OperationID: "management_v1_save_agent_config", Method: "PUT", Path: "/management/v1/agent/config", SuccessStatus: 200},
 		{OperationID: "management_v1_control_actor", Method: "POST", Path: "/management/v1/actors/control", SuccessStatus: 200},
@@ -78,7 +80,7 @@ func TestManagementContractDocumentIsStrictAndDefensive(t *testing.T) {
 	if len(document.Security) != 1 || document.Security[0]["bearerAuth"] == nil {
 		t.Fatalf("management contract must require bearerAuth: %#v", document.Security)
 	}
-	if len(document.Paths) != 22 || len(document.Components.Schemas) == 0 {
+	if len(document.Paths) != 24 || len(document.Components.Schemas) == 0 {
 		t.Fatalf("contract inventory is incomplete: paths=%d schemas=%d", len(document.Paths), len(document.Components.Schemas))
 	}
 	for path, methods := range document.Paths {

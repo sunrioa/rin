@@ -13,7 +13,7 @@ import (
 )
 
 const operationSQLiteName = "operations.db"
-const OperationSQLiteSchemaVersion = 1
+const OperationSQLiteSchemaVersion = 2
 
 type operationSQLite struct {
 	db           *sql.DB
@@ -23,6 +23,7 @@ type operationSQLite struct {
 	versions     map[string]uint64
 	rowBytes     map[string]int64
 	totalBytes   int64
+	archives     map[string]*operationState
 }
 
 // OpenSQLite imports operations.json once, under the same directory lock.
@@ -53,6 +54,9 @@ func OpenSQLite(root string, options Options) (*Service, error) {
 		return nil, errors.Join(err, store.close())
 	}
 	if err := service.writeOperationsLocked(maxOperationFileBytes); err != nil {
+		return nil, errors.Join(err, store.close())
+	}
+	if err := store.initializeArchive(service); err != nil {
 		return nil, errors.Join(err, store.close())
 	}
 	service.startOutcomeDelivery()
@@ -162,8 +166,8 @@ func (store *operationSQLite) writeLocked(service *Service, maximumBytes int64) 
 			total -= store.rowBytes[id]
 		}
 	}
-	// Account for the equivalent snapshot envelope too. Pending outcomes remain
-	// pinned by normal retention rules; byte limits still apply backpressure.
+	// The byte limit applies to the hot execution pool. Settled history and
+	// pending projection evidence live independently in the archive.
 	if total+int64(len(metadata))+int64(len(service.operations))+32 > maximumBytes {
 		return fmt.Errorf("%w: operation state exceeds its configured byte budget", ErrCapacity)
 	}
@@ -188,9 +192,17 @@ func (store *operationSQLite) writeLocked(service *Service, maximumBytes int64) 
 			return fmt.Errorf("%w: prune operation: %w", ErrPersistence, err)
 		}
 	}
+	if err := store.writeArchives(tx); err != nil {
+		return fmt.Errorf("%w: archive operation: %w", ErrPersistence, err)
+	}
 	for id, payload := range changed {
 		if _, err := tx.Exec(`INSERT INTO operation_rows(operation_id,payload) VALUES(?,?) ON CONFLICT(operation_id) DO UPDATE SET payload=excluded.payload`, id, payload); err != nil {
 			return fmt.Errorf("%w: write operation: %w", ErrPersistence, err)
+		}
+		if store.archives != nil {
+			if err := syncOutcomeBacklog(tx, service.operations[id]); err != nil {
+				return fmt.Errorf("%w: update outcome backlog: %w", ErrPersistence, err)
+			}
 		}
 	}
 	if _, err := tx.Exec(`INSERT INTO operation_meta(singleton,payload) VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET payload=excluded.payload`, metadata); err != nil {
@@ -202,6 +214,7 @@ func (store *operationSQLite) writeLocked(service *Service, maximumBytes int64) 
 	store.newDatabase = false
 	store.cacheInvalid = false
 	store.totalBytes = total
+	clear(store.archives)
 	for _, id := range removed {
 		delete(store.versions, id)
 		delete(store.rowBytes, id)
@@ -218,7 +231,7 @@ func (store *operationSQLite) reloadRowIdentities() error {
 	if err := store.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		return err
 	}
-	if version != 0 && version != OperationSQLiteSchemaVersion {
+	if version < 0 || version > OperationSQLiteSchemaVersion {
 		return errors.New("unsupported operation database schema")
 	}
 	store.newDatabase = version == 0

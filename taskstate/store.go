@@ -190,6 +190,7 @@ func (store *Store) initialize(ctx context.Context) error {
 			state_json TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 		) STRICT`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS task_plans_task_idx ON task_plans(task_id)`,
+		`CREATE INDEX IF NOT EXISTS task_plans_status_recent_idx ON task_plans(status, updated_at DESC, plan_id)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS task_plans_active_actor_idx
 			ON task_plans(session_id, actor_id)
 			WHERE status IN ('planned','active','blocked','paused')`,
@@ -248,7 +249,7 @@ func (store *Store) Create(ctx context.Context, draft Draft) (PlanState, error) 
 	}
 	defer tx.Rollback()
 	var count uint32
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_plans`).Scan(&count); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_plans WHERE status IN ('planned','active','blocked','paused')`).Scan(&count); err != nil {
 		return PlanState{}, err
 	}
 	if count >= store.config.MaxPlans {
@@ -283,6 +284,30 @@ func (store *Store) Get(ctx context.Context, planID string) (PlanState, error) {
 	return loadPlan(ctx, store.db, planID)
 }
 
+// GetForTask finds archived plans without scanning the bounded management list.
+func (store *Store) GetForTask(ctx context.Context, id string) (PlanState, error) {
+	if err := requireContext(ctx); err != nil {
+		return PlanState{}, err
+	}
+	if err := validateText("task_id", id, 256, true); err != nil {
+		return PlanState{}, err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if err := store.ready(); err != nil {
+		return PlanState{}, err
+	}
+	var payload string
+	err := store.db.QueryRowContext(ctx, `SELECT state_json FROM task_plans WHERE task_id=? OR plan_id=? ORDER BY CASE WHEN task_id=? THEN 0 ELSE 1 END LIMIT 1`, id, id, id).Scan(&payload)
+	if errors.Is(err, sql.ErrNoRows) {
+		return PlanState{}, ErrNotFound
+	}
+	if err != nil {
+		return PlanState{}, err
+	}
+	return decodeStoredPlan(payload)
+}
+
 // List returns the durable plan projection for local management surfaces.
 // Execution and authorization still flow through Coordinator; listing cannot
 // mutate a plan or grant controller authority.
@@ -295,8 +320,11 @@ func (store *Store) List(ctx context.Context) ([]PlanState, error) {
 	if err := store.ready(); err != nil {
 		return nil, err
 	}
-	rows, err := store.db.QueryContext(ctx, `SELECT state_json FROM task_plans
-		ORDER BY updated_at DESC, plan_id ASC`)
+	// Terminal plans are a durable archive. Keep management reads bounded while
+	// preserving direct ID lookup, evidence and late Operation reconciliation.
+	rows, err := store.db.QueryContext(ctx, `SELECT state_json FROM task_plans WHERE status IN ('planned','active','blocked','paused')
+		OR plan_id IN (SELECT plan_id FROM task_plans WHERE status IN ('completed','cancelled','failed') ORDER BY updated_at DESC,plan_id LIMIT ?)
+		ORDER BY updated_at DESC, plan_id ASC`, store.config.MaxPlans)
 	if err != nil {
 		return nil, err
 	}

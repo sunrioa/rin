@@ -16,7 +16,9 @@ Signal 是游戏 Host 对“某件事值得角色注意”的短期提示。它�
 6. 后续动作仍必须创建 ActionRequest，并经过 Controller、Policy、Operation 和 Host Outcome。
 
 Signal 默认关闭。Host 可按 Actor 配置 `enabled`、`cooldown_millis` 和 `max_pending`。
-收件箱只保存在 daemon 进程内，重启后清空，避免旧 Epoch 的提醒进入新时间线。
+daemon 将已接收提示、配置、游标和投递状态提交到 `agent/signals.db` 后才确认成功。
+重启恢复未过期的待投递与重试事件；派发仍核验 Host 当前 Epoch，已确认投递不会重放。
+嵌入式调用方可显式使用内存 `NewStore`。
 
 ## Actor 任务协调
 
@@ -55,5 +57,7 @@ Rin 分配 `received_at_unix_millis` 与 `cursor`。
 - Adapter 负责事件采集和合并；Rin Core 不维护跨游戏情绪词典。
 - Summary 只能陈述可观察事件或带不确定措辞的假设，不能伪装成权威 Outcome。
 - 被禁用、重复、处于冷却或容量已满的 Signal 会在 PublishResult 中返回原因，不创建任务。
-- 收件箱投递诊断仅在进程内保留，并随 Signal 过期；已经写入 Task 的上下文可持久恢复。
-  不增加公开的 `claim/ack` 权限，Host 也不能提交 `delivery` 状态。
+- 收件箱和 Task 仍分开提交。若在 Task 已接收、收件箱尚未确认时退出，Task 持久保存的
+  Signal 身份负责去重重投。诊断随 Signal 过期；不增加公开 `claim/ack` 权限，Host 不能提交
+  `delivery` 状态。
+- 短期自动主动任务显式采用模型声明完成；调用方的持久目标默认人工确认。详见[迁移说明](execution-storage.zh-CN.md)。

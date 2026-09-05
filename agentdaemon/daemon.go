@@ -44,7 +44,7 @@ type Daemon struct {
 	tasks        *cognition.SQLiteTaskStore
 	memory       cognition.MemoryProvider
 	memoryCloser interface{ Close() error }
-	decisions    *cognition.FileDecisionRecorder
+	decisions    *cognition.SQLiteDecisionRecorder
 	signalCancel context.CancelFunc
 	signalWG     sync.WaitGroup
 
@@ -180,8 +180,8 @@ func Open(options Options) (*Daemon, error) {
 		}
 		return nil, fmt.Errorf("open Agent tasks: %w", err)
 	}
-	decisions, err := cognition.OpenFileDecisionRecorder(
-		filepath.Join(stateDirectory, "decision-records.json"), cognition.DefaultDecisionRecordLimit,
+	decisions, err := cognition.OpenSQLiteDecisionRecorder(
+		filepath.Join(stateDirectory, "decision-records.db"), cognition.DefaultDecisionRecordLimit,
 	)
 	if err != nil {
 		_ = tasks.Close()
@@ -382,6 +382,10 @@ func (daemon *Daemon) Handler() http.Handler {
 
 func (daemon *Daemon) SnapshotTasks(ctx context.Context) (cognition.TaskSnapshot, error) {
 	return daemon.tasks.Snapshot(ctx)
+}
+
+func (daemon *Daemon) ArchivedTasks(ctx context.Context, limit uint32) (cognition.TaskSnapshot, error) {
+	return daemon.tasks.ArchivedTasks(ctx, limit)
 }
 
 func (daemon *Daemon) StartTask(

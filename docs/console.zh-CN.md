@@ -52,3 +52,10 @@ Skill 引用、公开理由、模型耗时与 Token、Policy 结果和权威 Ope
 所有 Adapter 连接同一个常驻 `rin serve`。游戏 Mod 只实现 Host/Adapter，不另做 MCP Server；
 外部 Codex、Claude Code 或 OpenClaw 只需安装一次 `rin mcp`。游戏与 Mod 本身仍通过各自平台
 安装和升级，Rin 不替代其分发系统。
+
+## 验收、归档与投递恢复
+
+新目标默认人工确认，也可选择 Host 证据或显式模型判断。动作验收可限定精确参数、Host
+绑定目标和不同成功 Operation 的次数。任务页支持查看已归档内部目标、确认待验收版本，
+以及核对未知 Host 结果。执行页显示各订阅者的投递积压，并可重试既有证据。
+归档和升级保证详见[执行状态存储](execution-storage.zh-CN.md)。

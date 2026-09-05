@@ -95,6 +95,7 @@ func (daemon *Daemon) dispatchSignal(
 		TaskID: proactiveTaskID(current), HostID: current.HostID, WorldID: current.WorldID,
 		ActorID: current.ActorID, ControllerID: controllerID, Goal: goal,
 		Tags: []string{"signal", current.Kind}, PlanningMode: taskstate.PlanningDisabled,
+		Completion: cognition.TaskCompletionPolicy{Mode: cognition.CompletionModel},
 		Budget: cognition.TaskBudget{
 			MaxSteps: maxActions * 4, MaxModelCalls: maxActions * 4,
 			MaxModelTokens: uint64(maxActions) * 32_000, MaxActions: maxActions,

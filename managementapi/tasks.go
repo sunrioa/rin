@@ -38,8 +38,9 @@ type TaskStartInput struct {
 }
 
 type TaskListInput struct {
-	Status string `json:"status,omitempty"`
-	Limit  uint32 `json:"limit,omitempty"`
+	Archived bool   `json:"archived,omitempty"`
+	Status   string `json:"status,omitempty"`
+	Limit    uint32 `json:"limit,omitempty"`
 }
 
 type TaskSummary struct {
@@ -158,7 +159,17 @@ func (service *Service) ListTasks(
 	snapshot := cognition.TaskSnapshot{}
 	if service.tasks != nil {
 		var err error
-		snapshot, err = service.tasks.SnapshotTasks(ctx)
+		if input.Archived {
+			archive, ok := service.tasks.(interface {
+				ArchivedTasks(context.Context, uint32) (cognition.TaskSnapshot, error)
+			})
+			if !ok {
+				return TaskListOutput{}, ErrTasksUnavailable
+			}
+			snapshot, err = archive.ArchivedTasks(ctx, input.Limit)
+		} else {
+			snapshot, err = service.tasks.SnapshotTasks(ctx)
+		}
 		if err != nil {
 			return TaskListOutput{}, err
 		}
@@ -172,7 +183,7 @@ func (service *Service) ListTasks(
 		}
 		tasks = append(tasks, taskSummary(task))
 	}
-	if service.plans != nil {
+	if service.plans != nil && !input.Archived {
 		plans, err := service.plans.List(ctx)
 		if err != nil {
 			return TaskListOutput{}, err
@@ -226,23 +237,38 @@ func (service *Service) GetTask(
 	if service.plans == nil {
 		return TaskDetail{}, cognition.ErrProviderNotFound
 	}
-	plans, err := service.plans.List(ctx)
+	plan, err := service.findTaskPlan(ctx, taskID)
 	if err != nil {
+		if errors.Is(err, taskstate.ErrNotFound) {
+			return TaskDetail{}, cognition.ErrProviderNotFound
+		}
 		return TaskDetail{}, err
 	}
-	for _, plan := range plans {
-		if plan.TaskID != taskID && plan.PlanID != taskID {
-			continue
-		}
-		return TaskDetail{
-			Task: planTaskSummary(plan), Plan: &plan,
-			Timeline: timeline.Page{
-				ContractVersion: timeline.ContractVersion, TaskID: plan.TaskID,
-				Goal: plan.Goal, Status: string(plan.Status), Events: []timeline.Event{},
-			},
-		}, nil
+	return TaskDetail{
+		Task: planTaskSummary(plan), Plan: &plan,
+		Timeline: timeline.Page{
+			ContractVersion: timeline.ContractVersion, TaskID: plan.TaskID,
+			Goal: plan.Goal, Status: string(plan.Status), Events: []timeline.Event{},
+		},
+	}, nil
+}
+
+func (service *Service) findTaskPlan(ctx context.Context, id string) (taskstate.PlanState, error) {
+	if indexed, ok := service.plans.(interface {
+		GetForTask(context.Context, string) (taskstate.PlanState, error)
+	}); ok {
+		return indexed.GetForTask(ctx, id)
 	}
-	return TaskDetail{}, cognition.ErrProviderNotFound
+	plans, err := service.plans.List(ctx)
+	if err != nil {
+		return taskstate.PlanState{}, err
+	}
+	for _, plan := range plans {
+		if plan.TaskID == id || plan.PlanID == id {
+			return plan, nil
+		}
+	}
+	return taskstate.PlanState{}, taskstate.ErrNotFound
 }
 
 func (service *Service) internalTaskDetail(

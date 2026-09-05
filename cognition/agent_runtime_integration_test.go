@@ -184,7 +184,8 @@ func runAgentGatewayIntegration(t *testing.T, planned bool) {
 		t.Fatal(err)
 	}
 	started, err := runtime.StartTask(context.Background(), cognition.StartTaskInput{
-		TaskID: "task.integration", HostID: "host.integration", WorldID: "world.integration",
+		Completion: cognition.TaskCompletionPolicy{Mode: cognition.CompletionModel},
+		TaskID:     "task.integration", HostID: "host.integration", WorldID: "world.integration",
 		ActorID: "actor.mira", ControllerID: "controller.internal",
 		Goal: "Move near the owner.", Tags: []string{"task.follow"}, PlanningMode: planningMode,
 	})

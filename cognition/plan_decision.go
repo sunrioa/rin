@@ -261,24 +261,45 @@ func (runtime *AgentRuntime) loadTaskPlan(
 	ctx context.Context,
 	task TaskSession,
 ) (*taskstate.PlanState, TaskSession, error) {
-	if task.PlanID == "" {
+	if task.PlanID == "" && task.PlanningMode == taskstate.PlanningDisabled {
 		return nil, task, nil
 	}
 	if runtime.plans == nil {
 		return nil, task, errors.New("task plan coordinator is unavailable")
 	}
-	plan, err := runtime.plans.GetPlan(ctx, task.PlanID)
+	planID := task.PlanID
+	if planID == "" {
+		planID = "plan." + task.TaskID
+	}
+	plan, err := runtime.plans.GetPlan(ctx, planID)
+	if errors.Is(err, taskstate.ErrNotFound) && task.PlanID == "" {
+		return nil, task, nil
+	}
 	if err != nil {
 		return nil, task, err
 	}
-	if plan.TaskID != task.TaskID || plan.SessionID != task.SessionID ||
+	if plan.PlanID != planID || plan.TaskID != task.TaskID || plan.SessionID != task.SessionID ||
 		plan.HostID != task.HostID || plan.WorldID != task.WorldID ||
 		plan.ActorID != task.ActorID || plan.ControllerID != task.ControllerID ||
-		plan.ControllerSource != taskstate.ControllerInternal {
+		plan.ControllerSource != taskstate.ControllerInternal || plan.Goal != task.Goal || plan.PlanningMode != task.PlanningMode {
 		return nil, task, errors.New("task plan ownership does not match the internal task")
 	}
+	recovering := task.PlanID == ""
+	task.PlanID = plan.PlanID
 	task.PlanRevision = plan.Revision
 	task.CurrentPlanStepID = plan.CurrentStepID
+	if recovering {
+		stepID := plan.CurrentStepID
+		if stepID == "" {
+			stepID = "plan.final"
+		}
+		appendTaskEvent(&task, TaskEvent{Kind: "plan.recovered", Step: task.Step, PlanID: plan.PlanID,
+			PlanRevision: plan.Revision, PlanStepID: stepID, Summary: "Recovered the previously committed plan for this task.", AtUnixMillis: runtime.now().UnixMilli()})
+		task, err = runtime.saveTask(ctx, task)
+		if err != nil {
+			return nil, task, err
+		}
+	}
 	return &plan, task, nil
 }
 
@@ -314,6 +335,9 @@ func (runtime *AgentRuntime) applyDecisionPlan(
 	if task.PlanID == "" {
 		draft.PlanID = "plan." + task.TaskID
 		plan, err = runtime.plans.CreatePlan(ctx, draft)
+		if errors.Is(err, taskstate.ErrConflict) {
+			return runtime.loadTaskPlan(ctx, task)
+		}
 	} else {
 		draft.PlanID = task.PlanID
 		plan, err = runtime.plans.RevisePlan(ctx, taskstate.ReviseInput{
@@ -338,13 +362,9 @@ func (runtime *AgentRuntime) applyDecisionPlan(
 	})
 	saved, saveErr := runtime.saveTask(ctx, task)
 	if saveErr != nil {
-		if plan.ReplanCount == 0 {
-			_, _ = runtime.plans.SetPlanStatus(context.Background(), taskstate.StatusInput{
-				PlanID: plan.PlanID, ExpectedRevision: plan.Revision,
-				Status:  taskstate.PlanCancelled,
-				Summary: "The owning task session could not persist the plan reference.",
-			})
-		}
+		// The deterministic identity lets restart (or cancellation) recover this
+		// committed plan. Cancelling it here would make a transient Task CAS
+		// failure permanently destroy otherwise recoverable work.
 		return nil, task, saveErr
 	}
 	return &plan, saved, nil

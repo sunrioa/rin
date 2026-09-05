@@ -24,13 +24,26 @@ func NewHTTPHandler(service *Service, options HTTPOptions) (http.Handler, error)
 		return nil, errors.New("management service and bearer token are required")
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /management/v1/outcomes/backlog", secure(options.Token, func(response http.ResponseWriter, request *http.Request) {
+		result, err := service.OutcomeBacklog(request.Context())
+		writeResult(response, result, err)
+	}))
+	mux.HandleFunc("POST /management/v1/outcomes/retry", secure(options.Token, func(response http.ResponseWriter, request *http.Request) {
+		var input controlplane.OutcomeRetryInput
+		if err := decodeJSON(request, &input); err != nil {
+			writeError(response, http.StatusBadRequest, err)
+			return
+		}
+		err := service.RetryOutcomeDelivery(request.Context(), input)
+		writeResult(response, map[string]bool{"scheduled": err == nil}, err)
+	}))
 	mux.HandleFunc("GET /management/v1/info", secure(options.Token, func(response http.ResponseWriter, _ *http.Request) {
 		features := []string{"personas", "memory-cards", "long-goals"}
 		if service.skills != nil {
 			features = append(features, "skills")
 		}
 		if service.control != nil {
-			features = append(features, "runtime", "operations", "actor-control")
+			features = append(features, "runtime", "operations", "actor-control", "outcome-backlog")
 		}
 		if service.diagnostics != nil {
 			features = append(features, "diagnostics", "configuration", "mcp-install")

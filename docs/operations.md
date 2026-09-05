@@ -137,15 +137,17 @@ idempotent handling by Operation ID and honor the supplied context. A slow sink
 does not block other subscribers. Planned tasks wait for their Plan projection
 acknowledgement before advancing.
 
-Operations with pending deliveries are retained even after ordinary retention
-expires. Capacity limits still apply, so an extended subscriber outage can stop
-new submissions rather than discard unacknowledged results. Keep subscriber IDs
-stable across restarts: removing a sink leaves its unacknowledged work pending;
-restoring the same ID resumes it. Registering a new ID replays retained outcomes.
+The default SQLite backend archives settled operations and keeps pending
+projection evidence in an independent backlog. Subscriber outages do not consume
+execution slots. Unknown outcomes stay in the working pool until reconciliation.
+Keep subscriber IDs stable: removing a sink preserves its pending work; restoring
+the same ID resumes it. A new ID receives retained working outcomes, without
+automatically backfilling the archive. Console exposes backlog health and explicit
+evidence retry; see [storage and retention](execution-storage.md).
 Persistent services allow at most 64 valid subscriber IDs per Operation, including
 previously registered IDs; the legacy sink cannot share `default` with a named sink.
 
-SQLite schema 1 stores the `rin.control.operations/v6` representation. The first
+SQLite schema 2 stores the `rin.control.operations/v6` representation. The first
 database open imports an existing v5 or v6 `operations.json`; v5 has no delivery
 acknowledgements, so retained outcomes replay to configured sinks. Later opens
 never reimport the obsolete JSON backup. See [storage migration](execution-storage.md).
@@ -177,7 +179,7 @@ adapter must deduplicate according to its durability profile. Evidence of
 execution without a result enters `outcome-unknown`, allowing a later
 authoritative outcome.
 
-Control state uses a single-writer lock and atomic file replacement. The Host
+Control state uses a single-writer lock and SQLite transactions. The Host
 republishes its read model and lease after reconnect; persisted operation
 identities and terminal outcomes do not change across daemon restart.
 

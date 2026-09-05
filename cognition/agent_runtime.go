@@ -12,6 +12,7 @@ import (
 
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/internal/changefeed"
 	"github.com/sunrioa/rin/taskstate"
 )
 
@@ -99,9 +100,10 @@ type AgentRuntime struct {
 	activeRuns map[string]context.CancelFunc
 
 	taskLocksMu sync.Mutex
-	taskLocks   map[string]*sync.Mutex
+	taskLocks   map[string]*taskLockEntry
 	timelineMu  sync.Mutex
 	taskChanged chan struct{}
+	taskChanges changefeed.Feed[string]
 }
 
 func NewAgentRuntime(options AgentRuntimeOptions) (*AgentRuntime, error) {
@@ -161,7 +163,7 @@ func NewAgentRuntime(options AgentRuntimeOptions) (*AgentRuntime, error) {
 		maxAdvancesPerRun:         options.MaxAdvancesPerRun,
 		memoryBudget:              options.MemoryBudget,
 		activeRuns:                make(map[string]context.CancelFunc),
-		taskLocks:                 make(map[string]*sync.Mutex),
+		taskLocks:                 make(map[string]*taskLockEntry),
 		taskChanged:               make(chan struct{}),
 	}, nil
 }
@@ -195,6 +197,9 @@ func (runtime *AgentRuntime) RunTask(
 		task, err = runtime.tasks.Load(ctx, taskID)
 		if err != nil {
 			return TaskSession{}, err
+		}
+		if task.Status == TaskOutcomeUnknown {
+			return runtime.reconcileTaskOutcome(ctx, task)
 		}
 		if terminalTaskStatus(task.Status) || task.Status == TaskPaused {
 			if task.Status == TaskCompleted {
@@ -390,7 +395,14 @@ func (runtime *AgentRuntime) cancelOwnedPlan(
 	summary string,
 ) (TaskSession, error) {
 	if task.PlanID == "" {
-		return task, nil
+		_, recovered, err := runtime.loadTaskPlan(ctx, task)
+		if err != nil {
+			return task, err
+		}
+		task = recovered
+		if task.PlanID == "" {
+			return task, nil
+		}
 	}
 	if runtime.plans == nil {
 		return task, errors.New("task plan coordinator is unavailable")
@@ -431,7 +443,7 @@ func (runtime *AgentRuntime) saveTask(
 	if err != nil {
 		return task, err
 	}
-	runtime.notifyTaskChanged()
+	runtime.notifyTaskChanged(saved.TaskID)
 	return saved, nil
 }
 
@@ -453,25 +465,15 @@ func (runtime *AgentRuntime) stepID(task TaskSession, kind string) string {
 	return task.TaskID + "." + kind + "." + strconv.FormatUint(uint64(task.Step+1), 10)
 }
 
-func (runtime *AgentRuntime) taskLock(taskID string) *sync.Mutex {
-	runtime.taskLocksMu.Lock()
-	defer runtime.taskLocksMu.Unlock()
-	lock := runtime.taskLocks[taskID]
-	if lock == nil {
-		lock = &sync.Mutex{}
-		runtime.taskLocks[taskID] = lock
-	}
-	return lock
-}
-
 func (runtime *AgentRuntime) taskChangedChannel() <-chan struct{} {
 	runtime.timelineMu.Lock()
 	defer runtime.timelineMu.Unlock()
 	return runtime.taskChanged
 }
 
-func (runtime *AgentRuntime) notifyTaskChanged() {
+func (runtime *AgentRuntime) notifyTaskChanged(taskID string) {
 	runtime.timelineMu.Lock()
+	runtime.taskChanges.Append(taskID)
 	close(runtime.taskChanged)
 	runtime.taskChanged = make(chan struct{})
 	runtime.timelineMu.Unlock()

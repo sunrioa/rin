@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/sunrioa/rin/internal/privatefile"
@@ -43,6 +44,10 @@ func OpenFileDecisionRecorder(path string, limit uint32) (*FileDecisionRecorder,
 		return nil, err
 	}
 	recorder := &FileDecisionRecorder{path: absolute, limit: limit, lockFile: lockFile}
+	if _, err := os.Lstat(strings.TrimSuffix(absolute, filepath.Ext(absolute)) + ".db"); !errors.Is(err, os.ErrNotExist) {
+		_ = releaseProviderStoreLock(lockFile)
+		return nil, errors.New("decision records have migrated to SQLite; restore a complete backup to roll back")
+	}
 	var snapshot DecisionRecordSnapshot
 	if err := privatefile.ReadJSON(absolute, maxDecisionRecordSnapshotBytes, &snapshot); err != nil {
 		if !errors.Is(err, os.ErrNotExist) {

@@ -62,7 +62,7 @@ test("Console catches asynchronous action failures and hides invalid task contro
   assert.match(app, /function runUIAction/);
   assert.match(app, /\.catch\(reportActionError\)/);
   assert.match(app, /status === "paused"/);
-  assert.match(app, /\["active", "paused", "waiting-confirmation"\]\.includes\(status\)/);
+  assert.match(app, /\["active", "paused", "waiting-confirmation", "outcome-unknown"\]\.includes\(status\)/);
 });
 
 test("Console imports and removes learned SKILL.md documents", () => {

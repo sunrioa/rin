@@ -51,12 +51,17 @@ func (runtime *AgentRuntime) startTaskWithSignal(ctx context.Context, input Star
 	actorLock := runtime.taskLock("\x00actor\x00" + sealed.HostID + "\x00" + sealed.WorldID + "\x00" + sealed.ActorID)
 	actorLock.Lock()
 	defer actorLock.Unlock()
-	snapshot, err := runtime.tasks.Snapshot(ctx)
+	if _, err := runtime.tasks.Load(ctx, sealed.TaskID); err == nil {
+		return TaskSession{}, ErrProviderConflict
+	} else if !errors.Is(err, ErrProviderNotFound) {
+		return TaskSession{}, err
+	}
+	snapshot, err := runtime.actorTasks(ctx, sealed)
 	if err != nil {
 		return TaskSession{}, err
 	}
 	for _, existing := range snapshot.Tasks {
-		if existing.TaskID == sealed.TaskID || (existing.HostID == sealed.HostID && existing.WorldID == sealed.WorldID && existing.ActorID == sealed.ActorID && !terminalTaskStatus(existing.Status)) {
+		if existing.TaskID == sealed.TaskID || (existing.HostID == sealed.HostID && existing.WorldID == sealed.WorldID && existing.ActorID == sealed.ActorID && taskOccupiesActor(existing)) {
 			return TaskSession{}, fmt.Errorf("%w: Actor already has an unfinished task", ErrProviderConflict)
 		}
 	}
@@ -130,7 +135,7 @@ func (runtime *AgentRuntime) startTaskWithSignal(ctx context.Context, input Star
 		_ = runtime.control.ReleaseController(runtime.principal, target, lease.LeaseID)
 		return TaskSession{}, err
 	}
-	runtime.notifyTaskChanged()
+	runtime.notifyTaskChanged(created.TaskID)
 	return created, nil
 }
 
@@ -189,7 +194,7 @@ func (runtime *AgentRuntime) CancelTask(
 	for {
 		var err error
 		task, err = runtime.tasks.Load(ctx, taskID)
-		if err != nil || terminalTaskStatus(task.Status) {
+		if err != nil || (terminalTaskStatus(task.Status) && task.Status != TaskOutcomeUnknown) {
 			return task, err
 		}
 		if task.CancelRequested {
@@ -319,6 +324,11 @@ func sealStartTaskInput(input StartTaskInput) (StartTaskInput, error) {
 		return StartTaskInput{}, errors.New("planning_mode is invalid")
 	}
 	var err error
+	// New caller-created tasks require explicit acceptance. Persisted legacy
+	// tasks still normalize an absent mode to their original model contract.
+	if input.Completion.Mode == "" {
+		input.Completion.Mode = CompletionHuman
+	}
 	input.Completion, err = normalizeTaskCompletion(input.Completion)
 	if err != nil {
 		return StartTaskInput{}, err

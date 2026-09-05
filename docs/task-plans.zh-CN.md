@@ -34,3 +34,10 @@ Rin Console 的任务列表同时读取内部 TaskSession 和共享 PlanStore。
 
 HTTP 契约见 `api/task-plan-openapi.json`，跨语言请求 Fixture 见
 `api/task-plan-v1-fixtures.json`。
+
+## 已关闭计划的保留
+
+容量只统计 planned、active、blocked、paused；关闭计划保留身份、关联和证据，不占活动
+容量。列表返回活动计划及有界的近期已关闭历史，精确 Plan/Task 查询可读取更早记录。
+内部任务若在 Plan 创建后、Task 引用提交前中断，会接续同一归属的 `plan.<TaskID>`，
+不会再次创建同名计划而陷入冲突。

@@ -295,7 +295,44 @@
       }
     },
     "schemas": {
-      "TaskSignal": {"type": "object", "additionalProperties": false, "properties": {"signal_id": {"$ref": "#/components/schemas/Identifier"}, "kind": {"$ref": "#/components/schemas/Identifier"}, "cursor": {"$ref": "#/components/schemas/JSONSafePositiveInteger"}, "summary": {"type": "string", "minLength": 1, "maxLength": 1000}, "epoch": {"$ref": "#/components/schemas/Epoch"}, "observation_sequence": {"$ref": "#/components/schemas/JSONSafePositiveInteger"}, "expires_at_unix_millis": {"$ref": "#/components/schemas/JSONSafePositiveInteger"}}, "required": ["signal_id", "kind", "cursor", "summary", "epoch", "observation_sequence", "expires_at_unix_millis"]},
+      "TaskSignal": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "signal_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "cursor": {
+            "$ref": "#/components/schemas/JSONSafePositiveInteger"
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "epoch": {
+            "$ref": "#/components/schemas/Epoch"
+          },
+          "observation_sequence": {
+            "$ref": "#/components/schemas/JSONSafePositiveInteger"
+          },
+          "expires_at_unix_millis": {
+            "$ref": "#/components/schemas/JSONSafePositiveInteger"
+          }
+        },
+        "required": [
+          "signal_id",
+          "kind",
+          "cursor",
+          "summary",
+          "epoch",
+          "observation_sequence",
+          "expires_at_unix_millis"
+        ]
+      },
       "TaskCompletionPolicy": {
         "type": "object",
         "additionalProperties": false,
@@ -314,11 +351,19 @@
             "items": {
               "$ref": "#/components/schemas/TaskCompletionCondition"
             }
+          },
+          "operation_requirements": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "$ref": "#/components/schemas/CompletionOperationRequirement"
+            }
           }
         },
         "required": [
           "mode"
-        ]
+        ],
+        "description": "New tasks default to human-confirmation. Legacy persisted tasks keep their original policy. Host facts express temporal and aggregate goals."
       },
       "TaskCompletionCondition": {
         "type": "object",
@@ -520,7 +565,11 @@
       },
       "PlanningMode": {
         "type": "string",
-        "enum": ["disabled", "auto", "required"]
+        "enum": [
+          "disabled",
+          "auto",
+          "required"
+        ]
       },
       "StartTaskInput": {
         "type": "object",
@@ -750,9 +799,15 @@
             "type": "integer",
             "minimum": 0
           },
-          "plan_id": { "$ref": "#/components/schemas/Identifier" },
-          "plan_revision": { "$ref": "#/components/schemas/JSONSafePositiveInteger" },
-          "plan_step_id": { "$ref": "#/components/schemas/Identifier" },
+          "plan_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "plan_revision": {
+            "$ref": "#/components/schemas/JSONSafePositiveInteger"
+          },
+          "plan_step_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
           "event_kind": {
             "type": "string",
             "minLength": 1,
@@ -807,10 +862,7 @@
           },
           "operation": {
             "$ref": "#/components/schemas/OperationSummary"
-          },
-          "plan_id": { "$ref": "#/components/schemas/Identifier" },
-          "plan_revision": { "$ref": "#/components/schemas/JSONSafePositiveInteger" },
-          "plan_step_id": { "$ref": "#/components/schemas/Identifier" }
+          }
         },
         "required": [
           "event_id",
@@ -876,11 +928,21 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "signal_id": { "$ref": "#/components/schemas/Identifier" },
-          "kind": { "$ref": "#/components/schemas/Identifier" },
-          "cursor": { "$ref": "#/components/schemas/JSONSafePositiveInteger" }
+          "signal_id": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/Identifier"
+          },
+          "cursor": {
+            "$ref": "#/components/schemas/JSONSafePositiveInteger"
+          }
         },
-        "required": ["signal_id", "kind", "cursor"]
+        "required": [
+          "signal_id",
+          "kind",
+          "cursor"
+        ]
       },
       "ModelUsage": {
         "type": "object",
@@ -919,7 +981,11 @@
         "properties": {
           "disposition": {
             "type": "string",
-            "enum": ["allow", "deny", "require_confirmation"]
+            "enum": [
+              "allow",
+              "deny",
+              "require_confirmation"
+            ]
           },
           "reason_code": {
             "type": "string",
@@ -1253,7 +1319,7 @@
           },
           "completion_evidence": {
             "type": "array",
-            "maxItems": 16,
+            "maxItems": 1024,
             "items": {
               "$ref": "#/components/schemas/TaskCompletionEvidence"
             }
@@ -1307,7 +1373,13 @@
         "properties": {
           "status": {
             "type": "string",
-            "enum": ["pending", "drafted", "enabled", "skipped", "failed"]
+            "enum": [
+              "pending",
+              "drafted",
+              "enabled",
+              "skipped",
+              "failed"
+            ]
           },
           "attempts": {
             "type": "integer",
@@ -1324,7 +1396,10 @@
             "$ref": "#/components/schemas/Identifier"
           }
         },
-        "required": ["status", "attempts"]
+        "required": [
+          "status",
+          "attempts"
+        ]
       },
       "TaskOperationResult": {
         "type": "object",
@@ -1350,7 +1425,12 @@
             "additionalProperties": true
           }
         },
-        "required": ["operation_id", "capability", "status", "summary"]
+        "required": [
+          "operation_id",
+          "capability",
+          "status",
+          "summary"
+        ]
       },
       "TaskEvent": {
         "type": "object",
@@ -1577,11 +1657,21 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "plan_id": { "$ref": "#/components/schemas/TaskIdentifier" },
-          "plan_revision": { "$ref": "#/components/schemas/JSONSafePositiveInteger" },
-          "step_id": { "$ref": "#/components/schemas/Identifier" }
+          "plan_id": {
+            "$ref": "#/components/schemas/TaskIdentifier"
+          },
+          "plan_revision": {
+            "$ref": "#/components/schemas/JSONSafePositiveInteger"
+          },
+          "step_id": {
+            "$ref": "#/components/schemas/Identifier"
+          }
         },
-        "required": ["plan_id", "plan_revision", "step_id"]
+        "required": [
+          "plan_id",
+          "plan_revision",
+          "step_id"
+        ]
       },
       "ActionRequest": {
         "type": "object",
@@ -1867,6 +1957,37 @@
         "required": [
           "error",
           "code"
+        ]
+      },
+      "CompletionOperationRequirement": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "condition_id": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "arguments_json": {
+            "type": "string",
+            "maxLength": 16384,
+            "description": "Exact JSON object; object key order ignored, numbers match their exact JSON representation."
+          },
+          "target_refs": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "$ref": "#/components/schemas/HostRef"
+            }
+          },
+          "minimum_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 64,
+            "description": "Distinct successful operations in one Host epoch; omitted or zero means one."
+          }
+        },
+        "required": [
+          "condition_id"
         ]
       }
     }

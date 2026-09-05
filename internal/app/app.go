@@ -163,11 +163,11 @@ func Run(
 	if err != nil {
 		return err
 	}
-	signals, err := signalbox.NewStore(signalbox.StoreConfig{})
+	signals, err := signalbox.OpenSQLiteStore(filepath.Join(config.dataDir, "agent", "signals.db"), signalbox.StoreConfig{})
 	if err != nil {
 		return err
 	}
-	defer signals.Close()
+	defer func() { result = errors.Join(result, signals.Close()) }()
 	signalService, err := signalbox.NewService(signals, service, planControlClient)
 	if err != nil {
 		return err

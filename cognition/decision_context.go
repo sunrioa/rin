@@ -102,6 +102,14 @@ func (runtime *AgentRuntime) collectDecisionContext(ctx context.Context, task Ta
 		paused, pauseErr := runtime.pauseTask(ctx, task, "plan.unavailable", err)
 		return paused, nil, pauseErr
 	}
+	if plan != nil && plan.Status == taskstate.PlanCancelled {
+		finished, err := runtime.finishCancelledTask(ctx, task, "plan.cancelled")
+		return finished, nil, err
+	}
+	if plan != nil && plan.Status == taskstate.PlanFailed {
+		finished, err := runtime.failTask(ctx, task, "plan.failed", errors.New("the task plan failed"))
+		return finished, nil, err
+	}
 	plan, task, err = runtime.applyObservedPlanFacts(ctx, task, plan, observation)
 	if err != nil {
 		paused, pauseErr := runtime.pauseTask(ctx, task, "plan.evidence-unavailable", err)
