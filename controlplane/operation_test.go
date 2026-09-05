@@ -69,7 +69,7 @@ func TestActionOperationReportsHostLifecycleAndOutput(t *testing.T) {
 }
 
 func TestActionOperationPublishesCommittedOutcomeEvidence(t *testing.T) {
-	sink := &recordingOutcomeSink{}
+	sink := &recordingOutcomeSink{evidence: make(chan OutcomeEvidence, 8)}
 	service, lease, _, principal, actionHost := actionOperationTestHarness(t, Options{OutcomeSink: sink})
 	input := actionHost.input("request.outcome.sink", "action.outcome.sink")
 	input.Request.TaskID = "task.outcome.sink"
@@ -92,26 +92,46 @@ func TestActionOperationPublishesCommittedOutcomeEvidence(t *testing.T) {
 	if err := service.ReportHostOutcome("test.host", lease.LeaseID, outcome); err != nil {
 		t.Fatal(err)
 	}
-	if len(sink.evidence) != 1 || sink.evidence[0].TaskID != input.Request.TaskID ||
-		sink.evidence[0].OperationID != operation.OperationID ||
-		sink.evidence[0].Outcome.Summary != outcome.Summary {
-		t.Fatalf("outcome evidence = %#v", sink.evidence)
+	select {
+	case evidence := <-sink.evidence:
+		if evidence.TaskID != input.Request.TaskID || evidence.OperationID != operation.OperationID || evidence.Outcome.Summary != outcome.Summary {
+			t.Fatalf("outcome evidence = %#v", evidence)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("committed outcome was not delivered")
 	}
+	waitForOutcomeDelivery(t, service, principal, operation.OperationID, "default")
 	if err := service.ReportHostOutcome("test.host", lease.LeaseID, outcome); err != nil {
 		t.Fatal(err)
 	}
-	if len(sink.evidence) != 2 {
-		t.Fatalf("idempotent report did not heal sink: %#v", sink.evidence)
+	select {
+	case evidence := <-sink.evidence:
+		t.Fatalf("acknowledged outcome was redelivered: %#v", evidence)
+	case <-time.After(30 * time.Millisecond):
 	}
 }
 
-type recordingOutcomeSink struct {
-	evidence []OutcomeEvidence
-}
+type recordingOutcomeSink struct{ evidence chan OutcomeEvidence }
 
 func (sink *recordingOutcomeSink) RecordOutcome(_ context.Context, evidence OutcomeEvidence) error {
-	sink.evidence = append(sink.evidence, evidence)
+	sink.evidence <- evidence
 	return nil
+}
+
+func waitForOutcomeDelivery(t *testing.T, service *Service, principal host.Principal, operationID, subscriber string) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		pending, err := service.OutcomeProjectionPending(principal, operationID, subscriber)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !pending {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("outcome delivery did not settle: %s/%s", operationID, subscriber)
 }
 
 func TestHostOutcomeCannotPredateBoundObservation(t *testing.T) {
@@ -408,6 +428,7 @@ func operationTestService(
 	options.Now = func() time.Time { return now }
 	options.Random = bytes.NewReader(random)
 	service := New(options)
+	t.Cleanup(func() { _ = service.Close() })
 	lease := mustRegister(t, service, registration("instance.operation"))
 	if err := service.PublishWorld(
 		"test.host",

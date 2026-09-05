@@ -43,6 +43,13 @@ type TaskRuntime interface {
 	WaitTaskTimeline(context.Context, timeline.WaitInput) (timeline.Update, error)
 }
 
+// schedulingRuntime adds event-driven readiness without requiring custom task
+// runtimes to expose their internal control ports.
+type schedulingRuntime interface {
+	TaskReady(context.Context, cognition.TaskSession) (bool, error)
+	SchedulingEvents() (<-chan struct{}, <-chan struct{})
+}
+
 type signalTaskRuntime interface {
 	StartSignalTask(
 		context.Context,

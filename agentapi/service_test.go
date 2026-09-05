@@ -86,18 +86,22 @@ func TestServiceAutomaticallyResumesOnlyTemporaryPauses(t *testing.T) {
 	temporary.Status = cognition.TaskPaused
 	temporary.PauseCode = "host.unavailable"
 	temporary.UpdatedAtUnixMillis = 0
+	temporary.Schedule = cognition.TaskSchedule{Kind: cognition.ScheduleRetry, RetryAtUnixMillis: 1}
 	manual := activeTask("task.manual-pause", "task.paused")
 	manual.Status = cognition.TaskPaused
 	manual.PauseCode = "user.paused"
 	manual.UpdatedAtUnixMillis = 0
+	manual.Schedule = cognition.TaskSchedule{Kind: cognition.ScheduleUser}
 	contended := activeTask("task.contended-controller", "task.paused")
 	contended.Status = cognition.TaskPaused
 	contended.PauseCode = "controller.contended"
 	contended.UpdatedAtUnixMillis = 0
+	contended.Schedule = cognition.TaskSchedule{Kind: cognition.ScheduleUser}
 	modelUnavailable := activeTask("task.model-unavailable", "task.paused")
 	modelUnavailable.Status = cognition.TaskPaused
 	modelUnavailable.PauseCode = "model.unavailable"
 	modelUnavailable.UpdatedAtUnixMillis = 0
+	modelUnavailable.Schedule = cognition.TaskSchedule{Kind: cognition.ScheduleUser}
 	runtime.tasks[temporary.TaskID] = temporary
 	runtime.tasks[manual.TaskID] = manual
 	runtime.tasks[contended.TaskID] = contended
@@ -250,8 +254,12 @@ func startTaskInput(taskID string) cognition.StartTaskInput {
 }
 
 func activeTask(taskID, eventKind string) cognition.TaskSession {
+	schedule := cognition.TaskSchedule{Kind: cognition.ScheduleReady}
+	if eventKind == "task.wait" {
+		schedule.Kind = cognition.ScheduleUser
+	}
 	return cognition.TaskSession{
-		TaskID: taskID, Status: cognition.TaskActive,
+		TaskID: taskID, Status: cognition.TaskActive, Schedule: schedule,
 		History: []cognition.TaskEvent{{Kind: eventKind}},
 	}
 }
@@ -372,6 +380,7 @@ func (runtime *fakeTaskRuntime) ResumeTask(
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	task.Status = cognition.TaskActive
+	task.Schedule = cognition.TaskSchedule{Kind: cognition.ScheduleReady}
 	task.History = append(task.History, cognition.TaskEvent{Kind: "task.resumed"})
 	runtime.tasks[taskID] = task
 	return task, nil
@@ -424,6 +433,7 @@ func (runtime *fakeTaskRuntime) RunTask(
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	runtime.activeRuns--
+	task.Schedule = cognition.TaskSchedule{Kind: cognition.ScheduleUser}
 	task.History = append(task.History, cognition.TaskEvent{Kind: "task.wait"})
 	runtime.tasks[taskID] = task
 	return task, nil

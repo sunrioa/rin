@@ -16,7 +16,9 @@ import (
 	"github.com/sunrioa/rin/timeline"
 )
 
-const TaskSnapshotVersion = "rin.cognition.tasks/v3"
+const TaskSnapshotVersion = "rin.cognition.tasks/v4"
+
+const legacyTaskSnapshotVersion = "rin.cognition.tasks/v3"
 
 var ErrTaskRevisionConflict = errors.New("cognition task revision conflict")
 
@@ -109,6 +111,9 @@ type TaskSession struct {
 	PlanRevision        uint64                 `json:"plan_revision,omitempty"`
 	CurrentPlanStepID   string                 `json:"current_plan_step_id,omitempty"`
 
+	Schedule        TaskSchedule `json:"schedule"`
+	CancelRequested bool         `json:"cancel_requested,omitempty"`
+
 	Status    TaskStatus `json:"status"`
 	PauseCode string     `json:"pause_code,omitempty"`
 	Revision  uint64     `json:"revision"`
@@ -119,14 +124,15 @@ type TaskSession struct {
 	ModelTokens uint64 `json:"model_tokens"`
 	ActionCount uint32 `json:"action_count"`
 
-	ControllerLease     controlplane.ControllerLease `json:"controller_lease"`
-	PendingAction       *host.ActionRequest          `json:"pending_action,omitempty"`
-	PendingActionMacro  bool                         `json:"pending_action_is_macro,omitempty"`
-	PendingOperationID  string                       `json:"pending_operation_id,omitempty"`
-	MacroOperationID    string                       `json:"macro_operation_id,omitempty"`
-	PendingMemories     []MemoryRecord               `json:"pending_memories,omitempty"`
-	SkillLearning       *SkillLearningState          `json:"skill_learning,omitempty"`
-	LastOperationResult *TaskOperationResult         `json:"last_operation_result,omitempty"`
+	ControllerLease         controlplane.ControllerLease `json:"controller_lease"`
+	PendingAction           *host.ActionRequest          `json:"pending_action,omitempty"`
+	PendingActionMacro      bool                         `json:"pending_action_is_macro,omitempty"`
+	ActionSubmissionStarted bool                         `json:"action_submission_started,omitempty"`
+	PendingOperationID      string                       `json:"pending_operation_id,omitempty"`
+	MacroOperationID        string                       `json:"macro_operation_id,omitempty"`
+	PendingMemories         []MemoryRecord               `json:"pending_memories,omitempty"`
+	SkillLearning           *SkillLearningState          `json:"skill_learning,omitempty"`
+	LastOperationResult     *TaskOperationResult         `json:"last_operation_result,omitempty"`
 
 	LastObservationID   string      `json:"last_observation_id,omitempty"`
 	LastObservationSeq  uint64      `json:"last_observation_sequence,omitempty"`
@@ -173,13 +179,20 @@ func RestoreLocalTaskStore(maxTasks uint32, snapshot TaskSnapshot) (*LocalTaskSt
 	if err != nil {
 		return nil, err
 	}
-	if snapshot.Version != TaskSnapshotVersion || snapshot.Revision == 0 {
+	if (snapshot.Version != TaskSnapshotVersion && snapshot.Version != legacyTaskSnapshotVersion) || snapshot.Revision == 0 {
 		return nil, errors.New("task snapshot version or revision is invalid")
 	}
 	if len(snapshot.Tasks) > int(store.maxTasks) {
 		return nil, ErrProviderCapacity
 	}
 	for index, task := range snapshot.Tasks {
+		if snapshot.Version == legacyTaskSnapshotVersion {
+			task.Schedule = migrateTaskSchedule(task)
+			// A v3 pending intent may already have reached the gateway.
+			task.ActionSubmissionStarted = task.PendingAction != nil
+		} else if task.Schedule.Kind == "" {
+			return nil, fmt.Errorf("tasks[%d] has no schedule", index)
+		}
 		sealed, err := sealTaskSession(task)
 		if err != nil {
 			return nil, fmt.Errorf("tasks[%d]: %w", index, err)
@@ -395,7 +408,7 @@ func sealTaskSession(task TaskSession) (TaskSession, error) {
 			return TaskSession{}, errors.New("pending action exceeds the task capability scope")
 		}
 		task.PendingAction = &request
-	} else if task.PendingActionMacro || task.PendingOperationID != "" ||
+	} else if task.PendingActionMacro || task.ActionSubmissionStarted || task.PendingOperationID != "" ||
 		len(task.PendingMemories) != 0 {
 		return TaskSession{}, errors.New("pending operation or memories require a pending action")
 	}
@@ -416,12 +429,12 @@ func sealTaskSession(task TaskSession) (TaskSession, error) {
 		task.MacroOperationID == "" {
 		return TaskSession{}, errors.New("waiting task has no pending operation")
 	}
-	if task.Status == TaskCancelling && task.MacroOperationID == "" &&
+	if task.Status == TaskCancelling && !task.CancelRequested && task.MacroOperationID == "" &&
 		(task.PendingAction == nil || task.PendingOperationID == "") {
 		return TaskSession{}, errors.New("cancelling task requires a pending or macro operation")
 	}
 	if task.Status == TaskOutcomeUnknown && task.MacroOperationID == "" &&
-		(task.PendingAction == nil || task.PendingOperationID == "") {
+		(task.PendingAction == nil || (task.PendingOperationID == "" && !task.ActionSubmissionStarted)) {
 		return TaskSession{}, errors.New("outcome-unknown task requires reconciliation state")
 	}
 	if (task.Status == TaskCompleted || task.Status == TaskFailed || task.Status == TaskCancelled) &&
@@ -498,6 +511,12 @@ func sealTaskSession(task TaskSession) (TaskSession, error) {
 		task.CreatedAtUnixMillis > maxProviderWireInteger ||
 		task.UpdatedAtUnixMillis > maxProviderWireInteger {
 		return TaskSession{}, errors.New("task timestamps are invalid")
+	}
+	if task.Schedule.Kind == "" {
+		task.Schedule = scheduleForStatus(task)
+	}
+	if err := validateTaskSchedule(task); err != nil {
+		return TaskSession{}, err
 	}
 	if err := validateTaskTimelineHistory(task); err != nil {
 		return TaskSession{}, fmt.Errorf("task timeline: %w", err)
@@ -589,6 +608,10 @@ func validateTaskID(taskID string) error {
 }
 
 func cloneTaskSession(task TaskSession) TaskSession {
+	if task.Schedule.ObservationEpoch != nil {
+		epoch := *task.Schedule.ObservationEpoch
+		task.Schedule.ObservationEpoch = &epoch
+	}
 	task.Tags = append([]string(nil), task.Tags...)
 	task.AllowedCapabilities = append([]string(nil), task.AllowedCapabilities...)
 	if task.SkillLearning != nil {

@@ -382,8 +382,11 @@ is present and treat the HTTP status as the compatibility fallback.
 `operations.json` in `RIN_CONTROL_DATA_DIR` uses mode 0600, strict JSON,
 temporary-file synchronization, and atomic replacement. A cross-platform process
 lock permits only one `rin-control` writer. The file never stores the token,
-model keys, prompts, or a game save. It accepts only the Action-only
-`rin.control.operations/v5` schema and does not load older request formats.
+model keys, prompts, or a game save. It writes the Action-only
+`rin.control.operations/v6` schema and imports v5, adding durable per-subscriber
+outcome acknowledgements. Older request formats are not supported. See
+[durable outcome delivery](operations.md#durable-outcome-delivery) for replay and
+retention behavior.
 
 Recovery rules:
 

@@ -122,6 +122,10 @@ func (service *Service) SubmitAction(
 				continue
 			}
 		}
+		if err := ctx.Err(); err != nil {
+			service.mu.Unlock()
+			return OperationView{}, err
+		}
 		snapshot, snapshotErr := service.prepareActionSubmissionLocked(
 			principal,
 			input,
@@ -195,6 +199,10 @@ func (service *Service) bindAuthorizeAndQueueAction(
 
 	service.mu.Lock()
 	defer service.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		service.policyEngine.Finalize(decision.DecisionID, false)
+		return OperationView{}, err
+	}
 	current, err := service.prepareActionSubmissionLocked(principal, input)
 	if err != nil || !sameActionSubmissionSnapshot(submission, current) {
 		service.policyEngine.Finalize(decision.DecisionID, false)

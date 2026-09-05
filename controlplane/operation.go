@@ -31,6 +31,7 @@ type operationState struct {
 	ack                     *HostAcknowledgement
 	run                     *host.ActionRun
 	outcome                 *host.ActionOutcome
+	outcomeDelivery         map[string]bool
 	output                  json.RawMessage
 	rejection               HostAcknowledgement
 	idempotency             string
@@ -247,14 +248,8 @@ func (service *Service) ReportHostResult(
 	if err := validateOperationOutput(output); err != nil {
 		return err
 	}
-	var evidence *OutcomeEvidence
 	service.mu.Lock()
-	defer func() {
-		service.mu.Unlock()
-		if evidence != nil && service.outcomeSink != nil {
-			_ = service.outcomeSink.RecordOutcome(context.Background(), *evidence)
-		}
-	}()
+	defer service.mu.Unlock()
 	if err := service.persistOperationsLocked(); err != nil {
 		return err
 	}
@@ -268,10 +263,10 @@ func (service *Service) ReportHostResult(
 	if operation.outcome != nil {
 		if reflect.DeepEqual(*operation.outcome, outcome) &&
 			bytes.Equal(operation.output, output) {
+			service.queueOutcomeDeliveryLocked(operation)
 			if err := service.persistOperationsLocked(); err != nil {
 				return err
 			}
-			evidence = operationOutcomeEvidence(operation, outcome)
 			return nil
 		}
 		return fmt.Errorf("%w: terminal result changed", ErrConflict)
@@ -293,6 +288,7 @@ func (service *Service) ReportHostResult(
 	}
 	cloned := cloneOutcome(outcome)
 	operation.outcome = &cloned
+	service.queueOutcomeDeliveryLocked(operation)
 	operation.output = append(json.RawMessage(nil), output...)
 	operation.status = expected
 	operation.updatedAt = service.now().UnixMilli()
@@ -305,7 +301,6 @@ func (service *Service) ReportHostResult(
 	if err := service.persistOperationsLocked(); err != nil {
 		return err
 	}
-	evidence = operationOutcomeEvidence(operation, outcome)
 	return nil
 }
 
@@ -769,7 +764,7 @@ func (service *Service) pruneOperationsLocked(now int64) {
 		changed = service.expireOperationByTTLLocked(operation, now) || changed
 	}
 	for operationID, operation := range service.operations {
-		if !completeOperation(operation) || operation.updatedAt > cutoff {
+		if !completeOperation(operation) || hasPendingOutcome(operation) || operation.updatedAt > cutoff {
 			continue
 		}
 		if len(operation.children) != 0 {

@@ -208,7 +208,7 @@ Controller 或预算。
 
 - Task HTTP 契约以 [`api/agent-openapi.json`](../api/agent-openapi.json) 为准。
 - 状态固定写入 `<RIN_CONTROL_DATA_DIR>/agent/tasks.json` 和 `memory.db`。
-- Task Snapshot 使用 `rin.cognition.tasks/v3`。
+- Task Snapshot 使用 `rin.cognition.tasks/v4`，打开时兼容导入 v3 快照。
 - Task 文件使用私有权限与原子替换；Memory 使用 SQLite 事务、WAL 与单写者进程锁。
   配置不能改变状态路径。
 - `scheduled=true` 只表示任务已进入后台队列，不表示模型已决策、游戏已执行或
@@ -217,7 +217,41 @@ Controller 或预算。
   Runtime 只向模型公开 Host 当前 Catalog 与该白名单的交集，并在恢复 Pending Action 时
   再次复验；空数组表示使用 Host 当前完整 Catalog。该字段只能收窄能力，不能创建 Host
   未发布的能力或绕过 Policy。
-- 停止时先取消并等待 Agent worker，再释放 Task/Memory 锁，最后关闭 Control Plane。
+- 守护进程先停止 Agent worker 并关闭 Task 状态，再停止 Control Plane 投递 worker，
+  最后关闭共享 Plan 与 Memory 存储。
+
+## 调度与取消
+
+`TaskSession.schedule` 是持久化调度状态。History 仅用于诊断，新增警告或 Signal
+事件不会改变任务是否应当执行。
+
+| `schedule.kind` | 继续条件 |
+| --- | --- |
+| `ready` | 入队执行一次有步数上限的推进。 |
+| `waiting-observation` | Actor 在线，且发布了更新的 Observation Sequence 或不同 Epoch。 |
+| `waiting-operation` | Operation Cursor 改变、操作结束或需要对账。 |
+| `waiting-confirmation` | 确认或取消使被跟踪的 Operation 发生变化。 |
+| `retry-at` | 到达已保存的重试时间。 |
+| `waiting-user` | 根据任务状态，由用户显式请求运行或恢复。 |
+| `stopped` | 任务已终止，不再自动执行。 |
+
+模型返回 `wait` 时保存当前 Observation 的 Epoch 和 Sequence；等待 Operation 或确认时
+保存 Operation ID 和 Cursor，然后释放 worker。Task 与 Control Plane 变化会唤醒调度器，
+定时扫描负责遗漏通知及进程重启后的恢复。默认扫描间隔为 1 秒，暂时性故障 5 秒后重试。
+带 Plan 的任务还会等待 `task-plan` 订阅者确认结果投影；Memory 回写不影响任务就绪条件。
+`OperationWaitMillis` 保留以兼容已有调用代码，但不再控制 worker 等待。
+
+导入 v3 快照时只推断一次旧等待条件；缺少 Observation 记录的旧 `wait` 需要显式运行。
+v4 快照必须包含有效的 schedule；v3 二进制不能读取已经写成 v4 的快照。
+
+取消先持久化 `cancel_requested`，再取消当前运行的 Context，不等待任务执行锁。
+迟到的模型输出会被丢弃。`action_submission_started` 记录 Pending Intent 可能已经到达
+Gateway 的阶段。恢复时通过进程内 `FindActionOperation` 查询原始提交，取消路径不会
+重新提交 Action。如果可能已提交却查不到 Operation，任务进入 `outcome-unknown`，代码为
+`action.submission-unknown`；不能仅凭查无记录宣称动作没有发生。
+
+取消请求不能撤销 Host 已产生的 Effect；已提交的操作在权威结果确定前保持 `cancelling`。
+自定义模型 Provider 与 Outcome 订阅者需要响应 Context 取消，及时释放自身资源。
 
 ## Macro 父子循环
 

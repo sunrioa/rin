@@ -17,7 +17,6 @@ const (
 	defaultWorkerCount       = 4
 	defaultQueueCapacity     = 1_024
 	defaultReconcileInterval = time.Second
-	automaticResumeDelay     = 5 * time.Second
 )
 
 // Service owns only asynchronous task coordination. AgentRuntime remains the
@@ -25,10 +24,11 @@ const (
 type Service struct {
 	runtime TaskRuntime
 
-	ctx      context.Context
-	cancel   context.CancelFunc
-	queue    chan string
-	interval time.Duration
+	ctx          context.Context
+	cancel       context.CancelFunc
+	queue        chan string
+	interval     time.Duration
+	dispatchDone chan struct{}
 
 	mu        sync.Mutex
 	scheduled map[string]struct{}
@@ -66,7 +66,8 @@ func New(options Options) (*Service, error) {
 	service := &Service{
 		runtime: options.Runtime, ctx: ctx, cancel: cancel,
 		queue: make(chan string, capacity), interval: interval,
-		scheduled: make(map[string]struct{}),
+		dispatchDone: make(chan struct{}, 1),
+		scheduled:    make(map[string]struct{}),
 	}
 	snapshot, err := service.runtime.SnapshotTasks(ctx)
 	if err != nil {
@@ -74,7 +75,7 @@ func New(options Options) (*Service, error) {
 		return nil, fmt.Errorf("restore task scheduler: %w", err)
 	}
 	for _, task := range snapshot.Tasks {
-		if taskNeedsAutomaticRun(task) {
+		if service.taskReady(task) {
 			service.enqueue(task.TaskID)
 		}
 	}
@@ -325,6 +326,7 @@ func (service *Service) worker() {
 }
 
 func (service *Service) runTask(taskID string) {
+	wake := false
 	defer func() {
 		// Keep a TaskRuntime panic inside this dispatch so the worker remains
 		// available and the reconciler can retry the durable task state.
@@ -332,17 +334,24 @@ func (service *Service) runTask(taskID string) {
 		service.mu.Lock()
 		delete(service.scheduled, taskID)
 		service.mu.Unlock()
+		if wake {
+			select {
+			case service.dispatchDone <- struct{}{}:
+			default:
+			}
+		}
 	}()
 	if service.ctx.Err() != nil {
 		return
 	}
 	task, err := service.runtime.GetTask(service.ctx, taskID)
 	if err == nil && task.Status == cognition.TaskPaused &&
-		taskNeedsAutomaticRunAt(task, time.Now()) {
+		service.taskReady(task) {
 		task, err = service.runtime.ResumeTask(service.ctx, taskID)
 	}
 	if err == nil && taskCanRun(task.Status) {
-		_, _ = service.runtime.RunTask(service.ctx, taskID)
+		_, err = service.runtime.RunTask(service.ctx, taskID)
+		wake = err == nil
 	}
 }
 
@@ -351,67 +360,35 @@ func (service *Service) reconcile() {
 	ticker := time.NewTicker(service.interval)
 	defer ticker.Stop()
 	for {
-		select {
-		case <-service.ctx.Done():
-			return
-		case <-ticker.C:
-			snapshot, err := service.runtime.SnapshotTasks(service.ctx)
-			if err != nil {
-				continue
-			}
+		var taskChanges, controlChanges <-chan struct{}
+		if runtime, ok := service.runtime.(schedulingRuntime); ok {
+			taskChanges, controlChanges = runtime.SchedulingEvents()
+		}
+		snapshot, err := service.runtime.SnapshotTasks(service.ctx)
+		if err == nil {
 			for _, task := range snapshot.Tasks {
-				if taskNeedsAutomaticRun(task) {
+				if service.taskReady(task) {
 					service.enqueue(task.TaskID)
 				}
 			}
 		}
+		select {
+		case <-service.ctx.Done():
+			return
+		case <-ticker.C:
+		case <-taskChanges:
+		case <-controlChanges:
+		case <-service.dispatchDone:
+		}
 	}
 }
 
-func taskNeedsAutomaticRun(task cognition.TaskSession) bool {
-	return taskNeedsAutomaticRunAt(task, time.Now())
-}
-
-func taskNeedsAutomaticRunAt(task cognition.TaskSession, now time.Time) bool {
-	switch task.Status {
-	case cognition.TaskCancelling, cognition.TaskWaitingConfirmation:
-		return true
-	case cognition.TaskActive:
-		if task.PendingAction != nil || task.PendingOperationID != "" ||
-			task.MacroOperationID != "" {
-			return true
-		}
-		for index := len(task.History) - 1; index >= 0; index-- {
-			switch task.History[index].Kind {
-			case "provider.warning", "model.decision":
-				continue
-			case "task.wait":
-				return false
-			case "task.created", "task.resumed", "operation.terminal", "action.rejected":
-				return true
-			default:
-				return false
-			}
-		}
-	case cognition.TaskPaused:
-		if !automaticallyResumablePause(task.PauseCode) {
-			return false
-		}
-		return task.UpdatedAtUnixMillis == 0 ||
-			now.UnixMilli()-task.UpdatedAtUnixMillis >= automaticResumeDelay.Milliseconds()
+func (service *Service) taskReady(task cognition.TaskSession) bool {
+	if runtime, ok := service.runtime.(schedulingRuntime); ok {
+		ready, err := runtime.TaskReady(service.ctx, task)
+		return err == nil && ready
 	}
-	return false
-}
-
-func automaticallyResumablePause(code string) bool {
-	switch code {
-	case "host.unavailable", "observation.unavailable", "controller.unavailable",
-		"operation.unavailable", "action.submit-unavailable", "capabilities.unavailable",
-		"plan.epoch-invalidated":
-		return true
-	default:
-		return false
-	}
+	return cognition.TaskReadyAt(task, time.Now())
 }
 
 func taskCanRun(status cognition.TaskStatus) bool {

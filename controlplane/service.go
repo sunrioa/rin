@@ -26,6 +26,8 @@ type Options struct {
 	ActionHost    ActionHost
 	PolicyEngine  *policy.Engine
 	OutcomeSink   OutcomeSink
+	// OutcomeSinks uses stable subscriber IDs for durable, independent delivery.
+	OutcomeSinks map[string]OutcomeSink
 }
 
 // Service owns host leases and principal-filtered read models.
@@ -38,7 +40,11 @@ type Service struct {
 	emergencyStops map[actorControlKey]ActorEmergencyStop
 	actionHost     ActionHost
 	policyEngine   *policy.Engine
-	outcomeSink    OutcomeSink
+	outcomeSinks   map[string]OutcomeSink
+	outcomeCancel  context.CancelFunc
+	outcomeWG      sync.WaitGroup
+	closeOnce      sync.Once
+	closeError     error
 	actionFlights  map[string]*actionFlight
 	confirming     map[string]struct{}
 	hostGateway    map[string]*hostGatewayState
@@ -74,6 +80,12 @@ type hostGatewayResponse struct {
 
 // New creates an in-memory Control Plane service.
 func New(options Options) *Service {
+	service := newService(options)
+	service.startOutcomeDelivery()
+	return service
+}
+
+func newService(options Options) *Service {
 	now := options.Now
 	if now == nil {
 		now = time.Now
@@ -105,7 +117,7 @@ func New(options Options) *Service {
 		emergencyStops: make(map[actorControlKey]ActorEmergencyStop),
 		actionHost:     options.ActionHost,
 		policyEngine:   options.PolicyEngine,
-		outcomeSink:    options.OutcomeSink,
+		outcomeSinks:   configuredOutcomeSinks(options),
 		actionFlights:  make(map[string]*actionFlight),
 		confirming:     make(map[string]struct{}),
 		hostGateway:    make(map[string]*hostGatewayState),
@@ -120,20 +132,24 @@ func New(options Options) *Service {
 // Close flushes persistent operation state and releases the data-directory
 // writer lock. In-memory services may also be closed.
 func (service *Service) Close() error {
-	service.mu.Lock()
-	defer service.mu.Unlock()
-	if service.closed {
-		return nil
-	}
-	persistErr := service.flushOperationsLocked()
-	service.closed = true
-	service.failAllHostGatewayLocked(ErrClosed)
-	var closeErr error
-	if service.operationFile != nil {
-		closeErr = service.operationFile.close()
-	}
-	service.notifyLocked()
-	return errors.Join(persistErr, closeErr)
+	service.closeOnce.Do(func() {
+		if service.outcomeCancel != nil {
+			service.outcomeCancel()
+		}
+		service.outcomeWG.Wait()
+		service.mu.Lock()
+		defer service.mu.Unlock()
+		persistErr := service.flushOperationsLocked()
+		service.closed = true
+		service.failAllHostGatewayLocked(ErrClosed)
+		var closeErr error
+		if service.operationFile != nil {
+			closeErr = service.operationFile.close()
+		}
+		service.notifyLocked()
+		service.closeError = errors.Join(persistErr, closeErr)
+	})
+	return service.closeError
 }
 
 // RegisterHost acquires a host publication lease. Re-registering the same live

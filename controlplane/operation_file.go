@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,10 +17,11 @@ import (
 )
 
 const (
-	operationFileVersion  = "rin.control.operations/v5"
-	operationFileName     = "operations.json"
-	maxOperationFileBytes = 64 << 20
-	maxQueuedStateBytes   = 32 << 20
+	operationFileVersion       = "rin.control.operations/v6"
+	legacyOperationFileVersion = "rin.control.operations/v5"
+	operationFileName          = "operations.json"
+	maxOperationFileBytes      = 64 << 20
+	maxQueuedStateBytes        = 32 << 20
 )
 
 var errOperationFileTooLarge = errors.New("operation state exceeds its size limit")
@@ -47,6 +49,7 @@ type persistedOperation struct {
 	Ack                     *HostAcknowledgement     `json:"ack,omitempty"`
 	Run                     *host.ActionRun          `json:"run,omitempty"`
 	Outcome                 *host.ActionOutcome      `json:"outcome,omitempty"`
+	OutcomeDelivery         map[string]bool          `json:"outcome_delivery,omitempty"`
 	Output                  json.RawMessage          `json:"output,omitempty"`
 	CreatedAt               int64                    `json:"created_at_unix_millis"`
 	UpdatedAt               int64                    `json:"updated_at_unix_millis"`
@@ -57,15 +60,19 @@ type persistedOperation struct {
 // OpenFile creates a Control Plane whose bounded operations survive process
 // restart. Host leases and read models remain Host-owned and must be republished.
 func OpenFile(root string, options Options) (*Service, error) {
+	if err := validateOutcomeSinks(options); err != nil {
+		return nil, err
+	}
 	file, state, err := openOperationFile(root)
 	if err != nil {
 		return nil, err
 	}
-	service := New(options)
+	service := newService(options)
 	service.operationFile = file
 	if err := service.restoreOperations(state); err != nil {
 		return nil, errors.Join(err, file.close())
 	}
+	service.startOutcomeDelivery()
 	return service, nil
 }
 
@@ -186,7 +193,7 @@ func (file *operationFile) read() (persistedOperations, error) {
 			err,
 		)
 	}
-	if state.Version != operationFileVersion {
+	if state.Version != operationFileVersion && state.Version != legacyOperationFileVersion {
 		return persistedOperations{}, fmt.Errorf(
 			"%w: unsupported operation state version %q",
 			ErrPersistence,
@@ -287,6 +294,10 @@ func (service *Service) restoreOperations(state persistedOperations) error {
 				"%w: duplicate principal request_id",
 				ErrPersistence,
 			)
+		}
+		service.queueOutcomeDeliveryLocked(operation)
+		if len(operation.outcomeDelivery) > maxOutcomeSubscribers {
+			return fmt.Errorf("%w: operations[%d] exceeds outcome subscriber limit after configuration change", ErrPersistence, index)
 		}
 		service.operations[operationID] = operation
 		service.requests[operation.idempotency] = operationID
@@ -594,6 +605,15 @@ func restoreOperation(value persistedOperation) (*operationState, error) {
 			return nil, errors.New("outcome operation_id does not match request")
 		}
 	}
+	if len(value.OutcomeDelivery) > maxOutcomeSubscribers ||
+		(len(value.OutcomeDelivery) != 0 && (value.Outcome == nil || value.Request.ActionRequest == nil)) {
+		return nil, errors.New("invalid outcome delivery state")
+	}
+	for subscriber := range value.OutcomeDelivery {
+		if err := validateID("outcome subscriber", subscriber); err != nil {
+			return nil, err
+		}
+	}
 	if err := validateOperationOutput(value.Output); err != nil {
 		return nil, err
 	}
@@ -610,6 +630,7 @@ func restoreOperation(value persistedOperation) (*operationState, error) {
 		ack:                     cloneAcknowledgement(value.Ack),
 		run:                     cloneRunPointer(value.Run),
 		outcome:                 cloneOutcomePointer(value.Outcome),
+		outcomeDelivery:         maps.Clone(value.OutcomeDelivery),
 		output:                  append(json.RawMessage(nil), value.Output...),
 		idempotency:             operationIdempotencyKey(request),
 		createdAt:               value.CreatedAt,
@@ -905,6 +926,7 @@ func (service *Service) persistedOperationsLocked() persistedOperations {
 			Ack:                     cloneAcknowledgement(operation.ack),
 			Run:                     cloneRunPointer(operation.run),
 			Outcome:                 cloneOutcomePointer(operation.outcome),
+			OutcomeDelivery:         maps.Clone(operation.outcomeDelivery),
 			Output:                  append(json.RawMessage(nil), operation.output...),
 			CreatedAt:               operation.createdAt,
 			UpdatedAt:               operation.updatedAt,
