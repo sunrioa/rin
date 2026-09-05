@@ -76,6 +76,9 @@ function bindForms() {
   onAsync($("#taskLookupForm"), "submit", lookupTask);
   onAsync($("#newTaskButton"), "click", openTaskDialog);
   onAsync($("#taskForm"), "submit", startTask);
+  $("#taskCompletionMode").addEventListener("change", () => {
+    $("#taskCompletionConditionsLabel").hidden = $("#taskCompletionMode").value !== "host-evidence";
+  });
   $("#cancelTask").addEventListener("click", () => $("#taskDialog").close());
   onAsync($("#personaForm"), "submit", savePersona);
   $("#newMemoryButton").addEventListener("click", () => openMemoryDialog());
@@ -783,10 +786,16 @@ async function startTask(event) {
     actor_id: $("#taskActorId").value.trim(),
     goal: $("#taskGoal").value.trim(),
     planning_mode: $("#taskPlanningMode").value,
+    completion: {
+      mode: $("#taskCompletionMode").value,
+      conditions: $("#taskCompletionMode").value === "host-evidence"
+        ? JSON.parse($("#taskCompletionConditions").value) : undefined,
+    },
     tags,
   } });
   $("#taskDialog").close();
   $("#taskForm").reset();
+  $("#taskCompletionConditionsLabel").hidden = true;
   toast("长目标已创建并进入执行队列");
   await loadTasks();
   await showTask(task.task_id);
@@ -819,6 +828,8 @@ async function showTask(taskId, append = false) {
   };
   const status = result.task.status;
   const controls = result.task.task_control_available ? [
+    status === "paused" && result.task.completion_requested && result.task.completion?.mode === "human-confirmation"
+      ? '<button class="button primary" data-task-action="confirm-completion">确认任务完成</button>' : "",
     status === "active" ? '<button class="button secondary" data-task-action="run">继续</button>' : "",
     status === "paused" ? '<button class="button secondary" data-task-action="resume">恢复</button>' : "",
     ["active", "paused", "waiting-confirmation"].includes(status) ? '<button class="button danger" data-task-action="cancel">取消</button>' : "",
@@ -836,7 +847,7 @@ async function showTask(taskId, append = false) {
     onAsync($("#loadMoreTaskEvents"), "click", () => showTask(taskId, true));
   }
   $$('[data-task-action]').forEach((button) => onAsync(button, "click", async () => {
-    await api("/management/v1/tasks/control", { body: { task_id: taskId, action: button.dataset.taskAction } });
+    await api("/management/v1/tasks/control", { body: { task_id: taskId, action: button.dataset.taskAction, expected_revision: button.dataset.taskAction === "confirm-completion" ? result.task.revision : undefined } });
     toast("任务状态已更新");
     await Promise.all([loadTasks(), showTask(taskId)]);
   }));

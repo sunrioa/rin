@@ -26,14 +26,15 @@ type TaskManager interface {
 }
 
 type TaskStartInput struct {
-	TaskID              string   `json:"task_id,omitempty"`
-	HostID              string   `json:"host_id"`
-	WorldID             string   `json:"world_id"`
-	ActorID             string   `json:"actor_id"`
-	Goal                string   `json:"goal"`
-	PlanningMode        string   `json:"planning_mode,omitempty"`
-	Tags                []string `json:"tags,omitempty"`
-	AllowedCapabilities []string `json:"allowed_capabilities,omitempty"`
+	Completion          cognition.TaskCompletionPolicy `json:"completion,omitempty"`
+	TaskID              string                         `json:"task_id,omitempty"`
+	HostID              string                         `json:"host_id"`
+	WorldID             string                         `json:"world_id"`
+	ActorID             string                         `json:"actor_id"`
+	Goal                string                         `json:"goal"`
+	PlanningMode        string                         `json:"planning_mode,omitempty"`
+	Tags                []string                       `json:"tags,omitempty"`
+	AllowedCapabilities []string                       `json:"allowed_capabilities,omitempty"`
 }
 
 type TaskListInput struct {
@@ -42,29 +43,32 @@ type TaskListInput struct {
 }
 
 type TaskSummary struct {
-	TaskID               string   `json:"task_id"`
-	HostID               string   `json:"host_id"`
-	AdapterID            string   `json:"adapter_id,omitempty"`
-	WorldID              string   `json:"world_id"`
-	ActorID              string   `json:"actor_id"`
-	Goal                 string   `json:"goal"`
-	Tags                 []string `json:"tags,omitempty"`
-	Status               string   `json:"status"`
-	PauseCode            string   `json:"pause_code,omitempty"`
-	PlanningMode         string   `json:"planning_mode"`
-	ControllerSource     string   `json:"controller_source,omitempty"`
-	TaskControlAvailable bool     `json:"task_control_available"`
-	PlanID               string   `json:"plan_id,omitempty"`
-	PlanRevision         uint64   `json:"plan_revision,omitempty"`
-	CurrentPlanStepID    string   `json:"current_plan_step_id,omitempty"`
-	Step                 uint32   `json:"step"`
-	MaxSteps             uint32   `json:"max_steps"`
-	ModelCalls           uint32   `json:"model_calls"`
-	ModelTokens          uint64   `json:"model_tokens"`
-	ActionCount          uint32   `json:"action_count"`
-	PendingOperationID   string   `json:"pending_operation_id,omitempty"`
-	CreatedAtUnixMillis  int64    `json:"created_at_unix_millis"`
-	UpdatedAtUnixMillis  int64    `json:"updated_at_unix_millis"`
+	Revision             uint64                          `json:"revision,omitempty"`
+	Completion           *cognition.TaskCompletionPolicy `json:"completion,omitempty"`
+	CompletionRequested  bool                            `json:"completion_requested,omitempty"`
+	TaskID               string                          `json:"task_id"`
+	HostID               string                          `json:"host_id"`
+	AdapterID            string                          `json:"adapter_id,omitempty"`
+	WorldID              string                          `json:"world_id"`
+	ActorID              string                          `json:"actor_id"`
+	Goal                 string                          `json:"goal"`
+	Tags                 []string                        `json:"tags,omitempty"`
+	Status               string                          `json:"status"`
+	PauseCode            string                          `json:"pause_code,omitempty"`
+	PlanningMode         string                          `json:"planning_mode"`
+	ControllerSource     string                          `json:"controller_source,omitempty"`
+	TaskControlAvailable bool                            `json:"task_control_available"`
+	PlanID               string                          `json:"plan_id,omitempty"`
+	PlanRevision         uint64                          `json:"plan_revision,omitempty"`
+	CurrentPlanStepID    string                          `json:"current_plan_step_id,omitempty"`
+	Step                 uint32                          `json:"step"`
+	MaxSteps             uint32                          `json:"max_steps"`
+	ModelCalls           uint32                          `json:"model_calls"`
+	ModelTokens          uint64                          `json:"model_tokens"`
+	ActionCount          uint32                          `json:"action_count"`
+	PendingOperationID   string                          `json:"pending_operation_id,omitempty"`
+	CreatedAtUnixMillis  int64                           `json:"created_at_unix_millis"`
+	UpdatedAtUnixMillis  int64                           `json:"updated_at_unix_millis"`
 }
 
 type TaskListOutput struct {
@@ -85,8 +89,9 @@ type TaskDetail struct {
 }
 
 type TaskControlInput struct {
-	TaskID string `json:"task_id"`
-	Action string `json:"action"`
+	ExpectedRevision uint64 `json:"expected_revision,omitempty"`
+	TaskID           string `json:"task_id"`
+	Action           string `json:"action"`
 }
 
 func (service *Service) StartTask(
@@ -108,8 +113,8 @@ func (service *Service) StartTask(
 	if mode == "" {
 		mode = taskstate.PlanningRequired
 	}
-	if mode != taskstate.PlanningAuto && mode != taskstate.PlanningRequired {
-		return TaskSummary{}, errors.New("Console task planning_mode must be auto or required")
+	if mode != taskstate.PlanningAuto && mode != taskstate.PlanningRequired && mode != taskstate.PlanningDisabled {
+		return TaskSummary{}, errors.New("Console task planning_mode must be disabled, auto, or required")
 	}
 	tags := []string{"console", "long-goal"}
 	for _, tag := range input.Tags {
@@ -124,7 +129,7 @@ func (service *Service) StartTask(
 		ControllerID: "controller.rin-console", Goal: strings.TrimSpace(input.Goal),
 		Tags:                tags,
 		AllowedCapabilities: append([]string(nil), input.AllowedCapabilities...),
-		PlanningMode:        mode,
+		PlanningMode:        mode, Completion: input.Completion,
 		Budget: cognition.TaskBudget{
 			MaxSteps: 512, MaxModelCalls: 1_024,
 			MaxModelTokens: 2_000_000, MaxActions: 512,
@@ -276,6 +281,17 @@ func (service *Service) ControlTask(
 	var task cognition.TaskSession
 	var err error
 	switch strings.TrimSpace(input.Action) {
+	case "confirm-completion":
+		confirmer, ok := service.tasks.(interface {
+			ConfirmTaskCompletion(context.Context, string, uint64) (cognition.TaskSession, error)
+		})
+		if !ok {
+			return TaskSummary{}, ErrTasksUnavailable
+		}
+		if input.ExpectedRevision == 0 {
+			return TaskSummary{}, errors.New("completion confirmation requires expected_revision")
+		}
+		task, err = confirmer.ConfirmTaskCompletion(ctx, taskID, input.ExpectedRevision)
 	case "run":
 		task, err = service.tasks.RunTask(ctx, taskID)
 	case "resume":
@@ -283,7 +299,7 @@ func (service *Service) ControlTask(
 	case "cancel":
 		task, err = service.tasks.CancelTask(ctx, taskID)
 	default:
-		return TaskSummary{}, errors.New("task action must be run, resume, or cancel")
+		return TaskSummary{}, errors.New("task action must be run, resume, cancel, or confirm-completion")
 	}
 	if err != nil {
 		return TaskSummary{}, err
@@ -292,7 +308,9 @@ func (service *Service) ControlTask(
 }
 
 func taskSummary(task cognition.TaskSession) TaskSummary {
+	completion := task.Completion
 	return TaskSummary{
+		Revision: task.Revision, Completion: &completion, CompletionRequested: task.CompletionRequested,
 		TaskID: task.TaskID, HostID: task.HostID, AdapterID: task.AdapterID,
 		WorldID: task.WorldID, ActorID: task.ActorID,
 		Goal: task.Goal, Tags: append([]string(nil), task.Tags...),

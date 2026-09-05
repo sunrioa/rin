@@ -436,3 +436,8 @@ func (daemon *Daemon) Close() error {
 	})
 	return daemon.closeErr
 }
+
+func (daemon *Daemon) ConfirmTaskCompletion(ctx context.Context, taskID string, revision uint64) (cognition.TaskSession, error) {
+	dispatch, err := daemon.taskClient.ConfirmTaskCompletion(ctx, agentapi.CompletionConfirmationInput{TaskID: taskID, ExpectedRevision: revision})
+	return dispatch.Task, err
+}

@@ -75,7 +75,7 @@ func (runtime *AgentRuntime) startTask(
 	}
 	now := runtime.now().UnixMilli()
 	task := TaskSession{
-		TaskID: sealed.TaskID, SessionID: actor.Epoch.SessionID,
+		TaskID: sealed.TaskID, SessionID: actor.Epoch.SessionID, Completion: sealed.Completion,
 		HostID: sealed.HostID, AdapterID: actor.AdapterID,
 		WorldID: sealed.WorldID, ActorID: sealed.ActorID,
 		ControllerID: sealed.ControllerID, Goal: sealed.Goal, Tags: sealed.Tags,
@@ -136,6 +136,7 @@ func (runtime *AgentRuntime) ResumeTask(
 		return task, nil
 	}
 	task.Status = TaskActive
+	task.CompletionRequested = false
 	task.Schedule = TaskSchedule{Kind: ScheduleReady}
 	task.PauseCode = ""
 	task.UpdatedAtUnixMillis = runtime.now().UnixMilli()
@@ -169,6 +170,7 @@ func (runtime *AgentRuntime) CancelTask(
 			break
 		}
 		task.CancelRequested = true
+		task.CompletionRequested = false
 		task.Status = TaskCancelling
 		task.PauseCode = ""
 		task.Schedule = TaskSchedule{Kind: ScheduleReady}
@@ -291,6 +293,10 @@ func sealStartTaskInput(input StartTaskInput) (StartTaskInput, error) {
 		return StartTaskInput{}, errors.New("planning_mode is invalid")
 	}
 	var err error
+	input.Completion, err = normalizeTaskCompletion(input.Completion)
+	if err != nil {
+		return StartTaskInput{}, err
+	}
 	if input.Tags, err = normalizeProviderIDs("tags", input.Tags, 32); err != nil {
 		return StartTaskInput{}, err
 	}

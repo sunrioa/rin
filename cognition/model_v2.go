@@ -61,6 +61,7 @@ type SkillRef struct {
 }
 
 type ModelTaskContext struct {
+	Completion        TaskCompletionPolicy   `json:"completion,omitempty"`
 	TaskID            string                 `json:"task_id"`
 	SessionID         string                 `json:"session_id"`
 	ActorID           string                 `json:"actor_id"`
@@ -237,6 +238,7 @@ type modelAllowedCapability struct {
 }
 
 type modelV2UntrustedContext struct {
+	Completion            TaskCompletionPolicy  `json:"completion"`
 	Goal                  string                `json:"goal"`
 	Tags                  []string              `json:"tags,omitempty"`
 	Observation           ModelObservation      `json:"observation"`
@@ -539,6 +541,9 @@ func sealModelInput(input ModelInput) (ModelInput, ModelObservation, error) {
 	if input.Task.Tags, err = normalizeProviderIDs("task.tags", input.Task.Tags, 32); err != nil {
 		return ModelInput{}, ModelObservation{}, err
 	}
+	if input.Task.Completion, err = normalizeTaskCompletion(input.Task.Completion); err != nil {
+		return ModelInput{}, ModelObservation{}, err
+	}
 	if input.Persona, err = SealPersonaProfile(input.Persona); err != nil {
 		return ModelInput{}, ModelObservation{}, err
 	}
@@ -640,7 +645,8 @@ func buildModelV2Packet(input ModelInput, observation ModelObservation) modelV2P
 	return modelV2Packet{
 		Contract: contract,
 		UntrustedContext: modelV2UntrustedContext{
-			Goal: input.Task.Goal, Tags: append([]string(nil), input.Task.Tags...),
+			Completion: cloneTaskCompletion(input.Task.Completion),
+			Goal:       input.Task.Goal, Tags: append([]string(nil), input.Task.Tags...),
 			Observation: observation, Memories: input.Memories,
 			InspectedCapabilities: input.InspectedCapabilities, InspectedSkills: input.InspectedSkills,
 			Plan: input.Plan, LastOperationResult: input.LastOperationResult,

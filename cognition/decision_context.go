@@ -7,6 +7,7 @@ import (
 
 	"github.com/sunrioa/rin/controlplane"
 	"github.com/sunrioa/rin/host"
+	"github.com/sunrioa/rin/taskstate"
 )
 
 type taskDecisionContext struct {
@@ -106,6 +107,14 @@ func (runtime *AgentRuntime) collectDecisionContext(ctx context.Context, task Ta
 		paused, pauseErr := runtime.pauseTask(ctx, task, "plan.evidence-unavailable", err)
 		return paused, nil, pauseErr
 	}
+	refreshCompletionFacts(&task, observation)
+	if task.CompletionRequested && task.Completion.Mode == CompletionEvidence {
+		if taskCompletionSatisfied(task, observation.Epoch) && (plan == nil || plan.Status == taskstate.PlanCompleted) {
+			completed, err := runtime.finishCompletedTask(ctx, task, "host-evidence", "The Host supplied the required completion evidence.")
+			return completed, nil, err
+		}
+		task.CompletionRequested = false
+	}
 	persona, err := runtime.persona.Load(ctx, PersonaRequest{
 		ActorID: task.ActorID, ControllerID: task.ControllerID,
 	})
@@ -125,7 +134,7 @@ func (runtime *AgentRuntime) collectDecisionContext(ctx context.Context, task Ta
 		Task: ModelTaskContext{
 			TaskID: task.TaskID, SessionID: task.SessionID, ActorID: task.ActorID,
 			ControllerID: task.ControllerID, ParentOperationID: task.MacroOperationID,
-			Goal: task.Goal, Tags: task.Tags, PlanningMode: task.PlanningMode,
+			Goal: task.Goal, Tags: task.Tags, PlanningMode: task.PlanningMode, Completion: cloneTaskCompletion(task.Completion),
 		},
 		Persona: persona, Observation: observation, Memories: memories,
 		Capabilities: summaries, Skills: skills, Plan: plan,

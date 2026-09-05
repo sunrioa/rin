@@ -62,6 +62,7 @@ type AgentRuntimeOptions struct {
 }
 
 type StartTaskInput struct {
+	Completion          TaskCompletionPolicy   `json:"completion,omitempty"`
 	TaskID              string                 `json:"task_id"`
 	HostID              string                 `json:"host_id"`
 	WorldID             string                 `json:"world_id"`

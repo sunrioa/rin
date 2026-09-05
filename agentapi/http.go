@@ -207,3 +207,17 @@ func writeHTTPError(response http.ResponseWriter, status int, code, message stri
 func writeJSON(response http.ResponseWriter, status int, value any) {
 	httpjson.Write(response, status, value)
 }
+
+func (server *HTTPHandler) confirmTaskCompletion(response http.ResponseWriter, request *http.Request) {
+	var input CompletionConfirmationInput
+	if err := server.decode(response, request, &input); err != nil {
+		writeHTTPError(response, http.StatusBadRequest, "invalid", err.Error())
+		return
+	}
+	result, err := server.client.ConfirmTaskCompletion(request.Context(), input)
+	if err != nil {
+		writeTaskError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, result)
+}

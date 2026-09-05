@@ -16,7 +16,9 @@ import (
 	"github.com/sunrioa/rin/timeline"
 )
 
-const TaskSnapshotVersion = "rin.cognition.tasks/v4"
+const TaskSnapshotVersion = "rin.cognition.tasks/v5"
+
+const schedulingTaskSnapshotVersion = "rin.cognition.tasks/v4"
 
 const legacyTaskSnapshotVersion = "rin.cognition.tasks/v3"
 
@@ -96,20 +98,23 @@ type TaskEvent struct {
 // TaskSession contains every decision-side value needed to resume without
 // regenerating or mutating an already selected action.
 type TaskSession struct {
-	TaskID              string                 `json:"task_id"`
-	SessionID           string                 `json:"session_id"`
-	HostID              string                 `json:"host_id"`
-	AdapterID           string                 `json:"adapter_id,omitempty"`
-	WorldID             string                 `json:"world_id"`
-	ActorID             string                 `json:"actor_id"`
-	ControllerID        string                 `json:"controller_id"`
-	Goal                string                 `json:"goal"`
-	Tags                []string               `json:"tags,omitempty"`
-	AllowedCapabilities []string               `json:"allowed_capabilities,omitempty"`
-	PlanningMode        taskstate.PlanningMode `json:"planning_mode"`
-	PlanID              string                 `json:"plan_id,omitempty"`
-	PlanRevision        uint64                 `json:"plan_revision,omitempty"`
-	CurrentPlanStepID   string                 `json:"current_plan_step_id,omitempty"`
+	Completion          TaskCompletionPolicy     `json:"completion"`
+	CompletionRequested bool                     `json:"completion_requested,omitempty"`
+	CompletionEvidence  []TaskCompletionEvidence `json:"completion_evidence,omitempty"`
+	TaskID              string                   `json:"task_id"`
+	SessionID           string                   `json:"session_id"`
+	HostID              string                   `json:"host_id"`
+	AdapterID           string                   `json:"adapter_id,omitempty"`
+	WorldID             string                   `json:"world_id"`
+	ActorID             string                   `json:"actor_id"`
+	ControllerID        string                   `json:"controller_id"`
+	Goal                string                   `json:"goal"`
+	Tags                []string                 `json:"tags,omitempty"`
+	AllowedCapabilities []string                 `json:"allowed_capabilities,omitempty"`
+	PlanningMode        taskstate.PlanningMode   `json:"planning_mode"`
+	PlanID              string                   `json:"plan_id,omitempty"`
+	PlanRevision        uint64                   `json:"plan_revision,omitempty"`
+	CurrentPlanStepID   string                   `json:"current_plan_step_id,omitempty"`
 
 	Schedule        TaskSchedule `json:"schedule"`
 	CancelRequested bool         `json:"cancel_requested,omitempty"`
@@ -179,7 +184,7 @@ func RestoreLocalTaskStore(maxTasks uint32, snapshot TaskSnapshot) (*LocalTaskSt
 	if err != nil {
 		return nil, err
 	}
-	if (snapshot.Version != TaskSnapshotVersion && snapshot.Version != legacyTaskSnapshotVersion) || snapshot.Revision == 0 {
+	if (snapshot.Version != TaskSnapshotVersion && snapshot.Version != schedulingTaskSnapshotVersion && snapshot.Version != legacyTaskSnapshotVersion) || snapshot.Revision == 0 {
 		return nil, errors.New("task snapshot version or revision is invalid")
 	}
 	if len(snapshot.Tasks) > int(store.maxTasks) {
@@ -352,6 +357,13 @@ func sealTaskSession(task TaskSession) (TaskSession, error) {
 		}
 	}
 	var err error
+	task.Completion, err = normalizeTaskCompletion(task.Completion)
+	if err != nil {
+		return TaskSession{}, err
+	}
+	if err := validateTaskCompletionEvidence(task); err != nil {
+		return TaskSession{}, err
+	}
 	if task.Tags, err = normalizeProviderIDs("tags", task.Tags, 32); err != nil {
 		return TaskSession{}, err
 	}
@@ -608,6 +620,8 @@ func validateTaskID(taskID string) error {
 }
 
 func cloneTaskSession(task TaskSession) TaskSession {
+	task.Completion = cloneTaskCompletion(task.Completion)
+	task.CompletionEvidence = append([]TaskCompletionEvidence(nil), task.CompletionEvidence...)
 	if task.Schedule.ObservationEpoch != nil {
 		epoch := *task.Schedule.ObservationEpoch
 		task.Schedule.ObservationEpoch = &epoch

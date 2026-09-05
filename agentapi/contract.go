@@ -14,6 +14,7 @@ type ContractRoute struct {
 }
 
 var contractRoutes = [...]ContractRoute{
+	{OperationID: "agent_v1_confirm_task_completion", Method: http.MethodPost, Path: "/agent/v1/tasks/confirm-completion", SuccessStatus: http.StatusOK},
 	{OperationID: "agent_v1_info", Method: http.MethodGet, Path: "/agent/v1/info", SuccessStatus: http.StatusOK},
 	{OperationID: "agent_v1_start_task", Method: http.MethodPost, Path: "/agent/v1/tasks/start", SuccessStatus: http.StatusAccepted},
 	{OperationID: "agent_v1_get_task", Method: http.MethodPost, Path: "/agent/v1/tasks/get", SuccessStatus: http.StatusOK},
@@ -31,14 +32,15 @@ func ContractRoutes() []ContractRoute {
 
 func (server *HTTPHandler) registerContractRoutes(mux *http.ServeMux) {
 	handlers := map[string]http.HandlerFunc{
-		"agent_v1_info":               server.info,
-		"agent_v1_start_task":         server.startTask,
-		"agent_v1_get_task":           server.getTask,
-		"agent_v1_run_task":           server.runTask,
-		"agent_v1_resume_task":        server.resumeTask,
-		"agent_v1_cancel_task":        server.cancelTask,
-		"agent_v1_get_task_timeline":  server.getTaskTimeline,
-		"agent_v1_wait_task_timeline": server.waitTaskTimeline,
+		"agent_v1_info":                    server.info,
+		"agent_v1_start_task":              server.startTask,
+		"agent_v1_get_task":                server.getTask,
+		"agent_v1_run_task":                server.runTask,
+		"agent_v1_resume_task":             server.resumeTask,
+		"agent_v1_confirm_task_completion": server.confirmTaskCompletion,
+		"agent_v1_cancel_task":             server.cancelTask,
+		"agent_v1_get_task_timeline":       server.getTaskTimeline,
+		"agent_v1_wait_task_timeline":      server.waitTaskTimeline,
 	}
 	if len(handlers) != len(contractRoutes) {
 		panic(fmt.Sprintf(

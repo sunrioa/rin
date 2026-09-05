@@ -255,3 +255,9 @@ func clientStatusError(status int, code, message string) error {
 }
 
 var _ TaskClient = (*HTTPClient)(nil)
+
+func (client *HTTPClient) ConfirmTaskCompletion(ctx context.Context, input CompletionConfirmationInput) (TaskDispatch, error) {
+	var output TaskDispatch
+	err := client.request(ctx, http.MethodPost, "tasks/confirm-completion", input, &output)
+	return output, err
+}
