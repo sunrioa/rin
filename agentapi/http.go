@@ -1,20 +1,14 @@
 package agentapi
 
 import (
-	"bytes"
 	"context"
-	"crypto/subtle"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"mime"
 	"net/http"
-	"strings"
 
 	"github.com/sunrioa/rin/cognition"
 	"github.com/sunrioa/rin/host"
-	"github.com/sunrioa/rin/internal/jsonwire"
+	"github.com/sunrioa/rin/internal/httpjson"
 )
 
 const defaultHTTPMaxBodyBytes int64 = 1 << 20
@@ -69,9 +63,7 @@ func (server *HTTPHandler) secure(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		response.Header().Set("Cache-Control", "no-store")
 		response.Header().Set("X-Content-Type-Options", "nosniff")
-		provided := strings.TrimPrefix(request.Header.Get("Authorization"), "Bearer ")
-		if len(provided) != len(server.token) ||
-			subtle.ConstantTimeCompare([]byte(provided), []byte(server.token)) != 1 {
+		if !httpjson.Authorized(request, server.token) {
 			response.Header().Set("WWW-Authenticate", "Bearer")
 			writeHTTPError(response, http.StatusUnauthorized, "forbidden", "unauthorized")
 			return
@@ -186,24 +178,7 @@ func (server *HTTPHandler) decode(
 	request *http.Request,
 	target any,
 ) error {
-	contentType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
-	if err != nil || contentType != "application/json" {
-		return errors.New("content type must be application/json")
-	}
-	request.Body = http.MaxBytesReader(response, request.Body, server.maxBodyBytes)
-	payload, err := io.ReadAll(request.Body)
-	if err != nil {
-		return errors.New("request body exceeds the configured limit")
-	}
-	if err := jsonwire.Validate(payload); err != nil {
-		return fmt.Errorf("invalid JSON: %w", err)
-	}
-	decoder := json.NewDecoder(bytes.NewReader(payload))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return fmt.Errorf("invalid request: %w", err)
-	}
-	return nil
+	return httpjson.DecodeRequest(response, request, server.maxBodyBytes, target)
 }
 
 func writeTaskError(response http.ResponseWriter, err error) {
@@ -230,7 +205,5 @@ func writeHTTPError(response http.ResponseWriter, status int, code, message stri
 }
 
 func writeJSON(response http.ResponseWriter, status int, value any) {
-	response.Header().Set("Content-Type", "application/json")
-	response.WriteHeader(status)
-	_ = json.NewEncoder(response).Encode(value)
+	httpjson.Write(response, status, value)
 }

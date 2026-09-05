@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sunrioa/rin/controlplane"
@@ -120,3 +121,42 @@ func httpTestDraft() Draft {
 }
 
 var _ http.RoundTripper = handlerTransport{}
+
+func TestPlanHTTPRejectsMalformedBoundaryBeforeDispatch(t *testing.T) {
+	const token = "0123456789abcdef0123456789abcdef"
+	for _, tc := range []struct {
+		name, body, media, auth string
+		status                  int
+	}{
+		{"valid", `{"plan_id":"one"}`, "application/json", "Bearer " + token, 200},
+		{"duplicate", `{"plan_id":"one","plan_id":"two"}`, "application/json", "Bearer " + token, 400},
+		{"surrogate", `{"plan_id":"\ud800"}`, "application/json", "Bearer " + token, 400},
+		{"unknown", `{"extra":1}`, "application/json", "Bearer " + token, 400},
+		{"trailing", `{} {}`, "application/json", "Bearer " + token, 400},
+		{"media", `{}`, "text/plain", "Bearer " + token, 400},
+		{"bare credential", `{}`, "application/json", token, 401},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dispatched := false
+			handler := planHTTPHandler(HTTPOptions{Token: token}, func(_ context.Context, body []byte) (any, error) {
+				input, err := decodeHTTPInput[GetPlanInput](body)
+				if err != nil {
+					return nil, err
+				}
+				dispatched = true
+				return input, nil
+			})
+			request := httptest.NewRequest(http.MethodPost, "/plans/v1/get", strings.NewReader(tc.body))
+			request.Header.Set("Content-Type", tc.media)
+			request.Header.Set("Authorization", tc.auth)
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != tc.status || dispatched != (tc.status == 200) {
+				t.Fatalf("status=%d dispatched=%v body=%s", response.Code, dispatched, response.Body.String())
+			}
+			if tc.status != 200 && !strings.Contains(response.Body.String(), `"code":`) {
+				t.Fatal("lost plan error envelope")
+			}
+		})
+	}
+}

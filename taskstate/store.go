@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	storeSchemaVersion = 1
+	storeSchemaVersion = 2
 	defaultMaxPlans    = 1_024
 	defaultMaxEvents   = 4_096
 	maxWaitMillis      = 25_000
@@ -174,7 +174,7 @@ func (store *Store) initialize(ctx context.Context) error {
 	if err := store.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return fmt.Errorf("%w: read schema: %v", ErrPersist, err)
 	}
-	if version != 0 && version != storeSchemaVersion {
+	if version < 0 || version > storeSchemaVersion {
 		return fmt.Errorf("%w: unsupported schema %d", ErrPersist, version)
 	}
 	tx, err := store.db.BeginTx(ctx, nil)
@@ -193,11 +193,6 @@ func (store *Store) initialize(ctx context.Context) error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS task_plans_active_actor_idx
 			ON task_plans(session_id, actor_id)
 			WHERE status IN ('planned','active','blocked','paused')`,
-		`CREATE TABLE IF NOT EXISTS task_plan_steps (
-			plan_id TEXT NOT NULL REFERENCES task_plans(plan_id) ON DELETE CASCADE,
-			step_id TEXT NOT NULL, ordinal INTEGER NOT NULL, status TEXT NOT NULL,
-			step_json TEXT NOT NULL, PRIMARY KEY(plan_id, step_id), UNIQUE(plan_id, ordinal)
-		) STRICT`,
 		`CREATE TABLE IF NOT EXISTS task_plan_events (
 			sequence INTEGER PRIMARY KEY AUTOINCREMENT, plan_id TEXT NOT NULL
 			REFERENCES task_plans(plan_id) ON DELETE CASCADE, revision INTEGER NOT NULL,
@@ -219,7 +214,12 @@ func (store *Store) initialize(ctx context.Context) error {
 			return fmt.Errorf("%w: migrate sqlite: %v", ErrPersist, err)
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `PRAGMA user_version = 1`); err != nil {
+	// Version 1 duplicated the steps already contained in state_json. Nothing
+	// reads that projection; remove it atomically with the schema upgrade.
+	if _, err := tx.ExecContext(ctx, `DROP TABLE IF EXISTS task_plan_steps`); err != nil {
+		return fmt.Errorf("%w: remove redundant steps: %v", ErrPersist, err)
+	}
+	if _, err := tx.ExecContext(ctx, `PRAGMA user_version = 2`); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -880,7 +880,7 @@ func insertPlan(ctx context.Context, tx *sql.Tx, state PlanState) error {
 		state.UpdatedAtUnixMillis); err != nil {
 		return err
 	}
-	return replaceSteps(ctx, tx, state)
+	return nil
 }
 
 func replacePlan(ctx context.Context, tx *sql.Tx, expected uint64, state PlanState) error {
@@ -898,25 +898,6 @@ func replacePlan(ctx context.Context, tx *sql.Tx, expected uint64, state PlanSta
 	rows, _ := result.RowsAffected()
 	if rows != 1 {
 		return ErrConflict
-	}
-	return replaceSteps(ctx, tx, state)
-}
-
-func replaceSteps(ctx context.Context, tx *sql.Tx, state PlanState) error {
-	if _, err := tx.ExecContext(ctx, `DELETE FROM task_plan_steps WHERE plan_id = ?`, state.PlanID); err != nil {
-		return err
-	}
-	for index, step := range state.Steps {
-		payload, err := json.Marshal(step)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO task_plan_steps(
-			plan_id, step_id, ordinal, status, step_json
-		) VALUES (?, ?, ?, ?, ?)`, state.PlanID, step.StepID, index,
-			string(step.Status), string(payload)); err != nil {
-			return err
-		}
 	}
 	return nil
 }

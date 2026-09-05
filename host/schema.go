@@ -132,6 +132,10 @@ func (schema Schema) compiled() (*jsonschema.Schema, error) {
 }
 
 func compileSchema(canonical []byte) (*jsonschema.Schema, error) {
+	return compiledSchemas.compile(canonical)
+}
+
+func compileSchemaUncached(canonical []byte) (*jsonschema.Schema, error) {
 	value, err := jsonschema.UnmarshalJSON(bytes.NewReader(canonical))
 	if err != nil {
 		return nil, err
