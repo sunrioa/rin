@@ -230,6 +230,8 @@ async function savePolicyConfig(event) {
 }
 
 function renderAgentConfig(snapshot) {
+  state.agentLookahead = { ...(snapshot.lookahead || {}) };
+  $("#agentLookaheadEnabled").checked = !state.agentLookahead.disabled;
   const model = snapshot.model || {};
   const resilience = model.resilience || {};
   const memory = snapshot.memory || {};
@@ -315,6 +317,7 @@ async function saveAgentConfig(event) {
   const embeddingEnabled = $("#embeddingEnabled").checked;
   const embeddingAPIKey = $("#embeddingAPIKey").value;
   const body = {
+    lookahead: { ...state.agentLookahead, disabled: !$("#agentLookaheadEnabled").checked },
     model: {
       provider: $("#agentProvider").value,
       base_url: $("#agentBaseURL").value.trim(),
@@ -851,7 +854,7 @@ async function showTask(taskId, append = false) {
   const pause = result.task.pause_code
     ? `<div class="form-notice task-pause"><strong>暂停原因</strong><code>${escapeHTML(result.task.pause_code)}</code></div>` : "";
   const source = result.task.task_control_available ? "内部 Agent" : `外部计划 · ${escapeHTML(result.task.controller_source || "-")}`;
-  $("#taskDetail").innerHTML = `<div class="section-heading"><div><h2>${escapeHTML(result.task.goal)}</h2><p>${escapeHTML(result.task.task_id)} · ${escapeHTML(status)} · ${source}</p>${tagList(result.task.tags)}</div><div class="toolbar">${controls}</div></div>${pause}${taskPlan(result.plan)}${truncated}${taskTimeline(events)}${loadMore}`;
+  $("#taskDetail").innerHTML = `<div class="section-heading"><div><h2>${escapeHTML(result.task.goal)}</h2><p>${escapeHTML(result.task.task_id)} · ${escapeHTML(status)} · ${source}</p>${tagList(result.task.tags)}</div><div class="toolbar">${controls}</div></div>${pause}${taskLookaheadPanel(result.task.lookahead)}${taskPlan(result.plan)}${truncated}${taskTimeline(events)}${loadMore}`;
   if (state.selectedTask.more) {
     onAsync($("#loadMoreTaskEvents"), "click", () => showTask(taskId, true));
   }
@@ -860,6 +863,13 @@ async function showTask(taskId, append = false) {
     toast("任务状态已更新");
     await Promise.all([loadTasks(), showTask(taskId)]);
   }));
+}
+
+function taskLookaheadPanel(lookahead) {
+  if (!lookahead) return "";
+  const labels = { preparing: "正在准备下一步", running: "正在提前规划", ready: "下一步候选已准备，等待当前动作结果", adopted: "已采用提前准备的下一步", discarded: "本轮候选未采用" };
+  const reserved = lookahead.reserved_tokens ? ` · 预算预留 ${escapeHTML(lookahead.reserved_tokens)} token` : "";
+  return `<div class="form-notice"><strong>${escapeHTML(labels[lookahead.status] || lookahead.status)}</strong><p>提前规划 ${escapeHTML(lookahead.calls)} 次 · 采用 ${escapeHTML(lookahead.adopted)} 次 · 未采用 ${escapeHTML(lookahead.discarded)} 次${reserved}</p></div>`;
 }
 
 function taskPlan(plan) {

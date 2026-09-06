@@ -95,6 +95,35 @@ func TestAgentConfigStoreWritesValidatedAtomicPrivateFiles(t *testing.T) {
 	}
 }
 
+func TestAgentLookaheadConfigRoundTripPreservesOmittedLimits(t *testing.T) {
+	store, err := openAgentConfigStore(t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial, err := store.AgentConfig(context.Background())
+	if err != nil || initial.Lookahead.Disabled || initial.Lookahead.MaxConcurrent != 2 {
+		t.Fatalf("lookahead defaults: %#v %v", initial.Lookahead, err)
+	}
+	config := validConsoleAgentConfig()
+	options := &cognition.LookaheadOptions{Disabled: true, MaxConcurrent: 3, TimeoutMillis: 500, DraftTTLMillis: 2000}
+	response, err := store.SaveAgentConfig(context.Background(), managementapi.AgentConfigSaveRequest{Model: config.Model, Memory: &config.Memory, Lookahead: options})
+	if err != nil || !response.RequiresRestart || !response.Lookahead.Disabled {
+		t.Fatalf("lookahead save: %#v %v", response.Lookahead, err)
+	}
+	options.MaxConcurrent = 31
+	response, err = store.SaveAgentConfig(context.Background(), managementapi.AgentConfigSaveRequest{Model: config.Model, Memory: &config.Memory})
+	if err != nil || response.Lookahead.MaxConcurrent != 3 || !response.Lookahead.Disabled {
+		t.Fatalf("omitted lookahead update replaced options: %#v %v", response.Lookahead, err)
+	}
+	loaded, err := agentdaemon.LoadConfig(store.configPath)
+	if err != nil || loaded.Runtime.Lookahead == nil || loaded.Runtime.Lookahead.TimeoutMillis != 500 {
+		t.Fatalf("lookahead file roundtrip: %#v %v", loaded.Runtime.Lookahead, err)
+	}
+	if _, err := store.SaveAgentConfig(context.Background(), managementapi.AgentConfigSaveRequest{Model: config.Model, Memory: &config.Memory, Lookahead: &cognition.LookaheadOptions{TimeoutMillis: 50}}); !errors.Is(err, managementapi.ErrInvalidAgentConfig) {
+		t.Fatalf("invalid lookahead bounds accepted: %v", err)
+	}
+}
+
 func TestParseConfigurationAutoUsesSavedAgentConfig(t *testing.T) {
 	dataDir := t.TempDir()
 	path := managedAgentConfigPath(dataDir)

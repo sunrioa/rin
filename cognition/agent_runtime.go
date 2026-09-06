@@ -52,6 +52,7 @@ type AgentRuntimeOptions struct {
 	Learning                  *SkillLearningOptions
 	OutcomesRecordedByControl bool
 	Plans                     taskstate.PlanClient
+	Lookahead                 *LookaheadOptions
 
 	Now                   func() time.Time
 	ControllerLeaseMillis uint32
@@ -89,6 +90,7 @@ type AgentRuntime struct {
 	learning                  *skillLearningRuntime
 	plans                     taskstate.PlanClient
 	outcomesRecordedByControl bool
+	lookahead                 *lookaheadRuntime
 
 	now                   func() time.Time
 	controllerLeaseMillis uint32
@@ -151,11 +153,16 @@ func NewAgentRuntime(options AgentRuntimeOptions) (*AgentRuntime, error) {
 	if err != nil {
 		return nil, err
 	}
+	lookahead, err := NormalizeLookaheadOptions(options.Lookahead)
+	if err != nil {
+		return nil, err
+	}
 	return &AgentRuntime{
 		principal: options.Principal, control: options.Control, environment: options.Environment,
 		persona: options.Persona, memory: options.Memory, skills: options.Skills,
 		model: options.Model, tasks: options.Tasks, decisions: options.Decisions,
 		learning: learning, plans: options.Plans,
+		lookahead:                 newLookaheadRuntime(options.Model, lookahead),
 		outcomesRecordedByControl: options.OutcomesRecordedByControl,
 		now:                       options.Now,
 		controllerLeaseMillis:     options.ControllerLeaseMillis,
@@ -197,6 +204,10 @@ func (runtime *AgentRuntime) RunTask(
 		task, err = runtime.tasks.Load(ctx, taskID)
 		if err != nil {
 			return TaskSession{}, err
+		}
+		task, err = runtime.recoverLookahead(ctx, task)
+		if err != nil {
+			return task, err
 		}
 		if task.Status == TaskOutcomeUnknown {
 			return runtime.reconcileTaskOutcome(ctx, task)
@@ -255,9 +266,15 @@ func (runtime *AgentRuntime) advanceTask(
 	if err != nil || decisionContext == nil {
 		return task, false, err
 	}
-	decision, task, err := runtime.decideWithInspection(ctx, task, decisionContext)
+	decision, task, adopted, err := runtime.tryLookahead(ctx, task, decisionContext)
 	if err != nil {
 		return task, false, err
+	}
+	if !adopted {
+		decision, task, err = runtime.decideWithInspection(ctx, task, decisionContext)
+		if err != nil {
+			return task, false, err
+		}
 	}
 	task.PendingSignals = nil
 	return runtime.applyModelDecision(ctx, task, decisionContext.observation, decisionContext.specs, decisionContext.summaries, decision)
@@ -437,6 +454,7 @@ func (runtime *AgentRuntime) saveTask(
 	ctx context.Context,
 	task TaskSession,
 ) (TaskSession, error) {
+	runtime.guardLookaheadSave(&task)
 	task.UpdatedAtUnixMillis = runtime.now().UnixMilli()
 	task.Schedule = scheduleForStatus(task)
 	saved, err := runtime.tasks.CompareAndSwap(ctx, task.Revision, task)

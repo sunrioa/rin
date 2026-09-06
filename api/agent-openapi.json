@@ -1254,7 +1254,8 @@
           "model_tokens": {
             "type": "integer",
             "minimum": 0,
-            "maximum": 100000000
+            "maximum": 9007199254740991,
+            "description": "Recorded usage can exceed the task budget after a provider response; further model calls are then stopped."
           },
           "action_count": {
             "type": "integer",
@@ -1342,6 +1343,9 @@
             "items": {
               "$ref": "#/components/schemas/Identifier"
             }
+          },
+          "lookahead": {
+            "$ref": "#/components/schemas/TaskLookaheadState"
           }
         },
         "required": [
@@ -1988,6 +1992,59 @@
         },
         "required": [
           "condition_id"
+        ]
+      },
+      "TaskLookaheadState": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Durable accounting for an optional one-step lookahead. Candidate actions are process-local and must be revalidated before adoption.",
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "preparing",
+              "running",
+              "ready",
+              "adopted",
+              "discarded"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "reserved_tokens": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "calls": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "adopted": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "discarded": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          }
+        },
+        "required": [
+          "operation_id",
+          "status",
+          "calls",
+          "adopted",
+          "discarded"
         ]
       }
     }

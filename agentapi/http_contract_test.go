@@ -117,6 +117,7 @@ func TestAgentOpenAPISchemaFieldsMatchGoDTOs(t *testing.T) {
 		"CompletionConfirmationInput": agentapi.CompletionConfirmationInput{},
 		"TaskSchedule":                cognition.TaskSchedule{},
 		"TaskSession":                 cognition.TaskSession{},
+		"TaskLookaheadState":          cognition.TaskLookaheadState{},
 		"TaskOperationResult":         cognition.TaskOperationResult{},
 		"SkillLearningState":          cognition.SkillLearningState{},
 		"TaskEvent":                   cognition.TaskEvent{},

@@ -127,6 +127,12 @@ and at most one detailed capability or skill inspection. Closed-schema output is
 checked against the allowed set and converted into the same `ActionRequest` used
 by MCP.
 
+During an accepted/running ordinary action, the runtime can prepare one
+conditional successor in the background. It waits for the real Host result,
+necessary Plan projection, and a fresh observation before adopting the draft
+through the same action gateway. Failed or late previews fall back to normal
+deliberation. See [planning during execution](lookahead.md).
+
 Completion follows caller-owned acceptance criteria: new tasks default to human
 confirmation; `host-evidence` checks current Host facts or matching confirmed
 operations. Explicit `model-declared` accepts model judgment once any Plan is

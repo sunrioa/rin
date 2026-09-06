@@ -152,6 +152,10 @@ func (runtime *AgentRuntime) advancePendingAction(
 		return runtime.activatePendingMacro(ctx, task, view)
 	}
 	if !view.Terminal && view.Status != controlplane.OperationAwaitingConfirmation {
+		task, err = runtime.startLookahead(ctx, task, view)
+		if err != nil {
+			return task, false, err
+		}
 		return runtime.waitForOperation(ctx, task, view)
 	}
 

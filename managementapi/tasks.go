@@ -66,6 +66,7 @@ type TaskSummary struct {
 	MaxSteps             uint32                          `json:"max_steps"`
 	ModelCalls           uint32                          `json:"model_calls"`
 	ModelTokens          uint64                          `json:"model_tokens"`
+	Lookahead            *cognition.TaskLookaheadState   `json:"lookahead,omitempty"`
 	ActionCount          uint32                          `json:"action_count"`
 	PendingOperationID   string                          `json:"pending_operation_id,omitempty"`
 	CreatedAtUnixMillis  int64                           `json:"created_at_unix_millis"`
@@ -335,6 +336,11 @@ func (service *Service) ControlTask(
 
 func taskSummary(task cognition.TaskSession) TaskSummary {
 	completion := task.Completion
+	var lookahead *cognition.TaskLookaheadState
+	if task.Lookahead != nil {
+		value := *task.Lookahead
+		lookahead = &value
+	}
 	return TaskSummary{
 		Revision: task.Revision, Completion: &completion, CompletionRequested: task.CompletionRequested,
 		TaskID: task.TaskID, HostID: task.HostID, AdapterID: task.AdapterID,
@@ -346,6 +352,7 @@ func taskSummary(task cognition.TaskSession) TaskSummary {
 		PlanRevision: task.PlanRevision, CurrentPlanStepID: task.CurrentPlanStepID,
 		Step: task.Step, MaxSteps: task.Budget.MaxSteps, ModelCalls: task.ModelCalls,
 		ModelTokens: task.ModelTokens, ActionCount: task.ActionCount,
+		Lookahead:           lookahead,
 		PendingOperationID:  task.PendingOperationID,
 		CreatedAtUnixMillis: task.CreatedAtUnixMillis, UpdatedAtUnixMillis: task.UpdatedAtUnixMillis,
 	}

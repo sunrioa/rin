@@ -159,6 +159,29 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+test("Console explains conditional lookahead and escapes its status", () => {
+  const harness = consoleHarness();
+  const ready = harness.run('taskLookaheadPanel({status:"ready", calls:3, adopted:1, discarded:1, reserved_tokens:100})');
+  assert.match(ready, /等待当前动作结果/);
+  assert.match(ready, /预算预留 100 token/);
+  const hostile = harness.run('taskLookaheadPanel({status:"<img src=x>", calls:0, adopted:0, discarded:0})');
+  assert.doesNotMatch(hostile, /<img/);
+  assert.match(hostile, /&lt;img/);
+  assert.equal(harness.run('taskLookaheadPanel(null)'), "");
+});
+
+test("Console lookahead toggle preserves advanced limits when saving", async () => {
+  const harness = consoleHarness();
+  harness.run('renderAgentConfig({lookahead:{disabled:false,max_concurrent:3,timeout_millis:500,draft_ttl_millis:2000}})');
+  assert.equal(harness.element("#agentLookaheadEnabled").checked, true);
+  harness.element("#agentLookaheadEnabled").checked = false;
+  harness.run('loadConnections = async () => {}; api = async (_path, options) => { globalThis.savedConfig = options.body; return {requires_restart:true}; };');
+  await harness.run('saveAgentConfig({preventDefault(){}})');
+  assert.equal(harness.run('savedConfig.lookahead.disabled'), true);
+  assert.equal(harness.run('savedConfig.lookahead.max_concurrent'), 3);
+  assert.equal(harness.run('savedConfig.lookahead.timeout_millis'), 500);
+});
+
 test("overlapping refreshes share one request and refresh again after settlement", async () => {
   const harness = consoleHarness();
   const gate = deferred();

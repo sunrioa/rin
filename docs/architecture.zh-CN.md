@@ -117,6 +117,10 @@ Internal Agent 接收异步 Task，循环执行 `Observe -> Recall -> Decide -> 
 模型只看到有界摘要，并可进行一次 Capability/Skill 详细检查。模型输出经过封闭
 JSON Schema 和允许集合复验，再转换成与 MCP 完全相同的 `ActionRequest`。
 
+普通动作已接受或执行中时，Runtime 可以在后台提前准备一个有条件的后继动作。
+采用前等待真实 Host 结果、必要 Plan 投影和最新观察核验，再经过同一动作网关。
+预规划失败或未及时完成时回退到正常决策，详见[执行中提前规划](lookahead.zh-CN.md)。
+
 任务按调用方确定的验收策略完成：新任务默认人工确认；`host-evidence` 核验当前 Host
 事实或匹配的已确认 Operation。显式 `model-declared` 在已有 Plan 完成后接受模型判断，
 不提供独立目标证明；旧任务保留原策略。Provider 故障、控制权变化和预算耗尽使任务暂停

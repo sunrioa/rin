@@ -16,7 +16,9 @@ import (
 	"github.com/sunrioa/rin/timeline"
 )
 
-const TaskSnapshotVersion = "rin.cognition.tasks/v5"
+const TaskSnapshotVersion = "rin.cognition.tasks/v6"
+
+const completionTaskSnapshotVersion = "rin.cognition.tasks/v5"
 
 const schedulingTaskSnapshotVersion = "rin.cognition.tasks/v4"
 
@@ -128,9 +130,10 @@ type TaskSession struct {
 	Step      uint32     `json:"step"`
 	Budget    TaskBudget `json:"budget"`
 
-	ModelCalls  uint32 `json:"model_calls"`
-	ModelTokens uint64 `json:"model_tokens"`
-	ActionCount uint32 `json:"action_count"`
+	ModelCalls  uint32              `json:"model_calls"`
+	ModelTokens uint64              `json:"model_tokens"`
+	ActionCount uint32              `json:"action_count"`
+	Lookahead   *TaskLookaheadState `json:"lookahead,omitempty"`
 
 	ControllerLease         controlplane.ControllerLease `json:"controller_lease"`
 	PendingAction           *host.ActionRequest          `json:"pending_action,omitempty"`
@@ -192,7 +195,7 @@ func RestoreLocalTaskStore(maxTasks uint32, snapshot TaskSnapshot) (*LocalTaskSt
 	if err != nil {
 		return nil, err
 	}
-	if (snapshot.Version != TaskSnapshotVersion && snapshot.Version != schedulingTaskSnapshotVersion && snapshot.Version != legacyTaskSnapshotVersion) || snapshot.Revision == 0 {
+	if (snapshot.Version != TaskSnapshotVersion && snapshot.Version != completionTaskSnapshotVersion && snapshot.Version != schedulingTaskSnapshotVersion && snapshot.Version != legacyTaskSnapshotVersion) || snapshot.Revision == 0 {
 		return nil, errors.New("task snapshot version or revision is invalid")
 	}
 	if len(snapshot.Tasks) > int(store.maxTasks) {
@@ -420,9 +423,14 @@ func sealTaskSession(task TaskSession) (TaskSession, error) {
 		return TaskSession{}, err
 	}
 	task.Budget = budget
+	// Provider usage arrives after a call and must remain recordable even when
+	// it exceeds the requested budget. No further deliberation may start then.
 	if task.Step > budget.MaxSteps || task.ModelCalls > budget.MaxModelCalls ||
-		task.ModelTokens > budget.MaxModelTokens || task.ActionCount > budget.MaxActions {
+		task.ModelTokens > maxProviderWireInteger || task.ActionCount > budget.MaxActions {
 		return TaskSession{}, errors.New("task usage exceeds its budget")
+	}
+	if err := validateTaskLookahead(task); err != nil {
+		return TaskSession{}, err
 	}
 	if err := validateTaskLease(task); err != nil {
 		return TaskSession{}, err
@@ -655,6 +663,10 @@ func cloneTaskSession(task TaskSession) TaskSession {
 	}
 	task.Tags = append([]string(nil), task.Tags...)
 	task.AllowedCapabilities = append([]string(nil), task.AllowedCapabilities...)
+	if task.Lookahead != nil {
+		state := *task.Lookahead
+		task.Lookahead = &state
+	}
 	if task.SkillLearning != nil {
 		learning := *task.SkillLearning
 		task.SkillLearning = &learning

@@ -23,6 +23,16 @@ func TestAgentRuntimeUsesRealActionGatewayAndHostOutcome(t *testing.T) {
 }
 
 func runAgentGatewayIntegration(t *testing.T, planned bool) {
+	runAgentGatewayScenario(t, planned, false, false)
+}
+
+func TestLookaheadUsesRealGatewayAndWaitsForPlanStepEvidence(t *testing.T) {
+	t.Run("ordinary successor", func(t *testing.T) { runAgentGatewayScenario(t, false, true, false) })
+	t.Run("plan successor after durable evidence", func(t *testing.T) { runAgentGatewayScenario(t, true, true, false) })
+	t.Run("rewritten plan invalidates the draft", func(t *testing.T) { runAgentGatewayScenario(t, true, true, true) })
+}
+
+func runAgentGatewayScenario(t *testing.T, planned, lookahead, rewritePlan bool) {
 	epoch := host.Epoch{
 		SessionID: "session.integration", WorldID: "world.integration",
 		Host: 1, World: 1, Timeline: 1,
@@ -94,7 +104,7 @@ func runAgentGatewayIntegration(t *testing.T, planned bool) {
 		Source: controlplane.DecisionInternal, Revision: 1,
 		PersonaMode: controlplane.PersonaCharacterBound,
 	}
-	if err := service.PublishWorld("host.integration", hostLease.LeaseID, controlplane.WorldPublication{
+	publication := controlplane.WorldPublication{
 		WorldID: "world.integration", DisplayName: "Integration World", Sequence: 1,
 		Actors: []controlplane.ActorPublication{{
 			ActorID: "actor.mira", OwnerPrincipalID: "player.owner", DisplayName: "Mira",
@@ -102,7 +112,8 @@ func runAgentGatewayIntegration(t *testing.T, planned bool) {
 			Capabilities: &host.CapabilitySnapshot{Revision: 1, Specs: []host.CapabilitySpec{spec}},
 			State:        json.RawMessage(`{"status":"ready"}`),
 		}},
-	}); err != nil {
+	}
+	if err := service.PublishWorld("host.integration", hostLease.LeaseID, publication); err != nil {
 		t.Fatal(err)
 	}
 
@@ -122,6 +133,9 @@ func runAgentGatewayIntegration(t *testing.T, planned bool) {
 			Ownership: host.OwnershipPlayer, Scope: "world.local", Quantity: 1,
 			Unit: "player", Attributes: json.RawMessage(`{"distance":2}`),
 		}},
+	}
+	if lookahead {
+		observation.Facts = []host.ObservationFact{{FactID: "next.allowed", Kind: "world.condition", Value: json.RawMessage("false")}}
 	}
 	environment := &fakeAgentEnvironment{
 		observation: observation,
@@ -150,6 +164,15 @@ func runAgentGatewayIntegration(t *testing.T, planned bool) {
 		agentActionDecision(),
 		{Kind: cognition.ModelDecisionComplete, Summary: "The Host confirms arrival."},
 	}}
+	var runtimeModel cognition.ModelProvider = model
+	var preview *lookaheadTestModel
+	if lookahead {
+		preview = &lookaheadTestModel{normal: model, started: make(chan cognition.LookaheadInput, 2), release: make(chan struct{}), cancelled: make(chan struct{}), reserve: 100,
+			draft: cognition.NextStepDraft{Kind: "action", Capability: spec.Capability, Arguments: json.RawMessage(`{"distance":3}`), TargetHandles: []string{"target.0"},
+				Preconditions: []cognition.LookaheadCondition{{FactID: "next.allowed", FactValueJSON: "true"}}, Summary: "Follow the owner again when allowed.", UsageKnown: true}}
+		preview.draft.Usage.TotalTokens = 7
+		runtimeModel = preview
+	}
 	principal := host.Principal{
 		ID: "principal.internal", GrantedScopes: []string{controlplane.ScopeHostAdmin},
 	}
@@ -174,20 +197,31 @@ func runAgentGatewayIntegration(t *testing.T, planned bool) {
 					Summary: "The Host confirms arrival.", Capability: &capability}},
 			}},
 		}
+		if lookahead {
+			model.decisions[0].PlanDraft.Steps = append(model.decisions[0].PlanDraft.Steps, taskstate.StepDraft{StepID: "step.follow-again", Title: "Follow again", Objective: "Follow the owner once more.",
+				CapabilityHints: []host.CapabilityRef{capability}, MaxAttempts: 3,
+				SuccessConditions: []taskstate.PlanCondition{{ConditionID: "condition.followed-again", Kind: taskstate.EvidenceOperationOutcome, Summary: "Host confirms the second movement.", Capability: &capability}}})
+			preview.draft.PlanStepID = "step.follow-again"
+		}
 	}
 	runtime, err := cognition.NewAgentRuntime(cognition.AgentRuntimeOptions{
 		Principal: principal, Control: service, Environment: environment,
-		Persona: persona, Memory: memory, Model: model, Tasks: tasks,
+		Persona: persona, Memory: memory, Model: runtimeModel, Tasks: tasks,
 		MaxAdvancesPerRun: 16, Plans: plans,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(runtime.Close)
+	goal := "Move near the owner."
+	if lookahead {
+		goal = "Follow the owner in two successive movements."
+	}
 	started, err := runtime.StartTask(context.Background(), cognition.StartTaskInput{
 		Completion: cognition.TaskCompletionPolicy{Mode: cognition.CompletionModel},
 		TaskID:     "task.integration", HostID: "host.integration", WorldID: "world.integration",
 		ActorID: "actor.mira", ControllerID: "controller.internal",
-		Goal: "Move near the owner.", Tags: []string{"task.follow"}, PlanningMode: planningMode,
+		Goal: goal, Tags: []string{"task.follow"}, PlanningMode: planningMode,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -228,6 +262,33 @@ func runAgentGatewayIntegration(t *testing.T, planned bool) {
 		ProgressSeq: 1, Progress: 50, UpdatedAt: host.Timepoint{Clock: host.ClockStep, Value: 11},
 	}); err != nil {
 		t.Fatal(err)
+	}
+	if lookahead {
+		if _, err := runtime.RunTask(context.Background(), started.TaskID); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-preview.started:
+		case <-time.After(3 * time.Second):
+			t.Fatal("real in-flight operation did not start lookahead")
+		}
+		close(preview.release)
+		ready := waitLookaheadTask(t, runtime, started.TaskID, func(task cognition.TaskSession) bool {
+			return task.Lookahead != nil && task.Lookahead.Status == "ready"
+		})
+		if ready.ActionCount != 1 || actionHost.binds != 1 {
+			t.Fatal("speculation bound or submitted a successor before the Host outcome")
+		}
+		// Publish the real state that makes the conditional successor applicable.
+		environment.observation.Sequence = 2
+		environment.observation.ObservationID = "observation.integration.2"
+		environment.observation.Facts = []host.ObservationFact{{FactID: "next.allowed", Kind: "world.condition", Value: json.RawMessage("true")}}
+		actionHost.snapshot.ObservationSeq = 2
+		actionHost.snapshot.Now = host.Timepoint{Clock: host.ClockStep, Value: 12}
+		publication.Sequence, publication.Actors[0].ObservationSeq = 2, 2
+		if err := service.PublishWorld("host.integration", hostLease.LeaseID, publication); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := service.ReportHostOutcome("host.integration", hostLease.LeaseID, host.ActionOutcome{
 		OperationID: delivery.OperationID, Status: host.ActionSucceeded,
@@ -275,11 +336,88 @@ func runAgentGatewayIntegration(t *testing.T, planned bool) {
 			t.Fatalf("expected independent pending memory: %v %v", pending, err)
 		}
 	}
+	if rewritePlan {
+		current, err := planStore.Get(context.Background(), queued.PlanID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Preserve the expected successor's ID while changing its intent. A
+		// normal result revision alone remains valid in the neighboring test.
+		step := current.Steps[len(current.Steps)-1]
+		draft := taskstate.Draft{Goal: goal, Phase: current.Phase, BasedOnEpoch: epoch, BasedOnObservationSequence: 2,
+			Steps: []taskstate.StepDraft{{StepID: step.StepID, Title: step.Title, Objective: "Wait for the owner to choose another destination.",
+				CapabilityHints: step.CapabilityHints, MaxAttempts: step.MaxAttempts, SuccessConditions: step.SuccessConditions}}}
+		if _, err := planStore.Revise(context.Background(), taskstate.ReviseInput{PlanID: current.PlanID, ExpectedRevision: current.Revision,
+			Reason: taskstate.ReplanManualAuthorized, Summary: "Player changed how to continue.", Draft: draft}); err != nil {
+			t.Fatal(err)
+		}
+		model.decisions[0] = cognition.ModelDecision{Kind: cognition.ModelDecisionWait, Summary: "Wait for the changed plan."}
+	}
 	completed, err := runtime.RunTask(context.Background(), started.TaskID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if completed.Status != cognition.TaskCompleted || completed.Step != 1 ||
+	if rewritePlan {
+		if completed.Lookahead.Adopted != 0 || completed.Lookahead.Discarded != 1 || preview.normalCalls() != 2 || actionHost.binds != 1 || completed.PendingAction != nil {
+			t.Fatalf("rewritten plan used a stale successor: %#v binds=%d", completed.Lookahead, actionHost.binds)
+		}
+		return
+	}
+	expectedSteps := uint32(1)
+	if lookahead {
+		expectedSteps = 2
+		if completed.PendingOperationID == "" || completed.PendingOperationID == delivery.OperationID || completed.Lookahead.Adopted != 1 || actionHost.binds != 2 || preview.normalCalls() != 1 {
+			t.Fatalf("real gateway did not adopt the prepared successor: %#v binds=%d", completed.Lookahead, actionHost.binds)
+		}
+		if planned && (completed.PendingAction.PlanStep == nil || completed.PendingAction.PlanStep.StepID != "step.follow-again" || completed.PendingAction.PlanStep.PlanRevision <= delivery.ActionRequest.PlanStep.PlanRevision) {
+			t.Fatal("prepared successor did not use the new active Plan step/revision")
+		}
+		batch, err := service.PollHost(pollCtx, "host.integration", hostLease.LeaseID, 4)
+		if err != nil || len(batch.Requests) != 1 {
+			t.Fatalf("successor delivery: %#v %v", batch, err)
+		}
+		next := batch.Requests[0].Request
+		if err := controlplane.ValidateActionDelivery(next); err != nil {
+			t.Fatal(err)
+		}
+		if next.ActionRequest.ObservationSeq != 2 || next.BoundAction.ObservationSeq != 2 {
+			t.Fatal("successor bypassed fresh Host binding")
+		}
+		if err := registry.AuthorizeBoundAction(*next.BoundAction, actionHost.snapshot.Now, epoch, 2, next.Principal); err != nil {
+			t.Fatal(err)
+		}
+		if err := service.AcknowledgeHost("host.integration", hostLease.LeaseID, controlplane.HostAcknowledgement{OperationID: next.OperationID, Accepted: true}); err != nil {
+			t.Fatal(err)
+		}
+		if err := service.ReportHostOutcome("host.integration", hostLease.LeaseID, host.ActionOutcome{OperationID: next.OperationID, Status: host.ActionSucceeded,
+			Summary: "Host completed the second movement.", Evidence: []host.HostRef{playerRef}, Epoch: epoch, WorldSeq: 3, OccurredAt: host.Timepoint{Clock: host.ClockStep, Value: 14}}); err != nil {
+			t.Fatal(err)
+		}
+		if planned {
+			deadline := time.NewTimer(3 * time.Second)
+			defer deadline.Stop()
+			for {
+				changes := service.Changes()
+				pending, err := service.OutcomeProjectionPending(principal, next.OperationID, "task-plan")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !pending {
+					break
+				}
+				select {
+				case <-changes:
+				case <-deadline.C:
+					t.Fatal("successor Plan projection did not settle")
+				}
+			}
+		}
+		completed, err = runtime.RunTask(context.Background(), started.TaskID)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if completed.Status != cognition.TaskCompleted || completed.Step != expectedSteps ||
 		!historyHasKind(completed.History, "operation.terminal") {
 		t.Fatalf("Host outcome did not complete the real gateway loop: %+v", completed)
 	}
