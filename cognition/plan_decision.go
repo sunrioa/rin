@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"math"
 
 	"github.com/sunrioa/rin/host"
 	"github.com/sunrioa/rin/taskstate"
@@ -19,6 +18,14 @@ func (runtime *AgentRuntime) callModel(
 ) (ModelDecision, TaskSession, error) {
 	if task.ModelCalls >= task.Budget.MaxModelCalls {
 		failed, err := runtime.failTask(ctx, task, "budget.model-calls", ErrTaskBudgetExceeded)
+		return ModelDecision{}, failed, err
+	}
+	reserved := uint64(0)
+	if task.Lookahead != nil {
+		reserved = task.Lookahead.ReservedTokens
+	}
+	if task.ModelTokens >= task.Budget.MaxModelTokens || reserved >= task.Budget.MaxModelTokens-task.ModelTokens {
+		failed, err := runtime.failTask(ctx, task, "budget.model-tokens", ErrTaskBudgetExceeded)
 		return ModelDecision{}, failed, err
 	}
 	beforeCall := task
@@ -50,7 +57,7 @@ func (runtime *AgentRuntime) callModel(
 		return ModelDecision{}, paused, pauseErr
 	}
 	usage, err := modelDecisionTokenUsage(decision)
-	if err != nil || usage > math.MaxUint64-task.ModelTokens {
+	if err != nil || usage > maxProviderWireInteger-task.ModelTokens {
 		if err == nil {
 			err = errors.New("model token usage overflow")
 		}
@@ -603,15 +610,19 @@ func validateRuntimeFinalDecision(
 
 func modelDecisionTokenUsage(decision ModelDecision) (uint64, error) {
 	if decision.Usage.PromptTokens < 0 || decision.Usage.CompletionTokens < 0 ||
-		decision.Usage.TotalTokens < 0 {
+		decision.Usage.TotalTokens < 0 || negativeOptionalInt(decision.Usage.PromptCacheHitTokens) ||
+		negativeOptionalInt(decision.Usage.PromptCacheMissTokens) || negativeOptionalInt(decision.Usage.CacheWriteTokens) {
 		return 0, errors.New("model returned negative token usage")
 	}
-	total := decision.Usage.TotalTokens
-	if total == 0 {
-		if decision.Usage.PromptTokens > math.MaxInt-decision.Usage.CompletionTokens {
-			return 0, errors.New("model token usage overflow")
+	for _, count := range []*int{&decision.Usage.PromptTokens, &decision.Usage.CompletionTokens, &decision.Usage.TotalTokens,
+		decision.Usage.PromptCacheHitTokens, decision.Usage.PromptCacheMissTokens, decision.Usage.CacheWriteTokens} {
+		if count != nil && uint64(*count) > maxProviderWireInteger {
+			return 0, errors.New("model token usage is not JSON-safe")
 		}
-		total = decision.Usage.PromptTokens + decision.Usage.CompletionTokens
 	}
-	return uint64(total), nil
+	prompt, completion := uint64(decision.Usage.PromptTokens), uint64(decision.Usage.CompletionTokens)
+	if prompt > maxProviderWireInteger-completion {
+		return 0, errors.New("model token usage overflow")
+	}
+	return max(uint64(decision.Usage.TotalTokens), prompt+completion), nil
 }

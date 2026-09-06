@@ -22,6 +22,7 @@
 
 补充资料：
 
+- [执行中提前规划](lookahead.zh-CN.md)
 - [SDK 总览](../sdk/README.zh-CN.md)
 - [安全边界](../SECURITY.md)
 - [路线图](../ROADMAP.md)

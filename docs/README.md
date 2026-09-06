@@ -23,6 +23,7 @@ contracts. Documentation examples never replace authoritative game-adapter check
 
 Additional material:
 
+- [Planning during execution](lookahead.md)
 - [SDK overview](../sdk/README.md)
 - [Security boundary](../SECURITY.en.md)
 - [Roadmap](../ROADMAP.en.md)

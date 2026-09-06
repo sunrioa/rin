@@ -40,6 +40,7 @@ type Options struct {
 type Daemon struct {
 	handler      http.Handler
 	service      *agentapi.Service
+	runtime      *cognition.AgentRuntime
 	taskClient   *agentapi.ClientService
 	tasks        *cognition.SQLiteTaskStore
 	memory       cognition.MemoryProvider
@@ -224,6 +225,7 @@ func Open(options Options) (*Daemon, error) {
 		RenewBeforeMillis:         config.Runtime.RenewBeforeMillis,
 		OperationWaitMillis:       config.Runtime.OperationWaitMillis,
 		MaxAdvancesPerRun:         config.Runtime.MaxAdvancesPerRun,
+		Lookahead:                 config.Runtime.Lookahead,
 		MemoryBudget: cognition.MemoryBudget{
 			MaxRecords:    config.Runtime.MemoryMaxRecords,
 			MaxCharacters: config.Runtime.MemoryMaxCharacters,
@@ -239,11 +241,13 @@ func Open(options Options) (*Daemon, error) {
 		ReconcileInterval: config.Scheduler.reconcileInterval(),
 	})
 	if err != nil {
+		runtime.Close()
 		return nil, cleanupStores(err)
 	}
 	taskClient, err := agentapi.NewClientService(service, config.ClientPrincipal)
 	if err != nil {
 		service.Close()
+		runtime.Close()
 		return nil, cleanupStores(err)
 	}
 	handler, err := agentapi.NewHTTPHandler(service, agentapi.HTTPOptions{
@@ -251,10 +255,12 @@ func Open(options Options) (*Daemon, error) {
 	})
 	if err != nil {
 		service.Close()
+		runtime.Close()
 		return nil, cleanupStores(err)
 	}
 	daemon := &Daemon{
 		handler: handler, service: service, taskClient: taskClient, tasks: tasks, memory: memory,
+		runtime:      runtime,
 		memoryCloser: memoryCloser, decisions: decisions,
 	}
 	if options.Signals != nil {
@@ -430,6 +436,7 @@ func (daemon *Daemon) Close() error {
 			daemon.signalWG.Wait()
 		}
 		daemon.service.Close()
+		daemon.runtime.Close()
 		var memoryErr error
 		if daemon.memoryCloser != nil {
 			memoryErr = daemon.memoryCloser.Close()

@@ -99,10 +99,12 @@ func (store *agentConfigStore) AgentConfig(ctx context.Context) (managementapi.A
 }
 
 func (store *agentConfigStore) snapshotLocked() managementapi.AgentConfigSnapshot {
+	lookahead, _ := cognition.NormalizeLookaheadOptions(store.config.Runtime.Lookahead)
 	return managementapi.AgentConfigSnapshot{
 		Configured:                    store.configured,
 		Model:                         store.config.Model,
 		Memory:                        store.config.Memory,
+		Lookahead:                     lookahead,
 		CredentialConfigured:          store.credentialConfigured,
 		EmbeddingCredentialConfigured: store.embeddingCredentialConfigured,
 	}
@@ -166,6 +168,10 @@ func (store *agentConfigStore) SaveAgentConfig(
 	config := store.config
 	config.Model = request.Model
 	config.Memory = *request.Memory
+	if request.Lookahead != nil {
+		lookahead := *request.Lookahead
+		config.Runtime.Lookahead = &lookahead
+	}
 	validated, err := agentdaemon.ValidateConfig(config)
 	if err != nil {
 		return managementapi.AgentConfigSaveResponse{}, fmt.Errorf(

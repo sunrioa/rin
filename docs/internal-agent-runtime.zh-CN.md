@@ -204,12 +204,20 @@ Resilient 只透明转发，不在核心引入供应商分支。
 玩家文本和 Capability Description 都属于不可信数据，不能改变允许集合、Epoch、
 Controller 或预算。
 
+## 执行中提前规划
+
+内置模型 Provider 可以在普通 Operation 执行时准备一个有条件的后继动作。正常循环
+等到已确认成功结果、必要 Plan 投影确认和最新观察核验后才会采用；候选缺失或失效时
+回退到正常决策。默认每个 Runtime 最多 2 个后台工作，超时 10 秒，候选 TTL 为 60 秒。
+预规划计入任务模型预算，可在 Console 或通过 `runtime.lookahead.disabled` 关闭。
+流程、条件、成本记账、重启恢复和自定义 Provider 契约见[执行中提前规划](lookahead.zh-CN.md)。
+
 ## 状态与调用
 
 - Task HTTP 契约以 [`api/agent-openapi.json`](../api/agent-openapi.json) 为准。
 - 状态固定写入 `<RIN_CONTROL_DATA_DIR>/agent/tasks.db` 和 `memory.db`。
-- Task 使用 SQLite Schema 2，任务投影为 `rin.cognition.tasks/v5`。首次创建数据库时
-  导入已有 `tasks.json` 的 v3、v4 或 v5 快照；后续打开只读取数据库。
+- Task 使用 SQLite Schema 2，任务投影为 `rin.cognition.tasks/v6`。首次创建数据库时
+  导入已有 `tasks.json` 的 v3、v4、v5 或 v6 快照；后续打开只读取数据库。
 - Task CAS 在同一事务内更新一个任务行和快照 Revision。WAL、`synchronous=FULL`、
   私有文件及单写者进程锁保留成功返回前已持久化的保证；提交失败后缓存不可读，需重新打开。
   配置不能改变状态路径。详见[存储迁移](execution-storage.zh-CN.md)。
@@ -219,7 +227,7 @@ Controller 或预算。
   Runtime 只向模型公开 Host 当前 Catalog 与该白名单的交集，并在恢复 Pending Action 时
   再次复验；空数组表示使用 Host 当前完整 Catalog。该字段只能收窄能力，不能创建 Host
   未发布的能力或绕过 Policy。
-- 守护进程先停止 Agent worker 并关闭 Task 状态，再停止 Control Plane 投递 worker，
+- 守护进程先停止 Agent worker、等待预规划调用退出并关闭 Task 状态，再停止 Control Plane 投递 worker，
   最后关闭共享 Plan 与 Memory 存储。
 
 ## 调度与取消
@@ -245,7 +253,7 @@ Controller 或预算。
 `OperationWaitMillis` 保留以兼容已有调用代码，但不再控制 worker 等待。
 
 导入 v3 快照时只推断一次旧等待条件；缺少 Observation 记录的旧 `wait` 需要显式运行。
-v4、v5 快照必须包含有效的 schedule；旧任务默认使用模型声明完成。原 JSON 仅作为
+v4、v5、v6 快照必须包含有效的 schedule；旧任务默认使用模型声明完成。原 JSON 仅作为
 迁移备份保留，不是供旧版程序继续使用的实时副本。
 
 取消先持久化 `cancel_requested`，再取消当前运行的 Context，不等待任务执行锁。

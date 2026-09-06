@@ -94,12 +94,13 @@ type SchedulerConfig struct {
 }
 
 type RuntimeConfig struct {
-	ControllerLeaseMillis uint32 `json:"controller_lease_millis,omitempty"`
-	RenewBeforeMillis     uint32 `json:"renew_before_millis,omitempty"`
-	OperationWaitMillis   uint32 `json:"operation_wait_millis,omitempty"`
-	MaxAdvancesPerRun     uint32 `json:"max_advances_per_run,omitempty"`
-	MemoryMaxRecords      uint32 `json:"memory_max_records,omitempty"`
-	MemoryMaxCharacters   uint32 `json:"memory_max_characters,omitempty"`
+	Lookahead             *cognition.LookaheadOptions `json:"lookahead,omitempty"`
+	ControllerLeaseMillis uint32                      `json:"controller_lease_millis,omitempty"`
+	RenewBeforeMillis     uint32                      `json:"renew_before_millis,omitempty"`
+	OperationWaitMillis   uint32                      `json:"operation_wait_millis,omitempty"`
+	MaxAdvancesPerRun     uint32                      `json:"max_advances_per_run,omitempty"`
+	MemoryMaxRecords      uint32                      `json:"memory_max_records,omitempty"`
+	MemoryMaxCharacters   uint32                      `json:"memory_max_characters,omitempty"`
 }
 
 type LearningConfig struct {
@@ -194,6 +195,10 @@ func normalizeConfig(config Config) (Config, error) {
 	}
 	if err := validateRuntimeConfig(config.Runtime); err != nil {
 		return Config{}, err
+	}
+	if config.Runtime.Lookahead != nil {
+		lookahead := *config.Runtime.Lookahead
+		config.Runtime.Lookahead = &lookahead
 	}
 	if err := normalizeLearningConfig(&config.Learning); err != nil {
 		return Config{}, err
@@ -402,6 +407,9 @@ func validateSchedulerConfig(config SchedulerConfig) error {
 }
 
 func validateRuntimeConfig(config RuntimeConfig) error {
+	if _, err := cognition.NormalizeLookaheadOptions(config.Lookahead); err != nil {
+		return err
+	}
 	lease := config.ControllerLeaseMillis
 	if lease != 0 && (lease < 5_000 || lease > 300_000) {
 		return errors.New("runtime controller lease must be between 5000 and 300000 milliseconds")

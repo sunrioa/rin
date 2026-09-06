@@ -241,12 +241,23 @@ The trusted contract is separate from `untrusted_context`. Persona, memory,
 skills, observation, player text, and capability descriptions are untrusted
 data and cannot alter the allowed set, epoch, controller, or budgets.
 
+## Planning during execution
+
+The built-in model provider can prepare one conditional successor while an
+ordinary Operation executes. The normal loop adopts it only after a confirmed
+successful outcome, required Plan acknowledgement, and fresh observation checks;
+missing or invalid drafts fall back to normal deliberation. The default is two
+background jobs per runtime, a 10-second timeout, and a 60-second candidate TTL.
+Lookahead counts against task model budgets and can be disabled in the Console
+or through `runtime.lookahead.disabled`. See [planning during execution](lookahead.md)
+for the flow, conditions, cost accounting, recovery, and custom provider contract.
+
 ## State and calls
 
 - [`api/agent-openapi.json`](../api/agent-openapi.json) is the Task HTTP contract.
 - State is fixed at `<RIN_CONTROL_DATA_DIR>/agent/tasks.db` and `memory.db`.
-- Tasks use SQLite schema version 2 and the `rin.cognition.tasks/v5` projection.
-  The first database open imports an existing `tasks.json` v3, v4 or v5 snapshot;
+- Tasks use SQLite schema version 2 and the `rin.cognition.tasks/v6` projection.
+  The first database open imports an existing `tasks.json` v3, v4, v5 or v6 snapshot;
   later opens use the database, even if that obsolete backup changes.
 - Task CAS writes one task row and the snapshot revision in one SQLite transaction.
   WAL, `synchronous=FULL`, private files and a single-writer process lock preserve
@@ -259,7 +270,7 @@ data and cannot alter the allowed set, epoch, controller, or budgets.
   with the current Host catalog and revalidates restored pending actions. An
   empty array uses the current full Host catalog. This field can only narrow
   authority; it cannot create capabilities or bypass Policy.
-- The daemon stops Agent workers and closes Task state first, then stops Control
+- The daemon stops Agent workers, joins lookahead calls, and closes Task state first, then stops Control
   Plane delivery workers before closing the shared Plan and Memory stores.
 
 ## Scheduling and cancellation
@@ -288,7 +299,7 @@ never gates readiness. `OperationWaitMillis` is retained for source compatibilit
 but no longer controls worker waiting.
 
 Importing a v3 snapshot infers a legacy observation wait once. A legacy wait with
-no recorded observation requires an explicit run. v4 and v5 snapshots must carry
+no recorded observation requires an explicit run. v4, v5 and v6 snapshots must carry
 a valid schedule; legacy tasks default to model-declared completion. The original
 JSON is a migration backup, not a live replica for an older binary.
 

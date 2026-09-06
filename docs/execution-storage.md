@@ -73,7 +73,7 @@ synchronous.
 ## Upgrade and rollback
 
 1. Stop the daemon and back up the complete `RIN_CONTROL_DATA_DIR`.
-2. Start the new binary. New task databases import `tasks.json` v3/v4/v5; new
+2. Start the new binary. New task databases import `tasks.json` v3/v4/v5/v6; new
    operation databases import `operations.json` v5/v6; a new decision recorder
    imports `decision-records.json` v1. Existing Task and Operation schema 1
    databases add their archive/backlog tables. Signal storage starts empty on the

@@ -54,7 +54,7 @@ ActionRun 进度继续采用检查点语义；新请求、ACK、取消、Outcome
 ## 升级与回退
 
 1. 停止守护进程，备份完整 `RIN_CONTROL_DATA_DIR`。
-2. 启动新版。新 Task 数据库导入 `tasks.json` v3/v4/v5，Operation 导入
+2. 启动新版。新 Task 数据库导入 `tasks.json` v3/v4/v5/v6，Operation 导入
    `operations.json` v5/v6，决策记录导入 `decision-records.json` v1。既有 Task、
    Operation Schema 1 数据库补充归档和积压表。首次升级没有旧持久 Signal 来源，因此
    收件箱从空开始；后续重启可恢复。

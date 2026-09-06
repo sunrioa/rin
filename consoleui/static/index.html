@@ -163,6 +163,7 @@
             <label><span>Temperature</span><input id="agentTemperature" type="number" min="0" max="2" step="0.01" placeholder="默认"></label>
             <label><span>最大上下文字符</span><input id="agentMaxContextCharacters" type="number" min="0" placeholder="默认"></label>
             <label><span>最大输出 Token</span><input id="agentMaxOutputTokens" type="number" min="0" placeholder="默认"></label>
+            <label class="wide"><span><input id="agentLookaheadEnabled" type="checkbox" checked> 执行时提前准备下一步</span><small>核对当前动作结果后再执行，提前规划计入模型用量。</small></label>
           </div>
           <details class="advanced-fields">
             <summary>重试与超时（可选）</summary>
