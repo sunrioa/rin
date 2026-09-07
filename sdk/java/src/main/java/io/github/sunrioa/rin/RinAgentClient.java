@@ -60,6 +60,11 @@ public final class RinAgentClient {
         return post("/agent/v1/tasks/cancel", input);
     }
 
+    /** Accepts the exact task revision that was presented for human review. */
+    public CompletableFuture<Map<String, Object>> confirmTaskCompletion(Map<String, ?> input) {
+        return post("/agent/v1/tasks/confirm-completion", input);
+    }
+
     private CompletableFuture<Map<String, Object>> post(
             String path,
             Map<String, ?> input) {

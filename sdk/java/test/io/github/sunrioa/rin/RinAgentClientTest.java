@@ -63,6 +63,9 @@ final class RinAgentClientTest {
                             "POST", "/agent/v1/tasks/run"),
                     new RequestCase(() -> client.resumeTask(target),
                             "POST", "/agent/v1/tasks/resume"),
+                    new RequestCase(() -> client.confirmTaskCompletion(Map.of(
+                            "task_id", "task.fixture", "expected_revision", 19L)),
+                            "POST", "/agent/v1/tasks/confirm-completion"),
                     new RequestCase(() -> client.cancelTask(target),
                             "POST", "/agent/v1/tasks/cancel"));
 

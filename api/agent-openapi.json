@@ -536,11 +536,29 @@
           },
           "principal": {
             "$ref": "#/components/schemas/Principal"
+          },
+          "task_execution_evidence_version": {
+            "type": "string",
+            "const": "rin.task-execution/v1"
+          },
+          "completion_modes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "model-declared",
+                "host-evidence",
+                "human-confirmation"
+              ]
+            },
+            "uniqueItems": true
           }
         },
         "required": [
           "contract_version",
-          "principal"
+          "principal",
+          "task_execution_evidence_version",
+          "completion_modes"
         ]
       },
       "Principal": {
@@ -1346,6 +1364,9 @@
           },
           "lookahead": {
             "$ref": "#/components/schemas/TaskLookaheadState"
+          },
+          "execution_evidence": {
+            "$ref": "#/components/schemas/TaskExecutionEvidence"
           }
         },
         "required": [
@@ -2045,6 +2066,84 @@
           "calls",
           "adopted",
           "discarded"
+        ]
+      },
+      "TaskExecutionEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Runtime-owned cumulative execution evidence persisted with task transitions; independent of rolling history. complete=false means an older task has unavailable prior evidence.",
+        "properties": {
+          "contract_version": {
+            "type": "string",
+            "const": "rin.task-execution/v1"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "event_sequence": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "selected_action_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "terminal_operation_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "successful_operation_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "rejected_action_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "started_macro_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "terminal_macro_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "task_completed_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "selected_capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 128,
+            "uniqueItems": true
+          },
+          "last_operation_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "complete",
+          "event_sequence",
+          "selected_action_count",
+          "terminal_operation_count",
+          "successful_operation_count",
+          "rejected_action_count",
+          "started_macro_count",
+          "terminal_macro_count",
+          "task_completed_count",
+          "selected_capabilities"
         ]
       }
     }

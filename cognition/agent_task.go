@@ -16,7 +16,9 @@ import (
 	"github.com/sunrioa/rin/timeline"
 )
 
-const TaskSnapshotVersion = "rin.cognition.tasks/v6"
+const TaskSnapshotVersion = "rin.cognition.tasks/v7"
+
+const lookaheadTaskSnapshotVersion = "rin.cognition.tasks/v6"
 
 const completionTaskSnapshotVersion = "rin.cognition.tasks/v5"
 
@@ -130,10 +132,11 @@ type TaskSession struct {
 	Step      uint32     `json:"step"`
 	Budget    TaskBudget `json:"budget"`
 
-	ModelCalls  uint32              `json:"model_calls"`
-	ModelTokens uint64              `json:"model_tokens"`
-	ActionCount uint32              `json:"action_count"`
-	Lookahead   *TaskLookaheadState `json:"lookahead,omitempty"`
+	ModelCalls        uint32                 `json:"model_calls"`
+	ModelTokens       uint64                 `json:"model_tokens"`
+	ActionCount       uint32                 `json:"action_count"`
+	Lookahead         *TaskLookaheadState    `json:"lookahead,omitempty"`
+	ExecutionEvidence *TaskExecutionEvidence `json:"execution_evidence,omitempty"`
 
 	ControllerLease         controlplane.ControllerLease `json:"controller_lease"`
 	PendingAction           *host.ActionRequest          `json:"pending_action,omitempty"`
@@ -195,7 +198,7 @@ func RestoreLocalTaskStore(maxTasks uint32, snapshot TaskSnapshot) (*LocalTaskSt
 	if err != nil {
 		return nil, err
 	}
-	if (snapshot.Version != TaskSnapshotVersion && snapshot.Version != completionTaskSnapshotVersion && snapshot.Version != schedulingTaskSnapshotVersion && snapshot.Version != legacyTaskSnapshotVersion) || snapshot.Revision == 0 {
+	if (snapshot.Version != TaskSnapshotVersion && snapshot.Version != lookaheadTaskSnapshotVersion && snapshot.Version != completionTaskSnapshotVersion && snapshot.Version != schedulingTaskSnapshotVersion && snapshot.Version != legacyTaskSnapshotVersion) || snapshot.Revision == 0 {
 		return nil, errors.New("task snapshot version or revision is invalid")
 	}
 	if len(snapshot.Tasks) > int(store.maxTasks) {
@@ -552,6 +555,9 @@ func sealTaskSession(task TaskSession) (TaskSession, error) {
 	if task.EventSequence > maxProviderWireInteger {
 		return TaskSession{}, errors.New("task event sequence is out of bounds")
 	}
+	if err := validateTaskExecutionEvidence(task); err != nil {
+		return TaskSession{}, err
+	}
 	if task.CreatedAtUnixMillis < 0 || task.UpdatedAtUnixMillis < task.CreatedAtUnixMillis ||
 		task.CreatedAtUnixMillis > maxProviderWireInteger ||
 		task.UpdatedAtUnixMillis > maxProviderWireInteger {
@@ -653,6 +659,7 @@ func validateTaskID(taskID string) error {
 }
 
 func cloneTaskSession(task TaskSession) TaskSession {
+	task.ExecutionEvidence = cloneTaskExecutionEvidence(task.ExecutionEvidence)
 	task.PendingSignals = append([]TaskSignal(nil), task.PendingSignals...)
 	task.SeenSignalIDs = append([]string(nil), task.SeenSignalIDs...)
 	task.Completion = cloneTaskCompletion(task.Completion)
@@ -773,8 +780,14 @@ func cloneTaskActionRequest(request host.ActionRequest) host.ActionRequest {
 }
 
 func appendTaskEvent(task *TaskSession, event TaskEvent) {
+	if task.ExecutionEvidence == nil {
+		task.ExecutionEvidence = executionEvidenceFromHistory(*task)
+	} else {
+		task.ExecutionEvidence = cloneTaskExecutionEvidence(task.ExecutionEvidence)
+	}
 	task.EventSequence++
 	event.Sequence = task.EventSequence
+	task.ExecutionEvidence.record(event)
 	if len(task.History) == 512 {
 		copy(task.History, task.History[1:])
 		task.History = task.History[:511]

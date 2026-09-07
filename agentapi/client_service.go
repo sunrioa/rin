@@ -44,8 +44,12 @@ func NewClientService(service *Service, principal host.Principal) (*ClientServic
 
 func (client *ClientService) Info(context.Context) (ClientInfo, error) {
 	return ClientInfo{
-		ContractVersion: ContractVersion,
-		Principal:       cloneTaskPrincipal(client.principal),
+		ContractVersion:              ContractVersion,
+		Principal:                    cloneTaskPrincipal(client.principal),
+		TaskExecutionEvidenceVersion: cognition.TaskExecutionEvidenceVersion,
+		CompletionModes: []cognition.TaskCompletionMode{
+			cognition.CompletionModel, cognition.CompletionEvidence, cognition.CompletionHuman,
+		},
 	}, nil
 }
 

@@ -299,6 +299,13 @@ Gateway 的阶段。恢复时通过进程内 `FindActionOperation` 查询原始�
 {"mode":"host-evidence","conditions":[{"condition_id":"goal.collect","kind":"operation-outcome","summary":"成功采集木材两次。","capability":{"id":"game.item.collect","version":"1.0.0"}}],"operation_requirements":[{"condition_id":"goal.collect","arguments_json":"{\"item\":\"wood\"}","minimum_count":2}]}
 ```
 
+任务返回的 `execution_evidence`（`rin.task-execution/v1`）与任务状态在同一次提交中持久化，
+累计记录动作选择、拒绝、终态、成功次数、宏次数、能力集合和完成次数，
+不会随 512 条历史窗口滚动而丢失。客户端应核对任务身份、完成策略、能力范围、
+未完成操作，以及累计证据的 `event_sequence`，不再把历史日志当成完整执行账本。
+Agent info 会公布累计证据版本和 `completion_modes`。v7 快照兼容 v3–v6；
+旧任务若已丢失早期历史，迁移后的 `complete=false`，不能据部分计数自动验收。
+
 人工验收时暂停码为 `completion.confirmation-required`。向
 `POST /agent/v1/tasks/confirm-completion` 提交 `task_id` 和 `expected_revision`；
 过期版本返回冲突。确认不能覆盖取消、未结束的动作或未完成的 Plan；恢复任务则重新进入
