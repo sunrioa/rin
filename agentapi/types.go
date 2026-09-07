@@ -82,8 +82,10 @@ type TaskTimelinePage = timeline.Page
 type TaskTimelineUpdate = timeline.Update
 
 type ClientInfo struct {
-	ContractVersion string         `json:"contract_version"`
-	Principal       host.Principal `json:"principal"`
+	ContractVersion              string                         `json:"contract_version"`
+	Principal                    host.Principal                 `json:"principal"`
+	TaskExecutionEvidenceVersion string                         `json:"task_execution_evidence_version"`
+	CompletionModes              []cognition.TaskCompletionMode `json:"completion_modes"`
 }
 
 // CompletionConfirmationInput binds caller acceptance to one review revision.

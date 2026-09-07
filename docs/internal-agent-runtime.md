@@ -404,6 +404,21 @@ token never grant world authority.
 
 ## Recovery and settled history
 
+Task responses expose `execution_evidence` (`rin.task-execution/v1`), updated
+atomically with the task transition. It retains selected, rejected, terminal and
+successful action counts, macro counts, selected capability IDs, the last
+terminal operation ID and completion count after the 512-event history window
+rolls over. `event_sequence` binds the aggregate to the returned task state.
+Clients should validate task identity, completion policy, scope and pending
+operations against this aggregate; history is for explanation, not a complete
+execution ledger. The Agent info response advertises this contract and the
+supported `completion_modes` for compatibility checks.
+
+Snapshot v7 reads v3–v6. Existing tasks with complete retained history can derive
+the aggregate on their next transition. A task whose earlier events are already
+lost has `complete=false`; migration never fabricates complete evidence. Such
+legacy tasks need separate review instead of being accepted from partial counts.
+
 Unknown outcomes stop model decisions but keep reconciling the original intent or
 Operation, including a late Host result and the required Plan projection. A Run
 request is also a read-only reconciliation entry while the result remains unknown.
